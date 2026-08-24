@@ -99,6 +99,8 @@ after(async () => {
         .where(inArray(activeDatabase.sessionsTable.sid, createdSessionIds));
     }
     if (activeDatabase && createdUserIds.length) {
+      await activeDatabase.db.delete(activeDatabase.classificationPatternsTable)
+        .where(inArray(activeDatabase.classificationPatternsTable.userId, createdUserIds));
       await activeDatabase.db.delete(activeDatabase.usersTable)
         .where(inArray(activeDatabase.usersTable.id, createdUserIds));
     }
@@ -428,6 +430,143 @@ async function approveLedgerflowTestEntry(clientId: number, entryId: number, tok
   assert.equal(response.response.status, 200);
   assert.equal(response.body.status, "approved");
 }
+
+test("rejects learned-classification confirmation when approval wins the race", async () => {
+  const activeDatabase = database;
+  assert.ok(activeDatabase);
+  const clientId = await createLedgerflowTestClient("Classification approval race");
+  const vendorToken = `vendor${randomUUID().replaceAll("-", "")}`;
+  const description = `Concurrency guard ${vendorToken}`;
+  const normalizedVendor = description.toLowerCase();
+  const lineResponse = await request<StatementLineSummary>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-24",
+      description,
+      currency: "AED",
+      amount: 125,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(lineResponse.response.status, 201);
+  assert.equal(lineResponse.body.accountSuggestion, "General expenses");
+
+  const entries = await getLedgerflowTestEntries(clientId);
+  const entry = entries.find((candidate) => candidate.statementLineId === lineResponse.body.id);
+  assert.ok(entry, "Expected a journal entry for the racing classification test line");
+  assert.equal(entry.status, "suggested");
+  assert.equal(entry.lines[0]?.account, "General expenses");
+
+  const blocker = await activeDatabase.pool.connect();
+  type RacingActionResult = Awaited<ReturnType<typeof request<{
+    status?: string;
+    type?: string;
+    error?: string;
+  }>>>;
+  let approvalPromise: Promise<RacingActionResult> | undefined;
+  let confirmationPromise: Promise<RacingActionResult> | undefined;
+
+  const waitForBlockedSession = async (
+    blockerPids: number[],
+    excludedPids: number[],
+    label: string,
+  ) => {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const blocked = await activeDatabase.pool.query<{ pid: number; blocker_pids: number[] }>(`
+        select pid, pg_blocking_pids(pid) as blocker_pids
+        from pg_stat_activity
+        where datname = current_database()
+          and wait_event_type = 'Lock'
+      `);
+      const waitingSession = blocked.rows.find(({ pid, blocker_pids: waitingOn }) =>
+        !excludedPids.includes(pid)
+          && waitingOn.some((blockingPid) => blockerPids.includes(blockingPid)),
+      );
+      if (waitingSession) return waitingSession.pid;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.fail(`Timed out waiting for the blocked ${label} session.`);
+  };
+
+  try {
+    await blocker.query("begin");
+    const blockerPidResult = await blocker.query<{ pid: number }>("select pg_backend_pid() as pid");
+    const blockerPid = blockerPidResult.rows[0]?.pid;
+    assert.ok(blockerPid);
+    await blocker.query(
+      "select id from ledgerflow_journal_entries where id = $1 for update",
+      [entry.id],
+    );
+
+    approvalPromise = request(`/ledgerflow/journal-entries/${entry.id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    });
+    const approvalPid = await waitForBlockedSession([blockerPid], [], "approval");
+
+    confirmationPromise = request("/ledgerflow/ai-actions/confirm", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId,
+        type: "recode_lines",
+        lineIds: [lineResponse.body.id],
+        accountSuggestion: "Software & subscriptions",
+        confidence: 0.96,
+      }),
+    });
+    await waitForBlockedSession([blockerPid, approvalPid], [approvalPid], "classification confirmation");
+    await blocker.query("commit");
+  } catch (error) {
+    await blocker.query("rollback");
+    await Promise.allSettled([approvalPromise, confirmationPromise].filter((promise) => promise !== undefined));
+    throw error;
+  } finally {
+    blocker.release();
+  }
+
+  assert.ok(approvalPromise);
+  assert.ok(confirmationPromise);
+  const [approval, confirmation] = await Promise.all([approvalPromise, confirmationPromise]);
+  assert.deepEqual(
+    [approval.response.status, confirmation.response.status].sort((a, b) => a - b),
+    [200, 409],
+  );
+  assert.equal(approval.response.status, 200);
+  assert.equal(approval.body.status, "approved");
+  assert.equal(confirmation.response.status, 409);
+  assert.match(confirmation.body.error ?? "", /Only still-suggested journal entries can be recoded/);
+
+  const finalEntries = await getLedgerflowTestEntries(clientId);
+  const finalEntry = finalEntries.find((candidate) => candidate.id === entry.id);
+  assert.ok(finalEntry);
+  assert.equal(finalEntry.status, "approved");
+  assert.deepEqual(finalEntry.lines, [
+    { account: "General expenses", debit: 125, credit: 0 },
+    { account: "Bank / cash", debit: 0, credit: 125 },
+  ]);
+
+  const finalLines = await getLedgerflowTestLines(clientId);
+  const finalLine = finalLines.find((candidate) => candidate.id === lineResponse.body.id);
+  assert.ok(finalLine);
+  assert.equal(finalLine.accountSuggestion, "General expenses");
+  const [storedLine] = await activeDatabase.db.select()
+    .from(activeDatabase.statementLinesTable)
+    .where(eq(activeDatabase.statementLinesTable.id, lineResponse.body.id));
+  assert.ok(storedLine);
+  assert.equal(storedLine.accountSuggestion, "General expenses");
+  assert.equal(storedLine.confidence, "0.75");
+
+  const learnedPatterns = await activeDatabase.db.select()
+    .from(activeDatabase.classificationPatternsTable)
+    .where(eq(activeDatabase.classificationPatternsTable.normalizedVendor, normalizedVendor));
+  assert.deepEqual(
+    learnedPatterns.map((pattern) => pattern.accountSuggestion),
+    ["General expenses"],
+    "The losing confirmation must not record its proposed classification.",
+  );
+});
 
 test("keeps AI bulk actions client-scoped, status-scoped, and atomic", async () => {
   const approvalClientId = await createLedgerflowTestClient("AI bulk approval");
