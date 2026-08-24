@@ -1,6 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, asc, eq } from "drizzle-orm";
-import { PDFParse } from "pdf-parse";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import OpenAI from "openai";
 import {
@@ -21,6 +20,7 @@ import {
   GetStatementLinesQueryParams,
   GetStatementLinesResponse,
   GetTrialBalanceResponse,
+  PostJournalEntryBody,
 } from "@workspace/api-zod";
 import { clientsTable, db, journalEntriesTable, statementLinesTable } from "@workspace/db";
 
@@ -39,6 +39,21 @@ const seedLines = [
   { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "needs_review", source: "Bank statement", accountSuggestion: "Communication expenses", confidence: "0.84" },
 ];
 
+function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
+  return {
+    id: entry.id,
+    statementLineId: entry.statementLineId,
+    date: entry.date,
+    memo: entry.memo,
+    currency: entry.currency,
+    status: entry.status,
+    confidence: number(entry.confidence),
+    lines: [
+      { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
+      { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
+    ],
+  };
+}
 async function ensureSeeded() {
   const existingClients = await db.select({ id: clientsTable.id }).from(clientsTable).limit(1);
   if (existingClients.length === 0) {
@@ -51,11 +66,12 @@ async function ensureSeeded() {
   if (existing.length > 0) return;
   const inserted = await db.insert(statementLinesTable).values(seedLines).returning();
   await db.insert(journalEntriesTable).values(inserted.map((line) => ({
+    clientId: line.clientId,
     statementLineId: line.id,
     date: line.date,
     memo: line.description,
     currency: line.currency,
-    status: line.status === "posted" ? "approved" : "suggested",
+    status: line.status === "posted" ? "posted" : "suggested",
     confidence: line.confidence ?? "0.80",
     debitAccount: line.direction === "inflow" ? "Bank / cash" : (line.accountSuggestion ?? "Uncategorized"),
     creditAccount: line.direction === "inflow" ? (line.accountSuggestion ?? "Uncategorized") : "Bank / cash",
@@ -63,6 +79,16 @@ async function ensureSeeded() {
   })));
 }
 
+export async function initializeLedgerFlow() {
+  await ensureSeeded();
+  const postedLines = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).where(eq(statementLinesTable.status, "posted"));
+  if (postedLines.length) {
+    await db.update(journalEntriesTable).set({ status: "posted" }).where(and(
+      eq(journalEntriesTable.status, "approved"),
+      inArray(journalEntriesTable.statementLineId, postedLines.map((line) => line.id)),
+    ));
+  }
+}
 function number(value: string | null | undefined) {
   return Number(value ?? 0);
 }
@@ -129,7 +155,9 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
   try {
     const buffer = Buffer.from(contentBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
     let extractedText = "";
+
     if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+      const { PDFParse } = await import("pdf-parse");
       const parser = new PDFParse({ data: buffer });
       extractedText = (await parser.getText()).text;
       await parser.destroy();
@@ -228,7 +256,9 @@ router.get("/clients", async (_req, res) => {
 router.post("/clients", async (req, res) => {
   const body = req.body as { name?: string; legalName?: string };
   if (!body.name || !body.legalName) return res.status(400).json({ error: "Client name and legal name are required" });
-  const [client] = await db.insert(clientsTable).values({ name: body.name, legalName: body.legalName }).returning();
+  const [client] = await db.insert(clientsTable)
+    .values({ name: body.name, legalName: body.legalName, functionalCurrency: "AED", basis: "IFRS", period: "August 2026" })
+    .returning();
   return res.status(201).json({
     id: client.id,
     name: client.name,
@@ -312,67 +342,70 @@ router.get("/ledgerflow/journal-entries", async (_req, res) => {
   await ensureSeeded();
   const clientId = clientIdFrom(_req.query.clientId);
   const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId)).orderBy(asc(journalEntriesTable.date));
-  res.json(GetJournalEntriesResponse.parse(entries.map((entry) => ({
-    id: entry.id,
-    statementLineId: entry.statementLineId,
-    date: entry.date,
-    memo: entry.memo,
-    currency: entry.currency,
-    status: entry.status,
-    confidence: number(entry.confidence),
-    lines: [
-      { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
-      { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
-    ],
-  }))));
+  res.json(GetJournalEntriesResponse.parse(entries.map(journalEntryResponse)));
 });
 
 router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
   const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = ApproveJournalEntryBody.parse(req.body);
-  const entry = await db.transaction(async (tx) => {
-    const [approved] = await tx.update(journalEntriesTable)
-      .set({ status: "approved" })
-      .where(and(
-        eq(journalEntriesTable.id, id),
-        eq(journalEntriesTable.clientId, clientId),
-        eq(journalEntriesTable.status, "suggested"),
-      ))
-      .returning();
-    if (!approved) return null;
-    const [postedLine] = await tx.update(statementLinesTable)
-      .set({ status: "posted" })
-      .where(and(
-        eq(statementLinesTable.id, approved.statementLineId),
-        eq(statementLinesTable.clientId, clientId),
-      ))
-      .returning();
-    if (!postedLine) throw new Error("Linked statement line was not found for this client");
-    return approved;
-  });
+
+  const [entry] = await db.update(journalEntriesTable).set({ status: "approved" }).where(and(
+    eq(journalEntriesTable.id, id),
+    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.status, "suggested"),
+  )).returning();
   if (!entry) {
-    res.status(409).json({ error: "This journal entry is not available to post for this client" });
+    res.status(409).json({ error: "This journal entry is not available for approval for this client" });
     return;
   }
-  return res.json(ApproveJournalEntryResponse.parse({
-    id: entry.id,
-    statementLineId: entry.statementLineId,
-    date: entry.date,
-    memo: entry.memo,
-    currency: entry.currency,
-    status: entry.status,
-    confidence: number(entry.confidence),
-    lines: [
-      { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
-      { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
-    ],
-  }));
+  return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(entry)));
+});
+
+router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
+  const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
+  const { clientId } = PostJournalEntryBody.parse(req.body);
+
+  const result = await db.transaction(async (tx) => {
+    const [entry] = await tx.select().from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.id, id),
+      eq(journalEntriesTable.clientId, clientId),
+    ));
+    if (!entry) return { kind: "not_found" as const };
+    if (entry.status !== "approved") return { kind: "not_approved" as const };
+
+    const [line] = await tx.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.id, entry.statementLineId),
+      eq(statementLinesTable.clientId, clientId),
+    ));
+    if (!line) return { kind: "not_found" as const };
+
+    const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
+      eq(journalEntriesTable.id, entry.id),
+      eq(journalEntriesTable.status, "approved"),
+    )).returning();
+    if (!postedEntry) return { kind: "not_approved" as const };
+
+    await tx.update(statementLinesTable).set({ status: "posted" }).where(eq(statementLinesTable.id, line.id));
+    return { kind: "posted" as const, entry: postedEntry };
+  });
+  if (result.kind === "not_found") {
+    res.status(404).json({ error: "Journal entry not found for this client" });
+    return;
+  }
+  if (result.kind === "not_approved") {
+    res.status(409).json({ error: "Journal entry must be approved before posting" });
+    return;
+  }
+  return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
 router.get("/ledgerflow/trial-balance", async (_req, res) => {
   await ensureSeeded();
   const clientId = clientIdFrom(_req.query.clientId);
-  const entries = await db.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.status, "approved"), eq(journalEntriesTable.clientId, clientId)));
+  const entries = await db.select().from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.status, "posted"),
+  ));
   const accounts = new Map<string, { debit: number; credit: number; category: string }>();
   for (const entry of entries) {
     const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: entry.debitAccount === "Bank / cash" ? "Assets" : "Expenses" };
@@ -390,10 +423,11 @@ router.get("/ledgerflow/trial-balance", async (_req, res) => {
 router.get("/ledgerflow/financial-statements", async (req, res) => {
   const { period } = GetFinancialStatementsQueryParams.parse(req.query);
   const clientId = clientIdFrom(req.query.clientId);
+  await ensureSeeded();
   const client = await db.select().from(clientsTable).where(eq(clientsTable.id, clientId));
   const entries = await db.select().from(journalEntriesTable).where(and(
     eq(journalEntriesTable.clientId, clientId),
-    eq(journalEntriesTable.status, "approved"),
+    eq(journalEntriesTable.status, "posted"),
   ));
   const expenseAccounts = new Map<string, number>();
   const revenueAccounts = new Map<string, number>();

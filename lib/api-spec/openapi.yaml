@@ -222,6 +222,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JournalEntry"
+  /ledgerflow/journal-entries/{id}/post:
+    post:
+      operationId: postJournalEntry
+      tags: [ledgerflow]
+      summary: Post an approved journal entry to the ledger
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveJournalEntryInput"
+      responses:
+        "200":
+          description: Posted journal entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+        "409":
+          description: Journal entry must be approved before posting
   /ledgerflow/trial-balance:
     get:
       operationId: getTrialBalance
@@ -428,4 +454,3 @@ components:
         cashFlow:
           type: array
           items: { $ref: "#/components/schemas/StatementSection" }
-

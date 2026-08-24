@@ -238,7 +238,12 @@ export const ApproveJournalEntryResponse = zod.object({
 }))
 })
 
-
+/**
+ * @summary Post an approved journal entry to the ledger
+ */
+export const PostJournalEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
 /**
  * @summary Get trial balance
  */
@@ -283,4 +288,21 @@ export const GetFinancialStatementsResponse = zod.object({
 }))
 })
 
+export const PostJournalEntryBody = zod.object({
+  "clientId": zod.number()
+})
 
+export const PostJournalEntryResponse = zod.object({
+  "id": zod.number(),
+  "statementLineId": zod.number(),
+  "date": zod.string(),
+  "memo": zod.string(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "confidence": zod.number(),
+  "lines": zod.array(zod.object({
+  "account": zod.string(),
+  "debit": zod.number(),
+  "credit": zod.number()
+}))
+})

@@ -53,7 +53,6 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 
-
 const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKey: K } => {
   const result = { queryKey } as T & { queryKey: K };
   for (const key of Object.keys(query)) {
@@ -70,8 +69,6 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
 };
 
 export const getGetClientsUrl = () => {
-
-
 
 
   return `/api/clients`
@@ -92,9 +89,6 @@ export const getClients = async ( options?: Parameters<typeof customFetch>[1]): 
 );}
 
 
-
-
-
 export const getGetClientsQueryKey = () => {
     return [
     `/api/clients`
@@ -110,11 +104,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetClientsQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getClients>>> = ({ signal }) => getClients({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getClients>>, TError, TData> & { queryKey: QueryKey }
@@ -141,14 +131,7 @@ export function useGetClients<TData = Awaited<ReturnType<typeof getClients>>, TE
 }
 
 
-
-
-
-
-
 export const getCreateClientUrl = () => {
-
-
 
 
   return `/api/clients`
@@ -169,9 +152,6 @@ export const createClient = async (clientInput: ClientInput, options?: Parameter
 );}
 
 
-
-
-
 export const getCreateClientMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createClient>>, TError,{data: BodyType<ClientInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createClient>>, TError,{data: BodyType<ClientInput>}, TContext> => {
@@ -184,17 +164,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createClient>>, {data: BodyType<ClientInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  createClient(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -220,8 +194,6 @@ export const useCreateClient = <TError = ErrorType<unknown>,
 export const getUpdateClientUrl = (id: number,) => {
 
 
-
-
   return `/api/clients/${id}`
 }
 
@@ -241,9 +213,6 @@ export const updateClient = async (id: number,
 );}
 
 
-
-
-
 export const getUpdateClientMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateClient>>, TError,{id: number;data: BodyType<ClientUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateClient>>, TError,{id: number;data: BodyType<ClientUpdateInput>}, TContext> => {
@@ -256,17 +225,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateClient>>, {id: number;data: BodyType<ClientUpdateInput>}> = (props) => {
           const {id,data} = props ?? {};
 
           return  updateClient(id,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -292,8 +255,6 @@ export const useUpdateClient = <TError = ErrorType<unknown>,
 export const getHealthCheckUrl = () => {
 
 
-
-
   return `/api/healthz`
 }
 
@@ -313,9 +274,6 @@ export const healthCheck = async ( options?: Parameters<typeof customFetch>[1]):
 );}
 
 
-
-
-
 export const getHealthCheckQueryKey = () => {
     return [
     `/api/healthz`
@@ -331,11 +289,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getHealthCheckQueryKey();
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof healthCheck>>> = ({ signal }) => healthCheck({ signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData> & { queryKey: QueryKey }
@@ -360,11 +314,6 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetLedgerOverviewUrl = (params?: GetLedgerOverviewParams,) => {
@@ -397,9 +346,6 @@ export const getLedgerOverview = async (params?: GetLedgerOverviewParams, option
 );}
 
 
-
-
-
 export const getGetLedgerOverviewQueryKey = (params?: GetLedgerOverviewParams,) => {
     return [
     `/api/ledgerflow/overview`, ...(params ? [params] : [])
@@ -415,11 +361,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetLedgerOverviewQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerOverview>>> = ({ signal }) => getLedgerOverview(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerOverview>>, TError, TData> & { queryKey: QueryKey }
@@ -444,11 +386,6 @@ export function useGetLedgerOverview<TData = Awaited<ReturnType<typeof getLedger
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetStatementLinesUrl = (params?: GetStatementLinesParams,) => {
@@ -481,9 +418,6 @@ export const getStatementLines = async (params?: GetStatementLinesParams, option
 );}
 
 
-
-
-
 export const getGetStatementLinesQueryKey = (params?: GetStatementLinesParams,) => {
     return [
     `/api/ledgerflow/statement-lines`, ...(params ? [params] : [])
@@ -499,11 +433,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetStatementLinesQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getStatementLines>>> = ({ signal }) => getStatementLines(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStatementLines>>, TError, TData> & { queryKey: QueryKey }
@@ -530,14 +460,7 @@ export function useGetStatementLines<TData = Awaited<ReturnType<typeof getStatem
 }
 
 
-
-
-
-
-
 export const getCreateStatementLineUrl = () => {
-
-
 
 
   return `/api/ledgerflow/statement-lines`
@@ -558,9 +481,6 @@ export const createStatementLine = async (statementLineInput: StatementLineInput
 );}
 
 
-
-
-
 export const getCreateStatementLineMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createStatementLine>>, TError,{data: BodyType<StatementLineInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createStatementLine>>, TError,{data: BodyType<StatementLineInput>}, TContext> => {
@@ -573,17 +493,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof createStatementLine>>, {data: BodyType<StatementLineInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  createStatementLine(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -609,8 +523,6 @@ export const useCreateStatementLine = <TError = ErrorType<unknown>,
 export const getImportStatementUrl = () => {
 
 
-
-
   return `/api/ledgerflow/import-statement`
 }
 
@@ -629,9 +541,6 @@ export const importStatement = async (statementImportInput: StatementImportInput
 );}
 
 
-
-
-
 export const getImportStatementMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importStatement>>, TError,{data: BodyType<StatementImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof importStatement>>, TError,{data: BodyType<StatementImportInput>}, TContext> => {
@@ -644,17 +553,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof importStatement>>, {data: BodyType<StatementImportInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  importStatement(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -680,8 +583,6 @@ export const useImportStatement = <TError = ErrorType<unknown>,
 export const getAskLedgerflowAIUrl = () => {
 
 
-
-
   return `/api/ledgerflow/ai-chat`
 }
 
@@ -700,9 +601,6 @@ export const askLedgerflowAI = async (aIChatInput: AIChatInput, options?: Parame
 );}
 
 
-
-
-
 export const getAskLedgerflowAIMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext> => {
@@ -715,17 +613,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof askLedgerflowAI>>, {data: BodyType<AIChatInput>}> = (props) => {
           const {data} = props ?? {};
 
           return  askLedgerflowAI(data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -778,9 +670,6 @@ export const getJournalEntries = async (params?: GetJournalEntriesParams, option
 );}
 
 
-
-
-
 export const getGetJournalEntriesQueryKey = (params?: GetJournalEntriesParams,) => {
     return [
     `/api/ledgerflow/journal-entries`, ...(params ? [params] : [])
@@ -796,11 +685,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetJournalEntriesQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getJournalEntries>>> = ({ signal }) => getJournalEntries(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getJournalEntries>>, TError, TData> & { queryKey: QueryKey }
@@ -827,14 +712,7 @@ export function useGetJournalEntries<TData = Awaited<ReturnType<typeof getJourna
 }
 
 
-
-
-
-
-
 export const getApproveJournalEntryUrl = (id: number,) => {
-
-
 
 
   return `/api/ledgerflow/journal-entries/${id}/approve`
@@ -856,9 +734,6 @@ export const approveJournalEntry = async (id: number,
 );}
 
 
-
-
-
 export const getApproveJournalEntryMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext> => {
@@ -871,17 +746,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {mutation: { mutationKey, }, request: undefined};
 
 
-
-
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveJournalEntry>>, {id: number;data: BodyType<ApproveJournalEntryInput>}> = (props) => {
           const {id,data} = props ?? {};
 
           return  approveJournalEntry(id,data,requestOptions)
         }
-
-
-
-
 
 
   return  { mutationFn, ...mutationOptions }}
@@ -904,6 +773,11 @@ export const useApproveJournalEntry = <TError = ErrorType<unknown>,
       return useMutation(getApproveJournalEntryMutationOptions(options));
     }
 
+export const getPostJournalEntryUrl = (id: number,) => {
+
+
+  return `/api/ledgerflow/journal-entries/${id}/post`
+}
 export const getGetTrialBalanceUrl = (params?: GetTrialBalanceParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -934,9 +808,6 @@ export const getTrialBalance = async (params?: GetTrialBalanceParams, options?: 
 );}
 
 
-
-
-
 export const getGetTrialBalanceQueryKey = (params?: GetTrialBalanceParams,) => {
     return [
     `/api/ledgerflow/trial-balance`, ...(params ? [params] : [])
@@ -952,11 +823,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetTrialBalanceQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrialBalance>>> = ({ signal }) => getTrialBalance(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrialBalance>>, TError, TData> & { queryKey: QueryKey }
@@ -981,11 +848,6 @@ export function useGetTrialBalance<TData = Awaited<ReturnType<typeof getTrialBal
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
 
 
 export const getGetFinancialStatementsUrl = (params?: GetFinancialStatementsParams,) => {
@@ -1018,9 +880,6 @@ export const getFinancialStatements = async (params?: GetFinancialStatementsPara
 );}
 
 
-
-
-
 export const getGetFinancialStatementsQueryKey = (params?: GetFinancialStatementsParams,) => {
     return [
     `/api/ledgerflow/financial-statements`, ...(params ? [params] : [])
@@ -1036,11 +895,7 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
   const queryKey =  queryOptions?.queryKey ?? getGetFinancialStatementsQueryKey(params);
 
 
-
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getFinancialStatements>>> = ({ signal }) => getFinancialStatements(params, { signal, ...requestOptions });
-
-
-
 
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFinancialStatements>>, TError, TData> & { queryKey: QueryKey }
@@ -1067,8 +922,58 @@ export function useGetFinancialStatements<TData = Awaited<ReturnType<typeof getF
 }
 
 
+    export type PostJournalEntryMutationResult = NonNullable<Awaited<ReturnType<typeof postJournalEntry>>>
+
+    /**
+ * @summary Post an approved journal entry to the ledger
+ */
+export const usePostJournalEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof postJournalEntry>>,
+        TError,
+        {id: number;data: BodyType<ApproveJournalEntryInput>},
+        TContext
+      > => {
+      return useMutation(getPostJournalEntryMutationOptions(options));
+    }
+
+    export type PostJournalEntryMutationBody = BodyType<ApproveJournalEntryInput>
+
+    export type PostJournalEntryMutationError = ErrorType<void>
+
+export const getPostJournalEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext> => {
+
+const mutationKey = ['postJournalEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
 
 
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postJournalEntry>>, {id: number;data: BodyType<ApproveJournalEntryInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  postJournalEntry(id,data,requestOptions)
+        }
 
 
+  return  { mutationFn, ...mutationOptions }}
 
+/**
+ * @summary Post an approved journal entry to the ledger
+ */
+export const postJournalEntry = async (id: number,
+    approveJournalEntryInput: ApproveJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
+
+  return customFetch<JournalEntry>(getPostJournalEntryUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(approveJournalEntryInput)
+  }
+);}

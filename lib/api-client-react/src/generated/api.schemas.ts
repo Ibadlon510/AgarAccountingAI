@@ -158,4 +158,3 @@ export type GetFinancialStatementsParams = {
 clientId?: number;
 period?: string;
 };
-
