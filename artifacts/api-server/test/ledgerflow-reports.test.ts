@@ -246,6 +246,11 @@ test("allows only one concurrent posting request for an approved entry", async (
   assert.equal(approveResponse.response.status, 200);
   assert.equal(approveResponse.body.status, "approved");
 
+  const approvedTrialBalance = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`);
+  const approvedStatements = await request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`);
+  assert.equal(approvedTrialBalance.response.status, 200);
+  assert.equal(approvedStatements.response.status, 200);
+
   const postResponses = await Promise.all([
     request<{ status?: string; error?: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
       method: "POST",
@@ -282,4 +287,27 @@ test("allows only one concurrent posting request for an approved entry", async (
   }>>(`/ledgerflow/statement-lines?clientId=${clientId}`);
   assert.equal(finalLines.response.status, 200);
   assert.equal(finalLines.body.find((item) => item.id === lineResponse.body.id)?.status, "posted");
+
+  const postedTrialBalance = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`);
+  const postedStatements = await request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`);
+  assert.equal(postedTrialBalance.response.status, 200);
+  assert.equal(postedStatements.response.status, 200);
+
+  const amount = 987.65;
+  const approvedSoftware = approvedTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit ?? 0;
+  const approvedCash = approvedTrialBalance.body.find((row) => row.account === "Bank / cash")?.credit ?? 0;
+  const postedSoftware = postedTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit ?? 0;
+  const postedCash = postedTrialBalance.body.find((row) => row.account === "Bank / cash")?.credit ?? 0;
+  assert.equal(postedSoftware - approvedSoftware, amount);
+  assert.equal(postedCash - approvedCash, amount);
+
+  const approvedExpenses = sectionAmount(approvedStatements.body.incomeStatement, "Operating expenses");
+  const approvedNetIncome = sectionAmount(approvedStatements.body.incomeStatement, "Net income");
+  const approvedCashFlow = sectionAmount(approvedStatements.body.cashFlow, "Net cash from operating activities");
+  const postedExpenses = sectionAmount(postedStatements.body.incomeStatement, "Operating expenses");
+  const postedNetIncome = sectionAmount(postedStatements.body.incomeStatement, "Net income");
+  const postedCashFlow = sectionAmount(postedStatements.body.cashFlow, "Net cash from operating activities");
+  assert.equal(postedExpenses - approvedExpenses, -amount);
+  assert.equal(postedNetIncome - approvedNetIncome, -amount);
+  assert.equal(postedCashFlow - approvedCashFlow, -amount);
 });
