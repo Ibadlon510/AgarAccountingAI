@@ -1,5 +1,8 @@
 import { Router, type IRouter } from "express";
 import { and, asc, eq } from "drizzle-orm";
+import { PDFParse } from "pdf-parse";
+import * as XLSX from "xlsx";
+import OpenAI from "openai";
 import {
   ApproveJournalEntryParams,
   ApproveJournalEntryResponse,
@@ -16,6 +19,10 @@ import {
 import { clientsTable, db, journalEntriesTable, statementLinesTable } from "@workspace/db";
 
 const router: IRouter = Router();
+const openai = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
 
 const seedLines = [
   { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", source: "Bank statement", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
@@ -58,6 +65,79 @@ function clientIdFrom(value: unknown) {
   const parsed = Number(value ?? 1);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
+
+type ParsedBankLine = {
+  date: string;
+  description: string;
+  amount: number;
+  direction: "inflow" | "outflow";
+  currency: string;
+};
+
+function normalizeRows(text: string, currency: string): ParsedBankLine[] {
+  return text.split(/\r?\n/).slice(1).map((row) => {
+    const cells = row.split(/,|\t|;/).map((cell) => cell.trim().replace(/^"|"$/g, ""));
+    const amountCell = cells.find((cell) => /-?\d[\d,]*(\.\d+)?/.test(cell)) ?? "0";
+    const amount = Number(amountCell.replace(/[^0-9.-]/g, ""));
+    return {
+      date: cells[0] ?? "",
+      description: cells.slice(1, Math.max(2, cells.length - 1)).join(" ") || "Imported bank activity",
+      amount: Math.abs(amount),
+      direction: (amount < 0 ? "outflow" : "inflow") as "outflow" | "inflow",
+      currency,
+    };
+  }).filter((line) => line.date && line.amount > 0);
+}
+
+router.post("/ledgerflow/import-statement", async (req, res) => {
+  const { clientId, fileName, mimeType, contentBase64, currency = "AED" } = req.body as {
+    clientId?: number; fileName?: string; mimeType?: string; contentBase64?: string; currency?: string;
+  };
+  if (!fileName || !mimeType || !contentBase64) return res.status(400).json({ error: "A statement file is required" });
+  try {
+    const buffer = Buffer.from(contentBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+    let extractedText = "";
+    if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+      const parser = new PDFParse({ data: buffer });
+      extractedText = (await parser.getText()).text;
+      await parser.destroy();
+    } else if (fileName.toLowerCase().endsWith(".xls") || fileName.toLowerCase().endsWith(".xlsx")) {
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      extractedText = workbook.SheetNames.map((name) => XLSX.utils.sheet_to_csv(workbook.Sheets[name])).join("\n");
+    } else {
+      extractedText = buffer.toString("utf8");
+    }
+    const fallback = normalizeRows(extractedText, currency);
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 8192,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: "Extract bank statement transactions. Return JSON only: {\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\"}]}. Never invent transactions. Use the statement's stated currency when available." },
+        { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
+      ],
+    });
+    const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[] };
+    const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
+    const activeClientId = clientIdFrom(clientId);
+    const inserted = lines.length ? await db.insert(statementLinesTable).values(lines.map((line) => ({
+      clientId: activeClientId,
+      date: line.date,
+      description: line.description,
+      currency: line.currency || currency,
+      amount: String(Math.abs(line.amount)),
+      direction: line.direction,
+      status: "needs_review",
+      source: `Imported: ${fileName}`,
+      accountSuggestion: null,
+      confidence: null,
+    }))).returning() : [];
+    return res.status(201).json({ fileName, importedCount: inserted.length, lines: inserted.map((line) => ({ ...line, amount: number(line.amount) })) });
+  } catch (error) {
+    req.log.error({ err: error }, "Statement import failed");
+    return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
+  }
+});
 
 router.get("/clients", async (_req, res) => {
   await ensureSeeded();

@@ -5,7 +5,7 @@ import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, FileCheck2, FileSpreadsheet, Filter, Landmark,
   LayoutDashboard, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Settings2,
-  Sparkles, Table2, X
+  Sparkles, Table2, UploadCloud, X
 } from 'lucide-react';
 import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey,
@@ -23,6 +23,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 const queryClient = new QueryClient();
 const nav = [
   { href: '/', label: 'Close overview', icon: LayoutDashboard },
+  { href: '/import-statement', label: 'Import statement', icon: UploadCloud },
   { href: '/statement-lines', label: 'Statement lines', icon: Table2 },
   { href: '/journal-entries', label: 'Journal entries', icon: BookOpenCheck },
   { href: '/trial-balance', label: 'Trial balance', icon: BarChart3 },
@@ -84,6 +85,42 @@ function ActionCard({ index, title, detail, href, icon: Icon }: { index: string;
   return <Link href={href} data-testid={`link-action-${index}`} className="group flex items-start gap-3 rounded-md border border-border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-secondary/40"><div className="grid size-8 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Icon size={16} /></div><div className="min-w-0"><div className="flex items-center gap-2"><span className="font-mono text-[9px] text-muted-foreground">{index}</span><h3 className="text-[12px] font-semibold">{title}</h3></div><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{detail}</p></div><ArrowRight className="ml-auto mt-1 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" size={14} /></Link>;
 }
 
+function ImportStatementPage() {
+  const { activeClient } = useClientWorkspace();
+  const [file, setFile] = useState<File | null>(null);
+  const [currency, setCurrency] = useState('AED');
+  const [state, setState] = useState<'idle' | 'reading' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+  const submit = async () => {
+    if (!file) return;
+    setState('reading');
+    setMessage('');
+    try {
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsDataURL(file);
+      });
+      const response = await fetch('/api/ledgerflow/import-statement', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: activeClient?.id ?? 1, fileName: file.name, mimeType: file.type || 'application/octet-stream', contentBase64, currency }),
+      });
+      const data = await response.json() as { importedCount?: number; error?: string };
+      if (!response.ok) throw new Error(data.error ?? 'Import failed');
+      setState('done');
+      setMessage(`${data.importedCount ?? 0} statement lines are ready for review.`);
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient?.id ?? 1 }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient?.id ?? 1 }) });
+    } catch (error) {
+      setState('error');
+      setMessage(error instanceof Error ? error.message : 'Import failed');
+    }
+  };
+  return <div><PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. LedgerFlow extracts the transactions with AI and sends every line to review before it can affect the books.`} /><div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—LedgerFlow will normalize date, description, amount, direction, and currency.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to parse` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setState('idle'); setMessage(''); }} /></label><div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end"><label className="block text-xs font-medium">Default statement currency<select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option></select></label><button data-testid="button-parse-statement" onClick={submit} disabled={!file || state === 'reading'} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{state === 'reading' ? 'Extracting statement lines…' : <><Sparkles size={14} /> Extract with AI</>}</button></div>{message && <div className={`mt-5 rounded-md border px-4 py-3 text-xs ${state === 'done' ? 'border-primary/25 bg-primary/5 text-primary' : 'border-destructive/25 bg-destructive/5 text-destructive'}`}>{message}{state === 'done' && <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link>}</div>}</section><aside className="rounded-lg border border-accent/25 bg-accent/10 p-6"><div className="font-mono text-[10px] uppercase tracking-[.16em] text-accent-foreground">Review safeguard</div><h2 className="mt-3 font-display text-[28px] leading-[1.05]">AI recreates the lines. You decide what posts.</h2><div className="mt-6 space-y-4 text-xs leading-5 text-accent-foreground/75"><p><strong className="text-accent-foreground">1. Extract</strong><br />The system reads the source statement and proposes normalized bank movements.</p><p><strong className="text-accent-foreground">2. Verify</strong><br />Imported lines enter the review queue with the original file name retained as evidence.</p><p><strong className="text-accent-foreground">3. Post</strong><br />Only approved journal entries can move into the trial balance and financial statements.</p></div></aside></div></div>;
+}
+
 function AddLineDialog({ onClose }: { onClose: () => void }) {
   const { activeClient } = useClientWorkspace();
   const mutation = useCreateStatementLine();
@@ -136,7 +173,7 @@ function FinancialStatementsPage() {
   return <div><PageHeading eyebrow="Reporting / period close" title="Financial statements" description="Read the finished story of the ledger. Switch between statements without losing the period context." action={<label className="flex items-center gap-2 text-xs font-medium"><span className="text-muted-foreground">Period</span><select data-testid="select-statement-period" value={period} onChange={(e) => setPeriod(e.target.value)} className="h-9 rounded-md border border-input bg-card px-3 font-mono text-[11px] outline-none focus:border-primary"><option value="">Latest available</option><option value="2024-06">June 2024</option><option value="2024-05">May 2024</option><option value="2024-04">April 2024</option></select></label>} /><QueryState loading={query.isLoading} error={query.isError} empty={!report} onRetry={() => query.refetch()}>{report && <div className="grid gap-6 xl:grid-cols-[.7fr_1.3fr]"><div className="space-y-3">{tabs.map(({ key, label, note }) => <button key={key} data-testid={`button-statement-${key}`} onClick={() => setActive(key)} className={`flex w-full items-center justify-between rounded-lg border p-4 text-left transition-all ${active === key ? 'border-primary/40 bg-primary text-primary-foreground shadow-md' : 'border-card-border bg-card hover:border-primary/30'}`}><div><div className="text-[13px] font-semibold">{label}</div><div className={`mt-1 text-[11px] ${active === key ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{note}</div></div><ArrowRight size={15} className={active === key ? 'text-primary-foreground' : 'text-muted-foreground'} /></button>)}<div className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-2 text-accent-foreground"><CircleCheck size={15} className="mt-0.5 shrink-0" /><p className="text-[11px] leading-5"><strong className="font-semibold">Statement integrity</strong><br />Built from approved journal entries and checked against the trial balance.</p></div></div></div><section className="rounded-lg border border-card-border bg-card"><div className="border-b border-border p-5 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">{report.period}</div><h2 className="mt-2 font-display text-[29px]">{tabs.find((tab) => tab.key === active)?.label}</h2><p className="mt-1 text-[11px] text-muted-foreground">Prepared from LedgerFlow's reviewed close</p></div><div className="p-5 md:p-6"><SectionTree sections={sections} /></div></section></div>}</QueryState></div>;
 }
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">LedgerFlow / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;

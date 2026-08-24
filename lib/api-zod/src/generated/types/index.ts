@@ -18,6 +18,8 @@ export * from './healthStatus';
 export * from './journalEntry';
 export * from './journalLine';
 export * from './ledgerOverview';
+export * from './statementImportInput';
+export * from './statementImportResult';
 export * from './statementLine';
 export * from './statementLineInput';
 export * from './statementSection';

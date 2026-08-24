@@ -31,6 +31,8 @@ import type {
   HealthStatus,
   JournalEntry,
   LedgerOverview,
+  StatementImportInput,
+  StatementImportResult,
   StatementLine,
   StatementLineInput,
   TrialBalanceRow
@@ -526,6 +528,77 @@ export const useCreateStatementLine = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateStatementLineMutationOptions(options));
+    }
+
+export const getImportStatementUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/import-statement`
+}
+
+/**
+ * @summary Extract statement lines from a PDF, CSV, or Excel file
+ */
+export const importStatement = async (statementImportInput: StatementImportInput, options?: Parameters<typeof customFetch>[1]): Promise<StatementImportResult> => {
+
+  return customFetch<StatementImportResult>(getImportStatementUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(statementImportInput)
+  }
+);}
+
+
+
+
+
+export const getImportStatementMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importStatement>>, TError,{data: BodyType<StatementImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importStatement>>, TError,{data: BodyType<StatementImportInput>}, TContext> => {
+
+const mutationKey = ['importStatement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importStatement>>, {data: BodyType<StatementImportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importStatement(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportStatementMutationResult = NonNullable<Awaited<ReturnType<typeof importStatement>>>
+    export type ImportStatementMutationBody = BodyType<StatementImportInput>
+    export type ImportStatementMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Extract statement lines from a PDF, CSV, or Excel file
+ */
+export const useImportStatement = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importStatement>>, TError,{data: BodyType<StatementImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importStatement>>,
+        TError,
+        {data: BodyType<StatementImportInput>},
+        TContext
+      > => {
+      return useMutation(getImportStatementMutationOptions(options));
     }
 
 export const getGetJournalEntriesUrl = (params?: GetJournalEntriesParams,) => {

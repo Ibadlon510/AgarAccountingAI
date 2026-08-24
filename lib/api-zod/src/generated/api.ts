@@ -117,6 +117,35 @@ export const CreateStatementLineResponse = zod.object({
 
 
 /**
+ * @summary Extract statement lines from a PDF, CSV, or Excel file
+ */
+export const ImportStatementBody = zod.object({
+  "clientId": zod.number(),
+  "fileName": zod.string(),
+  "mimeType": zod.string(),
+  "contentBase64": zod.string(),
+  "currency": zod.string()
+})
+
+export const ImportStatementResponse = zod.object({
+  "fileName": zod.string(),
+  "importedCount": zod.number(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "status": zod.string(),
+  "source": zod.string(),
+  "accountSuggestion": zod.string().nullish(),
+  "confidence": zod.number().nullish()
+}))
+})
+
+
+/**
  * @summary List journal entries
  */
 export const GetJournalEntriesQueryParams = zod.object({

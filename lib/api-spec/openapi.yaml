@@ -120,6 +120,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementLine"
+  /ledgerflow/import-statement:
+    post:
+      operationId: importStatement
+      tags: [ledgerflow]
+      summary: Extract statement lines from a PDF, CSV, or Excel file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementImportInput"
+      responses:
+        "201":
+          description: Statement lines extracted and queued for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementImportResult"
   /ledgerflow/journal-entries:
     get:
       operationId: getJournalEntries
@@ -259,6 +277,25 @@ components:
         currency: { type: string }
         amount: { type: number }
         direction: { type: string }
+    StatementImportInput:
+      type: object
+      required: [clientId, fileName, mimeType, contentBase64, currency]
+      properties:
+        clientId: { type: number }
+        fileName: { type: string }
+        mimeType: { type: string }
+        contentBase64: { type: string }
+        currency: { type: string }
+    StatementImportResult:
+      type: object
+      required: [fileName, importedCount, lines]
+      properties:
+        fileName: { type: string }
+        importedCount: { type: number }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementLine"
     JournalLine:
       type: object
       required: [account, debit, credit]

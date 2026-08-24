@@ -56,6 +56,20 @@ export interface StatementLineInput {
   direction: string;
 }
 
+export interface StatementImportInput {
+  clientId: number;
+  fileName: string;
+  mimeType: string;
+  contentBase64: string;
+  currency: string;
+}
+
+export interface StatementImportResult {
+  fileName: string;
+  importedCount: number;
+  lines: StatementLine[];
+}
+
 export interface JournalLine {
   account: string;
   debit: number;
