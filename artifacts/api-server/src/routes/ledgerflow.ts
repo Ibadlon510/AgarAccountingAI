@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import {
@@ -11,6 +11,7 @@ import {
   ConfirmAICopilotActionResponse,
   CreateBankAccountBody,
   CreateBankAccountResponse,
+  GetBulkTransitionAuditsResponse,
   GetBankAccountsQueryParams,
   GetBankAccountsResponse,
   ApproveJournalEntryResponse,
@@ -40,6 +41,7 @@ import {
 import {
   bankAccountsTable,
   classificationPatternsTable,
+  bulkTransitionAuditsTable,
   clientWorkspacesTable,
   clientsTable,
   db,
@@ -108,6 +110,16 @@ function aiSettingsResponse(config: Awaited<ReturnType<typeof getAIProviderConfi
 function currentUserId(req: Request) {
   if (!req.user) throw new Error("Authenticated user is required.");
   return req.user.id;
+}
+
+function auditActor(req: Request) {
+  if (!req.user) throw new Error("Authenticated user is required.");
+  const name = [req.user.firstName, req.user.lastName].filter(Boolean).join(" ").trim();
+  return {
+    id: req.user.id,
+    name: name || req.user.email || req.user.id,
+    email: req.user.email,
+  };
 }
 
 async function getOwnedClient(req: Request, requestedClientId?: number) {
@@ -1272,8 +1284,9 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   if (!client) return;
 
   if (body.type === "bulk_approve_entries" || body.type === "bulk_post_entries") {
-    const entryIds = [...new Set(body.entryIds ?? [])];
-    const statementLineIds = [...new Set(body.statementLineIds ?? [])];
+    const actor = auditActor(req);
+    const entryIds = [...new Set(body.entryIds ?? [])].sort((left, right) => left - right);
+    const statementLineIds = [...new Set(body.statementLineIds ?? [])].sort((left, right) => left - right);
     if (!entryIds.length || !statementLineIds.length || entryIds.length !== statementLineIds.length) {
       return res.status(400).json({ error: "A bulk action needs matching, non-empty journal-entry and statement-line selections." });
     }
@@ -1327,6 +1340,18 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
             .returning();
           if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
         }
+
+        await tx.insert(bulkTransitionAuditsTable).values({
+          clientId: client.id,
+          actorUserId: actor.id,
+          actorName: actor.name,
+          actorEmail: actor.email,
+          transition: body.type,
+          fromStatus: expectedStatus,
+          toStatus: resultingStatus,
+          entryIds,
+          statementLineIds,
+        });
 
         return { entries: updatedEntries, expectedStatus, resultingStatus };
       });
@@ -1447,6 +1472,32 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
     updatedLineCount: selectedLines.length,
     bankAccount: null,
   }));
+});
+
+router.get("/ledgerflow/bulk-transition-audits", async (req, res) => {
+  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
+  const audits = await db
+    .select()
+    .from(bulkTransitionAuditsTable)
+    .where(eq(bulkTransitionAuditsTable.clientId, client.id))
+    .orderBy(desc(bulkTransitionAuditsTable.confirmedAt));
+  res.json(GetBulkTransitionAuditsResponse.parse(audits.map((audit) => ({
+    id: audit.id,
+    clientId: audit.clientId,
+    actor: {
+      id: audit.actorUserId,
+      name: audit.actorName ?? audit.actorUserId,
+      email: audit.actorEmail,
+    },
+    transition: audit.transition,
+    fromStatus: audit.fromStatus,
+    toStatus: audit.toStatus,
+    entryIds: audit.entryIds,
+    statementLineIds: audit.statementLineIds,
+    confirmedAt: audit.confirmedAt,
+  }))));
 });
 
 router.get("/clients", async (req, res) => {

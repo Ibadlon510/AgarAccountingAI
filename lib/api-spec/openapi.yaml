@@ -387,6 +387,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AICopilotActionResult"
+  /ledgerflow/bulk-transition-audits:
+    get:
+      operationId: getBulkTransitionAudits
+      tags: [ledgerflow]
+      summary: List confirmed bulk ledger transitions
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema: { type: number }
+      responses:
+        "200":
+          description: Immutable bulk transition confirmation history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BulkTransitionAudit"
   /ledgerflow/journal-entries:
     get:
       operationId: getJournalEntries
@@ -822,6 +841,31 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
             - type: "null"
+    BulkTransitionAudit:
+      type: object
+      required: [id, clientId, actor, transition, fromStatus, toStatus, entryIds, statementLineIds, confirmedAt]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        actor:
+          $ref: "#/components/schemas/BulkTransitionAuditActor"
+        transition: { type: string, enum: [bulk_approve_entries, bulk_post_entries] }
+        fromStatus: { type: string }
+        toStatus: { type: string }
+        entryIds:
+          type: array
+          items: { type: number }
+        statementLineIds:
+          type: array
+          items: { type: number }
+        confirmedAt: { type: string, format: date-time }
+    BulkTransitionAuditActor:
+      type: object
+      required: [id, name, email]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: ["string", "null"] }
     JournalLine:
       type: object
       required: [account, debit, credit]

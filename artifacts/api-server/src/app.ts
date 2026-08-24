@@ -6,6 +6,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { SESSION_SECRET } from "./lib/auth";
 import { SessionServiceError } from "./middlewares/authMiddleware";
+import { ensureLedgerflowAuditImmutability } from "@workspace/db";
 
 const app: Express = express();
 

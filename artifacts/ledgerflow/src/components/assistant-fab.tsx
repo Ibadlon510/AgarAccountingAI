@@ -6,6 +6,7 @@ import {
   useImportStatement, 
   useConfirmAICopilotAction,
   getGetStatementLinesQueryKey, 
+  getGetBulkTransitionAuditsQueryKey,
   getGetLedgerOverviewQueryKey,
   getGetJournalEntriesQueryKey,
   getGetBankAccountsQueryKey,
@@ -57,6 +58,7 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
     }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetBulkTransitionAuditsQueryKey({ clientId: activeClientId }) });
         queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });

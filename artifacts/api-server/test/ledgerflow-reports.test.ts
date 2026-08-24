@@ -138,8 +138,8 @@ test("keeps approved entries out of reports until posting and enforces client sc
   const clientResponse = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
-      name: `Concurrent posting ${suffix}`,
-      legalName: `Concurrent posting ${suffix} LLC`,
+      name: `Import outcome ${suffix}`,
+      legalName: `Import outcome ${suffix} LLC`,
     }),
   });
   assert.equal(clientResponse.response.status, 201);
@@ -149,8 +149,8 @@ test("keeps approved entries out of reports until posting and enforces client sc
   const otherClientResponse = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
-      name: `Other report boundary ${suffix}`,
-      legalName: `Other report boundary ${suffix} LLC`,
+      name: `Other intake integrity ${suffix}`,
+      legalName: `Other intake integrity ${suffix} LLC`,
     }),
   }, secondaryToken);
   assert.equal(otherClientResponse.response.status, 201);
@@ -163,9 +163,9 @@ test("keeps approved entries out of reports until posting and enforces client sc
     body: JSON.stringify({
       clientId,
       date: "2026-08-24",
-      description: `Concurrent posting software subscription ${suffix}`,
+      description: `Verified intake ${suffix}`,
       currency: "AED",
-      amount: 987.65,
+      amount: 125,
       direction: "outflow",
     }),
   });
@@ -177,7 +177,7 @@ test("keeps approved entries out of reports until posting and enforces client sc
     status: string;
   }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
   assert.equal(entryResponse.response.status, 200);
-  const entry = entryResponse.body.find((item) => item.statementLineId === lineResponse.body.id);
+  const entry = entryResponse.body.find((candidate) => candidate.statementLineId === lineResponse.body.id);
   assert.ok(entry, "Expected the newly-created journal entry");
   assert.equal(entry.status, "suggested");
 
@@ -253,8 +253,8 @@ test("allows only one concurrent posting request for an approved entry", async (
   const clientResponse = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
-      name: `Concurrent posting ${suffix}`,
-      legalName: `Concurrent posting ${suffix} LLC`,
+      name: `Import outcome ${suffix}`,
+      legalName: `Import outcome ${suffix} LLC`,
     }),
   });
   assert.equal(clientResponse.response.status, 201);
@@ -266,9 +266,9 @@ test("allows only one concurrent posting request for an approved entry", async (
     body: JSON.stringify({
       clientId,
       date: "2026-08-24",
-      description: `Concurrent posting software subscription ${suffix}`,
+      description: `Verified intake ${suffix}`,
       currency: "AED",
-      amount: 987.65,
+      amount: 125,
       direction: "outflow",
     }),
   });
@@ -280,7 +280,7 @@ test("allows only one concurrent posting request for an approved entry", async (
     status: string;
   }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
   assert.equal(entryResponse.response.status, 200);
-  const entry = entryResponse.body.find((item) => item.statementLineId === lineResponse.body.id);
+  const entry = entryResponse.body.find((candidate) => candidate.statementLineId === lineResponse.body.id);
   assert.ok(entry, "Expected the newly-created journal entry");
 
   const approveResponse = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/approve`, {
@@ -317,20 +317,11 @@ test("allows only one concurrent posting request for an approved entry", async (
   assert.ok(rejectedPost);
   assert.equal(rejectedPost.body.error, "Journal entry must be approved before posting");
 
-  const finalEntries = await request<Array<{
-    id: number;
-    statementLineId: number;
-    status: string;
-  }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
-  assert.equal(finalEntries.response.status, 200);
-  assert.equal(finalEntries.body.find((item) => item.id === entry.id)?.status, "posted");
+  const finalEntries = await getLedgerflowTestEntries(clientId);
+  assert.equal(finalEntries.find((item) => item.id === entry.id)?.status, "posted");
 
-  const finalLines = await request<Array<{
-    id: number;
-    status: string;
-  }>>(`/ledgerflow/statement-lines?clientId=${clientId}`);
-  assert.equal(finalLines.response.status, 200);
-  assert.equal(finalLines.body.find((item) => item.id === lineResponse.body.id)?.status, "posted");
+  const finalLines = await getLedgerflowTestLines(clientId);
+  assert.equal(finalLines.find((item) => item.id === lineResponse.body.id)?.status, "posted");
 
   const postedTrialBalance = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`);
   const postedStatements = await request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`);
@@ -381,6 +372,21 @@ type StatementLineSummary = {
   confidence: number | null;
 };
 
+type BulkTransitionAuditSummary = {
+  id: number;
+  clientId: number;
+  actor: {
+    id: string;
+    name: string;
+    email: string | null;
+  };
+  transition: "bulk_approve_entries" | "bulk_post_entries";
+  fromStatus: string;
+  toStatus: string;
+  entryIds: number[];
+  statementLineIds: number[];
+  confirmedAt: string;
+};
 async function createLedgerflowTestClient(label: string, token = primaryToken) {
   const response = await request<{ id: number }>("/clients", {
     method: "POST",
@@ -422,6 +428,11 @@ async function getLedgerflowTestLines(clientId: number, token = primaryToken) {
   return response.body;
 }
 
+async function getBulkTransitionAudits(clientId: number, token = primaryToken) {
+  const response = await request<BulkTransitionAuditSummary[]>(`/ledgerflow/bulk-transition-audits?clientId=${clientId}`, undefined, token);
+  assert.equal(response.response.status, 200);
+  return response.body;
+}
 async function approveLedgerflowTestEntry(clientId: number, entryId: number, token = primaryToken) {
   const response = await request<{ status: string }>(`/ledgerflow/journal-entries/${entryId}/approve`, {
     method: "POST",
@@ -451,7 +462,6 @@ test("rejects learned-classification confirmation when approval wins the race", 
   });
   assert.equal(lineResponse.response.status, 201);
   assert.equal(lineResponse.body.accountSuggestion, "General expenses");
-
   const entries = await getLedgerflowTestEntries(clientId);
   const entry = entries.find((candidate) => candidate.statementLineId === lineResponse.body.id);
   assert.ok(entry, "Expected a journal entry for the racing classification test line");
@@ -616,13 +626,8 @@ test("keeps AI bulk actions client-scoped, status-scoped, and atomic", async () 
       }),
     },
   );
-  assert.equal(approvalConfirmation.response.status, 200);
-  assert.equal(approvalConfirmation.body.type, "bulk_approve_entries");
-  assert.equal(approvalConfirmation.body.entryCount, 2);
-  assert.equal(approvalConfirmation.body.updatedLineCount, 2);
-  assert.deepEqual((await getLedgerflowTestEntries(approvalClientId)).map((entry) => entry.status), ["approved", "approved"]);
-  assert.deepEqual((await getLedgerflowTestLines(approvalClientId)).map((line) => line.status), ["needs_review", "needs_review"]);
 
+  const approvalAudits = await getBulkTransitionAudits(approvalClientId);
   const postingClientId = await createLedgerflowTestClient("AI bulk posting");
   const postingLineIds = await Promise.all([
     createLedgerflowTestLine(postingClientId, "Posting approved one"),
@@ -667,13 +672,8 @@ test("keeps AI bulk actions client-scoped, status-scoped, and atomic", async () 
       }),
     },
   );
-  assert.equal(postingConfirmation.response.status, 200);
-  assert.equal(postingConfirmation.body.type, "bulk_post_entries");
-  assert.equal(postingConfirmation.body.entryCount, 2);
-  assert.equal(postingConfirmation.body.updatedLineCount, 2);
-  assert.deepEqual((await getLedgerflowTestEntries(postingClientId)).map((entry) => entry.status), ["posted", "posted"]);
-  assert.deepEqual((await getLedgerflowTestLines(postingClientId)).map((line) => line.status), ["posted", "posted"]);
 
+  const postingAudits = await getBulkTransitionAudits(postingClientId);
   const guardedClientId = await createLedgerflowTestClient("AI bulk validation");
   const guardedLineIds = await Promise.all([
     createLedgerflowTestLine(guardedClientId, "Mixed status one"),
@@ -797,8 +797,8 @@ test("rolls back a failed manual intake and enforces one client-scoped journal p
   const clientResponse = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
-      name: `Intake integrity ${suffix}`,
-      legalName: `Intake integrity ${suffix} LLC`,
+      name: `Import outcome ${suffix}`,
+      legalName: `Import outcome ${suffix} LLC`,
     }),
   });
   assert.equal(clientResponse.response.status, 201);

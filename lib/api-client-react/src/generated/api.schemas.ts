@@ -248,6 +248,7 @@ export interface AICopilotActionResult {
   bankAccount: BankAccount | null;
 }
 
+export type BulkTransitionAuditTransition = typeof BulkTransitionAuditTransition[keyof typeof BulkTransitionAuditTransition];
 export interface TrialBalanceRow {
   account: string;
   category: string;
@@ -284,6 +285,10 @@ export type GetStatementLinesParams = {
 clientId?: number;
 currency?: string;
 status?: string;
+};
+
+export type GetBulkTransitionAuditsParams = {
+clientId?: number;
 };
 
 export type GetLedgerflowAISettingsParams = {
@@ -381,6 +386,11 @@ export const StatementLineSuggestionSource = {
   workspace_learning: 'workspace_learning',
 } as const;
 
+export const BulkTransitionAuditTransition = {
+  bulk_approve_entries: 'bulk_approve_entries',
+  bulk_post_entries: 'bulk_post_entries',
+} as const;
+
 export const AIProvider = {
   managed_openai: 'managed_openai',
   openai: 'openai',
@@ -423,4 +433,23 @@ export interface AIProviderSettings {
   /** @nullable */
   lastTestedAt: string | null;
   availableModels: string[];
+}
+
+export interface BulkTransitionAuditActor {
+  id: string;
+  name: string;
+  /** @nullable */
+  email: string | null;
+}
+
+export interface BulkTransitionAudit {
+  id: number;
+  clientId: number;
+  actor: BulkTransitionAuditActor;
+  transition: BulkTransitionAuditTransition;
+  fromStatus: string;
+  toStatus: string;
+  entryIds: number[];
+  statementLineIds: number[];
+  confirmedAt: string;
 }

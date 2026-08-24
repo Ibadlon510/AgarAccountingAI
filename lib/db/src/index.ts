@@ -13,4 +13,46 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 export const db = drizzle(pool, { schema });
 
+export async function ensureLedgerflowAuditImmutability() {
+  const client = await pool.connect();
+  try {
+    await client.query("SELECT pg_advisory_lock(239023)");
+    await client.query(`
+      CREATE OR REPLACE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        RAISE EXCEPTION 'Bulk transition audit records are append-only.';
+      END;
+      $$;
+
+      DO $$
+      BEGIN
+        CREATE TRIGGER ledgerflow_bulk_transition_audits_append_only
+          BEFORE UPDATE OR DELETE ON ledgerflow_bulk_transition_audits
+          FOR EACH ROW
+          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END;
+      $$;
+
+      DO $$
+      BEGIN
+        CREATE TRIGGER ledgerflow_bulk_transition_audits_no_truncate
+          BEFORE TRUNCATE ON ledgerflow_bulk_transition_audits
+          FOR EACH STATEMENT
+          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END;
+      $$;
+    `);
+  } finally {
+    await client.query("SELECT pg_advisory_unlock(239023)");
+    client.release();
+  }
+}
+
 export * from "./schema";

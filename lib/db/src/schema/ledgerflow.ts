@@ -173,8 +173,25 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   }),
 }));
 
+export const bulkTransitionAuditsTable = pgTable("ledgerflow_bulk_transition_audits", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  actorUserId: varchar("actor_user_id").notNull(),
+  actorName: text("actor_name"),
+  actorEmail: text("actor_email"),
+  transition: text("transition").notNull(),
+  fromStatus: text("from_status").notNull(),
+  toStatus: text("to_status").notNull(),
+  entryIds: integer("entry_ids").array().notNull(),
+  statementLineIds: integer("statement_line_ids").array().notNull(),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ledgerflow_bulk_transition_audits_client_confirmed_idx").on(table.clientId, table.confirmedAt),
+]);
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
 export type JournalEntry = typeof journalEntriesTable.$inferSelect;
+
+export type BulkTransitionAudit = typeof bulkTransitionAuditsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;
 export type UpsertUser = typeof usersTable.$inferInsert;

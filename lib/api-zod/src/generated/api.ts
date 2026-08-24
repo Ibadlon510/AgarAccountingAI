@@ -363,7 +363,12 @@ export const ConfirmAICopilotActionResponse = zod.object({
 }),zod.null()])
 })
 
-
+/**
+ * @summary List confirmed bulk ledger transitions
+ */
+export const GetBulkTransitionAuditsQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional()
+})
 /**
  * @summary List journal entries
  */
@@ -531,6 +536,22 @@ export const ExchangeMobileAuthorizationCodeResponse = zod.object({
   "token": zod.string()
 })
 
+export const GetBulkTransitionAuditsResponseItem = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "actor": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable()
+}),
+  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries']),
+  "fromStatus": zod.string(),
+  "toStatus": zod.string(),
+  "entryIds": zod.array(zod.number()),
+  "statementLineIds": zod.array(zod.number()),
+  "confirmedAt": zod.coerce.date()
+})
+
 export const TestLedgerflowAISettingsResponse = zod.object({
   "clientId": zod.number(),
   "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
@@ -595,3 +616,5 @@ export const UpdateLedgerflowAISettingsResponse = zod.object({
   "lastTestedAt": zod.coerce.date().nullable(),
   "availableModels": zod.array(zod.string())
 })
+
+export const GetBulkTransitionAuditsResponse = zod.array(GetBulkTransitionAuditsResponseItem)
