@@ -104,6 +104,20 @@ const defaultChecklist: Array<Omit<ReportChecklistItem, "status">> = [
   { standard: "IFRS 15", title: "Revenue from Contracts with Customers", prompt: "Confirm revenue streams, performance obligations, and contract balances." },
 ];
 
+export const REPORT_PROFILES = {
+  IFRS_IAS_1: { basis: "IFRS", profile: "IAS 1", label: "Full IFRS · IAS 1" },
+  IFRS_18: { basis: "IFRS", profile: "IFRS 18", label: "Full IFRS · IFRS 18" },
+  IFRS_SME: { basis: "IFRS for SMEs", profile: "IFRS for SMEs", label: "IFRS for SMEs" },
+} as const;
+
+export function eligibleReportProfiles(periodEnd: string, clientBasis: string) {
+  const year = Number(periodEnd.slice(0, 4));
+  if (!periodEnd.endsWith("-12-31")) return [];
+  const profiles: Array<(typeof REPORT_PROFILES)[keyof typeof REPORT_PROFILES]> = [REPORT_PROFILES.IFRS_IAS_1, REPORT_PROFILES.IFRS_SME];
+  if (clientBasis === "IFRS" && year >= 2027) profiles.push(REPORT_PROFILES.IFRS_18);
+  return profiles.filter((profile) => profile.basis === clientBasis);
+}
+
 const standardAccountMeta = (account: string): AccountMeta => {
   const normalized = account.toLowerCase();
   if (/bank|cash/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 3, relatedParty: false, tax: false };
@@ -307,6 +321,8 @@ export function buildReportPack(input: {
   const comparativeExpenseSets = sumSets(expenses, "comparative");
   const cashSets = sumSets(cashBalances, "current");
   const comparativeCashSets = sumSets(cashBalances, "comparative");
+  const isSme = input.reportingBasis === "IFRS for SMEs";
+  const isIfrs18 = input.presentationProfile === "IFRS 18";
 
   const statementOfFinancialPosition = [
     reportAmount("Current assets", sums(assets, "current", (item) => item.meta.currentNonCurrent === "current"), sums(assets, "comparative", (item) => item.meta.currentNonCurrent === "current"), 3, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines, assets.filter((item) => item.meta.currentNonCurrent === "current").map(accountLine)),
@@ -350,15 +366,39 @@ export function buildReportPack(input: {
   ];
 
   const relatedPartyBalances = values.filter((item) => item.meta.relatedParty);
+  const profileStatementOfFinancialPosition = isIfrs18
+    ? statementOfFinancialPosition.map((row) => row.label === "Current assets" ? { ...row, label: "Current operating assets" } : row)
+    : statementOfFinancialPosition;
+  const profileProfitOrLossAndOci = isIfrs18
+    ? profitOrLossAndOci.map((row) => row.label === "Operating expenses" ? { ...row, label: "Operating expenses by nature or function" } : row)
+    : isSme
+      ? profitOrLossAndOci.filter((row) => row.label !== "Other comprehensive income" && row.label !== "Total comprehensive income")
+      : profitOrLossAndOci;
+  const profileChangesInEquity = isSme
+    ? changesInEquity.filter((row) => row.label !== "Other comprehensive income")
+    : changesInEquity;
+  const profileCashFlows = cashFlows;
+  const profileChecklist = isSme
+    ? defaultChecklist.filter((item) => !["IFRS 7", "IFRS 9", "IFRS 15"].includes(item.standard)).map((item) => ({
+      ...item,
+      standard: item.standard.replace(/^IAS/, "Section"),
+      title: item.title.replace(/IFRS 15/, "Section 23"),
+      prompt: item.prompt.replace(/IFRS 15/, "Section 23").replace(/IFRS checklist/, "SME disclosure checklist"),
+    }))
+    : isIfrs18
+      ? defaultChecklist.map((item) => item.standard === "IAS 1"
+        ? { ...item, standard: "IFRS 18", title: "Presentation and disclosure in financial statements", prompt: "Confirm operating, investing, financing, income-tax, and discontinued-operation categories, including management-defined performance measures." }
+        : item)
+      : defaultChecklist;
   const notes: ReportNote[] = [
-    { number: 1, title: "Basis of preparation", narrative: "Accountant input required: confirm the basis of preparation, going-concern assessment, materiality, and authorization date.", requiresInput: true, tables: [] },
-    { number: 2, title: "Material accounting policies", narrative: "Accountant input required: document policies for revenue, foreign currency, financial instruments, taxes, and any other material transactions.", requiresInput: true, tables: [] },
+    { number: 1, title: "Basis of preparation", narrative: isSme ? "Accountant input required: confirm the IFRS for SMEs basis, going-concern assessment, materiality, and authorization date." : "Accountant input required: confirm the basis of preparation, going-concern assessment, materiality, and authorization date.", requiresInput: true, tables: [] },
+    { number: 2, title: "Material accounting policies", narrative: isSme ? "Accountant input required: document the material accounting policies and simplifications applied under IFRS for SMEs." : "Accountant input required: document policies for revenue, foreign currency, financial instruments, taxes, and any other material transactions.", requiresInput: true, tables: [] },
     { number: 3, title: "Cash and cash equivalents", narrative: "Cash is derived from posted cash and bank accounts. Confirm restricted cash and cash-equivalent classification.", requiresInput: true, tables: [{ label: "Cash and bank balances", current: cashCurrent, comparative: cashComparative }] },
-    { number: 4, title: "Revenue", narrative: "Revenue is grouped from posted ledger accounts. Confirm revenue streams and IFRS 15 performance obligations.", requiresInput: true, tables: revenues.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
+    { number: 4, title: "Revenue", narrative: isSme ? "Revenue is grouped from posted ledger accounts. Confirm the revenue policy and material contract balances under Section 23." : isIfrs18 ? "Revenue is grouped from posted ledger accounts. Confirm the operating-category presentation and material revenue disaggregation." : "Revenue is grouped from posted ledger accounts. Confirm revenue streams and IFRS 15 performance obligations.", requiresInput: true, tables: revenues.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
     { number: 5, title: "Operating expenses", narrative: "Expense categories are traceable to posted journal entries. Confirm material expense disclosures.", requiresInput: true, tables: expenses.filter((item) => !item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
     { number: 6, title: "Related parties", narrative: "Accountant input required: identify related parties, balances, transaction terms, and whether outstanding balances are unsecured.", requiresInput: true, tables: relatedPartyBalances.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
     { number: 7, title: "Income tax", narrative: "Accountant input required: assess current tax, deferred tax, tax losses, and uncertain tax positions. This pack is not a tax return.", requiresInput: true, tables: expenses.filter((item) => item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
-    { number: 8, title: "Financial risk, foreign currency and other disclosures", narrative: "Accountant input required: confirm foreign-currency risk, commitments, contingencies, employee benefits, and any significant judgments.", requiresInput: true, tables: [] },
+    { number: 8, title: "Financial risk, foreign currency and other disclosures", narrative: isSme ? "Accountant input required: confirm material commitments, contingencies, foreign-currency exposure, and other Section 8 disclosures." : "Accountant input required: confirm foreign-currency risk, commitments, contingencies, employee benefits, and any significant judgments.", requiresInput: true, tables: [] },
     { number: 9, title: "Subsequent events", narrative: "Accountant input required: record events after the reporting period through the authorization date.", requiresInput: true, tables: [] },
   ];
 
@@ -382,7 +422,7 @@ export function buildReportPack(input: {
     missingRateEntries: input.missingRateEntries,
     hasComparative: comparativeEntries.length > 0,
     notes,
-    checklist: defaultChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
+    checklist: profileChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
   });
 
   const snapshot: ReportSnapshot = {
@@ -393,10 +433,10 @@ export function buildReportPack(input: {
     presentationCurrency: input.presentationCurrency,
     reportingBasis: input.reportingBasis,
     presentationProfile: input.presentationProfile,
-    statementOfFinancialPosition,
-    profitOrLossAndOci,
-    changesInEquity,
-    cashFlows,
+    statementOfFinancialPosition: profileStatementOfFinancialPosition,
+    profitOrLossAndOci: profileProfitOrLossAndOci,
+    changesInEquity: profileChangesInEquity,
+    cashFlows: profileCashFlows,
     notes,
     traceability: {
       postedEntryCount: currentEntries.length,
@@ -409,7 +449,7 @@ export function buildReportPack(input: {
     periods,
     snapshot,
     notes,
-    checklist: defaultChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
+    checklist: profileChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
     signatory: { preparedBy: "", reviewedBy: "", authorizedBy: "", authorizationDate: null } satisfies ReportSignatory,
     validation,
   };

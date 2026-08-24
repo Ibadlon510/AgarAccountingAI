@@ -12,4 +12,5 @@ export type ReportPackInputPresentationProfile = typeof ReportPackInputPresentat
 export const ReportPackInputPresentationProfile = {
   IAS_1: 'IAS 1',
   IFRS_18: 'IFRS 18',
+  IFRS_for_SMEs: 'IFRS for SMEs',
 } as const;

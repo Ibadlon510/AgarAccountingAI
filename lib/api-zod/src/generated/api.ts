@@ -1000,7 +1000,7 @@ export const CreateReportPackBody = zod.object({
   "clientId": zod.number(),
   "periodEnd": zod.coerce.date(),
   "reportingBasis": zod.enum(['IFRS', 'IFRS for SMEs']).optional(),
-  "presentationProfile": zod.enum(['IAS 1', 'IFRS 18']).optional(),
+  "presentationProfile": zod.enum(['IAS 1', 'IFRS 18', 'IFRS for SMEs']).optional(),
   "presentationCurrency": zod.string().min(createReportPackBodyPresentationCurrencyMin).max(createReportPackBodyPresentationCurrencyMax).optional(),
   "roundingPolicy": zod.enum(['Nearest whole unit', 'Nearest 2 decimals']).optional()
 })
@@ -1425,4 +1425,3 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
-

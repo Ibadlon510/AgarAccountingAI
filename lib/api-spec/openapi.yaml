@@ -1389,7 +1389,7 @@ components:
         clientId: { type: number }
         periodEnd: { type: string, format: date }
         reportingBasis: { type: string, enum: [IFRS, "IFRS for SMEs"] }
-        presentationProfile: { type: string, enum: ["IAS 1", "IFRS 18"] }
+        presentationProfile: { type: string, enum: ["IAS 1", "IFRS 18", "IFRS for SMEs"] }
         presentationCurrency: { type: string, minLength: 3, maxLength: 3 }
         roundingPolicy: { type: string, enum: ["Nearest whole unit", "Nearest 2 decimals"] }
     ReportPackSummary:

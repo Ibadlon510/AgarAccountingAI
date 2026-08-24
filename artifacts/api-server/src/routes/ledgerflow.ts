@@ -106,6 +106,7 @@ import {
   type ReportSignatory,
   type ReportSnapshot,
   type ReportValidation,
+  eligibleReportProfiles,
 } from "../lib/reportPack";
 import { buildReportPdf } from "../lib/reportPdf";
 
@@ -2539,16 +2540,12 @@ router.post("/ledgerflow/report-packs", async (req, res) => {
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
   const periodEnd = calendarDate(body.periodEnd);
-  if (!periodEnd || !periodEnd.endsWith("-12-31")) {
-    return res.status(422).json({ error: "Full IFRS report packs currently require an annual reporting period ending on December 31." });
-  }
+  if (!periodEnd || !periodEnd.endsWith("-12-31")) return res.status(422).json({ error: "Report packs require an annual reporting period ending on December 31." });
   const reportingBasis = body.reportingBasis ?? "IFRS";
-  if (reportingBasis !== "IFRS") {
-    return res.status(422).json({ error: "IFRS for SMEs is not available for statutory-style packs yet. Select full IFRS for this report." });
-  }
-  const presentationProfile = body.presentationProfile ?? "IAS 1";
-  if (presentationProfile === "IFRS 18" && periodEnd.slice(0, 4) < "2027") {
-    return res.status(422).json({ error: "IFRS 18 presentation is available only for periods beginning on or after January 1, 2027." });
+  const eligibleProfiles = eligibleReportProfiles(periodEnd, client.basis);
+  const presentationProfile = body.presentationProfile ?? (reportingBasis === "IFRS for SMEs" ? "IFRS for SMEs" : "IAS 1");
+  if (reportingBasis !== client.basis || !eligibleProfiles.some((profile) => profile.profile === presentationProfile && profile.basis === reportingBasis)) {
+    return res.status(422).json({ error: "The selected reporting basis and presentation profile are not eligible for this client and annual period." });
   }
   const presentationCurrency = normalizeCurrency(body.presentationCurrency ?? client.functionalCurrency);
   if (presentationCurrency !== normalizeCurrency(client.functionalCurrency)) {

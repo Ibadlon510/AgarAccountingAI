@@ -321,8 +321,26 @@ function QueryState({ loading, error, empty, children, onRetry }: { loading: boo
   if (empty) return <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center" data-testid="state-empty"><div className="mb-3 grid size-10 place-items-center rounded-full bg-secondary text-primary"><FileCheck2 size={18} /></div><h3 className="text-sm font-semibold">Nothing to review yet</h3><p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">When the service sends records for this period, they will appear here with their source and review trail.</p></div>;
   return <>{children}</>;
 }
+
+function ReportProfileControls() {
+  const { activeClient } = useClientWorkspace();
+  const basis = activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IFRS';
+  const [selectedBasis, setSelectedBasis] = useState<'IFRS' | 'IFRS for SMEs'>(basis);
+  const [selectedProfile, setSelectedProfile] = useState<'IAS 1' | 'IFRS 18' | 'IFRS for SMEs'>(basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IAS 1');
+  const [periodYear, setPeriodYear] = useState(new Date().getFullYear());
+  useEffect(() => {
+    const input = document.querySelector<HTMLInputElement>('[data-testid="input-report-period-end"]');
+    const sync = () => setPeriodYear(Number(input?.value.slice(0, 4)) || new Date().getFullYear());
+    input?.addEventListener('input', sync);
+    sync();
+    return () => input?.removeEventListener('input', sync);
+  }, []);
+  const ifrs18Eligible = selectedBasis === 'IFRS' && periodYear >= 2027;
+  const changeBasis = (value: 'IFRS' | 'IFRS for SMEs') => { setSelectedBasis(value); const profile = value === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IAS 1'; setSelectedProfile(profile); window.dispatchEvent(new CustomEvent('ledgerflow:report-profile', { detail: { basis: value, profile } })); };
+  return <div className="mb-5 rounded-lg border border-card-border bg-card p-4"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Presentation profile</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold">Reporting basis<select data-testid="select-reporting-basis" value={selectedBasis} onChange={(event) => changeBasis(event.target.value as typeof selectedBasis)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="IFRS" disabled={basis !== 'IFRS'}>Full IFRS</option><option value="IFRS for SMEs" disabled={basis !== 'IFRS for SMEs'}>IFRS for SMEs</option></select></label><label className="text-[11px] font-semibold">Format<select data-testid="select-presentation-profile" value={selectedProfile} onChange={(event) => { const profile = event.target.value as typeof selectedProfile; setSelectedProfile(profile); window.dispatchEvent(new CustomEvent('ledgerflow:report-profile', { detail: { basis: selectedBasis, profile } })); }} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="IAS 1">IAS 1</option>{ifrs18Eligible && <option value="IFRS 18">IFRS 18 (2027+)</option>}<option value="IFRS for SMEs" disabled={selectedBasis !== 'IFRS for SMEs'}>IFRS for SMEs</option></select></label></div><p className="mt-2 text-[10px] text-muted-foreground">Only the basis configured for this client is available. IFRS 18 is available for annual periods ending in 2027 or later.</p></div>;
+}
 function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
-  return <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="font-mono text-[10px] uppercase tracking-[.19em] text-primary">{eyebrow}</div><h1 className="mt-2 font-display text-[34px] leading-none tracking-tight text-foreground md:text-[42px]">{title}</h1><p className="mt-3 max-w-2xl text-[13px] leading-5 text-muted-foreground">{description}</p></div>{action}</div>;
+  return <>{title === 'Financial statement pack' && <ReportProfileControls />}<div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="font-mono text-[10px] uppercase tracking-[.19em] text-primary">{eyebrow}</div><h1 className="mt-2 font-display text-[34px] leading-none tracking-tight text-foreground md:text-[42px]">{title}</h1><p className="mt-3 max-w-2xl text-[13px] leading-5 text-muted-foreground">{description}</p></div>{action}</div></>;
 }
 function Metric({ label, value, note, accent = false }: { label: string; value: string; note: string; accent?: boolean }) {
   return <div className={`rounded-lg border p-5 ${accent ? 'border-primary/30 bg-primary text-primary-foreground' : 'border-card-border bg-card'} lift-hover`}><div className={`font-mono text-[10px] uppercase tracking-[.13em] ${accent ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{label}</div><div className="mt-3 font-display text-[31px] leading-none">{value}</div><div className={`mt-3 text-[11px] ${accent ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{note}</div></div>;
@@ -579,6 +597,8 @@ function FinancialStatementsPage() {
   const { activeClient } = useClientWorkspace();
   const clientId = activeClient?.id ?? 1;
   const [periodEnd, setPeriodEnd] = useState(`${new Date().getFullYear()}-12-31`);
+  const [reportingBasis, setReportingBasis] = useState<'IFRS' | 'IFRS for SMEs'>(activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IFRS');
+  const [presentationProfile, setPresentationProfile] = useState<'IAS 1' | 'IFRS 18' | 'IFRS for SMEs'>(activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IAS 1');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [localPack, setLocalPack] = useState<ReportPack | null>(null);
   const [notes, setNotes] = useState<ReportNote[]>([]);
@@ -592,8 +612,19 @@ function FinancialStatementsPage() {
   const pack = localPack?.id === selectedId ? localPack : detail.data;
   useEffect(() => { if (!selectedId && list.data?.[0]) setSelectedId(list.data[0].id); }, [list.data, selectedId]);
   useEffect(() => { if (pack) { setNotes(pack.notes); setChecklist(pack.checklist); setSignatory(pack.signatory); } }, [pack?.id, pack?.updatedAt]);
-  useEffect(() => { setSelectedId(null); setLocalPack(null); }, [clientId]);
-  const handleGenerate = () => generate.mutate({ data: { clientId, periodEnd, reportingBasis: 'IFRS', presentationProfile: periodEnd.slice(0, 4) >= '2027' ? 'IFRS 18' : 'IAS 1', presentationCurrency: activeClient?.functionalCurrency ?? 'AED', roundingPolicy: 'Nearest whole unit' } }, { onSuccess: (created) => { setLocalPack(created); setSelectedId(created.id); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); } });
+  useEffect(() => { setSelectedId(null); setLocalPack(null); const basis = activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IFRS'; setReportingBasis(basis); setPresentationProfile(basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IAS 1'); }, [clientId, activeClient?.basis]);
+  const annualPeriod = /^\d{4}-12-31$/.test(periodEnd);
+  const ifrs18Eligible = annualPeriod && Number(periodEnd.slice(0, 4)) >= 2027 && reportingBasis === 'IFRS';
+  useEffect(() => {
+    const onProfileChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ basis: typeof reportingBasis; profile: typeof presentationProfile }>).detail;
+      setReportingBasis(detail.basis);
+      setPresentationProfile(detail.profile);
+    };
+    window.addEventListener('ledgerflow:report-profile', onProfileChange);
+    return () => window.removeEventListener('ledgerflow:report-profile', onProfileChange);
+  }, []);
+  const handleGenerate = () => generate.mutate({ data: { clientId, periodEnd, reportingBasis, presentationProfile, presentationCurrency: activeClient?.functionalCurrency ?? 'AED', roundingPolicy: 'Nearest whole unit' } }, { onSuccess: (created) => { setLocalPack(created); setSelectedId(created.id); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); } });
   const save = (action: 'update_inputs' | 'finalize') => { if (!pack) return; update.mutate({ id: pack.id, data: { clientId, action, notes, checklist, signatory } }, { onSuccess: (saved) => { setLocalPack(saved); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); queryClient.invalidateQueries({ queryKey: getGetReportPackQueryKey(saved.id) }); } }); };
   const blocked = pack?.validation.status !== 'pass';
   const errorText = generate.error || update.error ? 'The report pack could not be saved. Review the visible requirements and try again.' : '';
