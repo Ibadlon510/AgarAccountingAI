@@ -6,11 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BankAccount } from './bankAccount';
+import type { StatementImportDuplicate } from './statementImportDuplicate';
+import type { StatementImportResultImportStatus } from './statementImportResultImportStatus';
 import type { StatementLine } from './statementLine';
 
 export interface StatementImportResult {
   fileName: string;
+  importStatus: StatementImportResultImportStatus;
+  message?: string;
   importedCount: number;
+  duplicateCount: number;
+  duplicateLines: StatementImportDuplicate[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
 }

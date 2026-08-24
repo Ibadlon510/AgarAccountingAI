@@ -269,6 +269,12 @@ paths:
             schema:
               $ref: "#/components/schemas/StatementImportInput"
       responses:
+        "200":
+          description: The statement was already imported or contained only duplicate lines
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementImportResult"
         "201":
           description: Statement lines extracted and queued for review
           content:
@@ -541,10 +547,17 @@ components:
         currency: { type: string }
     StatementImportResult:
       type: object
-      required: [fileName, importedCount, lines]
+      required: [fileName, importStatus, importedCount, duplicateCount, duplicateLines, lines]
       properties:
         fileName: { type: string }
+        importStatus: { type: string, enum: [imported, imported_with_duplicates, duplicates_found, duplicate_file] }
+        message: { type: string }
         importedCount: { type: number }
+        duplicateCount: { type: number }
+        duplicateLines:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementImportDuplicate"
         lines:
           type: array
           items:
@@ -553,6 +566,17 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
             - type: "null"
+    StatementImportDuplicate:
+      type: object
+      required: [date, description, currency, amount, direction, existingLineId, reason]
+      properties:
+        date: { type: string }
+        description: { type: string }
+        currency: { type: string }
+        amount: { type: number }
+        direction: { type: string }
+        existingLineId: { type: ["number", "null"] }
+        reason: { type: string, enum: [already_imported, duplicate_in_file] }
     BankAccount:
       type: object
       required: [id, clientId, name, currency]

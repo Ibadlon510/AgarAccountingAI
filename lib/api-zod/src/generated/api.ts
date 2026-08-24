@@ -203,7 +203,19 @@ export const ImportStatementBody = zod.object({
 
 export const ImportStatementResponse = zod.object({
   "fileName": zod.string(),
+  "importStatus": zod.enum(['imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
+  "message": zod.string().optional(),
   "importedCount": zod.number(),
+  "duplicateCount": zod.number(),
+  "duplicateLines": zod.array(zod.object({
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "existingLineId": zod.number().nullable(),
+  "reason": zod.enum(['already_imported', 'duplicate_in_file'])
+})),
   "lines": zod.array(zod.object({
   "id": zod.number(),
   "bankAccountId": zod.number().nullish(),

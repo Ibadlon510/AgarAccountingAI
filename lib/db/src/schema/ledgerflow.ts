@@ -48,9 +48,23 @@ export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
   bankName: text("bank_name"),
   accountNumberLast4: text("account_number_last4"),
   currency: text("currency").notNull().default("AED"),
+  identityKey: text("identity_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  identityKeyUnique: uniqueIndex("ledgerflow_bank_accounts_identity_key_idx").on(table.identityKey),
+}));
 
+export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  bankAccountId: integer("bank_account_id"),
+  fileName: text("file_name").notNull(),
+  fileHash: text("file_hash").notNull(),
+  importedLineCount: integer("imported_line_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  clientFileHashUnique: uniqueIndex("ledgerflow_statement_imports_client_file_hash_idx").on(table.clientId, table.fileHash),
+}));
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),
@@ -64,8 +78,11 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   source: text("source").notNull().default("Bank statement"),
   accountSuggestion: text("account_suggestion"),
   confidence: numeric("confidence", { precision: 5, scale: 2 }),
+  importDedupeKey: text("import_dedupe_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  importDedupeKeyUnique: uniqueIndex("ledgerflow_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
+}));
 
 export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

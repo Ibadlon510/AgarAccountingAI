@@ -71,6 +71,7 @@ export interface StatementImportInput {
   currency: string;
 }
 
+export type StatementImportResultImportStatus = typeof StatementImportResultImportStatus[keyof typeof StatementImportResultImportStatus];
 export interface BankAccount {
   id: number;
   clientId: number;
@@ -84,7 +85,11 @@ export interface BankAccount {
 
 export interface StatementImportResult {
   fileName: string;
+  importStatus: StatementImportResultImportStatus;
+  message?: string;
   importedCount: number;
+  duplicateCount: number;
+  duplicateLines: StatementImportDuplicate[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
 }
@@ -336,4 +341,29 @@ export interface AuthUserEnvelope {
 
 export const LogoutSuccessValue = {
   success: true,
+} as const;
+
+export interface StatementImportDuplicate {
+  date: string;
+  description: string;
+  currency: string;
+  amount: number;
+  direction: string;
+  /** @nullable */
+  existingLineId: number | null;
+  reason: StatementImportDuplicateReason;
+}
+
+export type StatementImportDuplicateReason = typeof StatementImportDuplicateReason[keyof typeof StatementImportDuplicateReason];
+
+export const StatementImportDuplicateReason = {
+  already_imported: 'already_imported',
+  duplicate_in_file: 'duplicate_in_file',
+} as const;
+
+export const StatementImportResultImportStatus = {
+  imported: 'imported',
+  imported_with_duplicates: 'imported_with_duplicates',
+  duplicates_found: 'duplicates_found',
+  duplicate_file: 'duplicate_file',
 } as const;

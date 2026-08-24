@@ -1,5 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import OpenAI from "openai";
 import {
@@ -27,6 +28,7 @@ import {
   GetStatementLinesResponse,
   GetTrialBalanceResponse,
   PostJournalEntryBody,
+  ImportStatementResponse,
 } from "@workspace/api-zod";
 import {
   bankAccountsTable,
@@ -34,6 +36,7 @@ import {
   clientsTable,
   db,
   journalEntriesTable,
+  statementImportsTable,
   statementLinesTable,
   usersTable,
 } from "@workspace/db";
@@ -148,6 +151,35 @@ export async function ensureUserWorkspace(userId: string) {
       amount: line.amount,
     })));
   });
+}
+
+function normalizeDescription(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLocaleUpperCase();
+}
+
+function importDedupeKey(line: {
+  clientId: number;
+  bankAccountId?: number | null;
+  date: string;
+  description: string;
+  amount: number | string;
+  direction: string;
+  currency: string;
+}) {
+  return [
+    line.clientId,
+    line.bankAccountId ?? "none",
+    line.date.trim(),
+    normalizeDescription(line.description),
+    Number(line.amount).toFixed(2),
+    line.direction.trim().toLocaleLowerCase(),
+    line.currency.trim().toLocaleUpperCase(),
+  ].join("|");
+}
+
+function clientIdFrom(value: unknown) {
+  const parsed = Number(value ?? 1);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 function suggestAccount(description: string, direction: string) {
@@ -273,6 +305,30 @@ function cleanBankAccountDraft(draft: BankAccountDraft | undefined | null, fallb
   };
 }
 
+function bankAccountIdentityKey(clientId: number, account: NonNullable<ReturnType<typeof cleanBankAccountDraft>>) {
+  return [
+    clientId,
+    `bank:${normalizeDescription(account.bankName ?? "")}`,
+    `name:${normalizeDescription(account.name)}`,
+    `currency:${account.currency}`,
+    `last4:${account.accountNumberLast4 ?? ""}`,
+  ].join("|");
+}
+
+function matchesBankAccountDraft(
+  account: typeof bankAccountsTable.$inferSelect,
+  draft: NonNullable<ReturnType<typeof cleanBankAccountDraft>>,
+  identityKey: string,
+) {
+  return account.identityKey === identityKey
+    || (
+      normalizeDescription(account.name) === normalizeDescription(draft.name)
+      && normalizeDescription(account.bankName ?? "") === normalizeDescription(draft.bankName ?? "")
+      && account.currency === draft.currency
+      && account.accountNumberLast4 === draft.accountNumberLast4
+    );
+}
+
 function bankAccountResponse(account: typeof bankAccountsTable.$inferSelect) {
   return {
     id: account.id,
@@ -287,14 +343,18 @@ function bankAccountResponse(account: typeof bankAccountsTable.$inferSelect) {
 async function findOrCreateBankAccount(clientId: number, draft: BankAccountDraft | undefined | null, fallbackCurrency: string) {
   const clean = cleanBankAccountDraft(draft, fallbackCurrency);
   if (!clean) return null;
+  const identityKey = bankAccountIdentityKey(clientId, clean);
   const existingAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId));
-  const existing = existingAccounts.find((account) =>
-    (clean.accountNumberLast4 && account.accountNumberLast4 === clean.accountNumberLast4)
-    || (account.name.toLowerCase() === clean.name.toLowerCase() && account.currency === clean.currency),
-  );
+  const existing = existingAccounts.find((account) => matchesBankAccountDraft(account, clean, identityKey));
   if (existing) return existing;
-  const [created] = await db.insert(bankAccountsTable).values({ clientId, ...clean }).returning();
-  return created;
+  const [created] = await db.insert(bankAccountsTable).values({ clientId, ...clean, identityKey }).onConflictDoNothing({
+    target: bankAccountsTable.identityKey,
+  }).returning();
+  if (created) return created;
+  return (await db.select().from(bankAccountsTable).where(and(
+    eq(bankAccountsTable.clientId, clientId),
+    eq(bankAccountsTable.identityKey, identityKey),
+  )))[0] ?? null;
 }
 
 function safeText(value: unknown, fallback: string, maxLength = 160) {
@@ -553,6 +613,32 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
   if (!fileName || !mimeType || !contentBase64) return res.status(400).json({ error: "A statement file is required" });
   try {
     const buffer = Buffer.from(contentBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+    const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
+    if (!client) return;
+    const activeClientId = client.id;
+    const fileHash = createHash("sha256").update(buffer).digest("hex");
+    const previousImport = (await db.select().from(statementImportsTable).where(and(
+      eq(statementImportsTable.clientId, activeClientId),
+      eq(statementImportsTable.fileHash, fileHash),
+    )))[0];
+    if (previousImport) {
+      const previousBankAccount = previousImport.bankAccountId == null
+        ? null
+        : (await db.select().from(bankAccountsTable).where(and(
+          eq(bankAccountsTable.id, previousImport.bankAccountId),
+          eq(bankAccountsTable.clientId, activeClientId),
+        )))[0] ?? null;
+      return res.status(200).json(ImportStatementResponse.parse({
+        fileName,
+        importStatus: "duplicate_file",
+        message: `This statement was already imported for this client. No new lines were added.`,
+        importedCount: 0,
+        duplicateCount: previousImport.importedLineCount,
+        duplicateLines: [],
+        lines: [],
+        bankAccount: previousBankAccount ? bankAccountResponse(previousBankAccount) : null,
+      }));
+    }
     let extractedText = "";
 
     if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
@@ -578,9 +664,6 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     });
     const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
-    const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
-    if (!client) return;
-    const activeClientId = client.id;
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
       eq(bankAccountsTable.id, Number(bankAccountId)),
       eq(bankAccountsTable.clientId, activeClientId),
@@ -588,29 +671,174 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     if (bankAccountId != null && !selectedBankAccount) {
       return res.status(400).json({ error: "Selected bank account was not found for this client." });
     }
-    const detectedBankAccount = selectedBankAccount ?? await findOrCreateBankAccount(activeClientId, candidate.bankAccount, currency);
-    const inserted = lines.length ? await db.insert(statementLinesTable).values(lines.map((line) => {
-      const accountSuggestion = line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
-      const parsedConfidence = Number(line.confidence);
-      const confidence = Number.isFinite(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 1
-        ? parsedConfidence.toFixed(2)
-        : "0.75";
-      return {
+    const importResult = await db.transaction(async (tx) => {
+      const [createdImport] = await tx.insert(statementImportsTable).values({
         clientId: activeClientId,
+        bankAccountId: null,
+        fileName,
+        fileHash,
+        importedLineCount: 0,
+      }).onConflictDoNothing({
+        target: [statementImportsTable.clientId, statementImportsTable.fileHash],
+      }).returning();
+      if (!createdImport) return { kind: "duplicate_file" as const };
+
+      let detectedBankAccount = selectedBankAccount;
+      const cleanBankAccount = cleanBankAccountDraft(candidate.bankAccount, currency);
+      if (!detectedBankAccount && cleanBankAccount) {
+        const identityKey = bankAccountIdentityKey(activeClientId, cleanBankAccount);
+        const accounts = await tx.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, activeClientId));
+        detectedBankAccount = accounts.find((account) => matchesBankAccountDraft(account, cleanBankAccount, identityKey)) ?? null;
+        if (!detectedBankAccount) {
+          const [createdBankAccount] = await tx.insert(bankAccountsTable).values({
+            clientId: activeClientId,
+            ...cleanBankAccount,
+            identityKey,
+          }).onConflictDoNothing({
+            target: bankAccountsTable.identityKey,
+          }).returning();
+          detectedBankAccount = createdBankAccount ?? (await tx.select().from(bankAccountsTable).where(and(
+            eq(bankAccountsTable.clientId, activeClientId),
+            eq(bankAccountsTable.identityKey, identityKey),
+          )))[0] ?? null;
+        }
+      }
+      await tx.update(statementImportsTable).set({
         bankAccountId: detectedBankAccount?.id ?? null,
-        date: line.date,
-        description: line.description,
-        currency: line.currency || currency,
-        amount: String(Math.abs(line.amount)),
-        direction: line.direction,
-        status: "needs_review" as const,
-        source: `Imported: ${fileName}`,
-        accountSuggestion,
-        confidence,
-      };
-    })).returning() : [];
-    for (const line of inserted) await createSuggestedEntry(line);
-    return res.status(201).json({ fileName, importedCount: inserted.length, lines: inserted.map((line) => ({ ...line, amount: number(line.amount) })), bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null });
+      }).where(eq(statementImportsTable.id, createdImport.id));
+      const preparedLines = lines.map((line) => {
+        const accountSuggestion = line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
+        const parsedConfidence = Number(line.confidence);
+        const confidence = Number.isFinite(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 1
+          ? parsedConfidence.toFixed(2)
+          : "0.75";
+        const amount = String(Math.abs(line.amount));
+        const currencyValue = (line.currency || currency).trim().toUpperCase();
+        return {
+          clientId: activeClientId,
+          bankAccountId: detectedBankAccount?.id ?? null,
+          date: line.date,
+          description: line.description.trim(),
+          currency: currencyValue,
+          amount,
+          direction: line.direction,
+          status: "needs_review" as const,
+          source: `Imported: ${fileName}`,
+          accountSuggestion,
+          confidence,
+          importDedupeKey: importDedupeKey({
+            clientId: activeClientId,
+            bankAccountId: detectedBankAccount?.id ?? null,
+            date: line.date,
+            description: line.description,
+            amount,
+            direction: line.direction,
+            currency: currencyValue,
+          }),
+        };
+      });
+      const existingLines = await tx.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, activeClientId));
+      const seenKeys = new Set<string>();
+      const duplicateLines: Array<{
+        date: string;
+        description: string;
+        currency: string;
+        amount: number;
+        direction: string;
+        existingLineId: number | null;
+        reason: "already_imported" | "duplicate_in_file";
+      }> = [];
+      const inserted: Array<typeof statementLinesTable.$inferSelect> = [];
+      for (const line of preparedLines) {
+        const existingLine = existingLines.find((item) =>
+          item.importDedupeKey === line.importDedupeKey
+          || (!item.importDedupeKey
+            && importDedupeKey({
+              clientId: item.clientId,
+              bankAccountId: item.bankAccountId,
+              date: item.date,
+              description: item.description,
+              amount: item.amount,
+              direction: item.direction,
+              currency: item.currency,
+            }) === line.importDedupeKey),
+        );
+        if (existingLine || seenKeys.has(line.importDedupeKey)) {
+          duplicateLines.push({
+            date: line.date,
+            description: line.description,
+            currency: line.currency,
+            amount: Number(line.amount),
+            direction: line.direction,
+            existingLineId: existingLine?.id ?? null,
+            reason: existingLine ? "already_imported" : "duplicate_in_file",
+          });
+          continue;
+        }
+        seenKeys.add(line.importDedupeKey);
+        const [insertedLine] = await tx.insert(statementLinesTable).values(line).onConflictDoNothing({
+          target: statementLinesTable.importDedupeKey,
+        }).returning();
+        if (!insertedLine) {
+          const racedLine = (await tx.select().from(statementLinesTable).where(and(
+            eq(statementLinesTable.clientId, activeClientId),
+            eq(statementLinesTable.importDedupeKey, line.importDedupeKey),
+          )))[0];
+          duplicateLines.push({
+            date: line.date,
+            description: line.description,
+            currency: line.currency,
+            amount: Number(line.amount),
+            direction: line.direction,
+            existingLineId: racedLine?.id ?? null,
+            reason: "already_imported",
+          });
+          continue;
+        }
+        inserted.push(insertedLine);
+        await tx.insert(journalEntriesTable).values({
+          statementLineId: insertedLine.id,
+          clientId: insertedLine.clientId,
+          date: insertedLine.date,
+          memo: insertedLine.description,
+          currency: insertedLine.currency,
+          status: "suggested",
+          confidence: insertedLine.confidence ?? "0.80",
+          debitAccount: insertedLine.direction === "inflow" ? "Bank / cash" : (insertedLine.accountSuggestion ?? "Uncategorized"),
+          creditAccount: insertedLine.direction === "inflow" ? (insertedLine.accountSuggestion ?? "Uncategorized") : "Bank / cash",
+          amount: insertedLine.amount,
+        });
+      }
+      await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
+      return { kind: "imported" as const, inserted, duplicateLines, detectedBankAccount };
+    });
+    if (importResult.kind === "duplicate_file") {
+      return res.status(200).json(ImportStatementResponse.parse({
+        fileName,
+        importStatus: "duplicate_file",
+        message: "This statement was already imported for this client. No new lines were added.",
+        importedCount: 0,
+        duplicateCount: lines.length,
+        duplicateLines: [],
+        lines: [],
+        bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+      }));
+    }
+    const { inserted, duplicateLines, detectedBankAccount } = importResult;
+    const importStatus = inserted.length === 0 ? "duplicates_found" : duplicateLines.length ? "imported_with_duplicates" : "imported";
+    const message = duplicateLines.length
+      ? `${inserted.length} new line${inserted.length === 1 ? "" : "s"} imported. ${duplicateLines.length} duplicate line${duplicateLines.length === 1 ? "" : "s"} skipped.`
+      : `${inserted.length} statement line${inserted.length === 1 ? "" : "s"} imported and ready for review.`;
+    return res.status(201).json(ImportStatementResponse.parse({
+      fileName,
+      importStatus,
+      message,
+      importedCount: inserted.length,
+      duplicateCount: duplicateLines.length,
+      duplicateLines,
+      lines: inserted.map((line) => ({ ...line, amount: number(line.amount), confidence: line.confidence == null ? null : number(line.confidence) })),
+      bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null,
+    }));
   } catch (error) {
     req.log.error({ err: error }, "Statement import failed");
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
