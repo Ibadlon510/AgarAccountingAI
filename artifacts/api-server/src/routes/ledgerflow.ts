@@ -47,6 +47,8 @@ const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
 });
 
+type LedgerflowTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 const seedLines = [
   { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", source: "Bank statement", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
   { date: "2026-08-05", description: "STRIPE PAYOUT 8472", currency: "USD", amount: "12450.00", direction: "inflow", status: "posted", source: "Bank statement", accountSuggestion: "Revenue", confidence: "0.99" },
@@ -217,7 +219,7 @@ async function ensureSuggestedAccounts() {
   }
 }
 
-async function createSuggestedEntry(line: {
+async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
   id: number;
   clientId: number;
   date: string;
@@ -229,7 +231,7 @@ async function createSuggestedEntry(line: {
   confidence?: string | null;
 }) {
   const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
-  await db.insert(journalEntriesTable).values({
+  await tx.insert(journalEntriesTable).values({
     statementLineId: line.id,
     clientId: line.clientId,
     date: line.date,
@@ -241,6 +243,45 @@ async function createSuggestedEntry(line: {
     creditAccount: line.direction === "inflow" ? account : "Bank / cash",
     amount: line.amount,
   });
+}
+
+async function createStatementLineAndJournal(
+  tx: LedgerflowTransaction,
+  draft: typeof statementLinesTable.$inferInsert,
+  options?: { ignoreExistingImportDedupeKey?: boolean },
+) {
+  const insert = tx.insert(statementLinesTable).values(draft);
+  const [line] = options?.ignoreExistingImportDedupeKey
+    ? await insert.onConflictDoNothing({ target: statementLinesTable.importDedupeKey }).returning()
+    : await insert.returning();
+  if (!line) return null;
+  await createSuggestedEntry(tx, line);
+  return line;
+}
+
+async function recordFailedStatementImport(details: {
+  clientId: number;
+  bankAccountId?: number | null;
+  fileName: string;
+  mimeType: string;
+  fileHash: string;
+  errorMessage: string;
+}) {
+  try {
+    await db.insert(statementImportsTable).values({
+      clientId: details.clientId,
+      bankAccountId: details.bankAccountId ?? null,
+      fileName: details.fileName,
+      mimeType: details.mimeType,
+      fileHash: details.fileHash,
+      outcome: "failed",
+      errorMessage: details.errorMessage.slice(0, 500),
+      importedLineCount: 0,
+    });
+  } catch (recordError) {
+    // Preserve the original import failure if the audit record cannot be written.
+    console.error("Failed to record statement import failure", recordError);
+  }
 }
 
 type ParsedBankLine = {
@@ -611,23 +652,38 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     clientId?: number; bankAccountId?: number | null; fileName?: string; mimeType?: string; contentBase64?: string; currency?: string;
   };
   if (!fileName || !mimeType || !contentBase64) return res.status(400).json({ error: "A statement file is required" });
+  let activeClientId: number | undefined;
+  let failedBankAccountId: number | null = null;
+  let fileHash: string | undefined;
   try {
     const buffer = Buffer.from(contentBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
-    const activeClientId = client.id;
-    const fileHash = createHash("sha256").update(buffer).digest("hex");
+    const scopedClientId = client.id;
+    const scopedFileHash = createHash("sha256").update(buffer).digest("hex");
+    activeClientId = scopedClientId;
+    fileHash = scopedFileHash;
     const previousImport = (await db.select().from(statementImportsTable).where(and(
-      eq(statementImportsTable.clientId, activeClientId),
-      eq(statementImportsTable.fileHash, fileHash),
+      eq(statementImportsTable.clientId, scopedClientId),
+      eq(statementImportsTable.fileHash, scopedFileHash),
+      eq(statementImportsTable.outcome, "completed"),
     )))[0];
     if (previousImport) {
       const previousBankAccount = previousImport.bankAccountId == null
         ? null
         : (await db.select().from(bankAccountsTable).where(and(
           eq(bankAccountsTable.id, previousImport.bankAccountId),
-          eq(bankAccountsTable.clientId, activeClientId),
+          eq(bankAccountsTable.clientId, scopedClientId),
         )))[0] ?? null;
+      await db.insert(statementImportsTable).values({
+        clientId: scopedClientId,
+        bankAccountId: previousImport.bankAccountId,
+        fileName,
+        mimeType,
+        fileHash: scopedFileHash,
+        outcome: "duplicate",
+        importedLineCount: previousImport.importedLineCount,
+      });
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
         importStatus: "duplicate_file",
@@ -666,39 +722,59 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
       eq(bankAccountsTable.id, Number(bankAccountId)),
-      eq(bankAccountsTable.clientId, activeClientId),
+      eq(bankAccountsTable.clientId, scopedClientId),
     )))[0];
     if (bankAccountId != null && !selectedBankAccount) {
       return res.status(400).json({ error: "Selected bank account was not found for this client." });
     }
+    failedBankAccountId = selectedBankAccount?.id ?? null;
     const importResult = await db.transaction(async (tx) => {
       const [createdImport] = await tx.insert(statementImportsTable).values({
-        clientId: activeClientId,
+        clientId: scopedClientId,
         bankAccountId: null,
         fileName,
-        fileHash,
+        mimeType,
+        fileHash: scopedFileHash,
+        outcome: "completed",
         importedLineCount: 0,
       }).onConflictDoNothing({
         target: [statementImportsTable.clientId, statementImportsTable.fileHash],
+        where: eq(statementImportsTable.outcome, "completed"),
       }).returning();
-      if (!createdImport) return { kind: "duplicate_file" as const };
+      if (!createdImport) {
+        const [completedImport] = await tx.select().from(statementImportsTable).where(and(
+          eq(statementImportsTable.clientId, scopedClientId),
+          eq(statementImportsTable.fileHash, scopedFileHash),
+          eq(statementImportsTable.outcome, "completed"),
+        )).limit(1);
+        await tx.insert(statementImportsTable).values({
+          clientId: scopedClientId,
+          bankAccountId: completedImport?.bankAccountId ?? selectedBankAccount?.id ?? null,
+          fileName,
+          mimeType,
+          fileHash: scopedFileHash,
+          outcome: "duplicate",
+          importedLineCount: completedImport?.importedLineCount ?? 0,
+        });
+        return { kind: "duplicate_file" as const, completedImport };
+      }
 
       let detectedBankAccount = selectedBankAccount;
       const cleanBankAccount = cleanBankAccountDraft(candidate.bankAccount, currency);
       if (!detectedBankAccount && cleanBankAccount) {
-        const identityKey = bankAccountIdentityKey(activeClientId, cleanBankAccount);
-        const accounts = await tx.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, activeClientId));
+        const identityKey = bankAccountIdentityKey(scopedClientId, cleanBankAccount);
+        const accounts = await tx.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, scopedClientId));
         detectedBankAccount = accounts.find((account) => matchesBankAccountDraft(account, cleanBankAccount, identityKey)) ?? null;
         if (!detectedBankAccount) {
           const [createdBankAccount] = await tx.insert(bankAccountsTable).values({
-            clientId: activeClientId,
+            clientId: scopedClientId,
             ...cleanBankAccount,
             identityKey,
           }).onConflictDoNothing({
             target: bankAccountsTable.identityKey,
           }).returning();
           detectedBankAccount = createdBankAccount ?? (await tx.select().from(bankAccountsTable).where(and(
-            eq(bankAccountsTable.clientId, activeClientId),
+            eq(bankAccountsTable.clientId, scopedClientId),
             eq(bankAccountsTable.identityKey, identityKey),
           )))[0] ?? null;
         }
@@ -715,7 +791,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         const amount = String(Math.abs(line.amount));
         const currencyValue = (line.currency || currency).trim().toUpperCase();
         return {
-          clientId: activeClientId,
+          clientId: scopedClientId,
           bankAccountId: detectedBankAccount?.id ?? null,
           date: line.date,
           description: line.description.trim(),
@@ -727,7 +803,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           accountSuggestion,
           confidence,
           importDedupeKey: importDedupeKey({
-            clientId: activeClientId,
+            clientId: scopedClientId,
             bankAccountId: detectedBankAccount?.id ?? null,
             date: line.date,
             description: line.description,
@@ -737,7 +813,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           }),
         };
       });
-      const existingLines = await tx.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, activeClientId));
+      const existingLines = await tx.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, scopedClientId));
       const seenKeys = new Set<string>();
       const duplicateLines: Array<{
         date: string;
@@ -776,12 +852,12 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           continue;
         }
         seenKeys.add(line.importDedupeKey);
-        const [insertedLine] = await tx.insert(statementLinesTable).values(line).onConflictDoNothing({
-          target: statementLinesTable.importDedupeKey,
-        }).returning();
+        const insertedLine = await createStatementLineAndJournal(tx, line, {
+          ignoreExistingImportDedupeKey: true,
+        });
         if (!insertedLine) {
           const racedLine = (await tx.select().from(statementLinesTable).where(and(
-            eq(statementLinesTable.clientId, activeClientId),
+            eq(statementLinesTable.clientId, scopedClientId),
             eq(statementLinesTable.importDedupeKey, line.importDedupeKey),
           )))[0];
           duplicateLines.push({
@@ -796,18 +872,6 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           continue;
         }
         inserted.push(insertedLine);
-        await tx.insert(journalEntriesTable).values({
-          statementLineId: insertedLine.id,
-          clientId: insertedLine.clientId,
-          date: insertedLine.date,
-          memo: insertedLine.description,
-          currency: insertedLine.currency,
-          status: "suggested",
-          confidence: insertedLine.confidence ?? "0.80",
-          debitAccount: insertedLine.direction === "inflow" ? "Bank / cash" : (insertedLine.accountSuggestion ?? "Uncategorized"),
-          creditAccount: insertedLine.direction === "inflow" ? (insertedLine.accountSuggestion ?? "Uncategorized") : "Bank / cash",
-          amount: insertedLine.amount,
-        });
       }
       await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
       return { kind: "imported" as const, inserted, duplicateLines, detectedBankAccount };
@@ -841,6 +905,16 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     }));
   } catch (error) {
     req.log.error({ err: error }, "Statement import failed");
+    if (activeClientId !== undefined && fileHash) {
+      await recordFailedStatementImport({
+        clientId: activeClientId,
+        bankAccountId: failedBankAccountId,
+        fileName,
+        mimeType,
+        fileHash,
+        errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
+      });
+    }
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
   }
 });
@@ -1174,7 +1248,17 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
   const body = CreateStatementLineBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
-  const [line] = await db.insert(statementLinesTable).values({
+  if (body.bankAccountId != null) {
+    const [bankAccount] = await db.select({ id: bankAccountsTable.id })
+      .from(bankAccountsTable)
+      .where(and(
+        eq(bankAccountsTable.id, body.bankAccountId),
+        eq(bankAccountsTable.clientId, client.id),
+      ))
+      .limit(1);
+    if (!bankAccount) return res.status(400).json({ error: "Selected bank account was not found for this client." });
+  }
+  const line = await db.transaction((tx) => createStatementLineAndJournal(tx, {
     ...body,
     clientId: client.id,
     amount: String(body.amount),
@@ -1182,9 +1266,9 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
     source: "Manual entry",
     accountSuggestion: suggestAccount(body.description, body.direction),
     confidence: "0.75",
-  }).returning();
-  await createSuggestedEntry(line);
-  res.status(201).json(CreateStatementLineResponse.parse({
+  }));
+  if (!line) throw new Error("Manual statement line was not created.");
+  return res.status(201).json(CreateStatementLineResponse.parse({
     ...line,
     amount: number(line.amount),
     confidence: line.confidence == null ? null : number(line.confidence),

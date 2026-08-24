@@ -1,4 +1,5 @@
-import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { check, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const usersTable = pgTable("users", {
   id: varchar("id").primaryKey(),
@@ -38,7 +39,19 @@ export const clientWorkspacesTable = pgTable(
     userId: varchar("user_id").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [uniqueIndex("ledgerflow_client_workspaces_client_user_idx").on(table.clientId, table.userId)],
+  (table) => [
+    uniqueIndex("ledgerflow_client_workspaces_client_user_idx").on(table.clientId, table.userId),
+    foreignKey({
+      columns: [table.clientId],
+      foreignColumns: [clientsTable.id],
+      name: "ledgerflow_client_workspaces_client_fk",
+    }),
+    foreignKey({
+      columns: [table.userId],
+      foreignColumns: [usersTable.id],
+      name: "ledgerflow_client_workspaces_user_fk",
+    }),
+  ],
 );
 
 export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
@@ -52,6 +65,11 @@ export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   identityKeyUnique: uniqueIndex("ledgerflow_bank_accounts_identity_key_idx").on(table.identityKey),
+  clientForeignKey: foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_bank_accounts_client_fk",
+  }),
 }));
 
 export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
@@ -59,11 +77,30 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
   clientId: integer("client_id").notNull(),
   bankAccountId: integer("bank_account_id"),
   fileName: text("file_name").notNull(),
+  mimeType: text("mime_type").notNull().default("application/octet-stream"),
   fileHash: text("file_hash").notNull(),
+  outcome: text("outcome").notNull().default("completed"),
+  errorMessage: text("error_message"),
   importedLineCount: integer("imported_line_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  clientFileHashUnique: uniqueIndex("ledgerflow_statement_imports_client_file_hash_idx").on(table.clientId, table.fileHash),
+  clientCompletedFileHashUnique: uniqueIndex("ledgerflow_statement_imports_client_file_hash_idx")
+    .on(table.clientId, table.fileHash)
+    .where(sql`outcome = 'completed'`),
+  clientForeignKey: foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_statement_imports_client_fk",
+  }),
+  bankAccountForeignKey: foreignKey({
+    columns: [table.bankAccountId],
+    foreignColumns: [bankAccountsTable.id],
+    name: "ledgerflow_statement_imports_bank_account_fk",
+  }),
+  outcomeCheck: check(
+    "ledgerflow_statement_imports_outcome_check",
+    sql`outcome in ('completed', 'duplicate', 'failed')`,
+  ),
 }));
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -82,6 +119,16 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   importDedupeKeyUnique: uniqueIndex("ledgerflow_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
+  clientForeignKey: foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_statement_lines_client_fk",
+  }),
+  bankAccountForeignKey: foreignKey({
+    columns: [table.bankAccountId],
+    foreignColumns: [bankAccountsTable.id],
+    name: "ledgerflow_statement_lines_bank_account_fk",
+  }),
 }));
 
 export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
@@ -97,7 +144,19 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   creditAccount: text("credit_account").notNull(),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  statementLineUnique: uniqueIndex("ledgerflow_journal_entries_statement_line_id_idx").on(table.statementLineId),
+  clientForeignKey: foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_journal_entries_client_fk",
+  }),
+  statementLineForeignKey: foreignKey({
+    columns: [table.statementLineId],
+    foreignColumns: [statementLinesTable.id],
+    name: "ledgerflow_journal_entries_statement_line_fk",
+  }),
+}));
 
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;

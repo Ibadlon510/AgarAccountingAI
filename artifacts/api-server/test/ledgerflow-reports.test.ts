@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
 import { randomUUID } from "node:crypto";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 type TrialBalanceRow = {
   account: string;
@@ -83,6 +83,8 @@ after(async () => {
     if (activeDatabase && createdClientIds.length) {
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
         .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.statementImportsTable)
+        .where(inArray(activeDatabase.statementImportsTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.statementLinesTable)
         .where(inArray(activeDatabase.statementLinesTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.bankAccountsTable)
@@ -647,4 +649,212 @@ test("keeps AI bulk actions client-scoped, status-scoped, and atomic", async () 
     assert.match(broadRequest.body.answer, expectedText);
     assert.deepEqual(broadRequest.body.recommendations, []);
   }
+});
+
+test("rolls back a failed manual intake and enforces one client-scoped journal proposal", async () => {
+  const activeDatabase = database;
+  assert.ok(activeDatabase);
+  const suffix = randomUUID();
+  const clientResponse = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Intake integrity ${suffix}`,
+      legalName: `Intake integrity ${suffix} LLC`,
+    }),
+  });
+  assert.equal(clientResponse.response.status, 201);
+  const clientId = clientResponse.body.id;
+  createdClientIds.push(clientId);
+
+  const otherClientResponse = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Other intake integrity ${suffix}`,
+      legalName: `Other intake integrity ${suffix} LLC`,
+    }),
+  }, secondaryToken);
+  assert.equal(otherClientResponse.response.status, 201);
+  const otherClientId = otherClientResponse.body.id;
+  createdClientIds.push(otherClientId);
+
+  const failingDescription = `FORCE JOURNAL ROLLBACK ${suffix}`;
+  await activeDatabase.pool.query(`
+    create or replace function ledgerflow_test_reject_forced_journal()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      if new.memo like 'FORCE JOURNAL ROLLBACK%' then
+        raise exception 'forced journal proposal failure';
+      end if;
+      return new;
+    end;
+    $$;
+    drop trigger if exists ledgerflow_test_reject_forced_journal on ledgerflow_journal_entries;
+    create trigger ledgerflow_test_reject_forced_journal
+    before insert on ledgerflow_journal_entries
+    for each row execute function ledgerflow_test_reject_forced_journal();
+  `);
+  try {
+    const rollbackResponse = await fetch(`${baseUrl}/ledgerflow/statement-lines`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${primaryToken}`,
+      },
+      body: JSON.stringify({
+        clientId,
+        date: "2026-08-24",
+        description: failingDescription,
+        currency: "AED",
+        amount: 125,
+        direction: "outflow",
+      }),
+    });
+    assert.equal(rollbackResponse.status, 500);
+    await rollbackResponse.text();
+  } finally {
+    await activeDatabase.pool.query(`
+      drop trigger if exists ledgerflow_test_reject_forced_journal on ledgerflow_journal_entries;
+      drop function if exists ledgerflow_test_reject_forced_journal();
+    `);
+  }
+  const rolledBackLines = await activeDatabase.db.select()
+    .from(activeDatabase.statementLinesTable)
+    .where(and(
+      eq(activeDatabase.statementLinesTable.clientId, clientId),
+      eq(activeDatabase.statementLinesTable.description, failingDescription),
+    ));
+  assert.equal(rolledBackLines.length, 0, "A failed journal proposal must roll back its statement line.");
+
+  const lineResponse = await request<{ id: number }>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-24",
+      description: `Verified intake ${suffix}`,
+      currency: "AED",
+      amount: 125,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(lineResponse.response.status, 201);
+  const entries = await activeDatabase.db.select()
+    .from(activeDatabase.journalEntriesTable)
+    .where(eq(activeDatabase.journalEntriesTable.statementLineId, lineResponse.body.id));
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.clientId, clientId);
+
+  await assert.rejects(
+    activeDatabase.db.insert(activeDatabase.journalEntriesTable).values({
+      statementLineId: lineResponse.body.id,
+      clientId,
+      date: "2026-08-24",
+      memo: `Duplicate journal ${suffix}`,
+      currency: "AED",
+      status: "suggested",
+      confidence: "0.75",
+      debitAccount: "General expenses",
+      creditAccount: "Bank / cash",
+      amount: "125.00",
+    }),
+  );
+  await assert.rejects(
+    activeDatabase.db.insert(activeDatabase.journalEntriesTable).values({
+      statementLineId: lineResponse.body.id,
+      clientId: otherClientId,
+      date: "2026-08-24",
+      memo: `Cross-client journal ${suffix}`,
+      currency: "AED",
+      status: "suggested",
+      confidence: "0.75",
+      debitAccount: "General expenses",
+      creditAccount: "Bank / cash",
+      amount: "125.00",
+    }),
+  );
+
+  const [otherBankAccount] = await activeDatabase.db.insert(activeDatabase.bankAccountsTable).values({
+    clientId: otherClientId,
+    name: `Other account ${suffix}`,
+    currency: "AED",
+    identityKey: `other-account-${suffix}`,
+  }).returning();
+  assert.ok(otherBankAccount);
+  await assert.rejects(
+    activeDatabase.db.update(activeDatabase.bankAccountsTable)
+      .set({ clientId })
+      .where(eq(activeDatabase.bankAccountsTable.id, otherBankAccount.id)),
+  );
+  await assert.rejects(
+    activeDatabase.db.update(activeDatabase.statementLinesTable)
+      .set({ clientId: otherClientId })
+      .where(eq(activeDatabase.statementLinesTable.id, lineResponse.body.id)),
+  );
+  await assert.rejects(
+    activeDatabase.db.insert(activeDatabase.statementLinesTable).values({
+      clientId,
+      bankAccountId: otherBankAccount.id,
+      date: "2026-08-24",
+      description: `Cross-client bank account ${suffix}`,
+      currency: "AED",
+      amount: "10.00",
+      direction: "outflow",
+      status: "needs_review",
+      source: "Test",
+    }),
+  );
+});
+
+test("keeps failed statement-import attempts retryable while retaining terminal outcomes", async () => {
+  const activeDatabase = database;
+  assert.ok(activeDatabase);
+  const suffix = randomUUID();
+  const clientResponse = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Import outcome ${suffix}`,
+      legalName: `Import outcome ${suffix} LLC`,
+    }),
+  });
+  assert.equal(clientResponse.response.status, 201);
+  const clientId = clientResponse.body.id;
+  createdClientIds.push(clientId);
+
+  const source = {
+    clientId,
+    bankAccountId: null,
+    fileName: `statement-${suffix}.csv`,
+    mimeType: "text/csv",
+    fileHash: `test-file-hash-${suffix}`,
+    importedLineCount: 0,
+  };
+  await activeDatabase.db.insert(activeDatabase.statementImportsTable).values([
+    { ...source, outcome: "failed", errorMessage: "Source could not be parsed." },
+    { ...source, outcome: "failed", errorMessage: "Source could not be parsed again." },
+    { ...source, outcome: "completed" },
+    { ...source, outcome: "duplicate" },
+  ]);
+  const attempts = await activeDatabase.db.select()
+    .from(activeDatabase.statementImportsTable)
+    .where(and(
+      eq(activeDatabase.statementImportsTable.clientId, clientId),
+      eq(activeDatabase.statementImportsTable.fileHash, source.fileHash),
+    ));
+  assert.deepEqual(
+    attempts.map((attempt) => attempt.outcome).sort(),
+    ["completed", "duplicate", "failed", "failed"],
+  );
+  await assert.rejects(
+    activeDatabase.db.insert(activeDatabase.statementImportsTable).values({
+      ...source,
+      outcome: "completed",
+    }),
+  );
+  await assert.rejects(
+    activeDatabase.db.insert(activeDatabase.statementImportsTable).values({
+      ...source,
+      outcome: "unknown",
+    }),
+  );
 });
