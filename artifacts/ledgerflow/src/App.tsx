@@ -19,7 +19,12 @@ import type {
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { useAuth, type AuthUser } from '@workspace/replit-auth-web';
+import {
+  clearUserScopedState,
+  getActiveWorkspaceStorageKey,
+  useAuth,
+  type AuthUser,
+} from '@workspace/replit-auth-web';
 import { AssistantFAB } from './components/assistant-fab';
 
 const queryClient = new QueryClient();
@@ -363,7 +368,7 @@ function WorkspaceRecoveryState({ onRetry }: { onRetry: () => void }) {
 function LedgerFlowApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   const clients = clientsQuery.data ?? [];
-  const storageKey = `ledgerflow-active-client-id:${user.id}`;
+  const storageKey = getActiveWorkspaceStorageKey(user.id);
   const [activeClientId, setActiveClientId] = useState<number | null>(() => {
     const saved = Number(window.localStorage.getItem(storageKey));
     return Number.isFinite(saved) && saved > 0 ? saved : null;
@@ -391,10 +396,7 @@ function AuthBoundary() {
 
   useLayoutEffect(() => {
     if (cacheReadyForUserId !== currentUserId) {
-      queryClient.clear();
-      if (cacheReadyForUserId) {
-        window.localStorage.removeItem(`ledgerflow-active-client-id:${cacheReadyForUserId}`);
-      }
+      clearUserScopedState(queryClient, cacheReadyForUserId, window.localStorage);
       setCacheReadyForUserId(currentUserId);
     }
   }, [cacheReadyForUserId, currentUserId]);
@@ -405,8 +407,7 @@ function AuthBoundary() {
   if (!auth.user) return <AccessScreen onLogin={auth.login} returnTo={location} />;
 
   const handleLogout = () => {
-    queryClient.clear();
-    window.localStorage.removeItem(`ledgerflow-active-client-id:${auth.user?.id}`);
+    clearUserScopedState(queryClient, auth.user?.id ?? null, window.localStorage);
     auth.logout();
   };
   return <LedgerFlowApp key={auth.user.id} user={auth.user} onLogout={handleLogout} />;
