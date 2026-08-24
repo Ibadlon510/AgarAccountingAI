@@ -60,7 +60,9 @@ import {
 } from "@workspace/api-zod";
 import {
   accountClassificationsTable,
+  aiProviderConfigsTable,
   bankAccountsTable,
+  bulkTransitionAuditsTable,
   classificationPatternsTable,
   clientWorkspacesTable,
   clientsTable,
@@ -136,6 +138,27 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
 }
 function number(value: string | null | undefined) {
   return Number(value ?? 0);
+}
+
+const legacyDemoRows = [
+  { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
+  { date: "2026-08-05", description: "STRIPE PAYOUT 8472", currency: "USD", amount: "12450.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.99" },
+  { date: "2026-08-07", description: "AWS EMEA", currency: "USD", amount: "624.50", direction: "outflow", status: "needs_review", accountSuggestion: "Software & subscriptions", confidence: "0.91" },
+  { date: "2026-08-10", description: "AL FARAJ OFFICE SUPPLIES", currency: "AED", amount: "389.00", direction: "outflow", status: "needs_review", accountSuggestion: "Office expenses", confidence: "0.87" },
+  { date: "2026-08-12", description: "CLIENT RETAINER — NORTHSTAR", currency: "AED", amount: "28750.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.97" },
+  { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "needs_review", accountSuggestion: "Communication expenses", confidence: "0.84" },
+] as const;
+
+function clientResponse(client: typeof clientsTable.$inferSelect, legacyDemo = false) {
+  return {
+    id: client.id,
+    name: client.name,
+    legalName: client.legalName,
+    functionalCurrency: client.functionalCurrency,
+    basis: client.basis,
+    period: client.period,
+    legacyDemo,
+  };
 }
 
 function aiSettingsResponse(
@@ -390,6 +413,7 @@ export async function ensureUserWorkspace(userId: string) {
   await db.transaction(async (tx) => {
     const [user] = await tx.select({
       starterClientId: usersTable.starterClientId,
+      remediatedLegacyClientId: usersTable.remediatedLegacyClientId,
       firstName: usersTable.firstName,
       lastName: usersTable.lastName,
       email: usersTable.email,
@@ -398,25 +422,29 @@ export async function ensureUserWorkspace(userId: string) {
       .where(eq(usersTable.id, userId))
       .for("update");
     if (!user) throw new Error("Cannot create a workspace for an unknown user.");
-    if (user.starterClientId) return;
     const [existingWorkspace] = await tx.select({ clientId: clientWorkspacesTable.clientId })
       .from(clientWorkspacesTable)
       .where(eq(clientWorkspacesTable.userId, userId))
       .orderBy(asc(clientWorkspacesTable.createdAt))
       .limit(1);
-    if (existingWorkspace) {
-      await tx.update(usersTable)
-        .set({ starterClientId: existingWorkspace.clientId })
-        .where(eq(usersTable.id, userId));
+    const existingClientId = user.starterClientId ?? existingWorkspace?.clientId;
+    const remediatingLegacyDemo = existingClientId
+      ? await isUntouchedLegacyDemoWorkspace(tx, userId, existingClientId)
+      : false;
+    if (existingClientId && !remediatingLegacyDemo) {
+      if (!user.starterClientId) {
+        await tx.update(usersTable)
+          .set({ starterClientId: existingClientId })
+          .where(eq(usersTable.id, userId));
+      }
       return;
     }
-
     const accountName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
       || user.email?.split("@")[0]?.trim()
       || "New";
     const workspaceName = accountName === "New"
-      ? "New LedgerFlow workspace"
-      : `${accountName}'s workspace`;
+      ? "New LedgerFlow private workspace"
+      : `${accountName}'s private workspace`;
     const [client] = await tx.insert(clientsTable).values({
       name: workspaceName,
       legalName: "Legal entity to be configured",
@@ -426,8 +454,86 @@ export async function ensureUserWorkspace(userId: string) {
     }).returning();
     await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId });
     await tx.update(usersTable)
-      .set({ starterClientId: client.id })
+      .set({
+        starterClientId: client.id,
+        remediatedLegacyClientId: remediatingLegacyDemo ? existingClientId : user.remediatedLegacyClientId,
+      })
       .where(eq(usersTable.id, userId));
+  });
+}
+
+async function isUntouchedLegacyDemoWorkspace(
+  tx: LedgerflowTransaction,
+  userId: string,
+  clientId: number,
+) {
+  const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+  if (
+    !client
+    || client.name !== "Northstar Advisory"
+    || client.legalName !== "Northstar Advisory FZ-LLC"
+    || client.functionalCurrency !== "AED"
+    || client.basis !== "IFRS"
+    || client.period !== "August 2026"
+  ) return false;
+
+  const memberships = await tx.select({ userId: clientWorkspacesTable.userId })
+    .from(clientWorkspacesTable)
+    .where(eq(clientWorkspacesTable.clientId, clientId));
+  if (memberships.length !== 1 || memberships[0].userId !== userId) return false;
+  const userWorkspaces = await tx.select({ clientId: clientWorkspacesTable.clientId })
+    .from(clientWorkspacesTable)
+    .where(eq(clientWorkspacesTable.userId, userId));
+  if (userWorkspaces.length !== 1 || userWorkspaces[0].clientId !== clientId) return false;
+
+  const lines = await tx.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, clientId));
+  const entries = await tx.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId));
+  const imports = await tx.select({ id: statementImportsTable.id }).from(statementImportsTable).where(eq(statementImportsTable.clientId, clientId)).limit(1);
+  const accounts = await tx.select({ id: bankAccountsTable.id }).from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId)).limit(1);
+  const packs = await tx.select({ id: reportPacksTable.id }).from(reportPacksTable).where(eq(reportPacksTable.clientId, clientId)).limit(1);
+  const exchangeRates = await tx.select({ id: exchangeRatesTable.id }).from(exchangeRatesTable).where(eq(exchangeRatesTable.userId, userId)).limit(1);
+  const aiProviderConfig = await tx.select({ id: aiProviderConfigsTable.id }).from(aiProviderConfigsTable).where(eq(aiProviderConfigsTable.clientId, clientId)).limit(1);
+  const classifications = await tx.select({ id: accountClassificationsTable.id }).from(accountClassificationsTable).where(eq(accountClassificationsTable.clientId, clientId)).limit(1);
+  const audits = await tx.select({ id: bulkTransitionAuditsTable.id }).from(bulkTransitionAuditsTable).where(eq(bulkTransitionAuditsTable.clientId, clientId)).limit(1);
+  if (
+    lines.length !== legacyDemoRows.length
+    || entries.length !== legacyDemoRows.length
+    || imports.length
+    || accounts.length
+    || packs.length
+    || exchangeRates.length
+    || aiProviderConfig.length
+    || classifications.length
+    || audits.length
+  ) {
+    return false;
+  }
+
+  return legacyDemoRows.every((seed) => {
+    const line = lines.find((candidate) =>
+      candidate.date === seed.date
+      && candidate.description === seed.description
+      && candidate.currency === seed.currency
+      && number(candidate.amount).toFixed(2) === seed.amount
+      && candidate.direction === seed.direction
+      && candidate.status === seed.status
+      && candidate.source === "Bank statement"
+      && candidate.accountSuggestion === seed.accountSuggestion
+      && number(candidate.confidence).toFixed(2) === seed.confidence,
+    );
+    if (!line) return false;
+    const entry = entries.find((candidate) => candidate.statementLineId === line.id);
+    const expectedStatus = seed.status === "posted" ? "posted" : "suggested";
+    const expectedDebit = seed.direction === "inflow" ? "Bank / cash" : seed.accountSuggestion;
+    const expectedCredit = seed.direction === "inflow" ? seed.accountSuggestion : "Bank / cash";
+    return entry?.date === seed.date
+      && entry.memo === seed.description
+      && entry.currency === seed.currency
+      && entry.status === expectedStatus
+      && entry.debitAccount === expectedDebit
+      && entry.creditAccount === expectedCredit
+      && number(entry.amount).toFixed(2) === seed.amount
+      && number(entry.confidence).toFixed(2) === seed.confidence;
   });
 }
 
@@ -1859,14 +1965,15 @@ router.get("/clients", async (req, res) => {
   const clients = clientIds.length
     ? await db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)).orderBy(asc(clientsTable.name))
     : [];
-  res.json(clients.map((client) => ({
-    id: client.id,
-    name: client.name,
-    legalName: client.legalName,
-    functionalCurrency: client.functionalCurrency,
-    basis: client.basis,
-    period: client.period,
-  })));
+  const userId = currentUserId(req);
+  const [user] = await db.select({ remediatedLegacyClientId: usersTable.remediatedLegacyClientId })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  const legacyDemoClientIds = new Set(
+    user?.remediatedLegacyClientId != null ? [user.remediatedLegacyClientId] : [],
+  );
+  res.json(clients.map((client) => clientResponse(client, legacyDemoClientIds.has(client.id))));
 });
 
 router.post("/clients", async (req, res) => {
@@ -1880,14 +1987,7 @@ router.post("/clients", async (req, res) => {
     await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: currentUserId(req) });
     return created;
   });
-  return res.status(201).json({
-    id: client.id,
-    name: client.name,
-    legalName: client.legalName,
-    functionalCurrency: client.functionalCurrency,
-    basis: client.basis,
-    period: client.period,
-  });
+  return res.status(201).json(clientResponse(client));
 });
 
 router.patch("/clients/:id", async (req, res) => {
@@ -1902,14 +2002,7 @@ router.patch("/clients/:id", async (req, res) => {
   if (!client) {
     return res.status(404).json({ error: "Client workspace not found" });
   }
-  return res.json(UpdateClientResponse.parse({
-    id: client.id,
-    name: client.name,
-    legalName: client.legalName,
-    functionalCurrency: client.functionalCurrency,
-    basis: client.basis,
-    period: client.period,
-  }));
+  return res.json(UpdateClientResponse.parse(clientResponse(client)));
 });
 
 router.get("/ledgerflow/exchange-rates", async (req, res) => {

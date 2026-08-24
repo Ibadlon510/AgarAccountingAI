@@ -90,7 +90,8 @@ export const GetClientsResponseItem = zod.object({
   "legalName": zod.string(),
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
-  "period": zod.string()
+  "period": zod.string(),
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
 })
 export const GetClientsResponse = zod.array(GetClientsResponseItem)
 
@@ -109,7 +110,8 @@ export const CreateClientResponse = zod.object({
   "legalName": zod.string(),
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
-  "period": zod.string()
+  "period": zod.string(),
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
 })
 
 
@@ -134,7 +136,8 @@ export const UpdateClientResponse = zod.object({
   "legalName": zod.string(),
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
-  "period": zod.string()
+  "period": zod.string(),
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
 })
 
 

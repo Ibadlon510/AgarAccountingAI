@@ -13,4 +13,6 @@ export interface Client {
   functionalCurrency: string;
   basis: string;
   period: string;
+  /** True only for an untouched legacy demo workspace retained for reference. */
+  legacyDemo: boolean;
 }

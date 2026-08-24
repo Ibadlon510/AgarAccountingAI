@@ -8,6 +8,7 @@ import {
 import {
   clearUserScopedState,
   getActiveWorkspaceStorageKey,
+  selectWorkspaceForSession,
 } from '../src/lib/user-state';
 
 class MemoryStorage {
@@ -91,4 +92,15 @@ test('clears client and journal data when identities switch in one runtime', () 
     )[0].description,
     'Second client journal',
   );
+});
+
+test('defaults a remediated account away from saved demo data but allows an explicit return', () => {
+  const workspaces = [
+    { id: 10, legacyDemo: true },
+    { id: 20, legacyDemo: false },
+  ];
+
+  assert.equal(selectWorkspaceForSession(workspaces, 10, false)?.id, 20);
+  assert.equal(selectWorkspaceForSession(workspaces, 10, true)?.id, 10);
+  assert.equal(selectWorkspaceForSession(workspaces, 20, false)?.id, 20);
 });

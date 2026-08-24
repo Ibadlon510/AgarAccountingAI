@@ -839,7 +839,7 @@ components:
         - status
     Client:
       type: object
-      required: [id, name, legalName, functionalCurrency, basis, period]
+      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo]
       properties:
         id: { type: number }
         name: { type: string }
@@ -847,6 +847,9 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+        legacyDemo:
+          type: boolean
+          description: True only for an untouched legacy demo workspace retained for reference.
     ClientInput:
       type: object
       required: [name, legalName]
