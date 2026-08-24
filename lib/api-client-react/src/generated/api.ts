@@ -20,9 +20,14 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  Client,
+  ClientInput,
   FinancialStatements,
   GetFinancialStatementsParams,
+  GetJournalEntriesParams,
+  GetLedgerOverviewParams,
   GetStatementLinesParams,
+  GetTrialBalanceParams,
   HealthStatus,
   JournalEntry,
   LedgerOverview,
@@ -57,6 +62,154 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   }
   return result;
 };
+
+export const getGetClientsUrl = () => {
+
+
+
+
+  return `/api/clients`
+}
+
+/**
+ * @summary List client workspaces
+ */
+export const getClients = async ( options?: Parameters<typeof customFetch>[1]): Promise<Client[]> => {
+
+  return customFetch<Client[]>(getGetClientsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetClientsQueryKey = () => {
+    return [
+    `/api/clients`
+    ] as const;
+    }
+
+
+export const getGetClientsQueryOptions = <TData = Awaited<ReturnType<typeof getClients>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getClients>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetClientsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getClients>>> = ({ signal }) => getClients({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getClients>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetClientsQueryResult = NonNullable<Awaited<ReturnType<typeof getClients>>>
+export type GetClientsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List client workspaces
+ */
+
+export function useGetClients<TData = Awaited<ReturnType<typeof getClients>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getClients>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetClientsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateClientUrl = () => {
+
+
+
+
+  return `/api/clients`
+}
+
+/**
+ * @summary Create a client workspace
+ */
+export const createClient = async (clientInput: ClientInput, options?: Parameters<typeof customFetch>[1]): Promise<Client> => {
+
+  return customFetch<Client>(getCreateClientUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(clientInput)
+  }
+);}
+
+
+
+
+
+export const getCreateClientMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createClient>>, TError,{data: BodyType<ClientInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createClient>>, TError,{data: BodyType<ClientInput>}, TContext> => {
+
+const mutationKey = ['createClient'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createClient>>, {data: BodyType<ClientInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createClient(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateClientMutationResult = NonNullable<Awaited<ReturnType<typeof createClient>>>
+    export type CreateClientMutationBody = BodyType<ClientInput>
+    export type CreateClientMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a client workspace
+ */
+export const useCreateClient = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createClient>>, TError,{data: BodyType<ClientInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createClient>>,
+        TError,
+        {data: BodyType<ClientInput>},
+        TContext
+      > => {
+      return useMutation(getCreateClientMutationOptions(options));
+    }
 
 export const getHealthCheckUrl = () => {
 
@@ -136,20 +289,27 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
-export const getGetLedgerOverviewUrl = () => {
+export const getGetLedgerOverviewUrl = (params?: GetLedgerOverviewParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ledgerflow/overview`
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/overview?${stringifiedParams}` : `/api/ledgerflow/overview`
 }
 
 /**
  * @summary Get bookkeeping workflow overview
  */
-export const getLedgerOverview = async ( options?: Parameters<typeof customFetch>[1]): Promise<LedgerOverview> => {
+export const getLedgerOverview = async (params?: GetLedgerOverviewParams, options?: Parameters<typeof customFetch>[1]): Promise<LedgerOverview> => {
 
-  return customFetch<LedgerOverview>(getGetLedgerOverviewUrl(),
+  return customFetch<LedgerOverview>(getGetLedgerOverviewUrl(params),
   {
     ...options,
     method: 'GET'
@@ -162,23 +322,23 @@ export const getLedgerOverview = async ( options?: Parameters<typeof customFetch
 
 
 
-export const getGetLedgerOverviewQueryKey = () => {
+export const getGetLedgerOverviewQueryKey = (params?: GetLedgerOverviewParams,) => {
     return [
-    `/api/ledgerflow/overview`
+    `/api/ledgerflow/overview`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetLedgerOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerOverview>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetLedgerOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerOverview>>, TError = ErrorType<unknown>>(params?: GetLedgerOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetLedgerOverviewQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetLedgerOverviewQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerOverview>>> = ({ signal }) => getLedgerOverview({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerOverview>>> = ({ signal }) => getLedgerOverview(params, { signal, ...requestOptions });
 
 
 
@@ -196,11 +356,11 @@ export type GetLedgerOverviewQueryError = ErrorType<unknown>
  */
 
 export function useGetLedgerOverview<TData = Awaited<ReturnType<typeof getLedgerOverview>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetLedgerOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetLedgerOverviewQueryOptions(options)
+  const queryOptions = getGetLedgerOverviewQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -368,20 +528,27 @@ export const useCreateStatementLine = <TError = ErrorType<unknown>,
       return useMutation(getCreateStatementLineMutationOptions(options));
     }
 
-export const getGetJournalEntriesUrl = () => {
+export const getGetJournalEntriesUrl = (params?: GetJournalEntriesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ledgerflow/journal-entries`
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/journal-entries?${stringifiedParams}` : `/api/ledgerflow/journal-entries`
 }
 
 /**
  * @summary List journal entries
  */
-export const getJournalEntries = async ( options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry[]> => {
+export const getJournalEntries = async (params?: GetJournalEntriesParams, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry[]> => {
 
-  return customFetch<JournalEntry[]>(getGetJournalEntriesUrl(),
+  return customFetch<JournalEntry[]>(getGetJournalEntriesUrl(params),
   {
     ...options,
     method: 'GET'
@@ -394,23 +561,23 @@ export const getJournalEntries = async ( options?: Parameters<typeof customFetch
 
 
 
-export const getGetJournalEntriesQueryKey = () => {
+export const getGetJournalEntriesQueryKey = (params?: GetJournalEntriesParams,) => {
     return [
-    `/api/ledgerflow/journal-entries`
+    `/api/ledgerflow/journal-entries`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetJournalEntriesQueryOptions = <TData = Awaited<ReturnType<typeof getJournalEntries>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJournalEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetJournalEntriesQueryOptions = <TData = Awaited<ReturnType<typeof getJournalEntries>>, TError = ErrorType<unknown>>(params?: GetJournalEntriesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJournalEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetJournalEntriesQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetJournalEntriesQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJournalEntries>>> = ({ signal }) => getJournalEntries({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJournalEntries>>> = ({ signal }) => getJournalEntries(params, { signal, ...requestOptions });
 
 
 
@@ -428,11 +595,11 @@ export type GetJournalEntriesQueryError = ErrorType<unknown>
  */
 
 export function useGetJournalEntries<TData = Awaited<ReturnType<typeof getJournalEntries>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJournalEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetJournalEntriesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJournalEntries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetJournalEntriesQueryOptions(options)
+  const queryOptions = getGetJournalEntriesQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -516,20 +683,27 @@ export const useApproveJournalEntry = <TError = ErrorType<unknown>,
       return useMutation(getApproveJournalEntryMutationOptions(options));
     }
 
-export const getGetTrialBalanceUrl = () => {
+export const getGetTrialBalanceUrl = (params?: GetTrialBalanceParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ledgerflow/trial-balance`
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/trial-balance?${stringifiedParams}` : `/api/ledgerflow/trial-balance`
 }
 
 /**
  * @summary Get trial balance
  */
-export const getTrialBalance = async ( options?: Parameters<typeof customFetch>[1]): Promise<TrialBalanceRow[]> => {
+export const getTrialBalance = async (params?: GetTrialBalanceParams, options?: Parameters<typeof customFetch>[1]): Promise<TrialBalanceRow[]> => {
 
-  return customFetch<TrialBalanceRow[]>(getGetTrialBalanceUrl(),
+  return customFetch<TrialBalanceRow[]>(getGetTrialBalanceUrl(params),
   {
     ...options,
     method: 'GET'
@@ -542,23 +716,23 @@ export const getTrialBalance = async ( options?: Parameters<typeof customFetch>[
 
 
 
-export const getGetTrialBalanceQueryKey = () => {
+export const getGetTrialBalanceQueryKey = (params?: GetTrialBalanceParams,) => {
     return [
-    `/api/ledgerflow/trial-balance`
+    `/api/ledgerflow/trial-balance`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetTrialBalanceQueryOptions = <TData = Awaited<ReturnType<typeof getTrialBalance>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrialBalance>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetTrialBalanceQueryOptions = <TData = Awaited<ReturnType<typeof getTrialBalance>>, TError = ErrorType<unknown>>(params?: GetTrialBalanceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrialBalance>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetTrialBalanceQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetTrialBalanceQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrialBalance>>> = ({ signal }) => getTrialBalance({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrialBalance>>> = ({ signal }) => getTrialBalance(params, { signal, ...requestOptions });
 
 
 
@@ -576,11 +750,11 @@ export type GetTrialBalanceQueryError = ErrorType<unknown>
  */
 
 export function useGetTrialBalance<TData = Awaited<ReturnType<typeof getTrialBalance>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrialBalance>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetTrialBalanceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrialBalance>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetTrialBalanceQueryOptions(options)
+  const queryOptions = getGetTrialBalanceQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

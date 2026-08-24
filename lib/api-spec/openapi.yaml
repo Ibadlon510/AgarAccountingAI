@@ -253,6 +253,7 @@ components:
       type: object
       required: [date, description, currency, amount, direction]
       properties:
+        clientId: { type: number }
         date: { type: string }
         description: { type: string }
         currency: { type: string }

@@ -6,7 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GetFinancialStatementsParams = {
-clientId?: number;
-period?: string;
-};
+export interface ClientInput {
+  name: string;
+  legalName: string;
+}

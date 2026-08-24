@@ -9,6 +9,38 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary List client workspaces
+ */
+export const GetClientsResponseItem = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string()
+})
+export const GetClientsResponse = zod.array(GetClientsResponseItem)
+
+
+/**
+ * @summary Create a client workspace
+ */
+export const CreateClientBody = zod.object({
+  "name": zod.string(),
+  "legalName": zod.string()
+})
+
+export const CreateClientResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string()
+})
+
+
+/**
  * Returns server health status
  * @summary Health check
  */
@@ -20,6 +52,10 @@ export const HealthCheckResponse = zod.object({
 /**
  * @summary Get bookkeeping workflow overview
  */
+export const GetLedgerOverviewQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional()
+})
+
 export const GetLedgerOverviewResponse = zod.object({
   "period": zod.string(),
   "currencies": zod.array(zod.string()),
@@ -34,6 +70,7 @@ export const GetLedgerOverviewResponse = zod.object({
  * @summary List bank statement lines
  */
 export const GetStatementLinesQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional(),
   "currency": zod.coerce.string().optional(),
   "status": zod.coerce.string().optional()
 })
@@ -57,6 +94,7 @@ export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem
  * @summary Add a bank statement line
  */
 export const CreateStatementLineBody = zod.object({
+  "clientId": zod.number().optional(),
   "date": zod.string(),
   "description": zod.string(),
   "currency": zod.string(),
@@ -81,6 +119,10 @@ export const CreateStatementLineResponse = zod.object({
 /**
  * @summary List journal entries
  */
+export const GetJournalEntriesQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional()
+})
+
 export const GetJournalEntriesResponseItem = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number(),
@@ -124,6 +166,10 @@ export const ApproveJournalEntryResponse = zod.object({
 /**
  * @summary Get trial balance
  */
+export const GetTrialBalanceQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional()
+})
+
 export const GetTrialBalanceResponseItem = zod.object({
   "account": zod.string(),
   "category": zod.string(),
@@ -138,6 +184,7 @@ export const GetTrialBalanceResponse = zod.array(GetTrialBalanceResponseItem)
  * @summary Get financial statement reports
  */
 export const GetFinancialStatementsQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional(),
   "period": zod.coerce.string().optional()
 })
 

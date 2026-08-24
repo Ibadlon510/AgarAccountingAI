@@ -1,7 +1,18 @@
 import { integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
+export const clientsTable = pgTable("ledgerflow_clients", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  legalName: text("legal_name").notNull(),
+  functionalCurrency: text("functional_currency").notNull().default("AED"),
+  basis: text("basis").notNull().default("IFRS"),
+  period: text("period").notNull().default("August 2026"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull().default(1),
   date: text("date").notNull(),
   description: text("description").notNull(),
   currency: text("currency").notNull(),
@@ -16,6 +27,7 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
 
 export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull().default(1),
   statementLineId: integer("statement_line_id").notNull(),
   date: text("date").notNull(),
   memo: text("memo").notNull(),

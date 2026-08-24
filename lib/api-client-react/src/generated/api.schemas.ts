@@ -9,6 +9,20 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface Client {
+  id: number;
+  name: string;
+  legalName: string;
+  functionalCurrency: string;
+  basis: string;
+  period: string;
+}
+
+export interface ClientInput {
+  name: string;
+  legalName: string;
+}
+
 export interface LedgerOverview {
   period: string;
   currencies: string[];
@@ -34,6 +48,7 @@ export interface StatementLine {
 }
 
 export interface StatementLineInput {
+  clientId?: number;
   date: string;
   description: string;
   currency: string;
@@ -79,12 +94,26 @@ export interface FinancialStatements {
   cashFlow: StatementSection[];
 }
 
+export type GetLedgerOverviewParams = {
+clientId?: number;
+};
+
 export type GetStatementLinesParams = {
+clientId?: number;
 currency?: string;
 status?: string;
 };
 
+export type GetJournalEntriesParams = {
+clientId?: number;
+};
+
+export type GetTrialBalanceParams = {
+clientId?: number;
+};
+
 export type GetFinancialStatementsParams = {
+clientId?: number;
 period?: string;
 };
 

@@ -7,6 +7,7 @@
  */
 
 export type GetStatementLinesParams = {
+clientId?: number;
 currency?: string;
 status?: string;
 };

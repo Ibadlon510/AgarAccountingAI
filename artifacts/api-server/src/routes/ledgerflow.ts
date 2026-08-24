@@ -13,7 +13,7 @@ import {
   GetStatementLinesResponse,
   GetTrialBalanceResponse,
 } from "@workspace/api-zod";
-import { db, journalEntriesTable, statementLinesTable } from "@workspace/db";
+import { clientsTable, db, journalEntriesTable, statementLinesTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
@@ -27,6 +27,13 @@ const seedLines = [
 ];
 
 async function ensureSeeded() {
+  const existingClients = await db.select({ id: clientsTable.id }).from(clientsTable).limit(1);
+  if (existingClients.length === 0) {
+    await db.insert(clientsTable).values([
+      { name: "Northstar Advisory", legalName: "Northstar Advisory FZ-LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+      { name: "Cedar Studio", legalName: "Cedar Studio LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+    ]);
+  }
   const existing = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).limit(1);
   if (existing.length > 0) return;
   const inserted = await db.insert(statementLinesTable).values(seedLines).returning();
@@ -47,9 +54,42 @@ function number(value: string | null | undefined) {
   return Number(value ?? 0);
 }
 
-router.get("/ledgerflow/overview", async (_req, res) => {
+function clientIdFrom(value: unknown) {
+  const parsed = Number(value ?? 1);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+router.get("/clients", async (_req, res) => {
   await ensureSeeded();
-  const lines = await db.select().from(statementLinesTable);
+  const clients = await db.select().from(clientsTable).orderBy(asc(clientsTable.name));
+  res.json(clients.map((client) => ({
+    id: client.id,
+    name: client.name,
+    legalName: client.legalName,
+    functionalCurrency: client.functionalCurrency,
+    basis: client.basis,
+    period: client.period,
+  })));
+});
+
+router.post("/clients", async (req, res) => {
+  const body = req.body as { name?: string; legalName?: string };
+  if (!body.name || !body.legalName) return res.status(400).json({ error: "Client name and legal name are required" });
+  const [client] = await db.insert(clientsTable).values({ name: body.name, legalName: body.legalName }).returning();
+  return res.status(201).json({
+    id: client.id,
+    name: client.name,
+    legalName: client.legalName,
+    functionalCurrency: client.functionalCurrency,
+    basis: client.basis,
+    period: client.period,
+  });
+});
+
+router.get("/ledgerflow/overview", async (req, res) => {
+  await ensureSeeded();
+  const clientId = clientIdFrom(req.query.clientId);
+  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, clientId));
   const pendingReview = lines.filter((line) => line.status !== "posted").length;
   const postedAmount = lines.filter((line) => line.status === "posted").reduce((sum, line) => sum + number(line.amount), 0);
   const data = GetLedgerOverviewResponse.parse({
@@ -66,7 +106,9 @@ router.get("/ledgerflow/overview", async (_req, res) => {
 router.get("/ledgerflow/statement-lines", async (req, res) => {
   await ensureSeeded();
   const parsed = GetStatementLinesQueryParams.parse(req.query);
+  const clientId = clientIdFrom(parsed.clientId);
   const lines = await db.select().from(statementLinesTable).where(and(
+    eq(statementLinesTable.clientId, clientId),
     parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
     parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
   )).orderBy(asc(statementLinesTable.date));
@@ -94,7 +136,8 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
 
 router.get("/ledgerflow/journal-entries", async (_req, res) => {
   await ensureSeeded();
-  const entries = await db.select().from(journalEntriesTable).orderBy(asc(journalEntriesTable.date));
+  const clientId = clientIdFrom(_req.query.clientId);
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId)).orderBy(asc(journalEntriesTable.date));
   res.json(GetJournalEntriesResponse.parse(entries.map((entry) => ({
     id: entry.id,
     statementLineId: entry.statementLineId,
@@ -132,7 +175,8 @@ router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
 
 router.get("/ledgerflow/trial-balance", async (_req, res) => {
   await ensureSeeded();
-  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.status, "approved"));
+  const clientId = clientIdFrom(_req.query.clientId);
+  const entries = await db.select().from(journalEntriesTable).where(and(eq(journalEntriesTable.status, "approved"), eq(journalEntriesTable.clientId, clientId)));
   const accounts = new Map<string, { debit: number; credit: number; category: string }>();
   for (const entry of entries) {
     const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: entry.debitAccount === "Bank / cash" ? "Assets" : "Expenses" };
@@ -149,23 +193,25 @@ router.get("/ledgerflow/trial-balance", async (_req, res) => {
 
 router.get("/ledgerflow/financial-statements", async (req, res) => {
   const { period } = GetFinancialStatementsQueryParams.parse(req.query);
+  const clientId = clientIdFrom(req.query.clientId);
+  const isPrimaryClient = clientId === 1;
   const report = {
     period: period ?? "August 2026",
     incomeStatement: [
-      { label: "Revenue", amount: 41200, children: [{ label: "Service revenue", amount: 41200 }] },
-      { label: "Operating expenses", amount: -3328.5, children: [{ label: "Travel & entertainment", amount: -1840 }, { label: "Office expenses", amount: -389 }, { label: "Software & subscriptions", amount: -624.5 }, { label: "Communication expenses", amount: -475 }] },
-      { label: "Net income", amount: 37871.5 },
+      { label: "Revenue", amount: isPrimaryClient ? 41200 : 0, children: [{ label: "Service revenue", amount: isPrimaryClient ? 41200 : 0 }] },
+      { label: "Operating expenses", amount: isPrimaryClient ? -3328.5 : 0, children: [{ label: "Travel & entertainment", amount: isPrimaryClient ? -1840 : 0 }, { label: "Office expenses", amount: isPrimaryClient ? -389 : 0 }, { label: "Software & subscriptions", amount: isPrimaryClient ? -624.5 : 0 }, { label: "Communication expenses", amount: isPrimaryClient ? -475 : 0 }] },
+      { label: "Net income", amount: isPrimaryClient ? 37871.5 : 0 },
     ],
     balanceSheet: [
-      { label: "Assets", amount: 118420, children: [{ label: "Bank / cash", amount: 118420 }] },
+      { label: "Assets", amount: isPrimaryClient ? 118420 : 0, children: [{ label: "Bank / cash", amount: isPrimaryClient ? 118420 : 0 }] },
       { label: "Liabilities", amount: 0 },
-      { label: "Equity", amount: 118420 },
+      { label: "Equity", amount: isPrimaryClient ? 118420 : 0 },
     ],
     cashFlow: [
-      { label: "Net income", amount: 37871.5 },
+      { label: "Net income", amount: isPrimaryClient ? 37871.5 : 0 },
       { label: "Changes in working capital", amount: 0 },
-      { label: "Net cash from operating activities", amount: 37871.5 },
-      { label: "Net increase in cash", amount: 37871.5 },
+      { label: "Net cash from operating activities", amount: isPrimaryClient ? 37871.5 : 0 },
+      { label: "Net increase in cash", amount: isPrimaryClient ? 37871.5 : 0 },
     ],
   };
   res.json(GetFinancialStatementsResponse.parse(report));

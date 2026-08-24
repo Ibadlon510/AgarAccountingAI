@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type GetFinancialStatementsParams = {
+export type GetTrialBalanceParams = {
 clientId?: number;
-period?: string;
 };

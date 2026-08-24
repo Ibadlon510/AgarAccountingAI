@@ -6,9 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './client';
+export * from './clientInput';
 export * from './financialStatements';
 export * from './getFinancialStatementsParams';
+export * from './getJournalEntriesParams';
+export * from './getLedgerOverviewParams';
 export * from './getStatementLinesParams';
+export * from './getTrialBalanceParams';
 export * from './healthStatus';
 export * from './journalEntry';
 export * from './journalLine';

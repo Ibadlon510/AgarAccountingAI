@@ -7,6 +7,7 @@
  */
 
 export interface StatementLineInput {
+  clientId?: number;
   date: string;
   description: string;
   currency: string;
