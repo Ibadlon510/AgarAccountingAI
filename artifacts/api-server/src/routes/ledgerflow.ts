@@ -92,15 +92,6 @@ const openai = new OpenAI({
 
 type LedgerflowTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-const seedLines = [
-  { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", source: "Bank statement", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
-  { date: "2026-08-05", description: "STRIPE PAYOUT 8472", currency: "USD", amount: "12450.00", direction: "inflow", status: "posted", source: "Bank statement", accountSuggestion: "Revenue", confidence: "0.99" },
-  { date: "2026-08-07", description: "AWS EMEA", currency: "USD", amount: "624.50", direction: "outflow", status: "needs_review", source: "Bank statement", accountSuggestion: "Software & subscriptions", confidence: "0.91" },
-  { date: "2026-08-10", description: "AL FARAJ OFFICE SUPPLIES", currency: "AED", amount: "389.00", direction: "outflow", status: "needs_review", source: "Bank statement", accountSuggestion: "Office expenses", confidence: "0.87" },
-  { date: "2026-08-12", description: "CLIENT RETAINER — NORTHSTAR", currency: "AED", amount: "28750.00", direction: "inflow", status: "posted", source: "Bank statement", accountSuggestion: "Revenue", confidence: "0.97" },
-  { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "needs_review", source: "Bank statement", accountSuggestion: "Communication expenses", confidence: "0.84" },
-];
-
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
   return {
     id: entry.id,
@@ -302,7 +293,12 @@ async function requireOwnedClient(req: Request, res: Response, requestedClientId
 
 export async function ensureUserWorkspace(userId: string) {
   await db.transaction(async (tx) => {
-    const [user] = await tx.select({ starterClientId: usersTable.starterClientId })
+    const [user] = await tx.select({
+      starterClientId: usersTable.starterClientId,
+      firstName: usersTable.firstName,
+      lastName: usersTable.lastName,
+      email: usersTable.email,
+    })
       .from(usersTable)
       .where(eq(usersTable.id, userId))
       .for("update");
@@ -320,9 +316,15 @@ export async function ensureUserWorkspace(userId: string) {
       return;
     }
 
+    const accountName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
+      || user.email?.split("@")[0]?.trim()
+      || "New";
+    const workspaceName = accountName === "New"
+      ? "New LedgerFlow workspace"
+      : `${accountName}'s workspace`;
     const [client] = await tx.insert(clientsTable).values({
-      name: "Northstar Advisory",
-      legalName: "Northstar Advisory FZ-LLC",
+      name: workspaceName,
+      legalName: "Legal entity to be configured",
       functionalCurrency: "AED",
       basis: "IFRS",
       period: "August 2026",
@@ -331,22 +333,6 @@ export async function ensureUserWorkspace(userId: string) {
     await tx.update(usersTable)
       .set({ starterClientId: client.id })
       .where(eq(usersTable.id, userId));
-    const inserted = await tx.insert(statementLinesTable).values(seedLines.map((line) => ({
-      ...line,
-      clientId: client.id,
-    }))).returning();
-    await tx.insert(journalEntriesTable).values(inserted.map((line) => ({
-      clientId: line.clientId,
-      statementLineId: line.id,
-      date: line.date,
-      memo: line.description,
-      currency: line.currency,
-      status: line.status === "posted" ? "posted" : "suggested",
-      confidence: line.confidence ?? "0.80",
-      debitAccount: line.direction === "inflow" ? "Bank / cash" : (line.accountSuggestion ?? "Uncategorized"),
-      creditAccount: line.direction === "inflow" ? (line.accountSuggestion ?? "Uncategorized") : "Bank / cash",
-      amount: line.amount,
-    })));
   });
 }
 
@@ -1811,9 +1797,9 @@ router.post("/clients", async (req, res) => {
 
 router.patch("/clients/:id", async (req, res) => {
   const { id } = UpdateClientParams.parse(req.params);
-  const body = UpdateClientBody.parse(req.body);
   const ownedClient = await requireOwnedClient(req, res, id);
   if (!ownedClient) return;
+  const body = UpdateClientBody.parse(req.body);
   const [client] = await db.update(clientsTable)
     .set(body)
     .where(eq(clientsTable.id, ownedClient.id))

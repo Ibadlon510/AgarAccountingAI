@@ -810,3 +810,78 @@ export const GetFinancialStatementsResponse = zod.object({
 })
 
 
+/**
+ * @summary Get a reconciled comparative IFRS-style report pack
+ */
+export const GetReportPackQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional(),
+  "period": zod.date().optional().describe('Reporting period end in YYYY-MM-DD format. Defaults to the client close period or latest posted entry.')
+})
+
+export const GetReportPackResponse = zod.object({
+  "period": zod.string(),
+  "comparativePeriod": zod.string(),
+  "periodEnd": zod.coerce.date(),
+  "comparativePeriodEnd": zod.coerce.date(),
+  "entityName": zod.string(),
+  "legalName": zod.string(),
+  "basis": zod.string(),
+  "functionalCurrency": zod.string(),
+  "status": zod.enum(['ready', 'needs_review']),
+  "validationIssues": zod.array(zod.object({
+  "code": zod.string(),
+  "severity": zod.enum(['error', 'warning', 'input']),
+  "message": zod.string(),
+  "details": zod.array(zod.string())
+})),
+  "applicability": zod.array(zod.object({
+  "standard": zod.string(),
+  "topic": zod.string(),
+  "status": zod.enum(['applicable', 'not_applicable', 'immaterial', 'satisfied', 'requires_input']),
+  "rationale": zod.string()
+})),
+  "financialPosition": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "comparativeAmount": zod.number(),
+  "children": zod.array(zod.unknown()).optional()
+})),
+  "profitOrLoss": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "comparativeAmount": zod.number(),
+  "children": zod.array(zod.unknown()).optional()
+})),
+  "changesInEquity": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "comparativeAmount": zod.number(),
+  "children": zod.array(zod.unknown()).optional()
+})),
+  "cashFlows": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "comparativeAmount": zod.number(),
+  "children": zod.array(zod.unknown()).optional()
+})),
+  "notes": zod.array(zod.object({
+  "number": zod.number(),
+  "title": zod.string(),
+  "status": zod.enum(['generated', 'requires_input', 'not_applicable']),
+  "narrative": zod.string(),
+  "rows": zod.array(zod.object({
+  "label": zod.string(),
+  "amount": zod.number(),
+  "comparativeAmount": zod.number()
+}))
+})),
+  "traceability": zod.object({
+  "postedEntryCount": zod.number(),
+  "comparativePostedEntryCount": zod.number(),
+  "sourceLineCount": zod.number(),
+  "missingRateCount": zod.number(),
+  "missingRateCurrencies": zod.array(zod.string())
+})
+})
+
+

@@ -491,6 +491,106 @@ export interface FinancialStatements {
   cashFlow: StatementSection[];
 }
 
+export interface ComparativeStatementSection {
+  label: string;
+  amount: number;
+  comparativeAmount: number;
+  children?: ComparativeStatementSection[];
+}
+
+export type ReportValidationIssueSeverity = typeof ReportValidationIssueSeverity[keyof typeof ReportValidationIssueSeverity];
+
+
+export const ReportValidationIssueSeverity = {
+  error: 'error',
+  warning: 'warning',
+  input: 'input',
+} as const;
+
+export interface ReportValidationIssue {
+  code: string;
+  severity: ReportValidationIssueSeverity;
+  message: string;
+  details: string[];
+}
+
+export type ReportNoteStatus = typeof ReportNoteStatus[keyof typeof ReportNoteStatus];
+
+
+export const ReportNoteStatus = {
+  generated: 'generated',
+  requires_input: 'requires_input',
+  not_applicable: 'not_applicable',
+} as const;
+
+export type ReportNoteRowsItem = {
+  label: string;
+  amount: number;
+  comparativeAmount: number;
+};
+
+export interface ReportNote {
+  number: number;
+  title: string;
+  status: ReportNoteStatus;
+  narrative: string;
+  rows: ReportNoteRowsItem[];
+}
+
+export type ReportApplicabilityItemStatus = typeof ReportApplicabilityItemStatus[keyof typeof ReportApplicabilityItemStatus];
+
+
+export const ReportApplicabilityItemStatus = {
+  applicable: 'applicable',
+  not_applicable: 'not_applicable',
+  immaterial: 'immaterial',
+  satisfied: 'satisfied',
+  requires_input: 'requires_input',
+} as const;
+
+export interface ReportApplicabilityItem {
+  standard: string;
+  topic: string;
+  status: ReportApplicabilityItemStatus;
+  rationale: string;
+}
+
+export type ReportPackStatus = typeof ReportPackStatus[keyof typeof ReportPackStatus];
+
+
+export const ReportPackStatus = {
+  ready: 'ready',
+  needs_review: 'needs_review',
+} as const;
+
+export type ReportPackTraceability = {
+  postedEntryCount: number;
+  comparativePostedEntryCount: number;
+  sourceLineCount: number;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
+};
+
+export interface ReportPack {
+  period: string;
+  comparativePeriod: string;
+  periodEnd: string;
+  comparativePeriodEnd: string;
+  entityName: string;
+  legalName: string;
+  basis: string;
+  functionalCurrency: string;
+  status: ReportPackStatus;
+  validationIssues: ReportValidationIssue[];
+  applicability: ReportApplicabilityItem[];
+  financialPosition: ComparativeStatementSection[];
+  profitOrLoss: ComparativeStatementSection[];
+  changesInEquity: ComparativeStatementSection[];
+  cashFlows: ComparativeStatementSection[];
+  notes: ReportNote[];
+  traceability: ReportPackTraceability;
+}
+
 export type GetLedgerOverviewParams = {
 clientId?: number;
 };
@@ -523,6 +623,14 @@ clientId?: number;
 
 export type GetFinancialStatementsParams = {
 clientId?: number;
+period?: string;
+};
+
+export type GetReportPackParams = {
+clientId?: number;
+/**
+ * Reporting period end in YYYY-MM-DD format. Defaults to the client close period or latest posted entry.
+ */
 period?: string;
 };
 

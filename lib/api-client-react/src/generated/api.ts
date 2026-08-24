@@ -46,11 +46,13 @@ import type {
   GetJournalEntriesParams,
   GetLedgerOverviewParams,
   GetLedgerflowAISettingsParams,
+  GetReportPackParams,
   GetStatementLinesParams,
   GetTrialBalanceParams,
   HealthStatus,
   JournalEntry,
   LedgerOverview,
+  ReportPack,
   StatementImportInput,
   StatementImportResult,
   StatementLine,
@@ -2117,6 +2119,90 @@ export function useGetFinancialStatements<TData = Awaited<ReturnType<typeof getF
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetFinancialStatementsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetReportPackUrl = (params?: GetReportPackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/report-pack?${stringifiedParams}` : `/api/ledgerflow/report-pack`
+}
+
+/**
+ * @summary Get a reconciled comparative IFRS-style report pack
+ */
+export const getReportPack = async (params?: GetReportPackParams, options?: Parameters<typeof customFetch>[1]): Promise<ReportPack> => {
+
+  return customFetch<ReportPack>(getGetReportPackUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReportPackQueryKey = (params?: GetReportPackParams,) => {
+    return [
+    `/api/ledgerflow/report-pack`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetReportPackQueryOptions = <TData = Awaited<ReturnType<typeof getReportPack>>, TError = ErrorType<unknown>>(params?: GetReportPackParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReportPack>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReportPackQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReportPack>>> = ({ signal }) => getReportPack(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReportPack>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReportPackQueryResult = NonNullable<Awaited<ReturnType<typeof getReportPack>>>
+export type GetReportPackQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a reconciled comparative IFRS-style report pack
+ */
+
+export function useGetReportPack<TData = Awaited<ReturnType<typeof getReportPack>>, TError = ErrorType<unknown>>(
+ params?: GetReportPackParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReportPack>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReportPackQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
