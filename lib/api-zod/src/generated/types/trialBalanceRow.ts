@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface HealthStatus {
-  status: string;
+export interface TrialBalanceRow {
+  account: string;
+  category: string;
+  debit: number;
+  credit: number;
+  balance: number;
 }

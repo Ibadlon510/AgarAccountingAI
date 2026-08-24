@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: ledgerflow
+    description: Accounting workflow operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,124 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /ledgerflow/overview:
+    get:
+      operationId: getLedgerOverview
+      tags: [ledgerflow]
+      summary: Get bookkeeping workflow overview
+      responses:
+        "200":
+          description: Current workflow summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerOverview"
+  /ledgerflow/statement-lines:
+    get:
+      operationId: getStatementLines
+      tags: [ledgerflow]
+      summary: List bank statement lines
+      parameters:
+        - name: currency
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Bank statement lines
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatementLine"
+    post:
+      operationId: createStatementLine
+      tags: [ledgerflow]
+      summary: Add a bank statement line
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineInput"
+      responses:
+        "201":
+          description: Statement line created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLine"
+  /ledgerflow/journal-entries:
+    get:
+      operationId: getJournalEntries
+      tags: [ledgerflow]
+      summary: List journal entries
+      responses:
+        "200":
+          description: Journal entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JournalEntry"
+  /ledgerflow/journal-entries/{id}/approve:
+    post:
+      operationId: approveJournalEntry
+      tags: [ledgerflow]
+      summary: Approve a suggested journal entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Approved journal entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+  /ledgerflow/trial-balance:
+    get:
+      operationId: getTrialBalance
+      tags: [ledgerflow]
+      summary: Get trial balance
+      responses:
+        "200":
+          description: Trial balance
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrialBalanceRow"
+  /ledgerflow/financial-statements:
+    get:
+      operationId: getFinancialStatements
+      tags: [ledgerflow]
+      summary: Get financial statement reports
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Income statement, balance sheet, and indirect cash flow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinancialStatements"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +153,92 @@ components:
           type: string
       required:
         - status
+    LedgerOverview:
+      type: object
+      required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent]
+      properties:
+        period: { type: string }
+        currencies:
+          type: array
+          items: { type: string }
+        totalLines: { type: number }
+        pendingReview: { type: number }
+        postedAmount: { type: number }
+        completionPercent: { type: number }
+    StatementLine:
+      type: object
+      required: [id, date, description, currency, amount, direction, status, source]
+      properties:
+        id: { type: number }
+        date: { type: string }
+        description: { type: string }
+        currency: { type: string }
+        amount: { type: number }
+        direction: { type: string }
+        status: { type: string }
+        source: { type: string }
+        accountSuggestion: { type: ["string", "null"] }
+        confidence: { type: ["number", "null"] }
+    StatementLineInput:
+      type: object
+      required: [date, description, currency, amount, direction]
+      properties:
+        date: { type: string }
+        description: { type: string }
+        currency: { type: string }
+        amount: { type: number }
+        direction: { type: string }
+    JournalLine:
+      type: object
+      required: [account, debit, credit]
+      properties:
+        account: { type: string }
+        debit: { type: number }
+        credit: { type: number }
+    JournalEntry:
+      type: object
+      required: [id, statementLineId, date, memo, currency, status, confidence, lines]
+      properties:
+        id: { type: number }
+        statementLineId: { type: number }
+        date: { type: string }
+        memo: { type: string }
+        currency: { type: string }
+        status: { type: string }
+        confidence: { type: number }
+        lines:
+          type: array
+          items: { $ref: "#/components/schemas/JournalLine" }
+    TrialBalanceRow:
+      type: object
+      required: [account, category, debit, credit, balance]
+      properties:
+        account: { type: string }
+        category: { type: string }
+        debit: { type: number }
+        credit: { type: number }
+        balance: { type: number }
+    StatementSection:
+      type: object
+      required: [label, amount]
+      properties:
+        label: { type: string }
+        amount: { type: number }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/StatementSection" }
+    FinancialStatements:
+      type: object
+      required: [period, incomeStatement, balanceSheet, cashFlow]
+      properties:
+        period: { type: string }
+        incomeStatement:
+          type: array
+          items: { $ref: "#/components/schemas/StatementSection" }
+        balanceSheet:
+          type: array
+          items: { $ref: "#/components/schemas/StatementSection" }
+        cashFlow:
+          type: array
+          items: { $ref: "#/components/schemas/StatementSection" }
 
