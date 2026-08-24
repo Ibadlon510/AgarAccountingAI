@@ -7,8 +7,10 @@ interface AuthState {
   user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: () => void;
+  error: Error | null;
+  login: (returnTo?: string) => void;
   logout: () => void;
+  retry: () => void;
 }
 
 function getBasePath() {
@@ -19,9 +21,13 @@ function getBasePath() {
 export function useAuth(): AuthState {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setIsLoading(true);
+    setError(null);
 
     fetch('/api/auth/user', { credentials: 'include' })
       .then((res) => {
@@ -37,6 +43,7 @@ export function useAuth(): AuthState {
       .catch(() => {
         if (!cancelled) {
           setUser(null);
+          setError(new Error('LedgerFlow could not verify your session.'));
           setIsLoading(false);
         }
       });
@@ -44,11 +51,14 @@ export function useAuth(): AuthState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  const login = useCallback(() => {
+  const login = useCallback((returnTo = getBasePath()) => {
     const base = getBasePath();
-    window.location.href = `/api/login?returnTo=${encodeURIComponent(base)}`;
+    const safeReturnTo = returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\') && !returnTo.includes('\r') && !returnTo.includes('\n')
+      ? returnTo
+      : base;
+    window.location.href = `/api/login?returnTo=${encodeURIComponent(safeReturnTo)}`;
   }, []);
 
   const logout = useCallback(() => {
@@ -60,7 +70,9 @@ export function useAuth(): AuthState {
     user,
     isLoading,
     isAuthenticated: !!user,
+    error,
     login,
     logout,
+    retry: useCallback(() => setAttempt((current) => current + 1), []),
   };
 }

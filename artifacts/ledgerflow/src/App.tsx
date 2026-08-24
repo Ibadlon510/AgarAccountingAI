@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, FileCheck2, FileSpreadsheet, Filter, Landmark,
-  LayoutDashboard, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search, Settings2,
-  Sparkles, Table2, UploadCloud, X
+  LayoutDashboard, LoaderCircle, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
+  Search, Settings2, Sparkles, Table2, UploadCloud, X
 } from 'lucide-react';
 import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey,
@@ -19,6 +19,7 @@ import type {
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { useAuth, type AuthUser } from '@workspace/replit-auth-web';
 import { AssistantFAB } from './components/assistant-fab';
 
 const queryClient = new QueryClient();
@@ -92,7 +93,10 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="help-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">LedgerFlow guide</div><h2 id="help-title" className="mt-2 text-lg font-semibold">How the review desk works</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">LedgerFlow keeps a human approval step between AI suggestions and the ledger.</p></div><button data-testid="button-close-help" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><div className="mt-6 space-y-3">{steps.map(([number, title, description]) => <div key={number} className="flex gap-3 rounded-md border border-border bg-muted/20 p-3"><div className="font-mono text-[10px] text-primary">{number}</div><div><div className="text-xs font-semibold">{title}</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{description}</p></div></div>)}</div><div className="mt-5 rounded-md border border-accent/25 bg-accent/10 p-3 text-[11px] leading-5 text-accent-foreground"><strong className="font-semibold">Need a quick answer?</strong> Open LedgerFlow AI from the sparkle button to ask about the selected client’s queue, entries, or reports.</div></div></div>;
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function AuthLoadingState({ label = 'Checking your LedgerFlow session' }: { label?: string }) {
+  return <div className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="flex items-center gap-3 rounded-lg border border-card-border bg-card px-5 py-4 text-sm shadow-sm" role="status" aria-live="polite"><LoaderCircle className="animate-spin text-primary" size={18} /><span>{label}…</span></div></div>;
+}
+function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AuthUser; onLogout: () => void }) {
   const { activeClient, clients, setActiveClientId } = useClientWorkspace();
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -100,6 +104,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [createClientOpen, setCreateClientOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email || 'Account';
+  const initials = [user.firstName?.[0], user.lastName?.[0]].filter(Boolean).join('').toUpperCase() || displayName.slice(0, 2).toUpperCase();
   const current = nav.find((item) => item.href === location)?.label ?? 'Close overview';
   return <div className="min-h-[100dvh] bg-background">
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
@@ -107,7 +113,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
        <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-4 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>IFRS / AED</span><span>{activeClient?.period ?? '—'}</span></div></div><button data-testid="button-settings" onClick={() => setSettingsOpen(true)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-[12px] text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Settings2 size={16} /><span className={collapsed ? 'md:hidden' : ''}>Workspace settings</span></button></div>
     </aside>
-    <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8"><div className="flex items-center gap-3"><button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="hidden h-5 w-px bg-border md:block" /><div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div></div><div className="flex items-center gap-2 md:gap-3"><select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="hidden h-9 max-w-[180px] rounded-md border border-input bg-card px-2 text-xs font-semibold md:block">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button data-testid="button-add-client" onClick={() => setCreateClientOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} /><span className="hidden sm:inline">Add client</span></button><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div><button data-testid="button-help" onClick={() => setHelpOpen(true)} aria-label="Open help" className="grid size-8 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"><CircleHelp size={16} /></button><div className="grid size-8 place-items-center rounded-full bg-primary font-mono text-[11px] font-medium text-primary-foreground">AK</div></div></header><main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>{createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}{settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}{helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}</div>
+     <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8"><div className="flex items-center gap-3"><button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="hidden h-5 w-px bg-border md:block" /><div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div></div><div className="flex items-center gap-2 md:gap-3"><select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="hidden h-9 max-w-[180px] rounded-md border border-input bg-card px-2 text-xs font-semibold md:block">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button data-testid="button-add-client" onClick={() => setCreateClientOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} /><span className="hidden sm:inline">Add client</span></button><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div><button data-testid="button-help" onClick={() => setHelpOpen(true)} aria-label="Open help" className="grid size-8 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"><CircleHelp size={16} /></button><button data-testid="button-logout" onClick={onLogout} aria-label={`Sign out ${displayName}`} className="group flex items-center gap-2 rounded-full border border-border bg-card pl-1 pr-2.5 py-1 text-left hover:border-primary/40"><span className="grid size-7 place-items-center rounded-full bg-primary font-mono text-[10px] font-medium text-primary-foreground">{initials}</span><span className="hidden max-w-[120px] truncate text-[11px] font-semibold sm:inline">{displayName}</span><LogOut size={13} className="text-muted-foreground transition-colors group-hover:text-foreground" /></button></div></header><main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>{createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}{settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}{helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}</div>
     <AssistantFAB />
   </div>;
 }
@@ -320,17 +326,70 @@ function Router() {
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">LedgerFlow / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
 }
-function LedgerFlowApp() {
+
+function WorkspaceRecoveryState({ onRetry }: { onRetry: () => void }) {
+  return <div className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm" role="alert"><div className="mx-auto grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive"><CircleAlert size={19} /></div><h1 className="mt-4 text-base font-semibold">We couldn’t load your workspaces</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">LedgerFlow could not retrieve the client workspaces available to this account. Your bookkeeping data has not been opened.</p><button data-testid="button-retry-workspaces" onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground"><RefreshCw size={14} /> Try again</button></div></div>;
+}
+function LedgerFlowApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   const clients = clientsQuery.data ?? [];
-  const [activeClientId, setActiveClientId] = useState(() => Number(window.localStorage.getItem('ledgerflow-active-client-id')) || 1);
+  const storageKey = `ledgerflow-active-client-id:${user.id}`;
+  const [activeClientId, setActiveClientId] = useState<number | null>(() => {
+    const saved = Number(window.localStorage.getItem(storageKey));
+    return Number.isFinite(saved) && saved > 0 ? saved : null;
+  });
+  const selectedClient = clients.find((client) => client.id === activeClientId) ?? clients[0];
   useEffect(() => {
-    window.localStorage.setItem('ledgerflow-active-client-id', String(activeClientId));
-  }, [activeClientId]);
-  const activeClient = clients.find((client) => client.id === activeClientId) ?? clients[0];
-  return <TooltipProvider><ClientContext.Provider value={{ activeClient, clients, setActiveClientId }}><ErrorBoundary><Shell><Router /></Shell></ErrorBoundary></ClientContext.Provider><Toaster /></TooltipProvider>;
+    if (!clients.length) return;
+    if (selectedClient && activeClientId !== selectedClient.id) setActiveClientId(selectedClient.id);
+    if (selectedClient) window.localStorage.setItem(storageKey, String(selectedClient.id));
+  }, [activeClientId, clients.length, selectedClient, storageKey]);
+  const chooseClient = (id: number) => {
+    if (clients.some((client) => client.id === id)) setActiveClientId(id);
+  };
+  if (clientsQuery.isLoading) return <AuthLoadingState label="Loading your workspaces" />;
+  if (clientsQuery.isError) return <WorkspaceRecoveryState onRetry={() => clientsQuery.refetch()} />;
+  if (!clients.length) return <WorkspaceRecoveryState onRetry={() => clientsQuery.refetch()} />;
+  return <TooltipProvider><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider><Toaster /></TooltipProvider>;
+}
+
+function AuthBoundary() {
+  const auth = useAuth();
+  const [location] = useLocation();
+  const currentUserId = auth.user?.id ?? null;
+  const [cacheReadyForUserId, setCacheReadyForUserId] = useState<string | null>(null);
+
+  useLayoutEffect(() => {
+    if (cacheReadyForUserId !== currentUserId) {
+      queryClient.clear();
+      if (cacheReadyForUserId) {
+        window.localStorage.removeItem(`ledgerflow-active-client-id:${cacheReadyForUserId}`);
+      }
+      setCacheReadyForUserId(currentUserId);
+    }
+  }, [cacheReadyForUserId, currentUserId]);
+
+  if (auth.isLoading) return <AuthLoadingState />;
+  if (auth.error) return <AuthRecoveryState onRetry={auth.retry} />;
+  if (auth.user && cacheReadyForUserId !== auth.user.id) return <AuthLoadingState label="Preparing your secure workspace" />;
+  if (!auth.user) return <AccessScreen onLogin={auth.login} returnTo={location} />;
+
+  const handleLogout = () => {
+    queryClient.clear();
+    window.localStorage.removeItem(`ledgerflow-active-client-id:${auth.user?.id}`);
+    auth.logout();
+  };
+  return <LedgerFlowApp key={auth.user.id} user={auth.user} onLogout={handleLogout} />;
 }
 function App() {
-  return <QueryClientProvider client={queryClient}><LedgerFlowApp /></QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><AuthBoundary /></QueryClientProvider>;
 }
 export default App;
+
+function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
+  return <div className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm" role="alert"><div className="mx-auto grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive"><CircleAlert size={19} /></div><h1 className="mt-4 text-base font-semibold">We couldn’t verify your access</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">LedgerFlow could not reach the session service. Your bookkeeping data has not been opened.</p><button data-testid="button-retry-auth" onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground"><RefreshCw size={14} /> Try again</button></div></div>;
+}
+
+function AccessScreen({ onLogin, returnTo }: { onLogin: (returnTo?: string) => void; returnTo: string }) {
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="auth-access-screen"><div className="w-full max-w-[420px]"><div className="rounded-lg border border-card-border bg-card p-7 shadow-md sm:p-9"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Review desk</div></div></div><div className="mt-10"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Secure access</div><h1 className="mt-3 font-display text-[36px] leading-[.98] tracking-tight">Your close, ready for review.</h1><p className="mt-4 text-[13px] leading-6 text-muted-foreground">Sign in to open your private bookkeeping review desk. New to LedgerFlow? The same secure flow lets you create an account.</p><button data-testid="button-login" onClick={() => onLogin(returnTo)} className="focus-ring mt-7 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Sign in or create account</button></div></div><p className="mt-5 text-center font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground/70">Secure session · Human approval stays in control</p></div></main>;
+}

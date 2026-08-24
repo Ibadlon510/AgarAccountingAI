@@ -9,6 +9,7 @@ import {
   updateSession,
   type SessionData,
 } from "../lib/auth";
+import { isRejectedRefreshToken } from "./refresh-token";
 
 declare global {
   namespace Express {
@@ -35,8 +36,11 @@ async function refreshIfExpired(sid: string, session: SessionData): Promise<Sess
     session.expires_at = tokens.expiresIn() ? now + tokens.expiresIn()! : session.expires_at;
     await updateSession(sid, session);
     return session;
-  } catch {
-    return null;
+  } catch (error) {
+    if (isRejectedRefreshToken(error)) {
+      return null;
+    }
+    throw error;
   }
 }
 
@@ -61,8 +65,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
     req.user = refreshed.user;
   } catch (error) {
-    req.log?.warn({ err: error }, "Session lookup failed");
-    await clearSession(res, sid);
+    req.log?.error({ err: error }, "Session lookup or refresh failed");
+    return next(error);
   }
   return next();
 }

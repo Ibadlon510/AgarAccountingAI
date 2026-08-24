@@ -1,5 +1,6 @@
 - [Generated Zod integer compatibility](zod-integer-compatibility.md) — OpenAPI integer types can fail generated Zod builds in this workspace; prefer number types until the shared Zod version is aligned.
 - [Mutation scope contracts](mutation-scope-contracts.md) — use named request bodies, not query parameters, when adding generated mutation scope in this workspace.
 - [PDF worker bundling](pdf-worker-bundling.md) — pdf-parse needs its worker emitted beside the bundled API server.
-- [AI copilot confirmation boundary](ai-copilot-confirmation-boundary.md) — AI prepares scoped proposals; users alone confirm changes, approve, and post.
+- [AI copilot confirmation boundary](ai-copilot-confirmation-boundary.md) — AI prepares scoped proposals; users alone confirm, approve, and post.
+- [Auth schema readiness](auth-schema-readiness.md) — LedgerFlow sign-in acceptance testing requires a fully applied development schema.
 - [Bank account import identity](bank-account-import-identity.md) — masked last-four digits are not unique; match client accounts using bank, account name, currency, and last four together.
