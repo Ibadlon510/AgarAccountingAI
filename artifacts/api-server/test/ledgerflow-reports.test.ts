@@ -203,3 +203,83 @@ test("keeps approved entries out of reports until posting and enforces client sc
   assert.equal(postedNetIncome - beforeNetIncome, -amount);
   assert.equal(postedCashFlow - beforeCashFlow, -amount);
 });
+
+test("allows only one concurrent posting request for an approved entry", async () => {
+  const suffix = randomUUID();
+  const clientResponse = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Concurrent posting ${suffix}`,
+      legalName: `Concurrent posting ${suffix} LLC`,
+    }),
+  });
+  assert.equal(clientResponse.response.status, 201);
+  const clientId = clientResponse.body.id;
+  createdClientIds.push(clientId);
+
+  const lineResponse = await request<{ id: number }>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-24",
+      description: `Concurrent posting expense ${suffix}`,
+      currency: "AED",
+      amount: 987.65,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(lineResponse.response.status, 201);
+
+  const entryResponse = await request<Array<{
+    id: number;
+    statementLineId: number;
+    status: string;
+  }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
+  assert.equal(entryResponse.response.status, 200);
+  const entry = entryResponse.body.find((item) => item.statementLineId === lineResponse.body.id);
+  assert.ok(entry, "Expected the newly-created journal entry");
+
+  const approveResponse = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(approveResponse.response.status, 200);
+  assert.equal(approveResponse.body.status, "approved");
+
+  const postResponses = await Promise.all([
+    request<{ status?: string; error?: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    }),
+    request<{ status?: string; error?: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    }),
+  ]);
+
+  assert.deepEqual(
+    postResponses.map(({ response }) => response.status).sort((a, b) => a - b),
+    [200, 409],
+  );
+  const successfulPost = postResponses.find(({ response }) => response.status === 200);
+  const rejectedPost = postResponses.find(({ response }) => response.status === 409);
+  assert.ok(successfulPost);
+  assert.equal(successfulPost.body.status, "posted");
+  assert.ok(rejectedPost);
+  assert.equal(rejectedPost.body.error, "Journal entry must be approved before posting");
+
+  const finalEntries = await request<Array<{
+    id: number;
+    statementLineId: number;
+    status: string;
+  }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
+  assert.equal(finalEntries.response.status, 200);
+  assert.equal(finalEntries.body.find((item) => item.id === entry.id)?.status, "posted");
+
+  const finalLines = await request<Array<{
+    id: number;
+    status: string;
+  }>>(`/ledgerflow/statement-lines?clientId=${clientId}`);
+  assert.equal(finalLines.response.status, 200);
+  assert.equal(finalLines.body.find((item) => item.id === lineResponse.body.id)?.status, "posted");
+});
