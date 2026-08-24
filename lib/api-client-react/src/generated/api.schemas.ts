@@ -167,6 +167,10 @@ export interface StatementLine {
   /** @nullable */
   confidence?: number | null;
   /** @nullable */
+  suggestionSource?: string | null;
+  /** @nullable */
+  supportingPatternCount?: number | null;
+  /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */
   functionalAmount?: number | null;
@@ -372,6 +376,10 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
+  /** @nullable */
+  suggestionSource?: string | null;
+  /** @nullable */
+  supportingPatternCount?: number | null;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }
@@ -401,6 +409,23 @@ export const AICredentialStatus = {
   unavailable: 'unavailable',
 } as const;
 
+export type AIModelStatus = typeof AIModelStatus[keyof typeof AIModelStatus];
+
+
+export const AIModelStatus = {
+  active: 'active',
+  retired: 'retired',
+} as const;
+
+export interface AIModelOption {
+  provider: AIProvider;
+  model: string;
+  displayName: string;
+  status: AIModelStatus;
+  /** @nullable */
+  retiredAt: string | null;
+}
+
 export interface AIProviderSettings {
   clientId: number;
   provider: AIProvider;
@@ -415,7 +440,8 @@ export interface AIProviderSettings {
   credentialUpdatedAt: string | null;
   /** @nullable */
   lastTestedAt: string | null;
-  availableModels: string[];
+  /** Provider-specific approved model catalog, including retired models for existing configurations. */
+  availableModels: AIModelOption[];
 }
 
 export interface AIProviderSettingsInput {
@@ -596,4 +622,3 @@ export type GetFinancialStatementsParams = {
 clientId?: number;
 period?: string;
 };
-

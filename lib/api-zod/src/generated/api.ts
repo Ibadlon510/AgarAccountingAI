@@ -410,6 +410,8 @@ export const GetStatementLinesResponseItem = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "suggestionSource": zod.string().nullish(),
+  "supportingPatternCount": zod.number().nullish(),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
@@ -444,6 +446,8 @@ export const CreateStatementLineResponse = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "suggestionSource": zod.string().nullish(),
+  "supportingPatternCount": zod.number().nullish(),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
@@ -493,6 +497,8 @@ export const ImportStatementResponse = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "suggestionSource": zod.string().nullish(),
+  "supportingPatternCount": zod.number().nullish(),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
@@ -572,6 +578,8 @@ export const AskLedgerflowAIResponse = zod.object({
 }).optional(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "suggestionSource": zod.string().nullish(),
+  "supportingPatternCount": zod.number().nullish(),
   "bankAccount": zod.union([zod.object({
   "name": zod.string(),
   "bankName": zod.string().nullish(),
@@ -603,7 +611,13 @@ export const GetLedgerflowAISettingsResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
+  "availableModels": zod.array(zod.object({
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "displayName": zod.string(),
+  "status": zod.enum(['active', 'retired']),
+  "retiredAt": zod.coerce.date().nullable()
+})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
 })
 
 
@@ -628,7 +642,13 @@ export const UpdateLedgerflowAISettingsResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
+  "availableModels": zod.array(zod.object({
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "displayName": zod.string(),
+  "status": zod.enum(['active', 'retired']),
+  "retiredAt": zod.coerce.date().nullable()
+})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
 })
 
 
@@ -647,7 +667,13 @@ export const TestLedgerflowAISettingsResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
+  "availableModels": zod.array(zod.object({
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "displayName": zod.string(),
+  "status": zod.enum(['active', 'retired']),
+  "retiredAt": zod.coerce.date().nullable()
+})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
 })
 
 
@@ -666,7 +692,13 @@ export const RemoveLedgerflowAICredentialResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
+  "availableModels": zod.array(zod.object({
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "displayName": zod.string(),
+  "status": zod.enum(['active', 'retired']),
+  "retiredAt": zod.coerce.date().nullable()
+})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
 })
 
 
@@ -936,5 +968,4 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
-
 

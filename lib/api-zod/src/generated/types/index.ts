@@ -16,6 +16,8 @@ export * from './aICopilotRecommendation';
 export * from './aICopilotRecommendationStatusTransition';
 export * from './aICopilotRecommendationType';
 export * from './aICredentialStatus';
+export * from './aIModelOption';
+export * from './aIModelStatus';
 export * from './aIProvider';
 export * from './aIProviderSettings';
 export * from './aIProviderSettingsInput';

@@ -22,6 +22,10 @@ export interface StatementLine {
   /** @nullable */
   confidence?: number | null;
   /** @nullable */
+  suggestionSource?: string | null;
+  /** @nullable */
+  supportingPatternCount?: number | null;
+  /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */
   functionalAmount?: number | null;

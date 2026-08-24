@@ -27,6 +27,10 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
+  /** @nullable */
+  suggestionSource?: string | null;
+  /** @nullable */
+  supportingPatternCount?: number | null;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }

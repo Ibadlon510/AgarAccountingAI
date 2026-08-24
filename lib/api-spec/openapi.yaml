@@ -842,6 +842,8 @@ components:
         source: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
+        suggestionSource: { type: ["string", "null"] }
+        supportingPatternCount: { type: ["number", "null"] }
         functionalCurrency: { type: ["string", "null"] }
         functionalAmount: { type: ["number", "null"] }
         exchangeRate: { type: ["number", "null"] }
@@ -987,6 +989,18 @@ components:
     AICredentialStatus:
       type: string
       enum: [not_configured, configured, invalid, unavailable]
+    AIModelStatus:
+      type: string
+      enum: [active, retired]
+    AIModelOption:
+      type: object
+      required: [provider, model, displayName, status, retiredAt]
+      properties:
+        provider: { $ref: "#/components/schemas/AIProvider" }
+        model: { type: string }
+        displayName: { type: string }
+        status: { $ref: "#/components/schemas/AIModelStatus" }
+        retiredAt: { type: ["string", "null"], format: date-time }
     AIProviderSettings:
       type: object
       required: [clientId, provider, model, credentialStatus, credentialLast4, credentialUpdatedAt, lastTestedAt, availableModels]
@@ -1000,7 +1014,9 @@ components:
         lastTestedAt: { type: ["string", "null"], format: date-time }
         availableModels:
           type: array
-          items: { type: string }
+          description: Provider-specific approved model catalog, including retired models for existing configurations.
+          items:
+            $ref: "#/components/schemas/AIModelOption"
     AIProviderSettingsInput:
       type: object
       required: [clientId, provider, model]
@@ -1044,6 +1060,8 @@ components:
             to: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
+        suggestionSource: { type: ["string", "null"] }
+        supportingPatternCount: { type: ["number", "null"] }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccountDraft"

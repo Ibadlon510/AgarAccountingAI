@@ -1,16 +1,30 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import OpenAI from "openai";
 import { eq } from "drizzle-orm";
-import { aiProviderConfigsTable, db } from "@workspace/db";
+import { aiModelCatalogTable, aiProviderConfigsTable, db } from "@workspace/db";
 
 export const AI_PROVIDERS = ["managed_openai", "openai", "anthropic"] as const;
 export type AIProvider = typeof AI_PROVIDERS[number];
 export type AICredentialStatus = "not_configured" | "configured" | "invalid" | "unavailable";
+export const AI_MODEL_STATUSES = ["active", "retired"] as const;
+export type AIModelStatus = typeof AI_MODEL_STATUSES[number];
 
-export const AI_PROVIDER_MODELS: Record<AIProvider, readonly string[]> = {
-  managed_openai: ["gpt-5.6-luna"],
-  openai: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
-  anthropic: ["claude-3-5-sonnet-latest", "claude-3-7-sonnet-latest", "claude-sonnet-4-20250514"],
+const DEFAULT_AI_MODEL_CATALOG = [
+  { provider: "managed_openai", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
+  { provider: "openai", model: "gpt-4o-mini", displayName: "GPT-4o mini" },
+  { provider: "openai", model: "gpt-4o", displayName: "GPT-4o" },
+  { provider: "openai", model: "gpt-4.1-mini", displayName: "GPT-4.1 mini" },
+  { provider: "anthropic", model: "claude-3-5-sonnet-latest", displayName: "Claude 3.5 Sonnet" },
+  { provider: "anthropic", model: "claude-3-7-sonnet-latest", displayName: "Claude 3.7 Sonnet" },
+  { provider: "anthropic", model: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+] as const;
+
+export type AIModelOption = {
+  provider: AIProvider;
+  model: string;
+  displayName: string;
+  status: AIModelStatus;
+  retiredAt: Date | null;
 };
 
 export type AIProviderConfig = {
@@ -22,6 +36,43 @@ export type AIProviderConfig = {
   credentialUpdatedAt: Date | null;
   lastTestedAt: Date | null;
 };
+
+function modelCatalogResponse(record: typeof aiModelCatalogTable.$inferSelect): AIModelOption {
+  return {
+    provider: isAIProvider(record.provider) ? record.provider : "managed_openai",
+    model: record.model,
+    displayName: record.displayName,
+    status: record.status === "active" ? "active" : "retired",
+    retiredAt: record.retiredAt,
+  };
+}
+
+async function seedDefaultAIModelCatalog() {
+  await db.insert(aiModelCatalogTable).values(DEFAULT_AI_MODEL_CATALOG.map((model) => ({
+    ...model,
+    provider: model.provider as AIProvider,
+  }))).onConflictDoNothing({
+    target: [aiModelCatalogTable.provider, aiModelCatalogTable.model],
+  });
+}
+
+export async function getAIModelCatalog() {
+  await seedDefaultAIModelCatalog();
+  const records = await db.select().from(aiModelCatalogTable);
+  return records
+    .filter((record) => isAIProvider(record.provider) && isAIModelStatus(record.status))
+    .map(modelCatalogResponse)
+    .sort((left, right) => left.provider.localeCompare(right.provider) || left.displayName.localeCompare(right.displayName));
+}
+
+export function isAIModel(
+  catalog: readonly AIModelOption[],
+  provider: AIProvider,
+  model: unknown,
+): model is string {
+  return typeof model === "string"
+    && catalog.some((option) => option.provider === provider && option.model === model && option.status === "active");
+}
 
 export type AIMessage = { role: "system" | "user" | "assistant"; content: string };
 
@@ -64,15 +115,27 @@ export function isAIProvider(value: unknown): value is AIProvider {
   return typeof value === "string" && AI_PROVIDERS.includes(value as AIProvider);
 }
 
-export function isAIModel(provider: AIProvider, model: unknown): model is string {
-  return typeof model === "string" && AI_PROVIDER_MODELS[provider].includes(model);
+function isAIModelStatus(value: unknown): value is AIModelStatus {
+  return typeof value === "string" && AI_MODEL_STATUSES.includes(value as AIModelStatus);
 }
 
-function defaultConfig(clientId: number): AIProviderConfig {
+async function activeManagedModel() {
+  return (await getAIModelCatalog()).find((option) => option.provider === "managed_openai" && option.status === "active") ?? null;
+}
+
+async function defaultConfig(clientId: number): Promise<AIProviderConfig> {
+  const managedModel = await activeManagedModel();
+  if (!managedModel) {
+    throw new AIProviderError(
+      "unavailable",
+      "No active Replit-managed AI model is approved. Ask a workspace administrator to restore one before using managed OpenAI.",
+      409,
+    );
+  }
   return {
     clientId,
     provider: "managed_openai",
-    model: AI_PROVIDER_MODELS.managed_openai[0],
+    model: managedModel.model,
     credentialStatus: "not_configured",
     credentialLast4: null,
     credentialUpdatedAt: null,
@@ -140,9 +203,17 @@ export async function saveAIProviderConfig(
 }
 
 export async function removeAIProviderCredential(clientId: number) {
+  const managedModel = await activeManagedModel();
+  if (!managedModel) {
+    throw new AIProviderError(
+      "unavailable",
+      "No active Replit-managed AI model is approved. Choose an active workspace-owned model before removing this credential.",
+      409,
+    );
+  }
   const [record] = await db.update(aiProviderConfigsTable).set({
     provider: "managed_openai",
-    model: AI_PROVIDER_MODELS.managed_openai[0],
+    model: managedModel.model,
     credentialStatus: "not_configured",
     encryptedCredential: null,
     credentialLast4: null,
@@ -238,6 +309,10 @@ async function completeAnthropic(config: AIProviderConfig, messages: AIMessage[]
 
 export async function completeAI(clientId: number, messages: AIMessage[], options?: { json?: boolean; maxTokens?: number }) {
   const config = await getAIProviderConfig(clientId);
+  const catalog = await getAIModelCatalog();
+  if (!isAIModel(catalog, config.provider, config.model)) {
+    throw new AIProviderError("unavailable", "The selected AI model is no longer available. Choose an active model in AI settings.");
+  }
   try {
     const content = config.provider === "anthropic"
       ? await completeAnthropic(config, messages, options?.maxTokens ?? 8192)

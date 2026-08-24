@@ -32,6 +32,8 @@ import {
   CreateStatementLineResponse,
   GetFinancialStatementsQueryParams,
   GetFinancialStatementsResponse,
+  GetLedgerflowAISettingsQueryParams,
+  GetLedgerflowAISettingsResponse,
   GetJournalEntriesResponse,
   GetLedgerOverviewResponse,
   GetStatementLinesQueryParams,
@@ -61,9 +63,9 @@ import {
   usersTable,
 } from "@workspace/db";
 import {
-  AI_PROVIDER_MODELS,
   AIProviderError,
   completeAI,
+  getAIModelCatalog,
   getAIProviderConfig,
   isAIModel,
   isAIProvider,
@@ -122,6 +124,22 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
 }
 function number(value: string | null | undefined) {
   return Number(value ?? 0);
+}
+
+function aiSettingsResponse(
+  config: Awaited<ReturnType<typeof getAIProviderConfig>>,
+  availableModels: Awaited<ReturnType<typeof getAIModelCatalog>>,
+) {
+  return {
+    clientId: config.clientId,
+    provider: config.provider,
+    model: config.model,
+    credentialStatus: config.credentialStatus,
+    credentialLast4: config.credentialLast4,
+    credentialUpdatedAt: config.credentialUpdatedAt,
+    lastTestedAt: config.lastTestedAt,
+    availableModels,
+  };
 }
 
 function calendarDate(value: string | Date | null | undefined) {
@@ -1439,11 +1457,7 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     return;
   }
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
-      max_completion_tokens: 1200,
-      response_format: { type: "json_object" },
-      messages: [
+    const content = await completeAI(client.id, [
         {
           role: "system",
           content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
@@ -1461,9 +1475,8 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
             question: message,
           }),
         },
-      ],
-    });
-    const raw = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
+      ], { json: true, maxTokens: 1200 });
+    const raw = JSON.parse(content ?? "{}") as { answer?: unknown; recommendations?: unknown };
       const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
       const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
         .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
@@ -1475,7 +1488,85 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
     req.log.error({ err: error }, "AI workspace chat failed");
+    if (error instanceof AIProviderError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
     res.status(502).json({ error: "The AI assistant is temporarily unavailable." });
+  }
+});
+
+router.get("/ledgerflow/ai-settings", async (req, res) => {
+  const { clientId } = GetLedgerflowAISettingsQueryParams.parse(req.query);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  try {
+    const config = await getAIProviderConfig(client.id);
+    const availableModels = await getAIModelCatalog();
+    res.json(GetLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
+  } catch (error) {
+    if (error instanceof AIProviderError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "AI provider settings could not be loaded. Try again." });
+  }
+});
+
+router.put("/ledgerflow/ai-settings", async (req, res) => {
+  const body = UpdateLedgerflowAISettingsBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const availableModels = await getAIModelCatalog();
+  if (!isAIProvider(body.provider) || !isAIModel(availableModels, body.provider, body.model)) {
+    return res.status(400).json({ error: "Choose a supported model for the selected AI provider." });
+  }
+  const current = await getAIProviderConfig(client.id);
+  if (
+    body.provider !== "managed_openai"
+    && !body.apiKey
+    && (current.provider !== body.provider || current.credentialStatus === "not_configured")
+  ) {
+    return res.status(400).json({ error: `Add an API key before selecting workspace-owned ${body.provider === "anthropic" ? "Anthropic" : "OpenAI"}.` });
+  }
+  try {
+    const config = await saveAIProviderConfig(client.id, body.provider, body.model, body.apiKey);
+    return res.json(UpdateLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
+  } catch {
+    return res.status(500).json({ error: "AI settings could not be saved. Try again." });
+  }
+});
+
+router.post("/ledgerflow/ai-settings/test", async (req, res) => {
+  const body = TestLedgerflowAISettingsBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  try {
+    const config = await testAIProvider(client.id);
+    const availableModels = await getAIModelCatalog();
+    return res.json(TestLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
+  } catch (error) {
+    if (error instanceof AIProviderError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    return res.status(502).json({ error: "The selected AI provider could not be tested right now." });
+  }
+});
+
+router.delete("/ledgerflow/ai-settings/credential", async (req, res) => {
+  const body = RemoveLedgerflowAICredentialBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  try {
+    const config = await removeAIProviderCredential(client.id);
+    const availableModels = await getAIModelCatalog();
+    res.json(RemoveLedgerflowAICredentialResponse.parse(aiSettingsResponse(config, availableModels)));
+  } catch (error) {
+    if (error instanceof AIProviderError) {
+      res.status(error.status).json({ error: error.message });
+      return;
+    }
+    res.status(500).json({ error: "The workspace AI credential could not be removed. Try again." });
   }
 });
 

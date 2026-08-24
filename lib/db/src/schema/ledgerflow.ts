@@ -86,6 +86,19 @@ export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", 
 }, (table) => ({
   clientUnique: uniqueIndex("ledgerflow_ai_provider_configs_client_idx").on(table.clientId),
 }));
+
+export const aiModelCatalogTable = pgTable("ledgerflow_ai_model_catalog", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  displayName: text("display_name").notNull(),
+  status: text("status").notNull().default("active"),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => ({
+  providerModelUnique: uniqueIndex("ledgerflow_ai_model_catalog_provider_model_idx").on(table.provider, table.model),
+}));
 export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),

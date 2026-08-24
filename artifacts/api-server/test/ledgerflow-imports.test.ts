@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { Readable } from "node:stream";
 import { after, before, test } from "node:test";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 type ImportResult = {
   fileName: string;
@@ -52,6 +52,7 @@ let app: typeof import("../src/app").default;
 let database: typeof import("@workspace/db") | undefined;
 
 const createdClientIds: number[] = [];
+const createdCatalogModels: string[] = [];
 const createdUserIds: string[] = [];
 const createdSessionIds: string[] = [];
 let primaryToken: string;
@@ -203,6 +204,10 @@ after(async () => {
     if (activeDatabase && createdSessionIds.length) {
       await activeDatabase.db.delete(activeDatabase.sessionsTable)
         .where(inArray(activeDatabase.sessionsTable.sid, createdSessionIds));
+    }
+    if (activeDatabase && createdCatalogModels.length) {
+      await activeDatabase.db.delete(activeDatabase.aiModelCatalogTable)
+        .where(inArray(activeDatabase.aiModelCatalogTable.model, createdCatalogModels));
     }
     if (activeDatabase && createdUserIds.length) {
       await activeDatabase.db.delete(activeDatabase.usersTable)
@@ -453,4 +458,100 @@ test("scopes duplicate detection to the importing client", async () => {
   assert.equal(secondaryImport.body.importedCount, 1);
   assert.equal((await statementLines(primaryClientId)).length, 1);
   assert.equal((await statementLines(secondaryClientId, secondaryToken)).length, 1);
+});
+
+test("serves the managed AI model catalog and blocks retired models from new selections", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`AI catalog ${randomUUID()}`);
+  const initial = await request<{
+    availableModels: Array<{ provider: string; model: string; status: string; displayName: string; retiredAt: string | null }>;
+  }>(`/ledgerflow/ai-settings?clientId=${clientId}`);
+  assert.equal(initial.response.status, 200);
+  assert.ok(initial.body.availableModels.some((option) => option.provider === "openai" && option.model === "gpt-4o-mini" && option.status === "active"));
+
+  const retiredModel = `retired-openai-${randomUUID()}`;
+  createdCatalogModels.push(retiredModel);
+  await database.db.insert(database.aiModelCatalogTable).values({
+    provider: "openai",
+    model: retiredModel,
+    displayName: "Retired test model",
+    status: "active",
+  });
+  const configured = await request<{ model: string }>("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({ clientId, provider: "openai", model: retiredModel, apiKey: "catalog-test-key-1234" }),
+  });
+  assert.equal(configured.response.status, 200);
+
+  await database.db.update(database.aiModelCatalogTable).set({
+    status: "retired",
+    retiredAt: new Date(),
+  }).where(and(
+    eq(database.aiModelCatalogTable.provider, "openai"),
+    eq(database.aiModelCatalogTable.model, retiredModel),
+  ));
+  const retiredSettings = await request<{
+    model: string;
+    availableModels: Array<{ model: string; status: string; retiredAt: string | null }>;
+  }>(`/ledgerflow/ai-settings?clientId=${clientId}`);
+  assert.equal(retiredSettings.response.status, 200);
+  assert.equal(retiredSettings.body.model, retiredModel);
+  const retiredOption = retiredSettings.body.availableModels.find((option) => option.model === retiredModel);
+  assert.equal(retiredOption?.status, "retired");
+  assert.ok(retiredOption?.retiredAt);
+
+  const rejectedRetiredModel = await request<{ error: string }>("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({ clientId, provider: "openai", model: retiredModel }),
+  });
+  assert.equal(rejectedRetiredModel.response.status, 400);
+  const unavailableChat = await request<{ error: string }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({ clientId, message: "Can you review this workspace?" }),
+  });
+  assert.equal(unavailableChat.response.status, 502);
+  assert.match(unavailableChat.body.error, /model is no longer available/i);
+
+  const managedFallbackModel = `managed-fallback-${randomUUID()}`;
+  createdCatalogModels.push(managedFallbackModel);
+  await database.db.insert(database.aiModelCatalogTable).values({
+    provider: "managed_openai",
+    model: managedFallbackModel,
+    displayName: `000 managed fallback ${managedFallbackModel}`,
+    status: "active",
+  });
+  const fallbackClientId = await createClient(`AI catalog fallback ${randomUUID()}`);
+  const freshSettings = await request<{ provider: string; model: string }>(`/ledgerflow/ai-settings?clientId=${fallbackClientId}`);
+  assert.equal(freshSettings.body.model, managedFallbackModel);
+
+  await request("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({ clientId: fallbackClientId, provider: "openai", model: "gpt-4o-mini", apiKey: "managed-fallback-test-key-1234" }),
+  });
+  const resetToManaged = await request<{ provider: string; model: string }>("/ledgerflow/ai-settings/credential", {
+    method: "DELETE",
+    body: JSON.stringify({ clientId: fallbackClientId }),
+  });
+  assert.equal(resetToManaged.response.status, 200);
+  assert.equal(resetToManaged.body.model, managedFallbackModel);
+
+  const unavailableManagedClientId = await createClient(`No managed model ${randomUUID()}`);
+  const managedCatalog = await database.db.select().from(database.aiModelCatalogTable)
+    .where(eq(database.aiModelCatalogTable.provider, "managed_openai"));
+  try {
+    await database.db.update(database.aiModelCatalogTable).set({ status: "retired", retiredAt: new Date() })
+      .where(eq(database.aiModelCatalogTable.provider, "managed_openai"));
+    const noManagedDefault = await request<{ error: string }>(`/ledgerflow/ai-settings?clientId=${unavailableManagedClientId}`);
+    assert.equal(noManagedDefault.response.status, 409);
+    const noManagedReset = await request<{ error: string }>("/ledgerflow/ai-settings/credential", {
+      method: "DELETE",
+      body: JSON.stringify({ clientId: fallbackClientId }),
+    });
+    assert.equal(noManagedReset.response.status, 409);
+  } finally {
+    for (const option of managedCatalog) {
+      await database.db.update(database.aiModelCatalogTable).set({ status: option.status, retiredAt: option.retiredAt })
+        .where(eq(database.aiModelCatalogTable.id, option.id));
+    }
+  }
 });

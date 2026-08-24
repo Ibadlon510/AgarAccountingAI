@@ -2,19 +2,20 @@ import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useStat
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Route, Switch, useLocation } from 'wouter';
 import {
-  ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight, History,
+  ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, FileCheck2, FileSpreadsheet, Filter, Landmark,
   LayoutDashboard, LoaderCircle, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
   Search, Settings2, Sparkles, Table2, UploadCloud, X
 } from 'lucide-react';
 import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey,
-  getGetExchangeRatesQueryKey, getGetStatementImportsQueryKey, getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetBulkTransitionAuditsQueryKey, useApproveJournalEntry,
+  getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateStatementLine, useGetClients, useGetFinancialStatements, useGetJournalEntries, useGetLedgerOverview,
-  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetStatementImports, useGetStatementLines, useGetTrialBalance, useImportExchangeRates, useGetBulkTransitionAudits, usePostJournalEntry, useRemoveLedgerflowAICredential, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings
+  useConfirmAICopilotAction, useGetBankAccounts, useGetLedgerflowAISettings, useGetStatementLines, useGetTrialBalance,
+  usePostJournalEntry, useRemoveLedgerflowAICredential, useTestLedgerflowAISettings, useUpdateClient, useUpdateLedgerflowAISettings
 } from '@workspace/api-client-react';
 import type {
-  Client, ExchangeRate, FinancialStatements, JournalEntry, StatementImportResult, StatementLine, StatementLineInput, StatementSection
+  Client, FinancialStatements, JournalEntry, StatementImportResult, StatementLine, StatementLineInput, StatementSection
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -25,7 +26,6 @@ import {
   useAuth,
   type AuthUser,
 } from '@workspace/replit-auth-web';
-import { useUpload } from '@workspace/object-storage-web';
 import { AssistantFAB } from './components/assistant-fab';
 const queryClient = new QueryClient();
 const nav = [
@@ -35,7 +35,6 @@ const nav = [
   { href: '/journal-entries', label: 'Journal entries', icon: BookOpenCheck },
   { href: '/trial-balance', label: 'Trial balance', icon: BarChart3 },
   { href: '/financial-statements', label: 'Financial statements', icon: FileSpreadsheet },
-  { href: '/workspace-settings', label: 'Workspace settings', icon: Settings2 },
 ];
 
 const classificationAccounts = [
@@ -43,7 +42,7 @@ const classificationAccounts = [
   'Office expenses', 'Communication expenses', 'Rent expense', 'Payroll', 'Bank charges', 'General expenses',
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
-const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
+const MAX_IMPORT_FILE_SIZE = 15 * 1024 * 1024;
 const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -75,11 +74,6 @@ function AddClientDialog({ onClose }: { onClose: () => void }) {
 
 function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose: () => void }) {
   const mutation = useUpdateClient();
-  const ratesQuery = useGetExchangeRates({ query: { queryKey: getGetExchangeRatesQueryKey() } });
-  const createRate = useCreateExchangeRate();
-  const updateRate = useUpdateExchangeRate();
-  const deleteRate = useDeleteExchangeRate();
-  const importRates = useImportExchangeRates();
   const [form, setForm] = useState({
     name: client.name,
     legalName: client.legalName,
@@ -87,18 +81,6 @@ function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose:
     basis: client.basis,
     period: client.period,
   });
-  const [editingRateId, setEditingRateId] = useState<number | null>(null);
-  const [rateForm, setRateForm] = useState({ sourceCurrency: 'USD', functionalCurrency: client.functionalCurrency, effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
-  const [rateImportError, setRateImportError] = useState('');
-  const resetRateForm = () => {
-    setEditingRateId(null);
-    setRateForm({ sourceCurrency: 'USD', functionalCurrency: client.functionalCurrency, effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
-  };
-  const invalidateRates = () => {
-    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
-  };
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     mutation.mutate({ id: client.id, data: form }, {
@@ -108,192 +90,8 @@ function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose:
       },
     });
   };
-  const saveRate = (event: React.FormEvent) => {
-    event.preventDefault();
-    const data = { ...rateForm, sourceCurrency: rateForm.sourceCurrency.toUpperCase(), functionalCurrency: rateForm.functionalCurrency.toUpperCase(), rate: Number(rateForm.rate), note: rateForm.note || null };
-    const options = { onSuccess: () => { invalidateRates(); resetRateForm(); } };
-    if (editingRateId) updateRate.mutate({ id: editingRateId, data }, options);
-    else createRate.mutate({ data }, options);
-  };
-  const editRate = (rate: ExchangeRate) => {
-    setEditingRateId(rate.id);
-    setRateForm({ sourceCurrency: rate.sourceCurrency, functionalCurrency: rate.functionalCurrency, effectiveDate: rate.effectiveDate, rate: String(rate.rate), source: rate.source, note: rate.note ?? '' });
-  };
-  const importRateFile = async (file: File | undefined) => {
-    if (!file) return;
-    try {
-      setRateImportError('');
-      const [header, ...rows] = (await file.text()).split(/\r?\n/).filter(Boolean);
-      const columns = header.split(',').map((value) => value.trim().toLowerCase().replaceAll(/[^a-z]/g, ''));
-      const valueAt = (cells: string[], names: string[]) => cells[columns.findIndex((column) => names.includes(column))] ?? '';
-      const rates = rows.map((row) => {
-        const cells = row.split(',').map((value) => value.trim().replace(/^"|"$/g, ''));
-        return {
-          effectiveDate: valueAt(cells, ['effectivedate', 'date']),
-          sourceCurrency: valueAt(cells, ['sourcecurrency', 'fromcurrency', 'source']),
-          functionalCurrency: valueAt(cells, ['functionalcurrency', 'tocurrency', 'functional']),
-          rate: Number(valueAt(cells, ['rate', 'exchangerate'])),
-          source: valueAt(cells, ['ratesource', 'source']) || 'Imported CSV',
-          note: valueAt(cells, ['note', 'memo']) || null,
-        };
-      }).filter((rate) => rate.effectiveDate && rate.sourceCurrency && rate.functionalCurrency && Number.isFinite(rate.rate));
-      if (!rates.length) throw new Error('Use headers: effectiveDate, sourceCurrency, functionalCurrency, rate.');
-      importRates.mutate({ data: { rates } }, { onSuccess: invalidateRates });
-    } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read.');
-    }
-  };
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm"><div className="mx-auto my-5 w-full max-w-4xl rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="workspace-settings-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace configuration</div><h2 id="workspace-settings-title" className="mt-2 text-lg font-semibold">Workspace settings</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Client settings below apply to {client.name}. The exchange-rate schedule is shared across every client in this signed-in workspace.</p></div><button data-testid="button-close-workspace-settings" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive sm:col-span-2">Settings could not be saved. Check the details and try again.</p>}<div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save settings'}</button></div></form><section className="mt-8 border-t border-border pt-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared rate library</div><h3 className="mt-2 text-base font-semibold">Exchange-rate schedule</h3><p className="mt-1 max-w-2xl text-[11px] leading-5 text-muted-foreground">Enter the number of functional-currency units for one source-currency unit. For example, USD → AED at 3.6725 means 1 USD equals 3.6725 AED. Dates use the exact rate first, then the latest prior rate.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {importRates.isPending ? 'Importing…' : 'Import CSV'}<input data-testid="input-exchange-rate-import" type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => importRateFile(event.target.files?.[0])} /></label></div><form onSubmit={saveRate} className="mt-5 grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 md:grid-cols-6"><label className="text-[10px] font-medium">Source<input data-testid="input-rate-source-currency" required maxLength={3} value={rateForm.sourceCurrency} onChange={(event) => setRateForm({ ...rateForm, sourceCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label><label className="text-[10px] font-medium">Functional<input data-testid="input-rate-functional-currency" required maxLength={3} value={rateForm.functionalCurrency} onChange={(event) => setRateForm({ ...rateForm, functionalCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label><label className="text-[10px] font-medium">Effective date<input data-testid="input-rate-effective-date" required type="date" value={rateForm.effectiveDate} onChange={(event) => setRateForm({ ...rateForm, effectiveDate: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 text-xs" /></label><label className="text-[10px] font-medium">Rate<input data-testid="input-rate-value" required min="0.0000001" step="any" type="number" value={rateForm.rate} onChange={(event) => setRateForm({ ...rateForm, rate: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label><label className="text-[10px] font-medium">Note<input value={rateForm.note} onChange={(event) => setRateForm({ ...rateForm, note: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 text-xs" /></label><div className="flex items-end gap-2"><button data-testid="button-save-exchange-rate" disabled={createRate.isPending || updateRate.isPending} className="h-9 rounded bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{editingRateId ? 'Update' : 'Add rate'}</button>{editingRateId && <button type="button" onClick={resetRateForm} className="h-9 rounded border border-border px-2 text-[11px] font-semibold">Cancel</button>}</div></form>{(createRate.isError || updateRate.isError || importRates.isError || rateImportError) && <p className="mt-3 text-xs text-destructive">{rateImportError || 'The rate could not be saved. Use three-letter currency codes, a valid date, and a rate greater than zero.'}</p>}<div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data.map((rate) => <tr key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: invalidateRates })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div></section></div></div>;
-}
-
-function WorkspaceSettingsPage() {
-  const { activeClient } = useClientWorkspace();
-  const [, setLocation] = useLocation();
-  const mutation = useUpdateClient();
-  const ratesQuery = useGetExchangeRates({ query: { queryKey: getGetExchangeRatesQueryKey() } });
-  const createRate = useCreateExchangeRate();
-  const updateRate = useUpdateExchangeRate();
-  const deleteRate = useDeleteExchangeRate();
-  const importRates = useImportExchangeRates();
-  const bankAccountsQuery = useGetBankAccounts({ clientId: activeClient?.id ?? 0 });
-  const [form, setForm] = useState({
-    name: activeClient?.name ?? '',
-    legalName: activeClient?.legalName ?? '',
-    functionalCurrency: activeClient?.functionalCurrency ?? 'AED',
-    basis: activeClient?.basis ?? 'IFRS',
-    period: activeClient?.period ?? '',
-  });
-  const [editingRateId, setEditingRateId] = useState<number | null>(null);
-  const [rateForm, setRateForm] = useState({ sourceCurrency: 'USD', functionalCurrency: activeClient?.functionalCurrency ?? 'AED', effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
-  const [rateImportError, setRateImportError] = useState('');
-  const [saved, setSaved] = useState(false);
-
-  if (!activeClient) return <WorkspaceRecoveryState onRetry={() => setLocation('/')} />;
-
-  const resetRateForm = () => {
-    setEditingRateId(null);
-    setRateForm({ sourceCurrency: 'USD', functionalCurrency: activeClient.functionalCurrency, effectiveDate: new Date().toISOString().slice(0, 10), rate: '', source: 'Manual', note: '' });
-  };
-  const invalidateRates = () => {
-    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
-  };
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    setSaved(false);
-    mutation.mutate({ id: activeClient.id, data: form }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
-        setSaved(true);
-      },
-    });
-  };
-  const saveRate = (event: React.FormEvent) => {
-    event.preventDefault();
-    const data = { ...rateForm, sourceCurrency: rateForm.sourceCurrency.toUpperCase(), functionalCurrency: rateForm.functionalCurrency.toUpperCase(), rate: Number(rateForm.rate), note: rateForm.note || null };
-    const options = { onSuccess: () => { invalidateRates(); resetRateForm(); } };
-    if (editingRateId) updateRate.mutate({ id: editingRateId, data }, options);
-    else createRate.mutate({ data }, options);
-  };
-  const editRate = (rate: ExchangeRate) => {
-    setEditingRateId(rate.id);
-    setRateForm({ sourceCurrency: rate.sourceCurrency, functionalCurrency: rate.functionalCurrency, effectiveDate: rate.effectiveDate, rate: String(rate.rate), source: rate.source, note: rate.note ?? '' });
-  };
-  const importRateFile = async (file: File | undefined) => {
-    if (!file) return;
-    try {
-      setRateImportError('');
-      const [header, ...rows] = (await file.text()).split(/\r?\n/).filter(Boolean);
-      const columns = header.split(',').map((value) => value.trim().toLowerCase().replaceAll(/[^a-z]/g, ''));
-      const valueAt = (cells: string[], names: string[]) => cells[columns.findIndex((column) => names.includes(column))] ?? '';
-      const rates = rows.map((row) => {
-        const cells = row.split(',').map((value) => value.trim().replace(/^"|"$/g, ''));
-        return {
-          effectiveDate: valueAt(cells, ['effectivedate', 'date']),
-          sourceCurrency: valueAt(cells, ['sourcecurrency', 'fromcurrency', 'source']),
-          functionalCurrency: valueAt(cells, ['functionalcurrency', 'tocurrency', 'functional']),
-          rate: Number(valueAt(cells, ['rate', 'exchangerate'])),
-          source: valueAt(cells, ['ratesource', 'source']) || 'Imported CSV',
-          note: valueAt(cells, ['note', 'memo']) || null,
-        };
-      }).filter((rate) => rate.effectiveDate && rate.sourceCurrency && rate.functionalCurrency && Number.isFinite(rate.rate));
-      if (!rates.length) throw new Error('Use headers: effectiveDate, sourceCurrency, functionalCurrency, rate.');
-      importRates.mutate({ data: { rates } }, { onSuccess: invalidateRates });
-    } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read.');
-    }
-  };
-  const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
-
-  return <div>
-    <PageHeading
-      eyebrow="Workspace administration"
-      title="Workspace settings"
-      description="Keep the reporting context, conversion schedule, and connected evidence sources for this client in one place."
-      action={<Link href="/" data-testid="link-settings-back-overview" className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:border-primary/40 hover:text-foreground"><ArrowRight className="rotate-180" size={14} /> Back to overview</Link>}
-    />
-    <div className="grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
-      <aside className="h-fit rounded-lg border border-card-border bg-card p-3 xl:sticky xl:top-[102px]">
-        <div className="px-2 py-2 font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">Settings index</div>
-        <nav className="mt-2 space-y-1">
-          {[
-            ['#client-profile', 'Client profile'],
-            ['#exchange-rates', 'Exchange rates'],
-            ['#bank-accounts', 'Bank accounts'],
-          ].map(([href, label]) => <a key={href} href={href} data-testid={`link-settings-${label.toLowerCase().replaceAll(' ', '-')}`} className="block rounded-md px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">{label}</a>)}
-        </nav>
-        <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-primary"><Settings2 size={14} /> Active client</div>
-          <div data-testid="text-settings-active-client" className="mt-2 text-xs font-semibold">{activeClient.name}</div>
-          <div className="mt-1 font-mono text-[10px] text-muted-foreground">{activeClient.functionalCurrency} · {activeClient.basis}</div>
-        </div>
-      </aside>
-      <div className="min-w-0 space-y-6">
-        <section id="client-profile" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary/10 text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client profile</div><h2 className="mt-2 text-base font-semibold">Identity and reporting context</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">These values appear on close views and determine how imported activity is converted for reporting.</p></div></div>
-          <form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2">
-            <label className="block text-xs font-medium">Client name<input data-testid="input-page-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
-            <label className="block text-xs font-medium">Legal name<input data-testid="input-page-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
-            <label className="block text-xs font-medium">Functional currency<select data-testid="select-page-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label>
-            <label className="block text-xs font-medium">Reporting basis<select data-testid="select-page-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label>
-            <label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-page-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
-            {(mutation.isError || saved) && <p data-testid={saved ? 'status-page-settings-saved' : 'status-page-settings-error'} className={`text-xs sm:col-span-2 ${saved ? 'text-primary' : 'text-destructive'}`}>{saved ? 'Workspace settings saved.' : 'Settings could not be saved. Check the details and try again.'}</p>}
-            <div className="flex justify-end sm:col-span-2"><button data-testid="button-page-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save profile settings'}</button></div>
-          </form>
-        </section>
-        <section id="exchange-rates" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {importRates.isPending ? 'Importing…' : 'Import CSV'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => importRateFile(event.target.files?.[0])} /></label></div>
-          <form onSubmit={saveRate} className="mt-5 grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 md:grid-cols-6">
-            <label className="text-[10px] font-medium">Source<input data-testid="input-page-rate-source-currency" required maxLength={3} value={rateForm.sourceCurrency} onChange={(event) => setRateForm({ ...rateForm, sourceCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
-            <label className="text-[10px] font-medium">Functional<input data-testid="input-page-rate-functional-currency" required maxLength={3} value={rateForm.functionalCurrency} onChange={(event) => setRateForm({ ...rateForm, functionalCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
-            <label className="text-[10px] font-medium">Effective date<input data-testid="input-page-rate-effective-date" required type="date" value={rateForm.effectiveDate} onChange={(event) => setRateForm({ ...rateForm, effectiveDate: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 text-xs" /></label>
-            <label className="text-[10px] font-medium">Rate<input data-testid="input-page-rate-value" required min="0.0000001" step="any" type="number" value={rateForm.rate} onChange={(event) => setRateForm({ ...rateForm, rate: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
-            <label className="text-[10px] font-medium">Source note<input data-testid="input-page-rate-note" value={rateForm.note} onChange={(event) => setRateForm({ ...rateForm, note: event.target.value })} placeholder="e.g. Central bank" className="mt-1 h-9 w-full rounded border border-input bg-card px-2 text-xs" /></label>
-            <div className="flex items-end gap-2"><button data-testid="button-page-save-exchange-rate" disabled={createRate.isPending || updateRate.isPending} className="h-9 rounded bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{editingRateId ? 'Update' : 'Add rate'}</button>{editingRateId && <button type="button" data-testid="button-page-cancel-exchange-rate" onClick={resetRateForm} className="h-9 rounded border border-border px-2 text-[11px] font-semibold">Cancel</button>}</div>
-          </form>
-          {(createRate.isError || updateRate.isError || importRates.isError || rateImportError) && <p data-testid="status-page-exchange-rate-error" className="mt-3 text-xs text-destructive">{rateImportError || 'The rate could not be saved. Use three-letter currency codes, a valid date, and a rate greater than zero.'}</p>}
-          <div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data.map((rate) => <tr data-testid={`row-page-exchange-rate-${rate.id}`} key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-page-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-page-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: invalidateRates })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div>
-        </section>
-        <section id="bank-accounts" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Import another statement to add a new account.</p></div></div>
-          <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
-        </section>
-        <section id="administration" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex items-start justify-between gap-4"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace administration</div><h2 className="mt-2 text-base font-semibold">More controls for your team</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">These are the next places to manage how your firm uses LedgerFlow. They are shown here so the workspace has one clear home for operational settings.</p></div><Settings2 className="shrink-0 text-muted-foreground" size={18} /></div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {[
-              { id: 'users', title: 'Users & permissions', detail: 'Invite teammates, assign admin or bookkeeper access, and control which client workspaces each person can open.', status: 'Coming with team access', icon: CircleCheck },
-              { id: 'billing', title: 'Billing & plan', detail: 'View the current plan, manage payment details, and see invoices or renewal information in one place.', status: 'Billing connection needed', icon: FileCheck2 },
-              { id: 'usage', title: 'Usage & limits', detail: 'Track statement imports, stored evidence, AI activity, and workspace limits before they affect a close.', status: 'Usage tracking needed', icon: BarChart3 },
-              { id: 'security', title: 'Security & audit', detail: 'Review sign-in activity, retention controls, export history, and the audit trail for sensitive workspace actions.', status: 'Audit expansion planned', icon: CircleAlert },
-            ].map(({ id, title, detail, status, icon: Icon }) => <div data-testid={`card-settings-${id}`} key={id} className="rounded-lg border border-border bg-background p-4"><div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><Icon size={16} /></div><div className="min-w-0"><h3 className="text-xs font-semibold">{title}</h3><p className="mt-2 text-[11px] leading-5 text-muted-foreground">{detail}</p><span data-testid={`status-settings-${id}`} className="mt-3 inline-flex rounded-full bg-muted px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] text-muted-foreground">{status}</span></div></div></div>)}
-          </div>
-        </section>
-      </div>
-    </div>
-  </div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="workspace-settings-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace configuration</div><h2 id="workspace-settings-title" className="mt-2 text-lg font-semibold">Workspace settings</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Keep the client profile, reporting basis, currency, and close period aligned.</p></div><button data-testid="button-close-workspace-settings" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive sm:col-span-2">Settings could not be saved. Check the details and try again.</p>}<div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save settings'}</button></div></form><AIProviderSettingsPanel clientId={client.id} /></div></div>;
 }
 
 function HelpDialog({ onClose }: { onClose: () => void }) {
@@ -310,7 +108,7 @@ function AuthLoadingState({ label = 'Checking your LedgerFlow session' }: { labe
 }
 function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AuthUser; onLogout: () => void }) {
   const { activeClient, clients, setActiveClientId } = useClientWorkspace();
-  const [location, setLocation] = useLocation();
+  const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [createClientOpen, setCreateClientOpen] = useState(false);
@@ -323,7 +121,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[78px] items-center border-b border-sidebar-border px-5"><div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"><Landmark size={19} strokeWidth={2.2} /></div><div className={`${collapsed ? 'md:hidden' : ''}`}><div className="font-display text-[22px] leading-none tracking-tight text-sidebar-foreground">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/50">Review desk</div></div></div><button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button></div>
       <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
-        <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-4 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>IFRS / AED</span><span>{activeClient?.period ?? '—'}</span></div></div><button data-testid="button-settings" onClick={() => setLocation('/workspace-settings')} className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-[12px] text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Settings2 size={16} /><span className={collapsed ? 'md:hidden' : ''}>Workspace settings</span></button></div>
+       <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-4 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>IFRS / AED</span><span>{activeClient?.period ?? '—'}</span></div></div><button data-testid="button-settings" onClick={() => setSettingsOpen(true)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-[12px] text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Settings2 size={16} /><span className={collapsed ? 'md:hidden' : ''}>Workspace settings</span></button></div>
     </aside>
      <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8"><div className="flex items-center gap-3"><button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="hidden h-5 w-px bg-border md:block" /><div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div></div><div className="flex items-center gap-2 md:gap-3"><select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="hidden h-9 max-w-[180px] rounded-md border border-input bg-card px-2 text-xs font-semibold md:block">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button data-testid="button-add-client" onClick={() => setCreateClientOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} /><span className="hidden sm:inline">Add client</span></button><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div><button data-testid="button-help" onClick={() => setHelpOpen(true)} aria-label="Open help" className="grid size-8 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"><CircleHelp size={16} /></button><button data-testid="button-logout" onClick={onLogout} aria-label={`Sign out ${displayName}`} className="group flex items-center gap-2 rounded-full border border-border bg-card pl-1 pr-2.5 py-1 text-left hover:border-primary/40"><span className="grid size-7 place-items-center rounded-full bg-primary font-mono text-[10px] font-medium text-primary-foreground">{initials}</span><span className="hidden max-w-[120px] truncate text-[11px] font-semibold sm:inline">{displayName}</span><LogOut size={13} className="text-muted-foreground transition-colors group-hover:text-foreground" /></button></div></header><main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>{createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}{settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}{helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}</div>
     <AssistantFAB />
@@ -351,7 +149,7 @@ function Home() {
   const params = { clientId: activeClient?.id ?? 1 };
   const query = useGetLedgerOverview(params, { query: { queryKey: getGetLedgerOverviewQueryKey(params) } });
   const overview = query.data;
-  return <div><PageHeading eyebrow="Monday, June 24 · Close control" title="Good morning, Alex." description="A clear view of what moved, what needs your judgment, and what is ready to stand behind." action={<Link href="/statement-lines" data-testid="link-review-lines" className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Review open lines <ArrowRight size={14} /></Link>} /><QueryState loading={query.isLoading} error={query.isError} empty={!overview} onRetry={() => query.refetch()}>{overview && <div className="space-y-6">{overview.missingRateCount > 0 && <div data-testid="missing-rate-warning" className="flex items-start gap-2 rounded-lg border border-accent/35 bg-accent/10 p-4 text-xs text-accent-foreground"><CircleAlert size={16} className="mt-0.5 shrink-0" /><p><strong>Rate coverage needed.</strong> {overview.missingRateCount} posted {overview.missingRateCount === 1 ? 'transaction is' : 'transactions are'} excluded from {overview.functionalCurrency} totals because {overview.missingRateCurrencies.join(', ')} rate coverage is missing. Add a dated workspace rate in Settings.</p></div>}<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Close progress" value={`${overview.completionPercent}%`} note={`${overview.pendingReview} items still need review`} accent /><Metric label="Statement lines" value={overview.totalLines.toLocaleString()} note={`${overview.currencies.length} currencies in scope`} /><Metric label="Posted amount" value={money(overview.postedAmount, overview.functionalCurrency)} note={`Functional ${overview.functionalCurrency} · ${overview.period}`} /><Metric label="Currencies" value={overview.currencies.join(' · ')} note="Source currencies remain visible" /></div><div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]"><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Close control / {overview.period}</div><h2 className="mt-2 text-base font-semibold">The desk at a glance</h2></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">Active</span></div><div className="mt-6 flex items-end gap-5"><div className="relative size-[148px] shrink-0 rounded-full" style={{ background: `conic-gradient(hsl(var(--accent)) ${overview.completionPercent}%, hsl(var(--muted)) 0)` }}><div className="absolute inset-[10px] grid place-items-center rounded-full bg-card"><span className="font-display text-[34px]">{overview.completionPercent}<small className="text-lg">%</small></span></div></div><div className="pb-2"><p className="text-sm font-medium leading-6">Your review queue is moving well.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">LedgerFlow has surfaced the evidence beside each suggestion so the final call stays yours.</p><Link href="/journal-entries" data-testid="link-view-suggestions" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">Inspect AI suggestions <ChevronRight size={13} /></Link></div></div><div className="mt-7 grid grid-cols-3 border-t border-border pt-4"><div><div className="font-mono text-lg">{overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Need judgment</div></div><div><div className="font-mono text-lg">{overview.totalLines - overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Cleared lines</div></div><div><div className="font-mono text-lg">{overview.currencies.length}</div><div className="mt-1 text-[10px] text-muted-foreground">Currencies</div></div></div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-5 md:p-6"><div className="flex items-center gap-2 text-accent-foreground"><Sparkles size={16} /><span className="font-mono text-[10px] uppercase tracking-[.15em]">LedgerFlow note</span></div><h2 className="mt-5 font-display text-[27px] leading-[1.02]">A second pair of eyes, not another black box.</h2><p className="mt-4 text-[12px] leading-5 text-accent-foreground/70">Every suggestion is anchored to a bank line, a confidence score, and the accounts it touches. Approve only what you can explain.</p><div className="mt-8 flex items-center gap-2 border-t border-accent/20 pt-4 text-[11px] font-semibold text-accent-foreground"><CircleCheck size={15} /> Evidence attached to every decision</div></section></div><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Next actions</div><h2 className="mt-2 text-base font-semibold">Keep the close moving</h2></div><span className="font-mono text-[10px] text-muted-foreground">3 lanes</span></div><div className="mt-5 grid gap-3 md:grid-cols-3"><ActionCard index="01" title="Review statement lines" detail={`${overview.pendingReview} lines are waiting for a call`} href="/statement-lines" icon={Table2} /><ActionCard index="02" title="Approve journal entries" detail="Confirm the postings LedgerFlow prepared" href="/journal-entries" icon={BookOpenCheck} /><ActionCard index="03" title="Check the trial balance" detail="Make sure debits and credits agree" href="/trial-balance" icon={BarChart3} /></div></section></div>}</QueryState></div>;
+  return <div><PageHeading eyebrow="Monday, June 24 · Close control" title="Good morning, Alex." description="A clear view of what moved, what needs your judgment, and what is ready to stand behind." action={<Link href="/statement-lines" data-testid="link-review-lines" className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Review open lines <ArrowRight size={14} /></Link>} /><QueryState loading={query.isLoading} error={query.isError} empty={!overview} onRetry={() => query.refetch()}>{overview && <div className="space-y-6"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Close progress" value={`${overview.completionPercent}%`} note={`${overview.pendingReview} items still need review`} accent /><Metric label="Statement lines" value={overview.totalLines.toLocaleString()} note={`${overview.currencies.length} currencies in scope`} /><Metric label="Posted amount" value={money(overview.postedAmount)} note={`Through ${overview.period}`} /><Metric label="Currencies" value={overview.currencies.join(' · ')} note="Active bank feeds" /></div><div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]"><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Close control / {overview.period}</div><h2 className="mt-2 text-base font-semibold">The desk at a glance</h2></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">Active</span></div><div className="mt-6 flex items-end gap-5"><div className="relative size-[148px] shrink-0 rounded-full" style={{ background: `conic-gradient(hsl(var(--accent)) ${overview.completionPercent}%, hsl(var(--muted)) 0)` }}><div className="absolute inset-[10px] grid place-items-center rounded-full bg-card"><span className="font-display text-[34px]">{overview.completionPercent}<small className="text-lg">%</small></span></div></div><div className="pb-2"><p className="text-sm font-medium leading-6">Your review queue is moving well.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">LedgerFlow has surfaced the evidence beside each suggestion so the final call stays yours.</p><Link href="/journal-entries" data-testid="link-view-suggestions" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">Inspect AI suggestions <ChevronRight size={13} /></Link></div></div><div className="mt-7 grid grid-cols-3 border-t border-border pt-4"><div><div className="font-mono text-lg">{overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Need judgment</div></div><div><div className="font-mono text-lg">{overview.totalLines - overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Cleared lines</div></div><div><div className="font-mono text-lg">{overview.currencies.length}</div><div className="mt-1 text-[10px] text-muted-foreground">Currencies</div></div></div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-5 md:p-6"><div className="flex items-center gap-2 text-accent-foreground"><Sparkles size={16} /><span className="font-mono text-[10px] uppercase tracking-[.15em]">LedgerFlow note</span></div><h2 className="mt-5 font-display text-[27px] leading-[1.02]">A second pair of eyes, not another black box.</h2><p className="mt-4 text-[12px] leading-5 text-accent-foreground/70">Every suggestion is anchored to a bank line, a confidence score, and the accounts it touches. Approve only what you can explain.</p><div className="mt-8 flex items-center gap-2 border-t border-accent/20 pt-4 text-[11px] font-semibold text-accent-foreground"><CircleCheck size={15} /> Evidence attached to every decision</div></section></div><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Next actions</div><h2 className="mt-2 text-base font-semibold">Keep the close moving</h2></div><span className="font-mono text-[10px] text-muted-foreground">3 lanes</span></div><div className="mt-5 grid gap-3 md:grid-cols-3"><ActionCard index="01" title="Review statement lines" detail={`${overview.pendingReview} lines are waiting for a call`} href="/statement-lines" icon={Table2} /><ActionCard index="02" title="Approve journal entries" detail="Confirm the postings LedgerFlow prepared" href="/journal-entries" icon={BookOpenCheck} /><ActionCard index="03" title="Check the trial balance" detail="Make sure debits and credits agree" href="/trial-balance" icon={BarChart3} /></div></section></div>}</QueryState></div>;
 }
 function ActionCard({ index, title, detail, href, icon: Icon }: { index: string; title: string; detail: string; href: string; icon: typeof Table2 }) {
   return <Link href={href} data-testid={`link-action-${index}`} className="group flex items-start gap-3 rounded-md border border-border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-secondary/40"><div className="grid size-8 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Icon size={16} /></div><div className="min-w-0"><div className="flex items-center gap-2"><span className="font-mono text-[9px] text-muted-foreground">{index}</span><h3 className="text-[12px] font-semibold">{title}</h3></div><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{detail}</p></div><ArrowRight className="ml-auto mt-1 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" size={14} /></Link>;
@@ -361,129 +159,47 @@ function ImportStatementPage() {
   const { activeClient } = useClientWorkspace();
   const [file, setFile] = useState<File | null>(null);
   const [currency, setCurrency] = useState('AED');
-  const [state, setState] = useState<'idle' | 'uploading' | 'reading' | 'done' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'reading' | 'done' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [importResult, setImportResult] = useState<StatementImportResult | null>(null);
-  const { uploadFile, isUploading, progress, error: uploadError } = useUpload();
-  const importTrailQuery = useGetStatementImports(
-    { clientId: activeClient?.id ?? 0 },
-    { query: { enabled: Boolean(activeClient), queryKey: getGetStatementImportsQueryKey({ clientId: activeClient?.id ?? 0 }) } },
-  );
   const submit = async () => {
-    if (!file || !activeClient) return;
+    if (!file) return;
     if (file.size > MAX_IMPORT_FILE_SIZE) {
       setState('error');
-      setMessage('Statement file is too large. Choose a file no larger than 50 MB.');
+      setMessage('Statement file is too large. Please choose a file smaller than 15 MB.');
       setImportResult(null);
       return;
     }
-    setState('uploading');
-    setMessage('Uploading the original statement to private storage…');
+    setState('reading');
+    setMessage('');
     setImportResult(null);
     try {
-      const uploaded = await uploadFile(file, { clientId: activeClient.id });
-      if (!uploaded) throw uploadError ?? new Error('The private statement upload did not complete. Please try again.');
-      setState('reading');
-      setMessage('Upload complete. Extracting statement lines…');
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Could not read file'));
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsDataURL(file);
+      });
       const response = await fetch('/api/ledgerflow/import-statement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: activeClient.id,
-          fileName: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          objectPath: uploaded.objectPath,
-          currency,
-        }),
+        body: JSON.stringify({ clientId: activeClient?.id ?? 1, fileName: file.name, mimeType: file.type || 'application/octet-stream', contentBase64, currency }),
       });
       const data = await response.json().catch(() => ({})) as Partial<StatementImportResult> & { error?: string };
       if (!response.ok) throw new Error(data.error ?? 'Import failed');
       setState('done');
       setImportResult(data as StatementImportResult);
       setMessage(data.message ?? `${data.importedCount ?? 0} statement lines are ready for review.`);
-      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
-      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
-      queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient?.id ?? 1 }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient?.id ?? 1 }) });
     } catch (error) {
       setState('error');
       setMessage(error instanceof Error ? error.message : 'Import failed');
     }
   };
-  return <><ImportStatementPanel
-    file={file}
-    currency={currency}
-    state={state}
-    message={message}
-    importResult={importResult}
-    uploadProgress={progress}
-    isUploading={isUploading}
-    clientName={activeClient?.name ?? 'this client'}
-    onFileChange={(nextFile) => { setFile(nextFile); setState('idle'); setMessage(''); setImportResult(null); }}
-    onCurrencyChange={setCurrency}
-    onSubmit={submit}
-  />
-  {activeClient && <section data-testid="statement-import-trail" className="mt-6 rounded-lg border border-card-border bg-card p-5"><div className="flex items-baseline justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Source evidence</div><h2 className="mt-1 text-sm font-semibold">Recent statement imports</h2></div><span className="text-[11px] text-muted-foreground">{importTrailQuery.isLoading ? 'Loading…' : `${importTrailQuery.data?.length ?? 0} records`}</span></div>{importTrailQuery.isError ? <p className="mt-3 text-xs text-destructive">The import trail could not be loaded. Refresh and try again.</p> : <div className="mt-4 space-y-2">{(importTrailQuery.data ?? []).slice(0, 8).map((statementImport) => <div key={statementImport.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-xs"><div><div className="font-semibold">{statementImport.fileName}</div><div className="mt-1 text-[11px] text-muted-foreground">{shortDate(statementImport.createdAt)} · {statementImport.outcome.replaceAll('_', ' ')}</div></div>{statementImport.sourceUrl ? <a href={statementImport.sourceUrl} className="font-semibold text-primary underline">Download source</a> : <span className="text-[11px] text-muted-foreground">No source available</span>}</div>)}{!importTrailQuery.isLoading && !importTrailQuery.data?.length && <p className="text-xs text-muted-foreground">Completed and failed statement imports will appear here with their protected source documents.</p>}</div>}</section>}
-  </>;
-  // @ts-ignore Legacy markup below is unreachable; retained temporarily while the import panel renders above.
   return <div><PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. LedgerFlow extracts the transactions with AI and sends every line to review before it can affect the books.`} /><div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—LedgerFlow will normalize date, description, amount, direction, and currency.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to parse` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setState('idle'); setMessage(''); setImportResult(null); }} /></label><div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end"><label className="block text-xs font-medium">Default statement currency<select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option></select></label><button data-testid="button-parse-statement" onClick={submit} disabled={!file || state === 'reading'} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{state === 'reading' ? 'Extracting statement lines…' : <><Sparkles size={14} /> Extract with AI</>}</button></div>{message && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${state === 'done' ? importResult?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary' : 'border-destructive/25 bg-destructive/5 text-destructive'}`}>{message}{state === 'done' && importResult?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}{importResult && importResult.duplicateCount > 0 && <section data-testid="import-duplicate-summary" className="mt-4 rounded-md border border-accent/25 bg-accent/5 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">Duplicate review result</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{importResult.importStatus === 'duplicate_file' ? 'The identical source file was previously imported for this client, so it was not queued again.' : 'Exact duplicate transaction keys were skipped. Existing review items remain unchanged.'}</p></div><span className="rounded-full bg-accent/15 px-2 py-1 font-mono text-[10px] text-accent-foreground">{importResult.duplicateCount} skipped</span></div>{importResult.duplicateLines.length > 0 && <ul className="mt-3 divide-y divide-accent/15 rounded border border-accent/15 bg-card">{importResult.duplicateLines.map((line, index) => <li key={`${line.date}-${line.description}-${index}`} className="px-3 py-2.5 text-[11px]"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{line.description}</span><span className="font-mono">{shortDate(line.date)} · {money(line.amount, line.currency)}</span></div><div className="mt-1 text-muted-foreground">{line.reason === 'already_imported' ? `Already in this client's review queue${line.existingLineId ? ` (line #${line.existingLineId})` : ''}.` : 'Repeated within this uploaded statement.'}</div></li>)}</ul>}</section>}</section><aside className="rounded-lg border border-accent/25 bg-accent/10 p-6"><div className="font-mono text-[10px] uppercase tracking-[.16em] text-accent-foreground">Review safeguard</div><h2 className="mt-3 font-display text-[28px] leading-[1.05]">AI recreates the lines. You decide what posts.</h2><div className="mt-6 space-y-4 text-xs leading-5 text-accent-foreground/75"><p><strong className="text-accent-foreground">1. Extract</strong><br />The system reads the source statement and proposes normalized bank movements.</p><p><strong className="text-accent-foreground">2. Verify</strong><br />Imported lines enter the review queue with the original file name retained as evidence.</p><p><strong className="text-accent-foreground">3. Post</strong><br />Only approved journal entries can move into the trial balance and financial statements.</p></div></aside></div></div>;
 }
 
-function ImportStatementPanel({
-  file, currency, state, message, importResult, uploadProgress, isUploading, clientName, onFileChange, onCurrencyChange, onSubmit,
-}: {
-  file: File | null;
-  currency: string;
-  state: 'idle' | 'uploading' | 'reading' | 'done' | 'error';
-  message: string;
-  importResult: StatementImportResult | null;
-  uploadProgress: number;
-  isUploading: boolean;
-  clientName: string;
-  onFileChange: (file: File | null) => void;
-  onCurrencyChange: (currency: string) => void;
-  onSubmit: () => void;
-}) {
-  const busy = isUploading || state === 'reading';
-  return <div>
-    <PageHeading eyebrow="Client intake / private source document" title="Import a bank statement" description={`Upload a PDF, CSV, or Excel statement for ${clientName}. The original stays in private storage while LedgerFlow extracts review-only transaction proposals.`} />
-    <div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]">
-      <section className="rounded-lg border border-card-border bg-card p-6">
-        <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div>
-        <h2 className="mt-5 text-lg font-semibold">Statement file</h2>
-        <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX, up to 50 MB. The file uploads directly to private storage; it is not embedded in a JSON request.</p>
-        <label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60">
-          <UploadCloud className="text-primary" size={24} />
-          <span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span>
-          <span className="mt-1 text-[11px] text-muted-foreground">{file ? `${(file.size / 1024 / 1024).toFixed(file.size >= 1024 * 1024 ? 1 : 2)} MB ready to upload` : 'PDF, CSV, XLS, or XLSX · up to 50 MB'}</span>
-          <input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" disabled={busy} onChange={(event) => onFileChange(event.target.files?.[0] ?? null)} />
-        </label>
-        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end">
-          <label className="block text-xs font-medium">Default statement currency
-            <select value={currency} disabled={busy} onChange={(event) => onCurrencyChange(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary">
-              <option>AED</option><option>USD</option><option>EUR</option><option>GBP</option>
-            </select>
-          </label>
-          <button data-testid="button-parse-statement" onClick={onSubmit} disabled={!file || busy} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
-            {state === 'uploading' ? `Uploading ${uploadProgress}%…` : state === 'reading' ? 'Extracting statement lines…' : <><Sparkles size={14} /> Upload and extract</>}
-          </button>
-        </div>
-        {(state === 'uploading' || state === 'reading') && <div data-testid="import-progress" className="mt-5 rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-xs text-primary" role="status">
-          <div className="flex items-center gap-2"><LoaderCircle className="animate-spin" size={15} />{message}</div>
-          {state === 'uploading' && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-primary/15"><div className="h-full bg-primary transition-all" style={{ width: `${uploadProgress}%` }} /></div>}
-        </div>}
-        {message && !busy && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${state === 'done' ? importResult?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary' : 'border-destructive/25 bg-destructive/5 text-destructive'}`}>
-          {message}
-          {state === 'done' && importResult?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}
-          {state === 'done' && importResult?.sourceUrl ? <a href={importResult.sourceUrl} className="ml-3 font-semibold underline">Download original source</a> : null}
-        </div>}
-        {importResult && importResult.duplicateCount > 0 && <section data-testid="import-duplicate-summary" className="mt-4 rounded-md border border-accent/25 bg-accent/5 p-4">
-          <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">Duplicate review result</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{importResult.importStatus === 'duplicate_file' ? 'The identical source file was already imported for this workspace; no new lines were queued.' : 'Exact duplicate transaction keys were skipped. Existing review items remain unchanged.'}</p></div><span className="rounded-full bg-accent/15 px-2 py-1 font-mono text-[10px] text-accent-foreground">{importResult.duplicateCount} skipped</span></div>
-        </section>}
-      </section>
-      <aside className="rounded-lg border border-accent/25 bg-accent/10 p-6"><div className="font-mono text-[10px] uppercase tracking-[.16em] text-accent-foreground">Review safeguard</div><h2 className="mt-3 font-display text-[28px] leading-[1.05]">Private evidence. Human judgment.</h2><div className="mt-6 space-y-4 text-xs leading-5 text-accent-foreground/75"><p><strong className="text-accent-foreground">1. Upload</strong><br />The browser sends the source directly to this workspace’s private storage path.</p><p><strong className="text-accent-foreground">2. Extract</strong><br />LedgerFlow reads the authorized source and sends every proposed line to review.</p><p><strong className="text-accent-foreground">3. Retrieve</strong><br />Use the completed import’s source link to retrieve the original document later.</p></div></aside>
-    </div>
-  </div>;
-}
 function AddLineDialog({ onClose }: { onClose: () => void }) {
   const { activeClient } = useClientWorkspace();
   const mutation = useCreateStatementLine();
@@ -564,8 +280,8 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Debit account</div><div data-testid={`journal-debit-${line.id}`} className="mt-1 text-xs font-semibold">{debitLine?.account ?? '—'}</div></div>
           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Credit account</div><div data-testid={`journal-credit-${line.id}`} className="mt-1 text-xs font-semibold">{creditLine?.account ?? '—'}</div></div>
-          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Source amount</div><div data-testid={`journal-amount-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{money(debitLine?.debit ?? creditLine?.credit ?? 0, entry.currency)}</div></div>
-          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Functional amount</div><div className={`mt-1 font-mono text-xs font-semibold ${entry.exchangeRateStatus === 'missing' ? 'text-destructive' : ''}`}>{entry.functionalAmount == null ? 'Rate required' : money(entry.functionalAmount, entry.functionalCurrency ?? entry.currency)}</div><div className="mt-1 text-[9px] text-muted-foreground">{entry.exchangeRateStatus === 'prior' ? `Prior rate · ${entry.exchangeRateEffectiveDate}` : entry.exchangeRateStatus === 'exact' ? `Exact rate · ${entry.exchangeRateEffectiveDate}` : entry.exchangeRateStatus === 'missing' ? 'Add a workspace rate before reporting' : 'Same currency'}</div></div>
+          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Amount</div><div data-testid={`journal-amount-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{money(debitLine?.debit ?? creditLine?.credit ?? 0, entry.currency)}</div></div>
+          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Confidence</div><div data-testid={`journal-confidence-${line.id}`} className="mt-1 text-xs font-semibold">{Math.round(entry.confidence * 100)}%</div></div>
         </div>
         {canConfirmClassification && <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -605,13 +321,12 @@ function JournalCard({ entry, selected, onSelect, onApprove, approving }: { entr
   return <article data-testid={`card-journal-entry-${entry.id}`} className={`rounded-lg border bg-card transition-all ${selected ? 'border-primary/50 shadow-md' : 'border-card-border hover:border-primary/30'}`}><button data-testid={`button-expand-entry-${entry.id}`} onClick={onSelect} className="flex w-full items-start gap-4 p-5 text-left"><div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-md ${approved ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{approved ? <Check size={17} /> : <Sparkles size={16} />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] text-muted-foreground">JE-{String(entry.id).padStart(4, '0')}</span><StatusPill status={entry.status} /></div><h2 className="mt-2 truncate text-[13px] font-semibold">{entry.memo}</h2><div className="mt-2 flex items-center gap-3 font-mono text-[10px] text-muted-foreground"><span>{shortDate(entry.date)}</span><span>·</span><span>{entry.currency}</span><span>·</span><span>{Math.round(entry.confidence * 100)}% confidence</span></div></div><ChevronDown className={`mt-1 text-muted-foreground transition-transform ${selected ? 'rotate-180' : ''}`} size={16} /></button>{selected && <div className="border-t border-border px-5 pb-5 pt-4"><div className="mb-3 flex items-center gap-2 text-[10px] text-muted-foreground"><FileCheck2 size={13} className="text-primary" /> Linked to statement line #{entry.statementLineId}</div><div className="overflow-hidden rounded-md border border-border"><table className="w-full text-left text-[11px]"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Account</th><th className="px-3 py-2 text-right font-medium">Debit</th><th className="px-3 py-2 text-right font-medium">Credit</th></tr></thead><tbody className="divide-y divide-border">{entry.lines.map((line, index) => <tr key={`${entry.id}-${index}`}><td className="px-3 py-2.5">{line.account}</td><td className="px-3 py-2.5 text-right font-mono">{line.debit ? money(line.debit, entry.currency) : '—'}</td><td className="px-3 py-2.5 text-right font-mono">{line.credit ? money(line.credit, entry.currency) : '—'}</td></tr>)}</tbody></table></div><div className="mt-4 flex justify-end">{approved ? <div className="flex items-center gap-2 text-xs font-semibold text-primary"><CircleCheck size={15} /> Entry approved</div> : <button data-testid={`button-approve-entry-${entry.id}`} onClick={onApprove} disabled={approving} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{approving ? 'Approving…' : <><Check size={14} /> Approve entry</>}</button>}</div></div>}</article>;
 }
 
-function exportTrialBalance(rows: Array<{ account: string; category: string; debit: number; credit: number; balance: number }>, clientName: string, currency: string, missingRateCount: number, missingRateCurrencies: string[]) {
+function exportTrialBalance(rows: Array<{ account: string; category: string; debit: number; credit: number; balance: number }>, clientName: string, currency: string) {
   const escape = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
   const csv = [
     ['Client', clientName],
     ['Report', 'Trial balance'],
     ['Currency', currency],
-    ...(missingRateCount ? [['Rate coverage', `EXCLUDED: ${missingRateCount} posted ${missingRateCurrencies.join(', ')} transaction${missingRateCount === 1 ? '' : 's'} require a dated workspace rate`]] : [['Rate coverage', 'Complete']]),
     [],
     ['Account', 'Category', 'Debit', 'Credit', 'Balance'],
     ...rows.map((row) => [row.account, row.category, row.debit.toFixed(2), row.credit.toFixed(2), row.balance.toFixed(2)]),
@@ -629,19 +344,19 @@ function exportTrialBalance(rows: Array<{ account: string; category: string; deb
 
 function TrialBalancePage() {
   const { activeClient } = useClientWorkspace(); const params = { clientId: activeClient?.id ?? 1 };
-  const query = useGetTrialBalance(params, { query: { queryKey: getGetTrialBalanceQueryKey(params) } }); const rows = query.data ?? []; const reportingRows = rows.filter((row) => row.category !== 'Unconverted transactions'); const currency = rows[0]?.functionalCurrency ?? activeClient?.functionalCurrency ?? 'AED'; const missingRateCount = rows[0]?.missingRateCount ?? 0; const missingRateCurrencies = rows[0]?.missingRateCurrencies ?? []; const debit = reportingRows.reduce((sum, row) => sum + row.debit, 0); const credit = reportingRows.reduce((sum, row) => sum + row.credit, 0); const balanced = Math.abs(debit - credit) < 0.01;
-  return <div><PageHeading eyebrow="Control check / double-entry" title="Trial balance" description={`Functional-currency control check in ${currency}. Source amounts remain attached to statement lines and journal entries.`} action={<div className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${balanced ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{balanced ? <CircleCheck size={15} /> : <CircleAlert size={15} />}{balanced ? 'In balance' : 'Review variance'}</div>} /><QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}><div className="space-y-5">{missingRateCount > 0 && <div className="rounded-md border border-accent/35 bg-accent/10 p-3 text-xs text-accent-foreground"><strong>Unconverted items excluded:</strong> {missingRateCount} posted {missingRateCurrencies.join(', ')} transaction{missingRateCount === 1 ? '' : 's'} need a dated workspace rate.</div>}<div className="grid gap-3 sm:grid-cols-3"><Metric label="Total debits" value={money(debit, currency)} note={`${reportingRows.length} accounts in scope`} /><Metric label="Total credits" value={money(credit, currency)} note="Converted functional amounts" /><Metric label="Variance" value={money(Math.abs(debit - credit), currency)} note={balanced ? 'Debits and credits agree' : 'Needs investigation'} accent={!balanced} /></div><div className="overflow-hidden rounded-lg border border-card-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Account balances</span><span className="ml-2 font-mono text-[10px] text-muted-foreground">functional {currency} · as of close</span></div><button data-testid="button-export-trial-balance" onClick={() => exportTrialBalance(rows, activeClient?.name ?? 'LedgerFlow', currency, missingRateCount, missingRateCurrencies)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold hover:bg-muted"><ArrowDownLeft size={13} /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="px-5 py-3 font-medium">Account</th><th className="px-4 py-3 font-medium">Category</th><th className="px-4 py-3 text-right font-medium">Debit</th><th className="px-4 py-3 text-right font-medium">Credit</th><th className="px-5 py-3 text-right font-medium">Balance</th></tr></thead><tbody className="divide-y divide-border">{reportingRows.map((row, index) => <tr data-testid={`row-trial-balance-${index}`} key={`${row.account}-${index}`} className="hover:bg-secondary/25"><td className="px-5 py-3.5 text-[12px] font-semibold">{row.account}</td><td className="px-4 py-3.5 text-[11px] text-muted-foreground">{row.category}</td><td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.debit ? money(row.debit, currency) : '—'}</td><td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.credit ? money(row.credit, currency) : '—'}</td><td className={`px-5 py-3.5 text-right font-mono text-[11px] font-medium ${row.balance < 0 ? 'text-destructive' : ''}`}>{money(row.balance, currency)}</td></tr>)}</tbody><tfoot className="border-t-2 border-border bg-muted/35"><tr><td colSpan={2} className="px-5 py-3 text-[11px] font-semibold">Totals</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(debit, currency)}</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(credit, currency)}</td><td className="px-5 py-3 text-right font-mono text-[11px] font-semibold">{money(debit - credit, currency)}</td></tr></tfoot></table></div></div></div></QueryState></div>;
+  const query = useGetTrialBalance(params, { query: { queryKey: getGetTrialBalanceQueryKey(params) } }); const rows = query.data ?? []; const debit = rows.reduce((sum, row) => sum + row.debit, 0); const credit = rows.reduce((sum, row) => sum + row.credit, 0); const balanced = Math.abs(debit - credit) < 0.01;
+  return <div><PageHeading eyebrow="Control check / double-entry" title="Trial balance" description="One place to see every account's movement and confirm the ledger is ready to become financial statements." action={<div className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${balanced ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{balanced ? <CircleCheck size={15} /> : <CircleAlert size={15} />}{balanced ? 'In balance' : 'Review variance'}</div>} /><QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}><div className="space-y-5"><div className="grid gap-3 sm:grid-cols-3"><Metric label="Total debits" value={money(debit)} note={`${rows.length} accounts in scope`} /><Metric label="Total credits" value={money(credit)} note="Across all categories" /><Metric label="Variance" value={money(Math.abs(debit - credit))} note={balanced ? 'Debits and credits agree' : 'Needs investigation'} accent={!balanced} /></div><div className="overflow-hidden rounded-lg border border-card-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Account balances</span><span className="ml-2 font-mono text-[10px] text-muted-foreground">as of close</span></div><button data-testid="button-export-trial-balance" onClick={() => exportTrialBalance(rows, activeClient?.name ?? 'LedgerFlow', activeClient?.functionalCurrency ?? 'AED')} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold hover:bg-muted"><ArrowDownLeft size={13} /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="px-5 py-3 font-medium">Account</th><th className="px-4 py-3 font-medium">Category</th><th className="px-4 py-3 text-right font-medium">Debit</th><th className="px-4 py-3 text-right font-medium">Credit</th><th className="px-5 py-3 text-right font-medium">Balance</th></tr></thead><tbody className="divide-y divide-border">{rows.map((row, index) => <tr data-testid={`row-trial-balance-${index}`} key={`${row.account}-${index}`} className="hover:bg-secondary/25"><td className="px-5 py-3.5 text-[12px] font-semibold">{row.account}</td><td className="px-4 py-3.5 text-[11px] text-muted-foreground">{row.category}</td><td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.debit ? money(row.debit) : '—'}</td><td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.credit ? money(row.credit) : '—'}</td><td className={`px-5 py-3.5 text-right font-mono text-[11px] font-medium ${row.balance < 0 ? 'text-destructive' : ''}`}>{money(row.balance)}</td></tr>)}</tbody><tfoot className="border-t-2 border-border bg-muted/35"><tr><td colSpan={2} className="px-5 py-3 text-[11px] font-semibold">Totals</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(debit)}</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(credit)}</td><td className="px-5 py-3 text-right font-mono text-[11px] font-semibold">{money(debit - credit)}</td></tr></tfoot></table></div></div></div></QueryState></div>;
 }
 
-function SectionTree({ sections, currency, level = 0 }: { sections: StatementSection[]; currency: string; level?: number }) {
-  return <div className={level ? 'ml-4 border-l border-border pl-4' : ''}>{sections.map((section, index) => <div key={`${section.label}-${index}`} className={`${level ? 'py-2' : 'border-b border-border py-3.5 last:border-b-0'}`}><div className={`flex items-baseline justify-between gap-4 ${level === 0 ? 'font-semibold' : ''}`}><span className={`${level === 0 ? 'text-[12px]' : 'text-[11px] text-muted-foreground'}`}>{section.label}</span><span className={`shrink-0 font-mono ${level === 0 ? 'text-[12px]' : 'text-[11px]'}`}>{money(section.amount, currency)}</span></div>{section.children && section.children.length > 0 && <SectionTree sections={section.children} currency={currency} level={level + 1} />}</div>)}</div>;
+function SectionTree({ sections, level = 0 }: { sections: StatementSection[]; level?: number }) {
+  return <div className={level ? 'ml-4 border-l border-border pl-4' : ''}>{sections.map((section, index) => <div key={`${section.label}-${index}`} className={`${level ? 'py-2' : 'border-b border-border py-3.5 last:border-b-0'}`}><div className={`flex items-baseline justify-between gap-4 ${level === 0 ? 'font-semibold' : ''}`}><span className={`${level === 0 ? 'text-[12px]' : 'text-[11px] text-muted-foreground'}`}>{section.label}</span><span className={`shrink-0 font-mono ${level === 0 ? 'text-[12px]' : 'text-[11px]'}`}>{money(section.amount)}</span></div>{section.children && section.children.length > 0 && <SectionTree sections={section.children} level={level + 1} />}</div>)}</div>;
 }
 function FinancialStatementsPage() {
   const { activeClient } = useClientWorkspace(); const [period, setPeriod] = useState(''); const params = { clientId: activeClient?.id ?? 1, ...(period ? { period } : {}) }; const query = useGetFinancialStatements(params, { query: { queryKey: getGetFinancialStatementsQueryKey(params) } }); const report = query.data as FinancialStatements | undefined; const [active, setActive] = useState<'incomeStatement' | 'balanceSheet' | 'cashFlow'>('incomeStatement'); const tabs = [{ key: 'incomeStatement' as const, label: 'Income statement', note: 'Profit & loss' }, { key: 'balanceSheet' as const, label: 'Balance sheet', note: 'Position' }, { key: 'cashFlow' as const, label: 'Cash flow', note: 'Indirect method' }]; const sections = report?.[active] ?? [];
-  return <div><PageHeading eyebrow="Reporting / period close" title="Financial statements" description="Read the finished story of the ledger in its functional currency. Source-currency evidence remains attached to each transaction." action={<label className="flex items-center gap-2 text-xs font-medium"><span className="text-muted-foreground">Period</span><select data-testid="select-statement-period" value={period} onChange={(e) => setPeriod(e.target.value)} className="h-9 rounded-md border border-input bg-card px-3 font-mono text-[11px] outline-none focus:border-primary"><option value="">Latest available</option><option value="2024-06">June 2024</option><option value="2024-05">May 2024</option><option value="2024-04">April 2024</option></select></label>} /><QueryState loading={query.isLoading} error={query.isError} empty={!report} onRetry={() => query.refetch()}>{report && <div className="space-y-4">{report.missingRateCount > 0 && <div className="rounded-md border border-accent/35 bg-accent/10 p-3 text-xs text-accent-foreground"><strong>Rate coverage required:</strong> {report.missingRateCount} posted {report.missingRateCurrencies.join(', ')} transaction{report.missingRateCount === 1 ? '' : 's'} are excluded from these {report.functionalCurrency} statements.</div>}<div className="grid gap-6 xl:grid-cols-[.7fr_1.3fr]"><div className="space-y-3">{tabs.map(({ key, label, note }) => <button key={key} data-testid={`button-statement-${key}`} onClick={() => setActive(key)} className={`flex w-full items-center justify-between rounded-lg border p-4 text-left transition-all ${active === key ? 'border-primary/40 bg-primary text-primary-foreground shadow-md' : 'border-card-border bg-card hover:border-primary/30'}`}><div><div className="text-[13px] font-semibold">{label}</div><div className={`mt-1 text-[11px] ${active === key ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{note}</div></div><ArrowRight size={15} className={active === key ? 'text-primary-foreground' : 'text-muted-foreground'} /></button>)}<div className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-2 text-accent-foreground"><CircleCheck size={15} className="mt-0.5 shrink-0" /><p className="text-[11px] leading-5"><strong className="font-semibold">Statement integrity</strong><br />Built from posted journal entries, converted to {report.functionalCurrency}, and checked against the trial balance.</p></div></div></div><section className="rounded-lg border border-card-border bg-card"><div className="border-b border-border p-5 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">{report.period} · {report.functionalCurrency}</div><h2 className="mt-2 font-display text-[29px]">{tabs.find((tab) => tab.key === active)?.label}</h2><p className="mt-1 text-[11px] text-muted-foreground">Prepared from LedgerFlow's reviewed close</p></div><div className="p-5 md:p-6"><SectionTree sections={sections} currency={report.functionalCurrency} /></div></section></div></div>}</QueryState></div>;
+  return <div><PageHeading eyebrow="Reporting / period close" title="Financial statements" description="Read the finished story of the ledger. Switch between statements without losing the period context." action={<label className="flex items-center gap-2 text-xs font-medium"><span className="text-muted-foreground">Period</span><select data-testid="select-statement-period" value={period} onChange={(e) => setPeriod(e.target.value)} className="h-9 rounded-md border border-input bg-card px-3 font-mono text-[11px] outline-none focus:border-primary"><option value="">Latest available</option><option value="2024-06">June 2024</option><option value="2024-05">May 2024</option><option value="2024-04">April 2024</option></select></label>} /><QueryState loading={query.isLoading} error={query.isError} empty={!report} onRetry={() => query.refetch()}>{report && <div className="grid gap-6 xl:grid-cols-[.7fr_1.3fr]"><div className="space-y-3">{tabs.map(({ key, label, note }) => <button key={key} data-testid={`button-statement-${key}`} onClick={() => setActive(key)} className={`flex w-full items-center justify-between rounded-lg border p-4 text-left transition-all ${active === key ? 'border-primary/40 bg-primary text-primary-foreground shadow-md' : 'border-card-border bg-card hover:border-primary/30'}`}><div><div className="text-[13px] font-semibold">{label}</div><div className={`mt-1 text-[11px] ${active === key ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{note}</div></div><ArrowRight size={15} className={active === key ? 'text-primary-foreground' : 'text-muted-foreground'} /></button>)}<div className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-2 text-accent-foreground"><CircleCheck size={15} className="mt-0.5 shrink-0" /><p className="text-[11px] leading-5"><strong className="font-semibold">Statement integrity</strong><br />Built from approved journal entries and checked against the trial balance.</p></div></div></div><section className="rounded-lg border border-card-border bg-card"><div className="border-b border-border p-5 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">{report.period}</div><h2 className="mt-2 font-display text-[29px]">{tabs.find((tab) => tab.key === active)?.label}</h2><p className="mt-1 text-[11px] text-muted-foreground">Prepared from LedgerFlow's reviewed close</p></div><div className="p-5 md:p-6"><SectionTree sections={sections} /></div></section></div>}</QueryState></div>;
 }
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/workspace-settings" component={WorkspaceSettingsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">LedgerFlow / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
@@ -708,4 +423,68 @@ function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
 
 function AccessScreen({ onLogin, returnTo }: { onLogin: (returnTo?: string) => void; returnTo: string }) {
   return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="auth-access-screen"><div className="w-full max-w-[420px]"><div className="rounded-lg border border-card-border bg-card p-7 shadow-md sm:p-9"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Review desk</div></div></div><div className="mt-10"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Secure access</div><h1 className="mt-3 font-display text-[36px] leading-[.98] tracking-tight">Your close, ready for review.</h1><p className="mt-4 text-[13px] leading-6 text-muted-foreground">Sign in to open your private bookkeeping review desk. New to LedgerFlow? The same secure flow lets you create an account.</p><button data-testid="button-login" onClick={() => onLogin(returnTo)} className="focus-ring mt-7 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Sign in or create account</button></div></div><p className="mt-5 text-center font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground/70">Secure session · Human approval stays in control</p></div></main>;
+}
+
+type AIProviderName = 'managed_openai' | 'openai' | 'anthropic';
+
+function AIProviderSettingsPanel({ clientId }: { clientId: number }) {
+  const params = { clientId };
+  const settings = useGetLedgerflowAISettings(params);
+  const save = useUpdateLedgerflowAISettings();
+  const test = useTestLedgerflowAISettings();
+  const remove = useRemoveLedgerflowAICredential();
+  const [provider, setProvider] = useState<AIProviderName>('managed_openai');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!settings.data) return;
+    const nextProvider = settings.data.provider as AIProviderName;
+    setProvider(nextProvider);
+    setModel(settings.data.model);
+  }, [clientId, settings.data?.provider, settings.data?.model]);
+  const modelsForProvider = settings.data?.availableModels.filter((option) => option.provider === provider) ?? [];
+  const activeModels = modelsForProvider.filter((option) => option.status === 'active');
+  const selectedModel = modelsForProvider.find((option) => option.model === model);
+  const selectedModelIsUnavailable = Boolean(model) && selectedModel?.status !== 'active';
+  const chooseProvider = (nextProvider: AIProviderName) => {
+    setProvider(nextProvider);
+    setModel(settings.data?.availableModels.find((option) => option.provider === nextProvider && option.status === 'active')?.model ?? '');
+    setApiKey('');
+    setNotice('');
+  };
+  const saveSettings = (event: React.FormEvent) => {
+    event.preventDefault();
+    setNotice('');
+    save.mutate({ data: { clientId, provider, model, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) } }, {
+      onSuccess: (result) => {
+        setApiKey('');
+        setNotice(result.provider === 'managed_openai' ? 'Replit-managed OpenAI is selected.' : 'AI provider settings saved. Test the connection before using it.');
+        settings.refetch();
+      },
+    });
+  };
+  const testSettings = () => {
+    setNotice('');
+    test.mutate({ data: { clientId } }, {
+      onSuccess: () => {
+        setNotice('Connection test passed. This workspace can use the selected provider.');
+        settings.refetch();
+      },
+    });
+  };
+  const removeCredential = () => {
+    if (!window.confirm('Remove this workspace API key and switch back to Replit-managed OpenAI?')) return;
+    setNotice('');
+    remove.mutate({ data: { clientId } }, {
+      onSuccess: () => {
+        setApiKey('');
+        setNotice('Workspace API key removed. Replit-managed OpenAI is selected.');
+        settings.refetch();
+      },
+    });
+  };
+  const status = settings.data?.credentialStatus;
+  const error = save.error ?? test.error ?? remove.error;
+  return <section className="mt-6 border-t border-border pt-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI provider</div><h3 className="mt-1 text-sm font-semibold">AI connection</h3><p className="mt-1 max-w-xl text-[11px] leading-5 text-muted-foreground">Choose Replit-managed OpenAI or use a workspace-owned OpenAI or Anthropic API key. Approved models are updated by your workspace without requiring a LedgerFlow update.</p></div>{settings.data && <span className={`rounded-full px-2 py-1 font-mono text-[9px] ${status === 'configured' || settings.data.provider === 'managed_openai' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>{settings.data.provider === 'managed_openai' ? 'Managed connection' : status === 'configured' ? 'Key configured' : status?.replaceAll('_', ' ')}</span>}</div><form onSubmit={saveSettings} className="mt-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs font-medium">Provider<select data-testid="select-ai-provider" value={provider} onChange={(event) => chooseProvider(event.target.value as AIProviderName)} disabled={settings.isLoading} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50"><option value="managed_openai">Replit-managed OpenAI</option><option value="openai">Workspace-owned OpenAI</option><option value="anthropic">Workspace-owned Anthropic</option></select></label><label className="block text-xs font-medium">Model<select data-testid="select-ai-model" value={model} onChange={(event) => setModel(event.target.value)} disabled={settings.isLoading || !activeModels.length} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50">{selectedModelIsUnavailable && <option value={model} disabled>{selectedModel ? `${selectedModel.displayName} — retired` : `${model} — unavailable`}</option>}{activeModels.length ? activeModels.map((item) => <option key={item.model} value={item.model}>{item.displayName} ({item.model})</option>) : <option value="">No active approved models</option>}</select><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">Only active models can be selected for new configurations.</span></label>{selectedModelIsUnavailable && <p data-testid="ai-model-recovery-guidance" role="alert" className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-[11px] leading-5 text-destructive sm:col-span-2">This workspace is configured with a model that is no longer available. Select an active replacement above, then save before testing or using the AI assistant.</p>}{provider !== 'managed_openai' && <label className="block text-xs font-medium sm:col-span-2">API key<input data-testid="input-ai-provider-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings.data?.provider === provider && settings.data.credentialLast4 ? `Stored key ends in ${settings.data.credentialLast4}; enter a key only to replace it` : 'Paste the workspace API key'} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">{provider === 'anthropic' ? 'A Claude Pro or Max subscription is not an Anthropic API credential; API billing is separate.' : 'Use an API key created for this workspace. The full key is never returned to your browser.'}</span></label>}<div className="flex flex-wrap items-center gap-2 sm:col-span-2"><button data-testid="button-save-ai-settings" disabled={save.isPending || settings.isLoading || selectedModelIsUnavailable || !model} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{save.isPending ? 'Saving…' : provider === 'managed_openai' ? 'Use managed OpenAI' : apiKey ? 'Save & rotate key' : 'Save provider'}</button><button data-testid="button-test-ai-provider" type="button" onClick={testSettings} disabled={test.isPending || save.isPending || settings.isLoading || selectedModelIsUnavailable || !model} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">{test.isPending ? 'Testing…' : 'Test connection'}</button>{settings.data?.provider !== 'managed_openai' && <button data-testid="button-remove-ai-provider-key" type="button" onClick={removeCredential} disabled={remove.isPending} className="rounded-md px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50">{remove.isPending ? 'Removing…' : 'Remove key'}</button>}</div></form>{settings.isLoading && <p className="mt-3 text-[11px] text-muted-foreground">Loading AI connection…</p>}{notice && <p data-testid="ai-settings-notice" className="mt-3 text-[11px] font-medium text-primary">{notice}</p>}{error && <p data-testid="ai-settings-error" className="mt-3 text-[11px] font-medium text-destructive">{error instanceof Error ? error.message : 'AI provider settings could not be updated. Try again.'}</p>}</section>;
 }
