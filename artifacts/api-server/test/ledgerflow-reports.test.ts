@@ -23,12 +23,11 @@ type FinancialStatements = {
   cashFlow: StatementSection[];
 };
 
-let server: Server;
+let server: Server | undefined;
 let baseUrl: string;
 let app: typeof import("../src/app").default;
-let database: typeof import("@workspace/db");
+let database: typeof import("@workspace/db") | undefined;
 
-let createSession: typeof import("../src/lib/auth").createSession;
 const createdClientIds: number[] = [];
 const createdUserIds: string[] = [];
 const createdSessionIds: string[] = [];
@@ -41,7 +40,7 @@ function testDatabaseUrl() {
 
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
-    throw new Error("LEDGERFLOW_TEST_DATABASE_URL must use a database name containing 'test'.");
+    throw new Error("The LedgerFlow integration test database name must contain 'test'.");
   }
   return value;
 }
@@ -51,7 +50,7 @@ before(async () => {
   process.env.SESSION_SECRET ??= "ledgerflow-test-session-secret";
   app = (await import("../src/app")).default;
   database = await import("@workspace/db");
-  ({ createSession } = await import("../src/lib/auth"));
+  const { createSession } = await import("../src/lib/auth");
   const primaryUserId = `ledgerflow-test-primary-${randomUUID()}`;
   const secondaryUserId = `ledgerflow-test-secondary-${randomUUID()}`;
   await database.db.insert(database.usersTable).values([
@@ -78,32 +77,40 @@ before(async () => {
 });
 
 after(async () => {
+  const activeDatabase = database;
+  const activeServer = server;
   try {
-    if (createdClientIds.length) {
-      await database.db.delete(database.journalEntriesTable)
-        .where(inArray(database.journalEntriesTable.clientId, createdClientIds));
-      await database.db.delete(database.statementLinesTable)
-        .where(inArray(database.statementLinesTable.clientId, createdClientIds));
-      await database.db.delete(database.bankAccountsTable)
-        .where(inArray(database.bankAccountsTable.clientId, createdClientIds));
-      await database.db.delete(database.clientWorkspacesTable)
-        .where(inArray(database.clientWorkspacesTable.clientId, createdClientIds));
-      await database.db.delete(database.clientsTable)
-        .where(inArray(database.clientsTable.id, createdClientIds));
+    if (activeDatabase && createdClientIds.length) {
+      await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
+        .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.statementLinesTable)
+        .where(inArray(activeDatabase.statementLinesTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.bankAccountsTable)
+        .where(inArray(activeDatabase.bankAccountsTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.clientWorkspacesTable)
+        .where(inArray(activeDatabase.clientWorkspacesTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.clientsTable)
+        .where(inArray(activeDatabase.clientsTable.id, createdClientIds));
     }
-    if (createdSessionIds.length) {
-      await database.db.delete(database.sessionsTable)
-        .where(inArray(database.sessionsTable.sid, createdSessionIds));
+    if (activeDatabase && createdSessionIds.length) {
+      await activeDatabase.db.delete(activeDatabase.sessionsTable)
+        .where(inArray(activeDatabase.sessionsTable.sid, createdSessionIds));
     }
-    if (createdUserIds.length) {
-      await database.db.delete(database.usersTable)
-        .where(inArray(database.usersTable.id, createdUserIds));
+    if (activeDatabase && createdUserIds.length) {
+      await activeDatabase.db.delete(activeDatabase.usersTable)
+        .where(inArray(activeDatabase.usersTable.id, createdUserIds));
     }
   } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-    await database.pool.end();
+    const closeOperations: Promise<unknown>[] = [];
+    if (activeServer) {
+      closeOperations.push(new Promise<void>((resolve, reject) => {
+        activeServer.close((error) => (error ? reject(error) : resolve()));
+      }));
+    }
+    if (activeDatabase) closeOperations.push(activeDatabase.pool.end());
+    const failures = (await Promise.allSettled(closeOperations))
+      .find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (failures) throw failures.reason;
   }
 });
 
@@ -152,7 +159,7 @@ test("keeps approved entries out of reports until posting and enforces client sc
     body: JSON.stringify({
       clientId,
       date: "2026-08-24",
-      description: `Concurrent posting expense ${suffix}`,
+      description: `Concurrent posting software subscription ${suffix}`,
       currency: "AED",
       amount: 987.65,
       direction: "outflow",
@@ -255,7 +262,7 @@ test("allows only one concurrent posting request for an approved entry", async (
     body: JSON.stringify({
       clientId,
       date: "2026-08-24",
-      description: `Concurrent posting expense ${suffix}`,
+      description: `Concurrent posting software subscription ${suffix}`,
       currency: "AED",
       amount: 987.65,
       direction: "outflow",
