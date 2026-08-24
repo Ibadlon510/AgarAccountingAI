@@ -36,6 +36,11 @@ import type {
   Client,
   ClientInput,
   ClientUpdateInput,
+  ExchangeRate,
+  ExchangeRateImportInput,
+  ExchangeRateImportResult,
+  ExchangeRateInput,
+  ExchangeRateUpdate,
   FinancialStatements,
   GetBankAccountsParams,
   GetBulkTransitionAuditsParams,
@@ -659,6 +664,11 @@ export const useUpdateClient = <TError = ErrorType<unknown>,
       return useMutation(getUpdateClientMutationOptions(options));
     }
 
+export const getGetExchangeRatesUrl = () => {
+
+
+  return `/api/ledgerflow/exchange-rates`
+}
 export const getHealthCheckUrl = () => {
 
 
@@ -1896,3 +1906,300 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
    return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBulkTransitionAudits>>, TError, TData> & { queryKey: QueryKey }
 }
+
+export const getUpdateExchangeRateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExchangeRate>>, TError,{id: number;data: BodyType<ExchangeRateUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateExchangeRate>>, TError,{id: number;data: BodyType<ExchangeRateUpdate>}, TContext> => {
+
+const mutationKey = ['updateExchangeRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateExchangeRate>>, {id: number;data: BodyType<ExchangeRateUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateExchangeRate(id,data,requestOptions)
+        }
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+export const getCreateExchangeRateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>}, TContext> => {
+
+const mutationKey = ['createExchangeRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExchangeRate>>, {data: BodyType<ExchangeRateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createExchangeRate(data,requestOptions)
+        }
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+export type GetExchangeRatesQueryResult = NonNullable<Awaited<ReturnType<typeof getExchangeRates>>>
+
+export const getImportExchangeRatesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>}, TContext> => {
+
+const mutationKey = ['importExchangeRates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importExchangeRates>>, {data: BodyType<ExchangeRateImportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importExchangeRates(data,requestOptions)
+        }
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+export type GetExchangeRatesQueryError = ErrorType<unknown>
+
+    export type CreateExchangeRateMutationBody = BodyType<ExchangeRateInput>
+
+    /**
+ * @summary Remove a dated workspace exchange rate
+ */
+export const useDeleteExchangeRate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteExchangeRate>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteExchangeRate>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteExchangeRateMutationOptions(options));
+    }
+
+export const getUpdateExchangeRateUrl = (id: number,) => {
+
+
+  return `/api/ledgerflow/exchange-rates/${id}`
+}
+
+export const getImportExchangeRatesUrl = () => {
+
+
+  return `/api/ledgerflow/exchange-rates/import`
+}
+
+export const getGetExchangeRatesQueryOptions = <TData = Awaited<ReturnType<typeof getExchangeRates>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetExchangeRatesQueryKey();
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExchangeRates>>> = ({ signal }) => getExchangeRates({ signal, ...requestOptions });
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+    export type UpdateExchangeRateMutationBody = BodyType<ExchangeRateUpdate>
+
+    /**
+ * @summary Edit a dated workspace exchange rate
+ */
+export const useUpdateExchangeRate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateExchangeRate>>, TError,{id: number;data: BodyType<ExchangeRateUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateExchangeRate>>,
+        TError,
+        {id: number;data: BodyType<ExchangeRateUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateExchangeRateMutationOptions(options));
+    }
+
+/**
+ * @summary Edit a dated workspace exchange rate
+ */
+export const updateExchangeRate = async (id: number,
+    exchangeRateUpdate: ExchangeRateUpdate, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate> => {
+
+  return customFetch<ExchangeRate>(getUpdateExchangeRateUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(exchangeRateUpdate)
+  }
+);}
+
+    export type CreateExchangeRateMutationError = ErrorType<unknown>
+
+export const getDeleteExchangeRateUrl = (id: number,) => {
+
+
+  return `/api/ledgerflow/exchange-rates/${id}`
+}
+
+    export type DeleteExchangeRateMutationError = ErrorType<unknown>
+
+export const getDeleteExchangeRateMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteExchangeRate>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteExchangeRate>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteExchangeRate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteExchangeRate>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteExchangeRate(id,requestOptions)
+        }
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+/**
+ * @summary Import dated workspace exchange rates
+ */
+export const importExchangeRates = async (exchangeRateImportInput: ExchangeRateImportInput, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRateImportResult> => {
+
+  return customFetch<ExchangeRateImportResult>(getImportExchangeRatesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(exchangeRateImportInput)
+  }
+);}
+
+    export type DeleteExchangeRateMutationResult = NonNullable<Awaited<ReturnType<typeof deleteExchangeRate>>>
+
+    /**
+ * @summary Import dated workspace exchange rates
+ */
+export const useImportExchangeRates = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importExchangeRates>>,
+        TError,
+        {data: BodyType<ExchangeRateImportInput>},
+        TContext
+      > => {
+      return useMutation(getImportExchangeRatesMutationOptions(options));
+    }
+
+    /**
+ * @summary Add a dated workspace exchange rate
+ */
+export const useCreateExchangeRate = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createExchangeRate>>,
+        TError,
+        {data: BodyType<ExchangeRateInput>},
+        TContext
+      > => {
+      return useMutation(getCreateExchangeRateMutationOptions(options));
+    }
+
+    export type ImportExchangeRatesMutationResult = NonNullable<Awaited<ReturnType<typeof importExchangeRates>>>
+
+/**
+ * @summary Remove a dated workspace exchange rate
+ */
+export const deleteExchangeRate = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteExchangeRateUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+export const getCreateExchangeRateUrl = () => {
+
+
+  return `/api/ledgerflow/exchange-rates`
+}
+
+/**
+ * @summary List the authenticated workspace exchange-rate schedule
+ */
+
+export function useGetExchangeRates<TData = Awaited<ReturnType<typeof getExchangeRates>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetExchangeRatesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+    export type ImportExchangeRatesMutationError = ErrorType<unknown>
+
+/**
+ * @summary List the authenticated workspace exchange-rate schedule
+ */
+export const getExchangeRates = async ( options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate[]> => {
+
+  return customFetch<ExchangeRate[]>(getGetExchangeRatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+export const getGetExchangeRatesQueryKey = () => {
+    return [
+    `/api/ledgerflow/exchange-rates`
+    ] as const;
+    }
+
+    export type UpdateExchangeRateMutationError = ErrorType<unknown>
+
+/**
+ * @summary Add a dated workspace exchange rate
+ */
+export const createExchangeRate = async (exchangeRateInput: ExchangeRateInput, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate> => {
+
+  return customFetch<ExchangeRate>(getCreateExchangeRateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(exchangeRateInput)
+  }
+);}
+
+    export type CreateExchangeRateMutationResult = NonNullable<Awaited<ReturnType<typeof createExchangeRate>>>
+
+    export type ImportExchangeRatesMutationBody = BodyType<ExchangeRateImportInput>
+
+    export type UpdateExchangeRateMutationResult = NonNullable<Awaited<ReturnType<typeof updateExchangeRate>>>

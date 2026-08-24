@@ -24,6 +24,25 @@ export interface ClientUpdateInput {
   period: string;
 }
 
+export interface ExchangeRate {
+  id: number;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  sourceCurrency: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  functionalCurrency: string;
+  effectiveDate: string;
+  /** @exclusiveMinimum 0 */
+  rate: number;
+  source: string;
+  /** @nullable */
+  note?: string | null;
+}
 export interface LedgerOverview {
   period: string;
   currencies: string[];
@@ -31,9 +50,11 @@ export interface LedgerOverview {
   pendingReview: number;
   postedAmount: number;
   completionPercent: number;
+  functionalCurrency: string;
+  postedAmountFunctional: number;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
 }
-
-export type StatementLineSuggestionSource = typeof StatementLineSuggestionSource[keyof typeof StatementLineSuggestionSource];
 export interface StatementLine {
   id: number;
   /** @nullable */
@@ -49,8 +70,15 @@ export interface StatementLine {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  suggestionSource: StatementLineSuggestionSource;
-  supportingPatternCount: number;
+  /** @nullable */
+  functionalCurrency?: string | null;
+  /** @nullable */
+  functionalAmount?: number | null;
+  /** @nullable */
+  exchangeRate?: number | null;
+  /** @nullable */
+  exchangeRateEffectiveDate?: string | null;
+  exchangeRateStatus?: string;
 }
 
 export interface StatementLineInput {
@@ -141,8 +169,6 @@ export const AICopilotRecommendationType = {
   bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
 } as const;
-
-export type AICopilotRecommendationSuggestionSource = typeof AICopilotRecommendationSuggestionSource[keyof typeof AICopilotRecommendationSuggestionSource];
 export interface BankAccountDraft {
   name: string;
   /** @nullable */
@@ -178,8 +204,6 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  suggestionSource?: AICopilotRecommendationSuggestionSource;
-  supportingPatternCount?: number;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }
@@ -232,6 +256,15 @@ export interface JournalEntry {
   status: string;
   confidence: number;
   lines: JournalLine[];
+  /** @nullable */
+  functionalCurrency?: string | null;
+  /** @nullable */
+  functionalAmount?: number | null;
+  /** @nullable */
+  exchangeRate?: number | null;
+  /** @nullable */
+  exchangeRateEffectiveDate?: string | null;
+  exchangeRateStatus?: string;
 }
 
 export interface AICopilotActionResult {
@@ -255,6 +288,9 @@ export interface TrialBalanceRow {
   debit: number;
   credit: number;
   balance: number;
+  functionalCurrency: string;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
 }
 
 export interface StatementSection {
@@ -265,6 +301,9 @@ export interface StatementSection {
 
 export interface FinancialStatements {
   period: string;
+  functionalCurrency: string;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
   incomeStatement: StatementSection[];
   balanceSheet: StatementSection[];
   cashFlow: StatementSection[];
@@ -374,18 +413,6 @@ export const StatementImportResultImportStatus = {
   duplicate_file: 'duplicate_file',
 } as const;
 
-export const AICopilotRecommendationSuggestionSource = {
-  ai: 'ai',
-  heuristic: 'heuristic',
-  workspace_learning: 'workspace_learning',
-} as const;
-
-export const StatementLineSuggestionSource = {
-  ai: 'ai',
-  heuristic: 'heuristic',
-  workspace_learning: 'workspace_learning',
-} as const;
-
 export const BulkTransitionAuditTransition = {
   bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
@@ -398,11 +425,9 @@ export const AIProvider = {
 } as const;
 
 export type AICredentialStatus = typeof AICredentialStatus[keyof typeof AICredentialStatus];
-
 export interface AIProviderSettingsTestInput {
   clientId: number;
 }
-
 export interface AIProviderSettingsInput {
   clientId: number;
   provider: AIProvider;
@@ -410,7 +435,6 @@ export interface AIProviderSettingsInput {
   /** @minLength 1 */
   apiKey?: string;
 }
-
 export const AICredentialStatus = {
   not_configured: 'not_configured',
   configured: 'configured',
@@ -452,4 +476,53 @@ export interface BulkTransitionAudit {
   entryIds: number[];
   statementLineIds: number[];
   confirmedAt: string;
+}
+
+export interface ExchangeRateUpdate {
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  sourceCurrency: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  functionalCurrency: string;
+  effectiveDate: string;
+  /** @exclusiveMinimum 0 */
+  rate: number;
+  source?: string;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface ExchangeRateInput {
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  sourceCurrency: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  functionalCurrency: string;
+  effectiveDate: string;
+  /** @exclusiveMinimum 0 */
+  rate: number;
+  source?: string;
+  /** @nullable */
+  note?: string | null;
+}
+
+export interface ExchangeRateImportInput {
+  /** @minItems 1 */
+  rates: ExchangeRateInput[];
+}
+
+export interface ExchangeRateImportResult {
+  importedCount: number;
+  updatedCount: number;
+  rates: ExchangeRate[];
 }

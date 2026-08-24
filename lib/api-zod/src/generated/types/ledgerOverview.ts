@@ -13,4 +13,8 @@ export interface LedgerOverview {
   pendingReview: number;
   postedAmount: number;
   completionPercent: number;
+  functionalCurrency: string;
+  postedAmountFunctional: number;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
 }

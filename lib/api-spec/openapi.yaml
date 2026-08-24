@@ -145,6 +145,90 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Client"
+  /ledgerflow/exchange-rates:
+    get:
+      operationId: getExchangeRates
+      tags: [ledgerflow]
+      summary: List the authenticated workspace exchange-rate schedule
+      responses:
+        "200":
+          description: Workspace exchange rates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExchangeRate"
+    post:
+      operationId: createExchangeRate
+      tags: [ledgerflow]
+      summary: Add a dated workspace exchange rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExchangeRateInput"
+      responses:
+        "201":
+          description: Exchange rate created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeRate"
+  /ledgerflow/exchange-rates/{id}:
+    patch:
+      operationId: updateExchangeRate
+      tags: [ledgerflow]
+      summary: Edit a dated workspace exchange rate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExchangeRateUpdate"
+      responses:
+        "200":
+          description: Exchange rate updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeRate"
+    delete:
+      operationId: deleteExchangeRate
+      tags: [ledgerflow]
+      summary: Remove a dated workspace exchange rate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Exchange rate deleted
+  /ledgerflow/exchange-rates/import:
+    post:
+      operationId: importExchangeRates
+      tags: [ledgerflow]
+      summary: Import dated workspace exchange rates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExchangeRateImportInput"
+      responses:
+        "200":
+          description: Exchange rates imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeRateImportResult"
   /healthz:
     get:
       operationId: healthCheck
@@ -586,9 +670,59 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+    ExchangeRate:
+      type: object
+      required: [id, sourceCurrency, functionalCurrency, effectiveDate, rate, source]
+      properties:
+        id: { type: number }
+        sourceCurrency: { type: string, minLength: 3, maxLength: 3 }
+        functionalCurrency: { type: string, minLength: 3, maxLength: 3 }
+        effectiveDate: { type: string, format: date }
+        rate: { type: number, exclusiveMinimum: 0 }
+        source: { type: string }
+        note: { type: ["string", "null"] }
+    ExchangeRateInput:
+      type: object
+      required: [sourceCurrency, functionalCurrency, effectiveDate, rate]
+      properties:
+        sourceCurrency: { type: string, minLength: 3, maxLength: 3 }
+        functionalCurrency: { type: string, minLength: 3, maxLength: 3 }
+        effectiveDate: { type: string, format: date }
+        rate: { type: number, exclusiveMinimum: 0 }
+        source: { type: string }
+        note: { type: ["string", "null"] }
+    ExchangeRateUpdate:
+      type: object
+      required: [sourceCurrency, functionalCurrency, effectiveDate, rate]
+      properties:
+        sourceCurrency: { type: string, minLength: 3, maxLength: 3 }
+        functionalCurrency: { type: string, minLength: 3, maxLength: 3 }
+        effectiveDate: { type: string, format: date }
+        rate: { type: number, exclusiveMinimum: 0 }
+        source: { type: string }
+        note: { type: ["string", "null"] }
+    ExchangeRateImportInput:
+      type: object
+      required: [rates]
+      properties:
+        rates:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ExchangeRateInput"
+    ExchangeRateImportResult:
+      type: object
+      required: [importedCount, updatedCount, rates]
+      properties:
+        importedCount: { type: number }
+        updatedCount: { type: number }
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExchangeRate"
     LedgerOverview:
       type: object
-      required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent]
+      required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies]
       properties:
         period: { type: string }
         currencies:
@@ -598,9 +732,15 @@ components:
         pendingReview: { type: number }
         postedAmount: { type: number }
         completionPercent: { type: number }
+        functionalCurrency: { type: string }
+        postedAmountFunctional: { type: number }
+        missingRateCount: { type: number }
+        missingRateCurrencies:
+          type: array
+          items: { type: string }
     StatementLine:
       type: object
-      required: [id, date, description, currency, amount, direction, status, source, suggestionSource, supportingPatternCount]
+      required: [id, date, description, currency, amount, direction, status, source]
       properties:
         id: { type: number }
         bankAccountId: { type: ["number", "null"] }
@@ -613,8 +753,11 @@ components:
         source: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
-        suggestionSource: { type: string, enum: [ai, heuristic, workspace_learning] }
-        supportingPatternCount: { type: number }
+        functionalCurrency: { type: ["string", "null"] }
+        functionalAmount: { type: ["number", "null"] }
+        exchangeRate: { type: ["number", "null"] }
+        exchangeRateEffectiveDate: { type: ["string", "null"], format: date }
+        exchangeRateStatus: { type: string }
     StatementLineInput:
       type: object
       required: [date, description, currency, amount, direction]
@@ -777,8 +920,6 @@ components:
             to: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
-        suggestionSource: { type: string, enum: [ai, heuristic, workspace_learning] }
-        supportingPatternCount: { type: number }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccountDraft"
@@ -887,15 +1028,25 @@ components:
         lines:
           type: array
           items: { $ref: "#/components/schemas/JournalLine" }
+        functionalCurrency: { type: ["string", "null"] }
+        functionalAmount: { type: ["number", "null"] }
+        exchangeRate: { type: ["number", "null"] }
+        exchangeRateEffectiveDate: { type: ["string", "null"], format: date }
+        exchangeRateStatus: { type: string }
     TrialBalanceRow:
       type: object
-      required: [account, category, debit, credit, balance]
+      required: [account, category, debit, credit, balance, functionalCurrency, missingRateCount, missingRateCurrencies]
       properties:
         account: { type: string }
         category: { type: string }
         debit: { type: number }
         credit: { type: number }
         balance: { type: number }
+        functionalCurrency: { type: string }
+        missingRateCount: { type: number }
+        missingRateCurrencies:
+          type: array
+          items: { type: string }
     StatementSection:
       type: object
       required: [label, amount]
@@ -907,9 +1058,14 @@ components:
           items: { $ref: "#/components/schemas/StatementSection" }
     FinancialStatements:
       type: object
-      required: [period, incomeStatement, balanceSheet, cashFlow]
+      required: [period, incomeStatement, balanceSheet, cashFlow, functionalCurrency, missingRateCount, missingRateCurrencies]
       properties:
         period: { type: string }
+        functionalCurrency: { type: string }
+        missingRateCount: { type: number }
+        missingRateCurrencies:
+          type: array
+          items: { type: string }
         incomeStatement:
           type: array
           items: { $ref: "#/components/schemas/StatementSection" }

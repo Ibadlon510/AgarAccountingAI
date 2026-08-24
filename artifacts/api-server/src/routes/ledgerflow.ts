@@ -1,7 +1,8 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
+import OpenAI from "openai";
 import {
   ApproveJournalEntryParams,
   ApproveJournalEntryBody,
@@ -11,58 +12,51 @@ import {
   ConfirmAICopilotActionResponse,
   CreateBankAccountBody,
   CreateBankAccountResponse,
-  GetBulkTransitionAuditsResponse,
+  CreateExchangeRateBody,
+  CreateExchangeRateResponse,
+  DeleteExchangeRateParams,
   GetBankAccountsQueryParams,
   GetBankAccountsResponse,
+  GetExchangeRatesResponse,
+  ImportExchangeRatesBody,
+  ImportExchangeRatesResponse,
   ApproveJournalEntryResponse,
   UpdateClientParams,
   UpdateClientBody,
   UpdateClientResponse,
+  UpdateExchangeRateBody,
+  UpdateExchangeRateParams,
+  UpdateExchangeRateResponse,
   CreateStatementLineBody,
   CreateStatementLineResponse,
   GetFinancialStatementsQueryParams,
   GetFinancialStatementsResponse,
   GetJournalEntriesResponse,
   GetLedgerOverviewResponse,
-  GetLedgerflowAISettingsQueryParams,
-  GetLedgerflowAISettingsResponse,
   GetStatementLinesQueryParams,
   GetStatementLinesResponse,
   GetTrialBalanceResponse,
   PostJournalEntryBody,
   ImportStatementResponse,
-  RemoveLedgerflowAICredentialBody,
-  RemoveLedgerflowAICredentialResponse,
-  TestLedgerflowAISettingsBody,
-  TestLedgerflowAISettingsResponse,
-  UpdateLedgerflowAISettingsBody,
-  UpdateLedgerflowAISettingsResponse,
 } from "@workspace/api-zod";
 import {
   bankAccountsTable,
   classificationPatternsTable,
-  bulkTransitionAuditsTable,
   clientWorkspacesTable,
   clientsTable,
   db,
+  exchangeRatesTable,
   journalEntriesTable,
   statementImportsTable,
   statementLinesTable,
   usersTable,
 } from "@workspace/db";
-import {
-  AI_PROVIDER_MODELS,
-  AIProviderError,
-  completeAI,
-  getAIProviderConfig,
-  isAIModel,
-  isAIProvider,
-  removeAIProviderCredential,
-  saveAIProviderConfig,
-  testAIProvider,
-} from "../lib/ai-provider";
 
 const router: IRouter = Router();
+const openai = new OpenAI({
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
 
 type LedgerflowTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -79,11 +73,16 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
   return {
     id: entry.id,
     statementLineId: entry.statementLineId,
-    date: entry.date,
+    date: calendarDate(entry.date),
     memo: entry.memo,
     currency: entry.currency,
     status: entry.status,
     confidence: number(entry.confidence),
+    functionalCurrency: entry.functionalCurrency,
+    functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
+    exchangeRate: entry.exchangeRate == null ? null : number(entry.exchangeRate),
+    exchangeRateEffectiveDate: calendarDate(entry.exchangeRateEffectiveDate),
+    exchangeRateStatus: entry.exchangeRateStatus,
     lines: [
       { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
       { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
@@ -94,32 +93,140 @@ function number(value: string | null | undefined) {
   return Number(value ?? 0);
 }
 
-function aiSettingsResponse(config: Awaited<ReturnType<typeof getAIProviderConfig>>) {
+function calendarDate(value: string | Date | null | undefined) {
+  if (value == null) return null;
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
+}
+
+function normalizeCurrency(value: string) {
+  return value.trim().toUpperCase();
+}
+
+function normalizeRateInput(input: {
+  sourceCurrency: string;
+  functionalCurrency: string;
+  effectiveDate: string | Date;
+  rate: number;
+  source?: string | null;
+  note?: string | null;
+}) {
+  const sourceCurrency = normalizeCurrency(input.sourceCurrency);
+  const functionalCurrency = normalizeCurrency(input.functionalCurrency);
+  if (!/^[A-Z]{3}$/.test(sourceCurrency) || !/^[A-Z]{3}$/.test(functionalCurrency)) {
+    throw new Error("Currencies must use three-letter ISO codes.");
+  }
+  if (sourceCurrency === functionalCurrency) {
+    throw new Error("A rate must convert between two different currencies.");
+  }
+  const effectiveDate = calendarDate(input.effectiveDate);
+  if (!effectiveDate || !isIsoDate(effectiveDate)) throw new Error("Effective date must use YYYY-MM-DD.");
+  if (!Number.isFinite(input.rate) || input.rate <= 0) throw new Error("Exchange rate must be greater than zero.");
   return {
-    clientId: config.clientId,
-    provider: config.provider,
-    model: config.model,
-    credentialStatus: config.credentialStatus,
-    credentialLast4: config.credentialLast4,
-    credentialUpdatedAt: config.credentialUpdatedAt,
-    lastTestedAt: config.lastTestedAt,
-    availableModels: AI_PROVIDER_MODELS[config.provider],
+    sourceCurrency,
+    functionalCurrency,
+    effectiveDate,
+    rate: input.rate.toFixed(10),
+    source: input.source?.trim().slice(0, 120) || "Manual",
+    note: input.note?.trim().slice(0, 500) || null,
   };
+}
+
+function exchangeRateResponse(rate: typeof exchangeRatesTable.$inferSelect) {
+  return {
+    id: rate.id,
+    sourceCurrency: rate.sourceCurrency,
+    functionalCurrency: rate.functionalCurrency,
+    effectiveDate: calendarDate(rate.effectiveDate),
+    rate: number(rate.rate),
+    source: rate.source,
+    note: rate.note,
+  };
+}
+
+type RateResolution = {
+  functionalCurrency: string;
+  functionalAmount: string | null;
+  exchangeRate: string | null;
+  exchangeRateEffectiveDate: string | null;
+  exchangeRateStatus: "not_required" | "exact" | "prior" | "missing";
+};
+
+async function resolveExchangeRate(userId: string, sourceCurrency: string, functionalCurrency: string, transactionDate: string, amount: string | number): Promise<RateResolution> {
+  const source = normalizeCurrency(sourceCurrency);
+  const functional = normalizeCurrency(functionalCurrency);
+  if (source === functional) {
+    return {
+      functionalCurrency: functional,
+      functionalAmount: Number(amount).toFixed(2),
+      exchangeRate: "1.0000000000",
+      exchangeRateEffectiveDate: transactionDate,
+      exchangeRateStatus: "not_required",
+    };
+  }
+  const [rate] = await db.select().from(exchangeRatesTable).where(and(
+    eq(exchangeRatesTable.userId, userId),
+    eq(exchangeRatesTable.sourceCurrency, source),
+    eq(exchangeRatesTable.functionalCurrency, functional),
+    lte(exchangeRatesTable.effectiveDate, transactionDate),
+  )).orderBy(desc(exchangeRatesTable.effectiveDate)).limit(1);
+  if (!rate) {
+    return {
+      functionalCurrency: functional,
+      functionalAmount: null,
+      exchangeRate: null,
+      exchangeRateEffectiveDate: null,
+      exchangeRateStatus: "missing",
+    };
+  }
+  return {
+    functionalCurrency: functional,
+    functionalAmount: (Number(amount) * number(rate.rate)).toFixed(2),
+    exchangeRate: rate.rate,
+    exchangeRateEffectiveDate: calendarDate(rate.effectiveDate),
+    exchangeRateStatus: calendarDate(rate.effectiveDate) === transactionDate ? "exact" : "prior",
+  };
+}
+
+async function refreshWorkspaceRateConversions(userId: string) {
+  const lines = await db.select({
+    line: statementLinesTable,
+    functionalCurrency: clientsTable.functionalCurrency,
+  }).from(statementLinesTable)
+    .innerJoin(clientWorkspacesTable, and(
+      eq(clientWorkspacesTable.clientId, statementLinesTable.clientId),
+      eq(clientWorkspacesTable.userId, userId),
+    ))
+    .innerJoin(clientsTable, eq(clientsTable.id, statementLinesTable.clientId));
+
+  await Promise.all(lines.map(async ({ line, functionalCurrency }) => {
+    const conversion = await resolveExchangeRate(userId, line.currency, functionalCurrency, calendarDate(line.date) ?? "", line.amount);
+    const values = {
+      functionalCurrency: conversion.functionalCurrency,
+      functionalAmount: conversion.functionalAmount,
+      exchangeRate: conversion.exchangeRate,
+      exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+      exchangeRateStatus: conversion.exchangeRateStatus,
+    };
+    await db.transaction(async (tx) => {
+      await tx.update(statementLinesTable).set(values).where(eq(statementLinesTable.id, line.id));
+      await tx.update(journalEntriesTable).set(values).where(eq(journalEntriesTable.statementLineId, line.id));
+    });
+  }));
+}
+
+function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functionalCurrency: string) {
+  if (entry.functionalAmount != null && entry.functionalCurrency === functionalCurrency) return number(entry.functionalAmount);
+  if (normalizeCurrency(entry.currency) === functionalCurrency) return number(entry.amount);
+  return null;
 }
 
 function currentUserId(req: Request) {
   if (!req.user) throw new Error("Authenticated user is required.");
   return req.user.id;
-}
-
-function auditActor(req: Request) {
-  if (!req.user) throw new Error("Authenticated user is required.");
-  const name = [req.user.firstName, req.user.lastName].filter(Boolean).join(" ").trim();
-  return {
-    id: req.user.id,
-    name: name || req.user.email || req.user.id,
-    email: req.user.email,
-  };
 }
 
 async function getOwnedClient(req: Request, requestedClientId?: number) {
@@ -379,11 +486,15 @@ function statementLineResponse(
   const suggestion = lineSuggestion(line, patterns);
   return {
     ...line,
+    date: calendarDate(line.date),
     amount: number(line.amount),
     accountSuggestion: suggestion.accountSuggestion,
     confidence: suggestion.confidence,
     suggestionSource: suggestion.suggestionSource,
     supportingPatternCount: suggestion.supportingPatternCount,
+    functionalAmount: line.functionalAmount == null ? null : number(line.functionalAmount),
+    exchangeRate: line.exchangeRate == null ? null : number(line.exchangeRate),
+    exchangeRateEffectiveDate: calendarDate(line.exchangeRateEffectiveDate),
   };
 }
 
@@ -416,6 +527,11 @@ async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
   direction: string;
   accountSuggestion?: string | null;
   confidence?: string | null;
+  functionalCurrency?: string | null;
+  functionalAmount?: string | null;
+  exchangeRate?: string | null;
+  exchangeRateEffectiveDate?: string | null;
+  exchangeRateStatus?: string | null;
 }) {
   const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
   await tx.insert(journalEntriesTable).values({
@@ -429,6 +545,11 @@ async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
     debitAccount: line.direction === "inflow" ? "Bank / cash" : account,
     creditAccount: line.direction === "inflow" ? account : "Bank / cash",
     amount: line.amount,
+    functionalCurrency: line.functionalCurrency,
+    functionalAmount: line.functionalAmount,
+    exchangeRate: line.exchangeRate,
+    exchangeRateEffectiveDate: line.exchangeRateEffectiveDate,
+    exchangeRateStatus: line.exchangeRateStatus ?? "not_required",
   });
 }
 
@@ -921,11 +1042,16 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       extractedText = buffer.toString("utf8");
     }
     const fallback = normalizeRows(extractedText, currency);
-    const aiContent = await completeAI(activeClientId, [
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 8192,
+      response_format: { type: "json_object" },
+      messages: [
         { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
         { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
-      ], { json: true });
-    const candidate = JSON.parse(aiContent || "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+      ],
+    });
+    const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
     const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
@@ -936,6 +1062,20 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       return res.status(400).json({ error: "Selected bank account was not found for this client." });
     }
     failedBankAccountId = selectedBankAccount?.id ?? null;
+    const resolvedLines = await Promise.all(lines.map(async (line) => {
+      const currencyValue = normalizeCurrency(line.currency || currency);
+      return {
+        line,
+        currencyValue,
+        conversion: await resolveExchangeRate(
+          currentUserId(req),
+          currencyValue,
+          normalizeCurrency(client.functionalCurrency),
+          line.date,
+          Math.abs(line.amount),
+        ),
+      };
+    }));
     const importResult = await db.transaction(async (tx) => {
       const [createdImport] = await tx.insert(statementImportsTable).values({
         clientId: scopedClientId,
@@ -990,7 +1130,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       await tx.update(statementImportsTable).set({
         bankAccountId: detectedBankAccount?.id ?? null,
       }).where(eq(statementImportsTable.id, createdImport.id));
-      const preparedLines = lines.map((line) => {
+      const preparedLines = resolvedLines.map(({ line, currencyValue, conversion }) => {
         const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, line.description);
         const accountSuggestion = workspaceSuggestion?.accountSuggestion
           || line.accountSuggestion?.trim()
@@ -1000,7 +1140,6 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           ? parsedConfidence.toFixed(2)
           : "0.75";
         const amount = String(Math.abs(line.amount));
-        const currencyValue = (line.currency || currency).trim().toUpperCase();
         return {
           clientId: scopedClientId,
           bankAccountId: detectedBankAccount?.id ?? null,
@@ -1013,6 +1152,11 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           source: `Imported: ${fileName}`,
           accountSuggestion,
           confidence,
+          functionalCurrency: conversion.functionalCurrency,
+          functionalAmount: conversion.functionalAmount,
+          exchangeRate: conversion.exchangeRate,
+          exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateStatus: conversion.exchangeRateStatus,
           importDedupeKey: importDedupeKey({
             clientId: scopedClientId,
             bankAccountId: detectedBankAccount?.id ?? null,
@@ -1115,11 +1259,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null,
     }));
   } catch (error) {
-    if (error instanceof AIProviderError) {
-      req.log.error({ errorType: error.constructor.name }, "Statement import failed");
-    } else {
-      req.log.error({ errorType: error instanceof Error ? error.constructor.name : typeof error }, "Statement import failed");
-    }
+    req.log.error({ err: error }, "Statement import failed");
     if (activeClientId !== undefined && fileHash) {
       await recordFailedStatementImport({
         clientId: activeClientId,
@@ -1129,9 +1269,6 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         fileHash,
         errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
       });
-    }
-    if (error instanceof AIProviderError) {
-      return res.status(error.status).json({ error: error.message });
     }
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
   }
@@ -1167,7 +1304,11 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     return;
   }
   try {
-    const aiContent = await completeAI(client.id, [
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 1200,
+      response_format: { type: "json_object" },
+      messages: [
         {
           role: "system",
           content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
@@ -1186,79 +1327,21 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
           }),
         },
       ],
-    { json: true, maxTokens: 1200 });
-    const raw = JSON.parse(aiContent || "{}") as { answer?: unknown; recommendations?: unknown };
-    const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
-    const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
-      .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
-    if (learnedRecommendation && !recommendations.some((recommendation) => recommendation.suggestionSource === "workspace_learning")) {
-      recommendations.unshift(learnedRecommendation);
-    }
-    const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId, lineSuggestions);
+    });
+    const raw = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
+      const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
+      const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
+        .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
+      if (learnedRecommendation && !recommendations.some((recommendation) => recommendation.suggestionSource === "workspace_learning")) {
+        recommendations.unshift(learnedRecommendation);
+      }
+      const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId, lineSuggestions);
     const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
     res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
-    if (error instanceof AIProviderError) {
-      res.status(error.status).json({ error: error.message });
-      return;
-    }
-    req.log.error({ errorType: error instanceof Error ? error.constructor.name : typeof error }, "AI workspace chat failed");
+    req.log.error({ err: error }, "AI workspace chat failed");
     res.status(502).json({ error: "The AI assistant is temporarily unavailable." });
   }
-});
-
-router.get("/ledgerflow/ai-settings", async (req, res) => {
-  const { clientId } = GetLedgerflowAISettingsQueryParams.parse(req.query);
-  const client = await requireOwnedClient(req, res, clientId);
-  if (!client) return;
-  const config = await getAIProviderConfig(client.id);
-  res.json(GetLedgerflowAISettingsResponse.parse(aiSettingsResponse(config)));
-});
-
-router.put("/ledgerflow/ai-settings", async (req, res) => {
-  const body = UpdateLedgerflowAISettingsBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, body.clientId);
-  if (!client) return;
-  if (!isAIProvider(body.provider) || !isAIModel(body.provider, body.model)) {
-    return res.status(400).json({ error: "Choose a supported model for the selected AI provider." });
-  }
-  const current = await getAIProviderConfig(client.id);
-  if (
-    body.provider !== "managed_openai"
-    && !body.apiKey
-    && (current.provider !== body.provider || current.credentialStatus === "not_configured")
-  ) {
-    return res.status(400).json({ error: `Add an API key before selecting workspace-owned ${body.provider === "anthropic" ? "Anthropic" : "OpenAI"}.` });
-  }
-  try {
-    const config = await saveAIProviderConfig(client.id, body.provider, body.model, body.apiKey);
-    return res.json(UpdateLedgerflowAISettingsResponse.parse(aiSettingsResponse(config)));
-  } catch {
-    return res.status(500).json({ error: "AI settings could not be saved. Try again." });
-  }
-});
-
-router.post("/ledgerflow/ai-settings/test", async (req, res) => {
-  const body = TestLedgerflowAISettingsBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, body.clientId);
-  if (!client) return;
-  try {
-    const config = await testAIProvider(client.id);
-    return res.json(TestLedgerflowAISettingsResponse.parse(aiSettingsResponse(config)));
-  } catch (error) {
-    if (error instanceof AIProviderError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    return res.status(502).json({ error: "The selected AI provider could not be tested right now." });
-  }
-});
-
-router.delete("/ledgerflow/ai-settings/credential", async (req, res) => {
-  const body = RemoveLedgerflowAICredentialBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, body.clientId);
-  if (!client) return;
-  const config = await removeAIProviderCredential(client.id);
-  res.json(RemoveLedgerflowAICredentialResponse.parse(aiSettingsResponse(config)));
 });
 
 router.get("/ledgerflow/bank-accounts", async (req, res) => {
@@ -1284,9 +1367,8 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   if (!client) return;
 
   if (body.type === "bulk_approve_entries" || body.type === "bulk_post_entries") {
-    const actor = auditActor(req);
-    const entryIds = [...new Set(body.entryIds ?? [])].sort((left, right) => left - right);
-    const statementLineIds = [...new Set(body.statementLineIds ?? [])].sort((left, right) => left - right);
+    const entryIds = [...new Set(body.entryIds ?? [])];
+    const statementLineIds = [...new Set(body.statementLineIds ?? [])];
     if (!entryIds.length || !statementLineIds.length || entryIds.length !== statementLineIds.length) {
       return res.status(400).json({ error: "A bulk action needs matching, non-empty journal-entry and statement-line selections." });
     }
@@ -1340,18 +1422,6 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
             .returning();
           if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
         }
-
-        await tx.insert(bulkTransitionAuditsTable).values({
-          clientId: client.id,
-          actorUserId: actor.id,
-          actorName: actor.name,
-          actorEmail: actor.email,
-          transition: body.type,
-          fromStatus: expectedStatus,
-          toStatus: resultingStatus,
-          entryIds,
-          statementLineIds,
-        });
 
         return { entries: updatedEntries, expectedStatus, resultingStatus };
       });
@@ -1474,32 +1544,6 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   }));
 });
 
-router.get("/ledgerflow/bulk-transition-audits", async (req, res) => {
-  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
-  const client = await requireOwnedClient(req, res, requestedClientId);
-  if (!client) return;
-  const audits = await db
-    .select()
-    .from(bulkTransitionAuditsTable)
-    .where(eq(bulkTransitionAuditsTable.clientId, client.id))
-    .orderBy(desc(bulkTransitionAuditsTable.confirmedAt));
-  res.json(GetBulkTransitionAuditsResponse.parse(audits.map((audit) => ({
-    id: audit.id,
-    clientId: audit.clientId,
-    actor: {
-      id: audit.actorUserId,
-      name: audit.actorName ?? audit.actorUserId,
-      email: audit.actorEmail,
-    },
-    transition: audit.transition,
-    fromStatus: audit.fromStatus,
-    toStatus: audit.toStatus,
-    entryIds: audit.entryIds,
-    statementLineIds: audit.statementLineIds,
-    confirmedAt: audit.confirmedAt,
-  }))));
-});
-
 router.get("/clients", async (req, res) => {
   const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
@@ -1561,20 +1605,146 @@ router.patch("/clients/:id", async (req, res) => {
   }));
 });
 
+router.get("/ledgerflow/exchange-rates", async (req, res) => {
+  const rates = await db.select().from(exchangeRatesTable).where(eq(
+    exchangeRatesTable.userId,
+    currentUserId(req),
+  )).orderBy(desc(exchangeRatesTable.effectiveDate), asc(exchangeRatesTable.sourceCurrency), asc(exchangeRatesTable.functionalCurrency));
+  res.json(GetExchangeRatesResponse.parse(rates.map(exchangeRateResponse)));
+});
+
+router.post("/ledgerflow/exchange-rates", async (req, res) => {
+  const parsed = CreateExchangeRateBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "A valid dated exchange rate is required." });
+  let body: ReturnType<typeof normalizeRateInput>;
+  try {
+    body = normalizeRateInput(parsed.data);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid exchange rate." });
+  }
+  try {
+    const [rate] = await db.insert(exchangeRatesTable).values({ ...body, userId: currentUserId(req) }).returning();
+    await refreshWorkspaceRateConversions(currentUserId(req));
+    return res.status(201).json(CreateExchangeRateResponse.parse(exchangeRateResponse(rate)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "A rate already exists for this currency pair and effective date." });
+    }
+    throw error;
+  }
+});
+
+router.patch("/ledgerflow/exchange-rates/:id", async (req, res) => {
+  const params = UpdateExchangeRateParams.safeParse(req.params);
+  const parsed = UpdateExchangeRateBody.safeParse(req.body);
+  if (!params.success || !parsed.success) return res.status(400).json({ error: "A valid dated exchange rate is required." });
+  let body: ReturnType<typeof normalizeRateInput>;
+  try {
+    body = normalizeRateInput(parsed.data);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid exchange rate." });
+  }
+  try {
+    const [rate] = await db.update(exchangeRatesTable).set(body).where(and(
+      eq(exchangeRatesTable.id, params.data.id),
+      eq(exchangeRatesTable.userId, currentUserId(req)),
+    )).returning();
+    if (!rate) return res.status(404).json({ error: "Exchange rate not found in this workspace." });
+    await refreshWorkspaceRateConversions(currentUserId(req));
+    return res.json(UpdateExchangeRateResponse.parse(exchangeRateResponse(rate)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "A rate already exists for this currency pair and effective date." });
+    }
+    throw error;
+  }
+});
+
+router.delete("/ledgerflow/exchange-rates/:id", async (req, res) => {
+  const params = DeleteExchangeRateParams.safeParse(req.params);
+  if (!params.success) return res.status(400).json({ error: "Invalid exchange rate." });
+  const [deleted] = await db.delete(exchangeRatesTable).where(and(
+    eq(exchangeRatesTable.id, params.data.id),
+    eq(exchangeRatesTable.userId, currentUserId(req)),
+  )).returning({ id: exchangeRatesTable.id });
+  if (!deleted) return res.status(404).json({ error: "Exchange rate not found in this workspace." });
+  await refreshWorkspaceRateConversions(currentUserId(req));
+  return res.status(204).send();
+});
+
+router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
+  const parsed = ImportExchangeRatesBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "At least one valid exchange rate is required." });
+  let rates: Array<ReturnType<typeof normalizeRateInput>>;
+  try {
+    rates = parsed.data.rates.map(normalizeRateInput);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid exchange rate." });
+  }
+  const uniqueKeys = new Set<string>();
+  if (rates.some((rate) => {
+    const key = `${rate.sourceCurrency}|${rate.functionalCurrency}|${rate.effectiveDate}`;
+    if (uniqueKeys.has(key)) return true;
+    uniqueKeys.add(key);
+    return false;
+  })) return res.status(400).json({ error: "Each imported currency pair and effective date must appear once." });
+
+  const result = await db.transaction(async (tx) => {
+    const returned: Array<typeof exchangeRatesTable.$inferSelect> = [];
+    let importedCount = 0;
+    let updatedCount = 0;
+    for (const rate of rates) {
+      const [existing] = await tx.select().from(exchangeRatesTable).where(and(
+        eq(exchangeRatesTable.userId, currentUserId(req)),
+        eq(exchangeRatesTable.sourceCurrency, rate.sourceCurrency),
+        eq(exchangeRatesTable.functionalCurrency, rate.functionalCurrency),
+        eq(exchangeRatesTable.effectiveDate, rate.effectiveDate),
+      ));
+      if (existing) {
+        const [updated] = await tx.update(exchangeRatesTable).set(rate).where(eq(exchangeRatesTable.id, existing.id)).returning();
+        returned.push(updated);
+        updatedCount += 1;
+      } else {
+        const [created] = await tx.insert(exchangeRatesTable).values({ ...rate, userId: currentUserId(req) }).returning();
+        returned.push(created);
+        importedCount += 1;
+      }
+    }
+    return { importedCount, updatedCount, rates: returned };
+  });
+  await refreshWorkspaceRateConversions(currentUserId(req));
+  return res.json(ImportExchangeRatesResponse.parse({
+    ...result,
+    rates: result.rates.map(exchangeRateResponse),
+  }));
+});
+
 router.get("/ledgerflow/overview", async (req, res) => {
   const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
   const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
   const pendingReview = lines.filter((line) => line.status !== "posted").length;
-  const postedAmount = lines.filter((line) => line.status === "posted").reduce((sum, line) => sum + number(line.amount), 0);
+  const postedLines = lines.filter((line) => line.status === "posted");
+  const missingRateLines = postedLines.filter((line) =>
+    normalizeCurrency(line.currency) !== normalizeCurrency(client.functionalCurrency)
+    && line.functionalAmount == null,
+  );
+  const postedAmountFunctional = postedLines.reduce((sum, line) => {
+    if (normalizeCurrency(line.currency) === normalizeCurrency(client.functionalCurrency)) return sum + number(line.amount);
+    return sum + (line.functionalAmount == null ? 0 : number(line.functionalAmount));
+  }, 0);
   const data = GetLedgerOverviewResponse.parse({
     period: client.period,
     currencies: [...new Set(lines.map((line) => line.currency))],
     totalLines: lines.length,
     pendingReview,
-    postedAmount,
+    postedAmount: postedAmountFunctional,
     completionPercent: Math.round(((lines.length - pendingReview) / Math.max(lines.length, 1)) * 100),
+    functionalCurrency: normalizeCurrency(client.functionalCurrency),
+    postedAmountFunctional,
+    missingRateCount: missingRateLines.length,
+    missingRateCurrencies: [...new Set(missingRateLines.map((line) => line.currency))],
   });
   res.json(data);
 });
@@ -1608,6 +1778,13 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
   }
   const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
   const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, body.description);
+  const conversion = await resolveExchangeRate(
+    currentUserId(req),
+    body.currency,
+    normalizeCurrency(client.functionalCurrency),
+    body.date,
+    body.amount,
+  );
   const line = await db.transaction((tx) => createStatementLineAndJournal(tx, {
     ...body,
     clientId: client.id,
@@ -1616,6 +1793,11 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
     source: "Manual entry",
     accountSuggestion: workspaceSuggestion?.accountSuggestion || suggestAccount(body.description, body.direction),
     confidence: (workspaceSuggestion?.confidence ?? 0.75).toFixed(2),
+    functionalCurrency: conversion.functionalCurrency,
+    functionalAmount: conversion.functionalAmount,
+    exchangeRate: conversion.exchangeRate,
+    exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+    exchangeRateStatus: conversion.exchangeRateStatus,
   }));
   if (!line) throw new Error("Manual statement line was not created.");
   return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns)));
@@ -1708,17 +1890,38 @@ router.get("/ledgerflow/trial-balance", async (req, res) => {
     eq(journalEntriesTable.status, "posted"),
   ));
   const accounts = new Map<string, { debit: number; credit: number; category: string }>();
+  const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+  const missingEntries = entries.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
+  const missingRateCurrencies = [...new Set(missingEntries.map((entry) => entry.currency))];
   for (const entry of entries) {
+    const amount = reportingAmount(entry, functionalCurrency);
+    if (amount == null) continue;
     const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: entry.debitAccount === "Bank / cash" ? "Assets" : "Expenses" };
-    debit.debit += number(entry.amount);
+    debit.debit += amount;
     accounts.set(entry.debitAccount, debit);
     const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: entry.creditAccount === "Revenue" ? "Revenue" : "Assets" };
-    credit.credit += number(entry.amount);
+    credit.credit += amount;
     accounts.set(entry.creditAccount, credit);
   }
-  res.json(GetTrialBalanceResponse.parse([...accounts.entries()].map(([account, values]) => ({
+  const rows = [...accounts.entries()].map(([account, values]) => ({
     account, category: values.category, debit: values.debit, credit: values.credit, balance: values.debit - values.credit,
-  }))));
+    functionalCurrency,
+    missingRateCount: missingEntries.length,
+    missingRateCurrencies,
+  }));
+  if (missingEntries.length) {
+    rows.push({
+      account: "Rate coverage required",
+      category: "Unconverted transactions",
+      debit: 0,
+      credit: 0,
+      balance: 0,
+      functionalCurrency,
+      missingRateCount: missingEntries.length,
+      missingRateCurrencies,
+    });
+  }
+  res.json(GetTrialBalanceResponse.parse(rows));
 });
 
 router.get("/ledgerflow/financial-statements", async (req, res) => {
@@ -1731,9 +1934,13 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   ));
   const expenseAccounts = new Map<string, number>();
   const revenueAccounts = new Map<string, number>();
+  const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+  const missingEntries = entries.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
+  const missingRateCurrencies = [...new Set(missingEntries.map((entry) => entry.currency))];
   let cash = 0;
   for (const entry of entries) {
-    const amount = number(entry.amount);
+    const amount = reportingAmount(entry, functionalCurrency);
+    if (amount == null) continue;
     if (entry.debitAccount === "Bank / cash") cash += amount;
     if (entry.creditAccount === "Bank / cash") cash -= amount;
     if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
@@ -1744,6 +1951,9 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   const netIncome = totalRevenue - totalExpenses;
   const report = {
     period: period ?? client.period,
+    functionalCurrency,
+    missingRateCount: missingEntries.length,
+    missingRateCurrencies,
     incomeStatement: [
       { label: "Revenue", amount: totalRevenue, children: [...revenueAccounts.entries()].map(([label, amount]) => ({ label, amount })) },
       { label: "Operating expenses", amount: -totalExpenses, children: [...expenseAccounts.entries()].map(([label, amount]) => ({ label, amount: -amount })) },

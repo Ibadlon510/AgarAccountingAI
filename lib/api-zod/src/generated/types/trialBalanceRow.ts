@@ -12,4 +12,7 @@ export interface TrialBalanceRow {
   debit: number;
   credit: number;
   balance: number;
+  functionalCurrency: string;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
 }

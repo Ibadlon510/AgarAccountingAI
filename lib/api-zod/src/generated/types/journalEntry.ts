@@ -16,4 +16,13 @@ export interface JournalEntry {
   status: string;
   confidence: number;
   lines: JournalLine[];
+  /** @nullable */
+  functionalCurrency?: string | null;
+  /** @nullable */
+  functionalAmount?: number | null;
+  /** @nullable */
+  exchangeRate?: number | null;
+  /** @nullable */
+  exchangeRateEffectiveDate?: Date | null;
+  exchangeRateStatus?: string;
 }

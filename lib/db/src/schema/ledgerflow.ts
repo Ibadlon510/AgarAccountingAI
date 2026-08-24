@@ -1,4 +1,4 @@
-import { check, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const usersTable = pgTable("users", {
@@ -54,6 +54,23 @@ export const clientWorkspacesTable = pgTable(
   ],
 );
 
+export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar("user_id").notNull(),
+  sourceCurrency: varchar("source_currency", { length: 3 }).notNull(),
+  functionalCurrency: varchar("functional_currency", { length: 3 }).notNull(),
+  effectiveDate: date("effective_date", { mode: "string" }).notNull(),
+  rate: numeric("rate", { precision: 20, scale: 10 }).notNull(),
+  source: text("source").notNull().default("Manual"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => ({
+  userCurrencyDateUnique: uniqueIndex("ledgerflow_exchange_rates_user_pair_date_idx")
+    .on(table.userId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  userLookupIdx: index("ledgerflow_exchange_rates_user_lookup_idx")
+    .on(table.userId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+}));
 export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
@@ -131,6 +148,11 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   accountSuggestion: text("account_suggestion"),
   confidence: numeric("confidence", { precision: 5, scale: 2 }),
   importDedupeKey: text("import_dedupe_key"),
+  functionalCurrency: varchar("functional_currency", { length: 3 }),
+  functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
+  exchangeRate: numeric("exchange_rate", { precision: 20, scale: 10 }),
+  exchangeRateEffectiveDate: date("exchange_rate_effective_date", { mode: "string" }),
+  exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   importDedupeKeyUnique: uniqueIndex("ledgerflow_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
@@ -158,6 +180,11 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   debitAccount: text("debit_account").notNull(),
   creditAccount: text("credit_account").notNull(),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  functionalCurrency: varchar("functional_currency", { length: 3 }),
+  functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
+  exchangeRate: numeric("exchange_rate", { precision: 20, scale: 10 }),
+  exchangeRateEffectiveDate: date("exchange_rate_effective_date", { mode: "string" }),
+  exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   statementLineUnique: uniqueIndex("ledgerflow_journal_entries_statement_line_id_idx").on(table.statementLineId),

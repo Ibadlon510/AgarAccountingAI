@@ -9,6 +9,9 @@ import type { StatementSection } from './statementSection';
 
 export interface FinancialStatements {
   period: string;
+  functionalCurrency: string;
+  missingRateCount: number;
+  missingRateCurrencies: string[];
   incomeStatement: StatementSection[];
   balanceSheet: StatementSection[];
   cashFlow: StatementSection[];
