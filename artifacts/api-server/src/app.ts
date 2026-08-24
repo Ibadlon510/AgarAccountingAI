@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { SESSION_SECRET } from "./lib/auth";
+import { SessionServiceError } from "./middlewares/authMiddleware";
 
 const app: Express = express();
 
@@ -39,6 +40,11 @@ app.use((error: unknown, _req: express.Request, res: express.Response, next: exp
   if (bodyError.type === "entity.too.large" || bodyError.status === 413) {
     return res.status(413).json({
       error: "Statement file is too large. Please choose a file smaller than 15 MB.",
+    });
+  }
+  if (error instanceof SessionServiceError) {
+    return res.status(error.statusCode).json({
+      error: "Session service unavailable",
     });
   }
   return next(error);

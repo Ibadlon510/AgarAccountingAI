@@ -24,6 +24,15 @@ declare global {
   }
 }
 
+export class SessionServiceError extends Error {
+  readonly statusCode = 503;
+
+  constructor(cause: unknown) {
+    super("Session service unavailable", { cause });
+    this.name = "SessionServiceError";
+  }
+}
+
 async function refreshIfExpired(sid: string, session: SessionData): Promise<SessionData | null> {
   const now = Math.floor(Date.now() / 1000);
   if (!session.expires_at || now <= session.expires_at) return session;
@@ -66,7 +75,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     req.user = refreshed.user;
   } catch (error) {
     req.log?.error({ err: error }, "Session lookup or refresh failed");
-    return next(error);
+    return next(new SessionServiceError(error));
   }
   return next();
 }
