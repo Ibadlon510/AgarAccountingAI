@@ -373,6 +373,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/object-storage-web':
+        specifier: workspace:*
+        version: link:../../lib/object-storage-web
       class-variance-authority:
         specifier: 'catalog:'
         version: 0.7.1

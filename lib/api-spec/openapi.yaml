@@ -524,6 +524,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FinancialStatements"
+  /ledgerflow/report-pack:
+    get:
+      operationId: getReportPack
+      tags: [ledgerflow]
+      summary: Get a reconciled comparative IFRS-style report pack
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: period
+          in: query
+          required: false
+          description: Reporting period end in YYYY-MM-DD format. Defaults to the client close period or latest posted entry.
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: Report pack preview and validation state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPack"
 components:
   schemas:
     HealthStatus:
@@ -967,3 +989,93 @@ components:
         cashFlow:
           type: array
           items: { $ref: "#/components/schemas/StatementSection" }
+    ComparativeStatementSection:
+      type: object
+      required: [label, amount, comparativeAmount]
+      properties:
+        label: { type: string }
+        amount: { type: number }
+        comparativeAmount: { type: number }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+    ReportValidationIssue:
+      type: object
+      required: [code, severity, message, details]
+      properties:
+        code: { type: string }
+        severity: { type: string, enum: [error, warning, input] }
+        message: { type: string }
+        details:
+          type: array
+          items: { type: string }
+    ReportNote:
+      type: object
+      required: [number, title, status, narrative, rows]
+      properties:
+        number: { type: number }
+        title: { type: string }
+        status: { type: string, enum: [generated, requires_input, not_applicable] }
+        narrative: { type: string }
+        rows:
+          type: array
+          items:
+            type: object
+            required: [label, amount, comparativeAmount]
+            properties:
+              label: { type: string }
+              amount: { type: number }
+              comparativeAmount: { type: number }
+    ReportApplicabilityItem:
+      type: object
+      required: [standard, topic, status, rationale]
+      properties:
+        standard: { type: string }
+        topic: { type: string }
+        status: { type: string, enum: [applicable, not_applicable, immaterial, satisfied, requires_input] }
+        rationale: { type: string }
+    ReportPack:
+      type: object
+      required: [period, comparativePeriod, periodEnd, comparativePeriodEnd, entityName, legalName, basis, functionalCurrency, status, validationIssues, applicability, financialPosition, profitOrLoss, changesInEquity, cashFlows, notes, traceability]
+      properties:
+        period: { type: string }
+        comparativePeriod: { type: string }
+        periodEnd: { type: string, format: date }
+        comparativePeriodEnd: { type: string, format: date }
+        entityName: { type: string }
+        legalName: { type: string }
+        basis: { type: string }
+        functionalCurrency: { type: string }
+        status: { type: string, enum: [ready, needs_review] }
+        validationIssues:
+          type: array
+          items: { $ref: "#/components/schemas/ReportValidationIssue" }
+        applicability:
+          type: array
+          items: { $ref: "#/components/schemas/ReportApplicabilityItem" }
+        financialPosition:
+          type: array
+          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+        profitOrLoss:
+          type: array
+          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+        changesInEquity:
+          type: array
+          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+        cashFlows:
+          type: array
+          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+        notes:
+          type: array
+          items: { $ref: "#/components/schemas/ReportNote" }
+        traceability:
+          type: object
+          required: [postedEntryCount, comparativePostedEntryCount, sourceLineCount, missingRateCount, missingRateCurrencies]
+          properties:
+            postedEntryCount: { type: number }
+            comparativePostedEntryCount: { type: number }
+            sourceLineCount: { type: number }
+            missingRateCount: { type: number }
+            missingRateCurrencies:
+              type: array
+              items: { type: string }
