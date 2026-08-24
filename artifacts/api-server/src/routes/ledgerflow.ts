@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import OpenAI from "openai";
@@ -28,7 +28,15 @@ import {
   GetTrialBalanceResponse,
   PostJournalEntryBody,
 } from "@workspace/api-zod";
-import { bankAccountsTable, clientsTable, db, journalEntriesTable, statementLinesTable } from "@workspace/db";
+import {
+  bankAccountsTable,
+  clientWorkspacesTable,
+  clientsTable,
+  db,
+  journalEntriesTable,
+  statementLinesTable,
+  usersTable,
+} from "@workspace/db";
 
 const router: IRouter = Router();
 const openai = new OpenAI({
@@ -60,51 +68,86 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
     ],
   };
 }
-async function ensureSeeded() {
-  const existingClients = await db.select({ id: clientsTable.id }).from(clientsTable).limit(1);
-  if (existingClients.length === 0) {
-    await db.insert(clientsTable).values([
-      { name: "Northstar Advisory", legalName: "Northstar Advisory FZ-LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
-      { name: "Cedar Studio", legalName: "Cedar Studio LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
-    ]);
-  }
-  const existing = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).limit(1);
-  if (existing.length > 0) {
-    await ensureSuggestedAccounts();
-    return;
-  }
-  const inserted = await db.insert(statementLinesTable).values(seedLines).returning();
-  await db.insert(journalEntriesTable).values(inserted.map((line) => ({
-    clientId: line.clientId,
-    statementLineId: line.id,
-    date: line.date,
-    memo: line.description,
-    currency: line.currency,
-    status: line.status === "posted" ? "posted" : "suggested",
-    confidence: line.confidence ?? "0.80",
-    debitAccount: line.direction === "inflow" ? "Bank / cash" : (line.accountSuggestion ?? "Uncategorized"),
-    creditAccount: line.direction === "inflow" ? (line.accountSuggestion ?? "Uncategorized") : "Bank / cash",
-    amount: line.amount,
-  })));
-}
-
-export async function initializeLedgerFlow() {
-  await ensureSeeded();
-  const postedLines = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).where(eq(statementLinesTable.status, "posted"));
-  if (postedLines.length) {
-    await db.update(journalEntriesTable).set({ status: "posted" }).where(and(
-      eq(journalEntriesTable.status, "approved"),
-      inArray(journalEntriesTable.statementLineId, postedLines.map((line) => line.id)),
-    ));
-  }
-}
 function number(value: string | null | undefined) {
   return Number(value ?? 0);
 }
 
-function clientIdFrom(value: unknown) {
-  const parsed = Number(value ?? 1);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+function currentUserId(req: Request) {
+  if (!req.user) throw new Error("Authenticated user is required.");
+  return req.user.id;
+}
+
+async function getOwnedClient(req: Request, requestedClientId?: number) {
+  const conditions = [eq(clientWorkspacesTable.userId, currentUserId(req))];
+  if (requestedClientId !== undefined) {
+    conditions.push(eq(clientWorkspacesTable.clientId, requestedClientId));
+  }
+  const [membership] = await db.select({ clientId: clientWorkspacesTable.clientId })
+    .from(clientWorkspacesTable)
+    .where(and(...conditions))
+    .limit(1);
+  if (!membership) return null;
+  const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, membership.clientId));
+  return client ?? null;
+}
+
+async function requireOwnedClient(req: Request, res: Response, requestedClientId?: number) {
+  const client = await getOwnedClient(req, requestedClientId);
+  if (!client) {
+    res.status(403).json({ error: "You do not have access to this client workspace." });
+    return null;
+  }
+  return client;
+}
+
+export async function ensureUserWorkspace(userId: string) {
+  await db.transaction(async (tx) => {
+    const [user] = await tx.select({ starterClientId: usersTable.starterClientId })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .for("update");
+    if (!user) throw new Error("Cannot create a workspace for an unknown user.");
+    if (user.starterClientId) return;
+    const [existingWorkspace] = await tx.select({ clientId: clientWorkspacesTable.clientId })
+      .from(clientWorkspacesTable)
+      .where(eq(clientWorkspacesTable.userId, userId))
+      .orderBy(asc(clientWorkspacesTable.createdAt))
+      .limit(1);
+    if (existingWorkspace) {
+      await tx.update(usersTable)
+        .set({ starterClientId: existingWorkspace.clientId })
+        .where(eq(usersTable.id, userId));
+      return;
+    }
+
+    const [client] = await tx.insert(clientsTable).values({
+      name: "Northstar Advisory",
+      legalName: "Northstar Advisory FZ-LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "August 2026",
+    }).returning();
+    await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId });
+    await tx.update(usersTable)
+      .set({ starterClientId: client.id })
+      .where(eq(usersTable.id, userId));
+    const inserted = await tx.insert(statementLinesTable).values(seedLines.map((line) => ({
+      ...line,
+      clientId: client.id,
+    }))).returning();
+    await tx.insert(journalEntriesTable).values(inserted.map((line) => ({
+      clientId: line.clientId,
+      statementLineId: line.id,
+      date: line.date,
+      memo: line.description,
+      currency: line.currency,
+      status: line.status === "posted" ? "posted" : "suggested",
+      confidence: line.confidence ?? "0.80",
+      debitAccount: line.direction === "inflow" ? "Bank / cash" : (line.accountSuggestion ?? "Uncategorized"),
+      creditAccount: line.direction === "inflow" ? (line.accountSuggestion ?? "Uncategorized") : "Bank / cash",
+      amount: line.amount,
+    })));
+  });
 }
 
 function suggestAccount(description: string, direction: string) {
@@ -535,7 +578,9 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     });
     const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
-    const activeClientId = clientIdFrom(clientId);
+    const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
+    if (!client) return;
+    const activeClientId = client.id;
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
       eq(bankAccountsTable.id, Number(bankAccountId)),
       eq(bankAccountsTable.clientId, activeClientId),
@@ -574,14 +619,11 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
 
 router.post("/ledgerflow/ai-chat", async (req, res) => {
   const { clientId, message } = AskLedgerflowAIBody.parse(req.body);
-  const client = (await db.select().from(clientsTable).where(eq(clientsTable.id, clientId)))[0];
-  if (!client) {
-    res.status(404).json({ error: "Client workspace not found" });
-    return;
-  }
-  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, clientId));
-  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId));
-  const bankAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId));
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const bankAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id));
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
@@ -637,19 +679,26 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
 
 router.get("/ledgerflow/bank-accounts", async (req, res) => {
   const { clientId } = GetBankAccountsQueryParams.parse(req.query);
-  const accounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId)).orderBy(asc(bankAccountsTable.name));
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const accounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id)).orderBy(asc(bankAccountsTable.name));
   res.json(GetBankAccountsResponse.parse(accounts.map(bankAccountResponse)));
 });
 
 router.post("/ledgerflow/bank-accounts", async (req, res) => {
   const body = CreateBankAccountBody.parse(req.body);
-  const account = await findOrCreateBankAccount(body.clientId, body, body.currency);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const account = await findOrCreateBankAccount(client.id, body, body.currency);
   if (!account) return res.status(400).json({ error: "A bank account name is required." });
   return res.status(201).json(CreateBankAccountResponse.parse(bankAccountResponse(account)));
 });
 
 router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   const body = ConfirmAICopilotActionBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+
   if (body.type === "bulk_approve_entries" || body.type === "bulk_post_entries") {
     const entryIds = [...new Set(body.entryIds ?? [])];
     const statementLineIds = [...new Set(body.statementLineIds ?? [])];
@@ -740,7 +789,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
     }));
   }
   if (body.type === "create_bank_account") {
-    const bankAccount = await findOrCreateBankAccount(body.clientId, body.bankAccount ?? undefined, body.bankAccount?.currency ?? "AED");
+    const bankAccount = await findOrCreateBankAccount(client.id, body.bankAccount ?? undefined, body.bankAccount?.currency ?? "AED");
     if (!bankAccount) return res.status(400).json({ error: "The bank account proposal needs a name and currency." });
     return res.json(ConfirmAICopilotActionResponse.parse({
       type: body.type,
@@ -755,7 +804,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
     return res.status(400).json({ error: "Select at least one line and a proposed account before confirming a recode." });
   }
   const selectedLines = await db.select().from(statementLinesTable).where(and(
-    eq(statementLinesTable.clientId, body.clientId),
+    eq(statementLinesTable.clientId, client.id),
     inArray(statementLinesTable.id, lineIds),
   ));
   if (selectedLines.length !== lineIds.length) {
@@ -765,7 +814,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
     return res.status(409).json({ error: "Posted statement lines cannot be recoded through the AI assistant." });
   }
   const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, body.clientId),
+    eq(journalEntriesTable.clientId, client.id),
     inArray(journalEntriesTable.statementLineId, lineIds),
   ));
   if (entries.some((entry) => entry.status !== "suggested")) {
@@ -776,7 +825,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
     : "0.75";
   await db.transaction(async (tx) => {
     await tx.update(statementLinesTable).set({ accountSuggestion, confidence }).where(and(
-      eq(statementLinesTable.clientId, body.clientId),
+      eq(statementLinesTable.clientId, client.id),
       inArray(statementLinesTable.id, lineIds),
     ));
     for (const line of selectedLines) {
@@ -785,7 +834,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
         debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
         creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
       }).where(and(
-        eq(journalEntriesTable.clientId, body.clientId),
+        eq(journalEntriesTable.clientId, client.id),
         eq(journalEntriesTable.statementLineId, line.id),
         eq(journalEntriesTable.status, "suggested"),
       ));
@@ -798,9 +847,14 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   }));
 });
 
-router.get("/clients", async (_req, res) => {
-  await ensureSeeded();
-  const clients = await db.select().from(clientsTable).orderBy(asc(clientsTable.name));
+router.get("/clients", async (req, res) => {
+  const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
+    .from(clientWorkspacesTable)
+    .where(eq(clientWorkspacesTable.userId, currentUserId(req)));
+  const clientIds = memberships.map((membership) => membership.clientId);
+  const clients = clientIds.length
+    ? await db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)).orderBy(asc(clientsTable.name))
+    : [];
   res.json(clients.map((client) => ({
     id: client.id,
     name: client.name,
@@ -814,9 +868,14 @@ router.get("/clients", async (_req, res) => {
 router.post("/clients", async (req, res) => {
   const body = req.body as { name?: string; legalName?: string };
   if (!body.name || !body.legalName) return res.status(400).json({ error: "Client name and legal name are required" });
-  const [client] = await db.insert(clientsTable)
-    .values({ name: body.name, legalName: body.legalName, functionalCurrency: "AED", basis: "IFRS", period: "August 2026" })
-    .returning();
+  const { name, legalName } = body;
+  const client = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(clientsTable)
+      .values({ name, legalName, functionalCurrency: "AED", basis: "IFRS", period: "August 2026" })
+      .returning();
+    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: currentUserId(req) });
+    return created;
+  });
   return res.status(201).json({
     id: client.id,
     name: client.name,
@@ -830,9 +889,11 @@ router.post("/clients", async (req, res) => {
 router.patch("/clients/:id", async (req, res) => {
   const { id } = UpdateClientParams.parse(req.params);
   const body = UpdateClientBody.parse(req.body);
+  const ownedClient = await requireOwnedClient(req, res, id);
+  if (!ownedClient) return;
   const [client] = await db.update(clientsTable)
     .set(body)
-    .where(eq(clientsTable.id, id))
+    .where(eq(clientsTable.id, ownedClient.id))
     .returning();
   if (!client) {
     return res.status(404).json({ error: "Client workspace not found" });
@@ -848,13 +909,14 @@ router.patch("/clients/:id", async (req, res) => {
 });
 
 router.get("/ledgerflow/overview", async (req, res) => {
-  await ensureSeeded();
-  const clientId = clientIdFrom(req.query.clientId);
-  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, clientId));
+  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
+  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
   const pendingReview = lines.filter((line) => line.status !== "posted").length;
   const postedAmount = lines.filter((line) => line.status === "posted").reduce((sum, line) => sum + number(line.amount), 0);
   const data = GetLedgerOverviewResponse.parse({
-    period: "August 2026",
+    period: client.period,
     currencies: [...new Set(lines.map((line) => line.currency))],
     totalLines: lines.length,
     pendingReview,
@@ -865,11 +927,11 @@ router.get("/ledgerflow/overview", async (req, res) => {
 });
 
 router.get("/ledgerflow/statement-lines", async (req, res) => {
-  await ensureSeeded();
   const parsed = GetStatementLinesQueryParams.parse(req.query);
-  const clientId = clientIdFrom(parsed.clientId);
+  const client = await requireOwnedClient(req, res, parsed.clientId);
+  if (!client) return;
   const lines = await db.select().from(statementLinesTable).where(and(
-    eq(statementLinesTable.clientId, clientId),
+    eq(statementLinesTable.clientId, client.id),
     parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
     parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
   )).orderBy(asc(statementLinesTable.date));
@@ -882,8 +944,11 @@ router.get("/ledgerflow/statement-lines", async (req, res) => {
 
 router.post("/ledgerflow/statement-lines", async (req, res) => {
   const body = CreateStatementLineBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
   const [line] = await db.insert(statementLinesTable).values({
     ...body,
+    clientId: client.id,
     amount: String(body.amount),
     status: "needs_review",
     source: "Manual entry",
@@ -898,20 +963,23 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
   }));
 });
 
-router.get("/ledgerflow/journal-entries", async (_req, res) => {
-  await ensureSeeded();
-  const clientId = clientIdFrom(_req.query.clientId);
-  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId)).orderBy(asc(journalEntriesTable.date));
+router.get("/ledgerflow/journal-entries", async (req, res) => {
+  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id)).orderBy(asc(journalEntriesTable.date));
   res.json(GetJournalEntriesResponse.parse(entries.map(journalEntryResponse)));
 });
 
 router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
   const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = ApproveJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
 
   const [entry] = await db.update(journalEntriesTable).set({ status: "approved" }).where(and(
     eq(journalEntriesTable.id, id),
-    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.clientId, client.id),
     eq(journalEntriesTable.status, "suggested"),
   )).returning();
   if (!entry) {
@@ -924,18 +992,20 @@ router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
 router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
   const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = PostJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
 
   const result = await db.transaction(async (tx) => {
     const [entry] = await tx.select().from(journalEntriesTable).where(and(
       eq(journalEntriesTable.id, id),
-      eq(journalEntriesTable.clientId, clientId),
+      eq(journalEntriesTable.clientId, client.id),
     ));
     if (!entry) return { kind: "not_found" as const };
     if (entry.status !== "approved") return { kind: "not_approved" as const };
 
     const [line] = await tx.select().from(statementLinesTable).where(and(
       eq(statementLinesTable.id, entry.statementLineId),
-      eq(statementLinesTable.clientId, clientId),
+      eq(statementLinesTable.clientId, client.id),
     ));
     if (!line) return { kind: "not_found" as const };
 
@@ -959,11 +1029,12 @@ router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
-router.get("/ledgerflow/trial-balance", async (_req, res) => {
-  await ensureSeeded();
-  const clientId = clientIdFrom(_req.query.clientId);
+router.get("/ledgerflow/trial-balance", async (req, res) => {
+  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
   const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.clientId, client.id),
     eq(journalEntriesTable.status, "posted"),
   ));
   const accounts = new Map<string, { debit: number; credit: number; category: string }>();
@@ -982,11 +1053,10 @@ router.get("/ledgerflow/trial-balance", async (_req, res) => {
 
 router.get("/ledgerflow/financial-statements", async (req, res) => {
   const { period } = GetFinancialStatementsQueryParams.parse(req.query);
-  const clientId = clientIdFrom(req.query.clientId);
-  await ensureSeeded();
-  const client = await db.select().from(clientsTable).where(eq(clientsTable.id, clientId));
+  const client = await requireOwnedClient(req, res, req.query.clientId === undefined ? undefined : Number(req.query.clientId));
+  if (!client) return;
   const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.clientId, client.id),
     eq(journalEntriesTable.status, "posted"),
   ));
   const expenseAccounts = new Map<string, number>();
@@ -1003,7 +1073,7 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);
   const netIncome = totalRevenue - totalExpenses;
   const report = {
-    period: period ?? client[0]?.period ?? "Current period",
+    period: period ?? client.period,
     incomeStatement: [
       { label: "Revenue", amount: totalRevenue, children: [...revenueAccounts.entries()].map(([label, amount]) => ({ label, amount })) },
       { label: "Operating expenses", amount: -totalExpenses, children: [...expenseAccounts.entries()].map(([label, amount]) => ({ label, amount: -amount })) },

@@ -1,6 +1,5 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { initializeLedgerFlow } from "./routes/ledgerflow";
 
 const rawPort = process.env["PORT"];
 
@@ -17,14 +16,6 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function start() {
-  try {
-    await initializeLedgerFlow();
-  } catch (err) {
-    logger.error({ err }, "Error initializing ledger data");
-    process.exit(1);
-    return;
-  }
-
   app.listen(port, (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");

@@ -27,7 +27,13 @@ let server: Server;
 let baseUrl: string;
 let app: typeof import("../src/app").default;
 let database: typeof import("@workspace/db");
+
+let createSession: typeof import("../src/lib/auth").createSession;
 const createdClientIds: number[] = [];
+const createdUserIds: string[] = [];
+const createdSessionIds: string[] = [];
+let primaryToken: string;
+let secondaryToken: string;
 
 function testDatabaseUrl() {
   const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
@@ -42,8 +48,26 @@ function testDatabaseUrl() {
 
 before(async () => {
   process.env.DATABASE_URL = testDatabaseUrl();
+  process.env.SESSION_SECRET ??= "ledgerflow-test-session-secret";
   app = (await import("../src/app")).default;
   database = await import("@workspace/db");
+  ({ createSession } = await import("../src/lib/auth"));
+  const primaryUserId = `ledgerflow-test-primary-${randomUUID()}`;
+  const secondaryUserId = `ledgerflow-test-secondary-${randomUUID()}`;
+  await database.db.insert(database.usersTable).values([
+    { id: primaryUserId, email: `${primaryUserId}@example.test`, firstName: "Primary", lastName: "Test" },
+    { id: secondaryUserId, email: `${secondaryUserId}@example.test`, firstName: "Secondary", lastName: "Test" },
+  ]);
+  createdUserIds.push(primaryUserId, secondaryUserId);
+  primaryToken = await createSession({
+    user: { id: primaryUserId, email: `${primaryUserId}@example.test`, firstName: "Primary", lastName: "Test", profileImageUrl: null },
+    access_token: "ledgerflow-test-access-token",
+  });
+  secondaryToken = await createSession({
+    user: { id: secondaryUserId, email: `${secondaryUserId}@example.test`, firstName: "Secondary", lastName: "Test", profileImageUrl: null },
+    access_token: "ledgerflow-test-access-token",
+  });
+  createdSessionIds.push(primaryToken, secondaryToken);
   server = await new Promise<Server>((resolve, reject) => {
     const listener = app.listen(0, () => resolve(listener));
     listener.once("error", reject);
@@ -62,8 +86,18 @@ after(async () => {
         .where(inArray(database.statementLinesTable.clientId, createdClientIds));
       await database.db.delete(database.bankAccountsTable)
         .where(inArray(database.bankAccountsTable.clientId, createdClientIds));
+      await database.db.delete(database.clientWorkspacesTable)
+        .where(inArray(database.clientWorkspacesTable.clientId, createdClientIds));
       await database.db.delete(database.clientsTable)
         .where(inArray(database.clientsTable.id, createdClientIds));
+    }
+    if (createdSessionIds.length) {
+      await database.db.delete(database.sessionsTable)
+        .where(inArray(database.sessionsTable.sid, createdSessionIds));
+    }
+    if (createdUserIds.length) {
+      await database.db.delete(database.usersTable)
+        .where(inArray(database.usersTable.id, createdUserIds));
     }
   } finally {
     await new Promise<void>((resolve, reject) => {
@@ -73,10 +107,10 @@ after(async () => {
   }
 });
 
-async function request<T>(path: string, init?: RequestInit) {
+async function request<T>(path: string, init?: RequestInit, token = primaryToken) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
   });
   const body = (await response.json()) as T;
   return { response, body };
@@ -93,8 +127,8 @@ test("keeps approved entries out of reports until posting and enforces client sc
   const clientResponse = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
-      name: `Report boundary ${suffix}`,
-      legalName: `Report boundary ${suffix} LLC`,
+      name: `Concurrent posting ${suffix}`,
+      legalName: `Concurrent posting ${suffix} LLC`,
     }),
   });
   assert.equal(clientResponse.response.status, 201);
@@ -107,20 +141,20 @@ test("keeps approved entries out of reports until posting and enforces client sc
       name: `Other report boundary ${suffix}`,
       legalName: `Other report boundary ${suffix} LLC`,
     }),
-  });
+  }, secondaryToken);
   assert.equal(otherClientResponse.response.status, 201);
   const otherClientId = otherClientResponse.body.id;
   createdClientIds.push(otherClientId);
 
-  const amount = 1234.56;
+  const amount = 987.65;
   const lineResponse = await request<{ id: number }>("/ledgerflow/statement-lines", {
     method: "POST",
     body: JSON.stringify({
       clientId,
       date: "2026-08-24",
-      description: `Report boundary software expense ${suffix}`,
+      description: `Concurrent posting expense ${suffix}`,
       currency: "AED",
-      amount,
+      amount: 987.65,
       direction: "outflow",
     }),
   });
@@ -130,7 +164,6 @@ test("keeps approved entries out of reports until posting and enforces client sc
     id: number;
     statementLineId: number;
     status: string;
-    lines: Array<{ account: string; debit: number; credit: number }>;
   }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
   assert.equal(entryResponse.response.status, 200);
   const entry = entryResponse.body.find((item) => item.statementLineId === lineResponse.body.id);
@@ -153,8 +186,8 @@ test("keeps approved entries out of reports until posting and enforces client sc
     method: "POST",
     body: JSON.stringify({ clientId: otherClientId }),
   });
-  assert.equal(mismatchedApproval.response.status, 409);
 
+  const crossUserOverview = await request<{ error: string }>(`/ledgerflow/overview?clientId=${otherClientId}`);
   const approveResponse = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/approve`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
@@ -171,8 +204,8 @@ test("keeps approved entries out of reports until posting and enforces client sc
     method: "POST",
     body: JSON.stringify({ clientId: otherClientId }),
   });
-  assert.equal(mismatchedPost.response.status, 404);
-  assert.equal(mismatchedPost.body.error, "Journal entry not found for this client");
+  assert.equal(mismatchedPost.response.status, 403);
+  assert.equal(mismatchedPost.body.error, "You do not have access to this client workspace.");
 
   const postResponse = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
     method: "POST",

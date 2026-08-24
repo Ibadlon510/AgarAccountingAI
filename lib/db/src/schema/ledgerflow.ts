@@ -1,4 +1,25 @@
-import { integer, numeric, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+
+export const usersTable = pgTable("users", {
+  id: varchar("id").primaryKey(),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  starterClientId: integer("starter_client_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+});
+
+export const sessionsTable = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
 
 export const clientsTable = pgTable("ledgerflow_clients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -9,6 +30,16 @@ export const clientsTable = pgTable("ledgerflow_clients", {
   period: text("period").notNull().default("August 2026"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const clientWorkspacesTable = pgTable(
+  "ledgerflow_client_workspaces",
+  {
+    clientId: integer("client_id").notNull(),
+    userId: varchar("user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("ledgerflow_client_workspaces_client_user_idx").on(table.clientId, table.userId)],
+);
 
 export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -54,3 +85,5 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
 export type JournalEntry = typeof journalEntriesTable.$inferSelect;
+export type User = typeof usersTable.$inferSelect;
+export type UpsertUser = typeof usersTable.$inferInsert;

@@ -12,7 +12,85 @@ tags:
     description: Health operations
   - name: ledgerflow
     description: Accounting workflow operations
+  - name: auth
+    description: Browser and mobile authentication endpoints
 paths:
+  /auth/user:
+    get:
+      operationId: getCurrentAuthUser
+      tags: [auth]
+      summary: Get the currently authenticated user
+      responses:
+        "200":
+          description: Authentication state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+  /login:
+    get:
+      operationId: beginBrowserLogin
+      tags: [auth]
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the OIDC authorization endpoint
+  /callback:
+    get:
+      operationId: handleBrowserLoginCallback
+      tags: [auth]
+      summary: Complete the browser OIDC login flow
+      responses:
+        "302":
+          description: Redirect back to the safe in-app location
+  /logout:
+    get:
+      operationId: logoutBrowserSession
+      tags: [auth]
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string, default: / }
+      responses:
+        "302":
+          description: Redirect to the OIDC provider logout endpoint
+  /mobile-auth/token-exchange:
+    post:
+      operationId: exchangeMobileAuthorizationCode
+      tags: [auth]
+      summary: Exchange a mobile OIDC authorization code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileTokenExchangeRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTokenExchangeSuccess"
+  /mobile-auth/logout:
+    post:
+      operationId: logoutMobileSession
+      tags: [auth]
+      summary: Delete a mobile session token
+      responses:
+        "200":
+          description: Session deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutSuccess"
   /clients:
     get:
       operationId: getClients
@@ -345,6 +423,42 @@ paths:
                 $ref: "#/components/schemas/FinancialStatements"
 components:
   schemas:
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id: { type: string }
+        email: { type: ["string", "null"] }
+        firstName: { type: ["string", "null"] }
+        lastName: { type: ["string", "null"] }
+        profileImageUrl: { type: ["string", "null"] }
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/AuthUser"
+            - type: "null"
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code: { type: string, minLength: 1 }
+        code_verifier: { type: string, minLength: 1 }
+        redirect_uri: { type: string, minLength: 1 }
+        state: { type: string, minLength: 1 }
+        nonce: { type: string, minLength: 1 }
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean, const: true }
     HealthStatus:
       type: object
       properties:
