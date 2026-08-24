@@ -351,3 +351,300 @@ test("allows only one concurrent posting request for an approved entry", async (
   assert.equal(postedNetIncome - approvedNetIncome, -amount);
   assert.equal(postedCashFlow - approvedCashFlow, -amount);
 });
+
+type JournalEntrySummary = {
+  id: number;
+  statementLineId: number;
+  date: string;
+  memo: string;
+  currency: string;
+  status: string;
+  confidence: number;
+  lines: Array<{ account: string; debit: number; credit: number }>;
+};
+
+type StatementLineSummary = {
+  id: number;
+  clientId: number;
+  date: string;
+  description: string;
+  currency: string;
+  amount: number;
+  direction: string;
+  status: string;
+  source: string;
+  accountSuggestion: string | null;
+  confidence: number | null;
+};
+
+async function createLedgerflowTestClient(label: string, token = primaryToken) {
+  const response = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `${label} ${randomUUID()}`,
+      legalName: `${label} ${randomUUID()} LLC`,
+    }),
+  }, token);
+  assert.equal(response.response.status, 201);
+  createdClientIds.push(response.body.id);
+  return response.body.id;
+}
+
+async function createLedgerflowTestLine(clientId: number, description: string, token = primaryToken) {
+  const response = await request<{ id: number }>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-24",
+      description: `${description} ${randomUUID()}`,
+      currency: "AED",
+      amount: 125,
+      direction: "outflow",
+    }),
+  }, token);
+  assert.equal(response.response.status, 201);
+  return response.body.id;
+}
+
+async function getLedgerflowTestEntries(clientId: number, token = primaryToken) {
+  const response = await request<JournalEntrySummary[]>(`/ledgerflow/journal-entries?clientId=${clientId}`, undefined, token);
+  assert.equal(response.response.status, 200);
+  return response.body;
+}
+
+async function getLedgerflowTestLines(clientId: number, token = primaryToken) {
+  const response = await request<StatementLineSummary[]>(`/ledgerflow/statement-lines?clientId=${clientId}`, undefined, token);
+  assert.equal(response.response.status, 200);
+  return response.body;
+}
+
+async function approveLedgerflowTestEntry(clientId: number, entryId: number, token = primaryToken) {
+  const response = await request<{ status: string }>(`/ledgerflow/journal-entries/${entryId}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  }, token);
+  assert.equal(response.response.status, 200);
+  assert.equal(response.body.status, "approved");
+}
+
+test("keeps AI bulk actions client-scoped, status-scoped, and atomic", async () => {
+  const approvalClientId = await createLedgerflowTestClient("AI bulk approval");
+  const approvalLineIds = await Promise.all([
+    createLedgerflowTestLine(approvalClientId, "Approval pending one"),
+    createLedgerflowTestLine(approvalClientId, "Approval pending two"),
+  ]);
+  const approvalEntries = await getLedgerflowTestEntries(approvalClientId);
+  const approvalEntryIds = approvalLineIds.map((lineId) => {
+    const entry = approvalEntries.find((candidate) => candidate.statementLineId === lineId);
+    assert.ok(entry, `Expected an entry for statement line ${lineId}`);
+    return entry.id;
+  });
+
+  const approvalChat = await request<{
+    answer: string;
+    recommendations: Array<{
+      type: string;
+      clientId: number;
+      entryIds?: number[];
+      statementLineIds?: number[];
+      entryCount?: number;
+      lineCount?: number;
+    }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({ clientId: approvalClientId, message: "approve all pending entries" }),
+  });
+  assert.equal(approvalChat.response.status, 200);
+  const approvalRecommendation = approvalChat.body.recommendations.find((recommendation) => recommendation.type === "bulk_approve_entries");
+  assert.ok(approvalRecommendation);
+  assert.equal(approvalRecommendation.clientId, approvalClientId);
+  assert.deepEqual(approvalRecommendation.entryIds?.slice().sort((a, b) => a - b), approvalEntryIds.slice().sort((a, b) => a - b));
+  assert.deepEqual(approvalRecommendation.statementLineIds?.slice().sort((a, b) => a - b), approvalLineIds.slice().sort((a, b) => a - b));
+  assert.equal(approvalRecommendation.entryCount, 2);
+  assert.equal(approvalRecommendation.lineCount, 2);
+
+  const approvalConfirmation = await request<{ type: string; entryCount: number; updatedLineCount: number }>(
+    "/ledgerflow/ai-actions/confirm",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: approvalClientId,
+        type: approvalRecommendation.type,
+        entryIds: approvalRecommendation.entryIds,
+        statementLineIds: approvalRecommendation.statementLineIds,
+      }),
+    },
+  );
+  assert.equal(approvalConfirmation.response.status, 200);
+  assert.equal(approvalConfirmation.body.type, "bulk_approve_entries");
+  assert.equal(approvalConfirmation.body.entryCount, 2);
+  assert.equal(approvalConfirmation.body.updatedLineCount, 2);
+  assert.deepEqual((await getLedgerflowTestEntries(approvalClientId)).map((entry) => entry.status), ["approved", "approved"]);
+  assert.deepEqual((await getLedgerflowTestLines(approvalClientId)).map((line) => line.status), ["needs_review", "needs_review"]);
+
+  const postingClientId = await createLedgerflowTestClient("AI bulk posting");
+  const postingLineIds = await Promise.all([
+    createLedgerflowTestLine(postingClientId, "Posting approved one"),
+    createLedgerflowTestLine(postingClientId, "Posting approved two"),
+  ]);
+  const postingEntries = await getLedgerflowTestEntries(postingClientId);
+  for (const lineId of postingLineIds) {
+    const entry = postingEntries.find((candidate) => candidate.statementLineId === lineId);
+    assert.ok(entry, `Expected an entry for statement line ${lineId}`);
+    await approveLedgerflowTestEntry(postingClientId, entry.id);
+  }
+
+  const postingChat = await request<{
+    recommendations: Array<{
+      type: string;
+      clientId: number;
+      entryIds?: number[];
+      statementLineIds?: number[];
+      entryCount?: number;
+      lineCount?: number;
+    }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({ clientId: postingClientId, message: "post all approved entries" }),
+  });
+  assert.equal(postingChat.response.status, 200);
+  const postingRecommendation = postingChat.body.recommendations.find((recommendation) => recommendation.type === "bulk_post_entries");
+  assert.ok(postingRecommendation);
+  assert.equal(postingRecommendation.clientId, postingClientId);
+  assert.equal(postingRecommendation.entryCount, 2);
+  assert.equal(postingRecommendation.lineCount, 2);
+
+  const postingConfirmation = await request<{ type: string; entryCount: number; updatedLineCount: number }>(
+    "/ledgerflow/ai-actions/confirm",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: postingClientId,
+        type: postingRecommendation.type,
+        entryIds: postingRecommendation.entryIds,
+        statementLineIds: postingRecommendation.statementLineIds,
+      }),
+    },
+  );
+  assert.equal(postingConfirmation.response.status, 200);
+  assert.equal(postingConfirmation.body.type, "bulk_post_entries");
+  assert.equal(postingConfirmation.body.entryCount, 2);
+  assert.equal(postingConfirmation.body.updatedLineCount, 2);
+  assert.deepEqual((await getLedgerflowTestEntries(postingClientId)).map((entry) => entry.status), ["posted", "posted"]);
+  assert.deepEqual((await getLedgerflowTestLines(postingClientId)).map((line) => line.status), ["posted", "posted"]);
+
+  const guardedClientId = await createLedgerflowTestClient("AI bulk validation");
+  const guardedLineIds = await Promise.all([
+    createLedgerflowTestLine(guardedClientId, "Mixed status one"),
+    createLedgerflowTestLine(guardedClientId, "Mixed status two"),
+    createLedgerflowTestLine(guardedClientId, "Mismatched scope three"),
+  ]);
+  let guardedEntries = await getLedgerflowTestEntries(guardedClientId);
+  const guardedEntryIds = guardedLineIds.map((lineId) => {
+    const entry = guardedEntries.find((candidate) => candidate.statementLineId === lineId);
+    assert.ok(entry, `Expected an entry for statement line ${lineId}`);
+    return entry.id;
+  });
+  await approveLedgerflowTestEntry(guardedClientId, guardedEntryIds[0]);
+
+  guardedEntries = await getLedgerflowTestEntries(guardedClientId);
+  const guardedLines = await getLedgerflowTestLines(guardedClientId);
+  const beforeMixedStatusFailure = {
+    entries: guardedEntries.filter((entry) => guardedEntryIds.slice(0, 2).includes(entry.id)),
+    lines: guardedLines.filter((line) => guardedLineIds.slice(0, 2).includes(line.id)),
+  };
+  const mixedStatusConfirmation = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: guardedClientId,
+      type: "bulk_approve_entries",
+      entryIds: guardedEntryIds.slice(0, 2),
+      statementLineIds: guardedLineIds.slice(0, 2),
+    }),
+  });
+  assert.equal(mixedStatusConfirmation.response.status, 409);
+  assert.match(mixedStatusConfirmation.body.error, /Only suggested entries/);
+  assert.deepEqual({
+    entries: (await getLedgerflowTestEntries(guardedClientId)).filter((entry) => guardedEntryIds.slice(0, 2).includes(entry.id)),
+    lines: (await getLedgerflowTestLines(guardedClientId)).filter((line) => guardedLineIds.slice(0, 2).includes(line.id)),
+  }, beforeMixedStatusFailure);
+
+  const emptyConfirmation = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({ clientId: guardedClientId, type: "bulk_approve_entries" }),
+  });
+  assert.equal(emptyConfirmation.response.status, 400);
+  assert.match(emptyConfirmation.body.error, /matching, non-empty/);
+
+  const unequalScopeConfirmation = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: guardedClientId,
+      type: "bulk_approve_entries",
+      entryIds: [guardedEntryIds[1]],
+      statementLineIds: guardedLineIds.slice(0, 2),
+    }),
+  });
+  assert.equal(unequalScopeConfirmation.response.status, 400);
+
+  const beforeMismatchedScopeFailure = {
+    entries: guardedEntries.filter((entry) => guardedEntryIds.slice(1, 3).includes(entry.id)),
+    lines: guardedLines.filter((line) => [guardedLineIds[0], guardedLineIds[2]].includes(line.id)),
+  };
+  const mismatchedScopeConfirmation = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: guardedClientId,
+      type: "bulk_approve_entries",
+      entryIds: guardedEntryIds.slice(1, 3),
+      statementLineIds: [guardedLineIds[0], guardedLineIds[2]],
+    }),
+  });
+  assert.equal(mismatchedScopeConfirmation.response.status, 400);
+  assert.match(mismatchedScopeConfirmation.body.error, /matching client-scoped selection/);
+  assert.deepEqual({
+    entries: (await getLedgerflowTestEntries(guardedClientId)).filter((entry) => guardedEntryIds.slice(1, 3).includes(entry.id)),
+    lines: (await getLedgerflowTestLines(guardedClientId)).filter((line) => [guardedLineIds[0], guardedLineIds[2]].includes(line.id)),
+  }, beforeMismatchedScopeFailure);
+
+  const otherClientId = await createLedgerflowTestClient("AI bulk other client", secondaryToken);
+  const otherLineId = await createLedgerflowTestLine(otherClientId, "Cross client entry", secondaryToken);
+  const otherEntries = await getLedgerflowTestEntries(otherClientId, secondaryToken);
+  const otherEntry = otherEntries.find((entry) => entry.statementLineId === otherLineId);
+  assert.ok(otherEntry);
+  const otherStateBefore = {
+    entries: otherEntries,
+    lines: await getLedgerflowTestLines(otherClientId, secondaryToken),
+  };
+  const crossClientConfirmation = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: guardedClientId,
+      type: "bulk_approve_entries",
+      entryIds: [otherEntry.id],
+      statementLineIds: [otherLineId],
+    }),
+  });
+  assert.equal(crossClientConfirmation.response.status, 404);
+  assert.match(crossClientConfirmation.body.error, /not available in this client/);
+  assert.deepEqual({
+    entries: await getLedgerflowTestEntries(otherClientId, secondaryToken),
+    lines: await getLedgerflowTestLines(otherClientId, secondaryToken),
+  }, otherStateBefore);
+
+  for (const [message, expectedText] of [
+    ["approve all March entries", /qualified bulk scope/],
+    ["post all approved entries for March", /qualified bulk scope/],
+  ] as const) {
+    const broadRequest = await request<{
+      answer: string;
+      recommendations: unknown[];
+    }>("/ledgerflow/ai-chat", {
+      method: "POST",
+      body: JSON.stringify({ clientId: guardedClientId, message }),
+    });
+    assert.equal(broadRequest.response.status, 200);
+    assert.match(broadRequest.body.answer, expectedText);
+    assert.deepEqual(broadRequest.body.recommendations, []);
+  }
+});

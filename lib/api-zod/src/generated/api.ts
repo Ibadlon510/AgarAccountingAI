@@ -401,7 +401,6 @@ export const ApproveJournalEntryResponse = zod.object({
 }))
 })
 
-
 /**
  * @summary Post an approved journal entry to the ledger
  */
@@ -427,8 +426,6 @@ export const PostJournalEntryResponse = zod.object({
   "credit": zod.number()
 }))
 })
-
-
 /**
  * @summary Get trial balance
  */
@@ -472,8 +469,6 @@ export const GetFinancialStatementsResponse = zod.object({
   "children": zod.array(zod.unknown()).optional()
 }))
 })
-
-
 /**
  * @summary Get the currently authenticated user
  */
@@ -486,32 +481,25 @@ export const GetCurrentAuthUserResponse = zod.object({
   "profileImageUrl": zod.string().nullable()
 }),zod.null()])
 })
-
 /**
  * @summary Clear the session and begin OIDC logout
  */
 export const logoutBrowserSessionQueryReturnToDefault = `/`;
-
 /**
  * @summary Start the browser OIDC login flow
  */
 export const BeginBrowserLoginQueryParams = zod.object({
   "returnTo": zod.coerce.string().optional()
 })
-
 export const LogoutBrowserSessionResponse = zod.void()
-
 export const BeginBrowserLoginResponse = zod.void()
-
 export const LogoutBrowserSessionQueryParams = zod.object({
   "returnTo": zod.coerce.string().default(logoutBrowserSessionQueryReturnToDefault)
 })
-
 /**
  * @summary Complete the browser OIDC login flow
  */
 export const HandleBrowserLoginCallbackResponse = zod.void()
-
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -519,14 +507,12 @@ export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "state": zod.string().min(1),
   "nonce": zod.string().min(1).optional()
 })
-
 /**
  * @summary Delete a mobile session token
  */
 export const LogoutMobileSessionResponse = zod.object({
   "success": zod.literal(true)
 })
-
 export const ExchangeMobileAuthorizationCodeResponse = zod.object({
   "token": zod.string()
 })
