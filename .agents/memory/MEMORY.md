@@ -1,0 +1,1 @@
+- [Generated Zod integer compatibility](zod-integer-compatibility.md) — OpenAPI integer types can fail generated Zod builds in this workspace; prefer number types until the shared Zod version is aligned.

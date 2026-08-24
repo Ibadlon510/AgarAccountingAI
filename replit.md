@@ -1,6 +1,6 @@
-# [Project name]
+# LedgerFlow
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+LedgerFlow is an AI-assisted bookkeeping workspace that takes multi-currency bank activity through journal-entry review to core financial statements.
 
 ## Run & Operate
 
@@ -22,15 +22,23 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — API contract and generated client source.
+- `lib/db/src/schema/` — PostgreSQL schema for statement lines and journal entries.
+- `artifacts/api-server/src/routes/ledgerflow.ts` — workflow API, seeded demo data, and report outputs.
+- `artifacts/ledgerflow/src/App.tsx` — LedgerFlow user interface and route shell.
+- `artifacts/ledgerflow/src/index.css` — product theme and visual tokens.
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Every suggested entry remains linked to its statement line and needs explicit approval before it is treated as posted.
+- The first release uses a small seed dataset so the complete close workflow is visible on first launch.
+- Financial reports are read-only workflow outputs; source correction happens at statement-line and journal-entry stages.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Review bank statement lines by currency, create manual lines, and track AI account suggestions with confidence.
+- Review and approve double-entry journal suggestions.
+- Inspect a trial balance, income statement, balance sheet, and indirect cash-flow statement for the selected period.
 
 ## User preferences
 
