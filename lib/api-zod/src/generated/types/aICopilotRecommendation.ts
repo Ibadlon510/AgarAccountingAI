@@ -5,15 +5,24 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AICopilotRecommendationStatusTransition } from './aICopilotRecommendationStatusTransition';
 import type { AICopilotRecommendationType } from './aICopilotRecommendationType';
 import type { BankAccountDraft } from './bankAccountDraft';
 
 export interface AICopilotRecommendation {
   id: string;
+  clientId: number;
   type: AICopilotRecommendationType;
   title: string;
   summary: string;
   lineIds?: number[];
+  entryIds?: number[];
+  statementLineIds?: number[];
+  entryCount?: number;
+  lineCount?: number;
+  fromStatus?: string;
+  toStatus?: string;
+  statusTransition?: AICopilotRecommendationStatusTransition;
   /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */

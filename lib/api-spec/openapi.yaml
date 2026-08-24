@@ -487,15 +487,32 @@ components:
             postedLines: { type: number }
     AICopilotRecommendation:
       type: object
-      required: [id, type, title, summary, requiresConfirmation]
+      required: [id, clientId, type, title, summary, requiresConfirmation]
       properties:
         id: { type: string }
-        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account] }
+        clientId: { type: number }
+        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account, bulk_approve_entries, bulk_post_entries] }
         title: { type: string }
         summary: { type: string }
         lineIds:
           type: array
           items: { type: number }
+        entryIds:
+          type: array
+          items: { type: number }
+        statementLineIds:
+          type: array
+          items: { type: number }
+        entryCount: { type: number }
+        lineCount: { type: number }
+        fromStatus: { type: string }
+        toStatus: { type: string }
+        statusTransition:
+          type: object
+          required: [from, to]
+          properties:
+            from: { type: string }
+            to: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
         bankAccount:
@@ -516,8 +533,16 @@ components:
       required: [clientId, type]
       properties:
         clientId: { type: number }
-        type: { type: string, enum: [recode_lines, create_bank_account] }
+        type: { type: string, enum: [recode_lines, create_bank_account, bulk_approve_entries, bulk_post_entries] }
         lineIds:
+          type: array
+          items: { type: number }
+          maxItems: 100
+        entryIds:
+          type: array
+          items: { type: number }
+          maxItems: 100
+        statementLineIds:
           type: array
           items: { type: number }
           maxItems: 100
@@ -532,6 +557,21 @@ components:
       required: [type, updatedLineCount, bankAccount]
       properties:
         type: { type: string }
+        clientId: { type: number }
+        entryIds:
+          type: array
+          items: { type: number }
+        statementLineIds:
+          type: array
+          items: { type: number }
+        entryCount: { type: number }
+        lineCount: { type: number }
+        fromStatus: { type: string }
+        toStatus: { type: string }
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalEntry"
         updatedLineCount: { type: number }
         bankAccount:
           oneOf:

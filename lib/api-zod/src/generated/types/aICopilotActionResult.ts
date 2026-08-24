@@ -6,9 +6,18 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BankAccount } from './bankAccount';
+import type { JournalEntry } from './journalEntry';
 
 export interface AICopilotActionResult {
   type: string;
+  clientId?: number;
+  entryIds?: number[];
+  statementLineIds?: number[];
+  entryCount?: number;
+  lineCount?: number;
+  fromStatus?: string;
+  toStatus?: string;
+  entries?: JournalEntry[];
   updatedLineCount: number;
   bankAccount: BankAccount | null;
 }

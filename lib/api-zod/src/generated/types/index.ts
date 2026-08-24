@@ -13,6 +13,7 @@ export * from './aICopilotActionInput';
 export * from './aICopilotActionInputType';
 export * from './aICopilotActionResult';
 export * from './aICopilotRecommendation';
+export * from './aICopilotRecommendationStatusTransition';
 export * from './aICopilotRecommendationType';
 export * from './approveJournalEntryInput';
 export * from './bankAccount';

@@ -14,4 +14,6 @@ export const AICopilotRecommendationType = {
   review_group: 'review_group',
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
+  bulk_approve_entries: 'bulk_approve_entries',
+  bulk_post_entries: 'bulk_post_entries',
 } as const;

@@ -187,10 +187,18 @@ type BankAccountDraft = {
 
 type AICopilotRecommendation = {
   id: string;
-  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account";
+  clientId: number;
+  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account" | "bulk_approve_entries" | "bulk_post_entries";
   title: string;
   summary: string;
   lineIds?: number[];
+  entryIds?: number[];
+  statementLineIds?: number[];
+  entryCount?: number;
+  lineCount?: number;
+  fromStatus?: string;
+  toStatus?: string;
+  statusTransition?: { from: string; to: string };
   accountSuggestion?: string | null;
   confidence?: number | null;
   bankAccount?: { name: string; bankName: string | null; accountNumberLast4: string | null; currency: string } | null;
@@ -253,6 +261,7 @@ function safeText(value: unknown, fallback: string, maxLength = 160) {
 function collectAICopilotRecommendations(
   rawRecommendations: unknown,
   pendingLines: Array<typeof statementLinesTable.$inferSelect>,
+  clientId: number,
 ): AICopilotRecommendation[] {
   const validLineIds = new Set(pendingLines.map((line) => line.id));
   if (!Array.isArray(rawRecommendations)) return [];
@@ -272,6 +281,7 @@ function collectAICopilotRecommendations(
       const confidence = Number(candidate.confidence);
       recommendations.push({
         id: `recode-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
+        clientId,
         type,
         title: safeText(candidate.title, `Recode ${lineIds.length} transactions`),
         summary: safeText(candidate.summary, `Apply ${accountSuggestion} to the selected review lines.`),
@@ -285,6 +295,7 @@ function collectAICopilotRecommendations(
     if (type === "review_group" && lineIds.length > 1) {
       recommendations.push({
         id: `group-${lineIds.join("-")}`,
+        clientId,
         type,
         title: safeText(candidate.title, `Review ${lineIds.length} similar transactions together`),
         summary: safeText(candidate.summary, "These transactions share a recurring pattern and can be checked as a group."),
@@ -299,6 +310,7 @@ function collectAICopilotRecommendations(
       if (!bankAccount) continue;
       recommendations.push({
         id: `bank-${bankAccount.name.toLowerCase().replace(/\W+/g, "-")}-${bankAccount.accountNumberLast4 ?? "new"}`,
+        clientId,
         type,
         title: safeText(candidate.title, `Create bank account: ${bankAccount.name}`),
         summary: safeText(candidate.summary, "Keep this statement stream separate from the client’s other bank activity."),
@@ -313,6 +325,7 @@ function collectAICopilotRecommendations(
 function defaultAICopilotRecommendations(
   pendingLines: Array<typeof statementLinesTable.$inferSelect>,
   bankAccounts: Array<typeof bankAccountsTable.$inferSelect>,
+  clientId: number,
 ): AICopilotRecommendation[] {
   const recommendations: AICopilotRecommendation[] = [];
   const groups = new Map<string, Array<typeof statementLinesTable.$inferSelect>>();
@@ -327,6 +340,7 @@ function defaultAICopilotRecommendations(
     const [accountSuggestion, members] = recurringGroup;
     recommendations.push({
       id: `group-${members.slice(0, 20).map((line) => line.id).join("-")}`,
+      clientId,
       type: "review_group",
       title: `Review ${members.length} ${accountSuggestion} suggestions together`,
       summary: "These transactions already share the same proposed counter-account. Inspect one pattern before approving any of them.",
@@ -338,6 +352,7 @@ function defaultAICopilotRecommendations(
   if (pendingLines.length) {
     recommendations.push({
       id: "next-review-step",
+      clientId,
       type: "next_step",
       title: `${pendingLines.length} lines are waiting for review`,
       summary: "Confirm the suggested accounts, then approve the journal entries you stand behind. AI will never post them for you.",
@@ -347,6 +362,7 @@ function defaultAICopilotRecommendations(
   if (bankAccounts.length === 0) {
     recommendations.push({
       id: "next-bank-account-step",
+      clientId,
       type: "next_step",
       title: "Set up the first bank account",
       summary: "Upload a statement with a visible account header or ask me to prepare a bank-account setup card.",
@@ -354,6 +370,119 @@ function defaultAICopilotRecommendations(
     });
   }
   return recommendations.slice(0, 3);
+}
+
+type BulkActionType = "bulk_approve_entries" | "bulk_post_entries";
+
+class BulkActionValidationError extends Error {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status") {
+    super(kind);
+  }
+}
+
+function prepareBulkActionRecommendation(
+  message: string,
+  clientId: number,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+): { recommendation?: AICopilotRecommendation; error?: string } | null {
+  const normalized = message.toLowerCase();
+  const asksToApprove = /\b(?:approve|approval|approving)\b/.test(normalized);
+  const asksToPost = /\b(?:post|posting)\b/.test(normalized);
+  if (!asksToApprove && !asksToPost) return null;
+  if (asksToApprove && asksToPost) {
+    return { error: "Please choose one transition at a time: approve the entries first, or post entries that are already approved." };
+  }
+
+  const type: BulkActionType = asksToApprove ? "bulk_approve_entries" : "bulk_post_entries";
+  const expectedStatus = asksToApprove ? "suggested" : "approved";
+  const targetStatus = asksToApprove ? "approved" : "posted";
+  const allRequested = /\b(?:all|every|each)\b/.test(normalized);
+  const pendingRequested = /\b(?:pending|review|reviewing|suggested|eligible)\b/.test(normalized);
+  const approvedRequested = /\bapproved\b/.test(normalized);
+  const idMatches = normalized.match(/(?:\bje\b|\bjournal entries?\b|\bentries?\b)\s*(?:ids?\s*)?#?\s*\d+(?:\s*(?:,|and)\s*#?\s*\d+)*/g) ?? [];
+  const requestedIds = [...new Set(idMatches.flatMap((match) => {
+    const numbers = match.match(/\d+/g) ?? [];
+    return numbers.map(Number);
+  }))];
+
+  let selectedEntries: Array<typeof journalEntriesTable.$inferSelect>;
+  let scopeDescription: string;
+  if (allRequested) {
+    const tokens = normalized.match(/[a-z]+/g) ?? [];
+    const supportedScopeWords = new Set([
+      "please", "can", "could", "would", "you", "approve", "approval", "approving", "post", "posting",
+      "all", "every", "each", "pending", "review", "reviewing", "suggested", "eligible", "approved",
+      "journal", "entry", "entries", "the", "these", "those", "to", "now", "currently", "available",
+      "in", "this", "workspace", "for", "me",
+    ]);
+    if (requestedIds.length || /\ball\s+clients?\b|\bother\s+client\b/.test(normalized) || tokens.some((token) => !supportedScopeWords.has(token))) {
+      return { error: "I cannot safely infer a qualified bulk scope. Use “approve all pending entries”, “post all approved entries”, or list specific journal entry IDs." };
+    }
+    if (type === "bulk_approve_entries") {
+      if (!pendingRequested || approvedRequested) {
+        return { error: "For bulk approval, specify all pending or suggested entries. Entries that are already approved or posted need a separate scope." };
+      }
+      selectedEntries = entries.filter((entry) => entry.status === "suggested");
+      scopeDescription = "all suggested entries";
+    } else {
+      if (!approvedRequested || pendingRequested) {
+        return { error: "For bulk posting, specify all approved entries. Suggested entries must be approved first." };
+      }
+      selectedEntries = entries.filter((entry) => entry.status === "approved");
+      scopeDescription = "all approved entries";
+    }
+  } else if (requestedIds.length) {
+    selectedEntries = entries.filter((entry) => requestedIds.includes(entry.id));
+    if (selectedEntries.length !== requestedIds.length) {
+      return { error: "One or more requested journal entries are not available in this client workspace." };
+    }
+    scopeDescription = `the ${requestedIds.length} requested journal ${requestedIds.length === 1 ? "entry" : "entries"}`;
+  } else {
+    const matchingEntries = entries.filter((entry) => {
+      const entryMemo = entry.memo.toLowerCase();
+      const line = lines.find((candidate) => candidate.id === entry.statementLineId);
+      return normalized.includes(entryMemo) || Boolean(line && normalized.includes(line.description.toLowerCase()));
+    });
+    if (matchingEntries.length !== 1) {
+      return { error: "I need a clear scope. Say “approve all pending entries”, “post all approved entries”, or name specific journal entry IDs." };
+    }
+    selectedEntries = matchingEntries;
+    scopeDescription = "the requested journal entry";
+  }
+
+  if (!selectedEntries.length) {
+    return { error: `There are no eligible entries to ${asksToApprove ? "approve" : "post"} in that scope.` };
+  }
+  if (selectedEntries.some((entry) => entry.status !== expectedStatus)) {
+    const invalidLabel = asksToApprove ? "already approved or posted" : "not already approved";
+    return { error: `That scope includes entries that are ${invalidLabel}. Narrow the request to one eligible status before confirming.` };
+  }
+
+  const selectedLineIds = [...new Set(selectedEntries.map((entry) => entry.statementLineId))];
+  const selectedLines = lines.filter((line) => selectedLineIds.includes(line.id));
+  if (selectedLines.length !== selectedLineIds.length || selectedLines.some((line) => line.clientId !== clientId)) {
+    return { error: "The requested entries do not have a complete statement-line scope in this client workspace." };
+  }
+  const entryIds = selectedEntries.map((entry) => entry.id);
+  const titleVerb = asksToApprove ? "Approve" : "Post";
+  return {
+    recommendation: {
+      id: `${type}-${entryIds.join("-")}`,
+      clientId,
+      type,
+      title: `${titleVerb} ${selectedEntries.length} journal ${selectedEntries.length === 1 ? "entry" : "entries"}`,
+      summary: `${titleVerb} ${scopeDescription}: ${selectedEntries.map((entry) => `JE-${String(entry.id).padStart(4, "0")} · ${entry.memo}`).join("; ")}. This moves ${selectedLines.length} statement ${selectedLines.length === 1 ? "line" : "lines"} from ${expectedStatus} to ${targetStatus}.`,
+      entryIds,
+      statementLineIds: selectedLineIds,
+      entryCount: selectedEntries.length,
+      lineCount: selectedLines.length,
+      fromStatus: expectedStatus,
+      toStatus: targetStatus,
+      statusTransition: { from: expectedStatus, to: targetStatus },
+      requiresConfirmation: true,
+    },
+  };
 }
 
 function normalizeRows(text: string, currency: string): ParsedBankLine[] {
@@ -456,6 +585,23 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
+  const bulkAction = prepareBulkActionRecommendation(message, clientId, entries, lines);
+  if (bulkAction?.error) {
+    res.json(AskLedgerflowAIResponse.parse({
+      answer: bulkAction.error,
+      context,
+      recommendations: [],
+    }));
+    return;
+  }
+  if (bulkAction?.recommendation) {
+    res.json(AskLedgerflowAIResponse.parse({
+      answer: "I prepared this client-scoped ledger transition for your review. Nothing has changed yet.",
+      context,
+      recommendations: [bulkAction.recommendation],
+    }));
+    return;
+  }
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-5.6-luna",
@@ -464,7 +610,7 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
       messages: [
         {
           role: "system",
-          content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
+          content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
         },
         {
           role: "user",
@@ -472,15 +618,15 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
             client: { name: client.name, legalName: client.legalName, basis: client.basis, functionalCurrency: client.functionalCurrency, period: client.period },
             bankAccounts: bankAccounts.map(bankAccountResponse),
             reviewQueue: pendingLines.slice(0, 50).map((line) => ({ id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: line.accountSuggestion })),
-            approvedEntries: entries.filter((entry) => entry.status === "approved").slice(0, 20).map((entry) => ({ date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, debit: entry.debitAccount, credit: entry.creditAccount })),
+             journalEntries: entries.filter((entry) => entry.status !== "posted").slice(0, 50).map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: entry.status, debit: entry.debitAccount, credit: entry.creditAccount })),
             question: message,
           }),
         },
       ],
     });
     const raw = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
-    const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines);
-    const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts);
+     const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
+     const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId);
     const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
     res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
@@ -504,6 +650,95 @@ router.post("/ledgerflow/bank-accounts", async (req, res) => {
 
 router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   const body = ConfirmAICopilotActionBody.parse(req.body);
+  if (body.type === "bulk_approve_entries" || body.type === "bulk_post_entries") {
+    const entryIds = [...new Set(body.entryIds ?? [])];
+    const statementLineIds = [...new Set(body.statementLineIds ?? [])];
+    if (!entryIds.length || !statementLineIds.length || entryIds.length !== statementLineIds.length) {
+      return res.status(400).json({ error: "A bulk action needs matching, non-empty journal-entry and statement-line selections." });
+    }
+
+    let result: { entries: Array<typeof journalEntriesTable.$inferSelect>; expectedStatus: string; resultingStatus: string };
+    try {
+      result = await db.transaction(async (tx) => {
+        const entries = await tx.select().from(journalEntriesTable).where(and(
+          eq(journalEntriesTable.clientId, body.clientId),
+          inArray(journalEntriesTable.id, entryIds),
+        ));
+        if (entries.length !== entryIds.length) throw new BulkActionValidationError("not_found");
+
+        const lines = await tx.select().from(statementLinesTable).where(and(
+          eq(statementLinesTable.clientId, body.clientId),
+          inArray(statementLinesTable.id, statementLineIds),
+        ));
+        if (lines.length !== statementLineIds.length) throw new BulkActionValidationError("not_found");
+
+        const entryLineIds = entries.map((entry) => entry.statementLineId);
+        if (new Set(entryLineIds).size !== entryLineIds.length
+          || entryLineIds.some((lineId) => !statementLineIds.includes(lineId))
+          || statementLineIds.some((lineId) => !entryLineIds.includes(lineId))) {
+          throw new BulkActionValidationError("invalid_scope");
+        }
+
+        const expectedStatus = body.type === "bulk_approve_entries" ? "suggested" : "approved";
+        const resultingStatus = body.type === "bulk_approve_entries" ? "approved" : "posted";
+        if (entries.some((entry) => entry.status !== expectedStatus)
+          || (body.type === "bulk_post_entries" && lines.some((line) => line.status === "posted"))) {
+          throw new BulkActionValidationError("invalid_status");
+        }
+
+        const updatedEntries = await tx.update(journalEntriesTable)
+          .set({ status: resultingStatus })
+          .where(and(
+            eq(journalEntriesTable.clientId, body.clientId),
+            inArray(journalEntriesTable.id, entryIds),
+            eq(journalEntriesTable.status, expectedStatus),
+          ))
+          .returning();
+        if (updatedEntries.length !== entryIds.length) throw new BulkActionValidationError("invalid_status");
+
+        if (body.type === "bulk_post_entries") {
+          const updatedLines = await tx.update(statementLinesTable)
+            .set({ status: "posted" })
+            .where(and(
+              eq(statementLinesTable.clientId, body.clientId),
+              inArray(statementLinesTable.id, statementLineIds),
+            ))
+            .returning();
+          if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
+        }
+
+        return { entries: updatedEntries, expectedStatus, resultingStatus };
+      });
+    } catch (error) {
+      if (error instanceof BulkActionValidationError) {
+        if (error.kind === "not_found") {
+          return res.status(404).json({ error: "One or more selected journal entries or statement lines are not available in this client." });
+        }
+        if (error.kind === "invalid_scope") {
+          return res.status(400).json({ error: "The selected journal entries and statement lines do not describe one matching client-scoped selection." });
+        }
+        const statusMessage = body.type === "bulk_approve_entries"
+          ? "Only suggested entries can be bulk approved. Posted or already approved entries were rejected."
+          : "Only approved entries can be bulk posted. Suggested or posted entries were rejected.";
+        return res.status(409).json({ error: statusMessage });
+      }
+      throw error;
+    }
+
+    return res.json(ConfirmAICopilotActionResponse.parse({
+      type: body.type,
+      clientId: body.clientId,
+      entryIds,
+      statementLineIds,
+      entryCount: result.entries.length,
+      lineCount: statementLineIds.length,
+      fromStatus: result.expectedStatus,
+      toStatus: result.resultingStatus,
+      entries: result.entries.map(journalEntryResponse),
+      updatedLineCount: statementLineIds.length,
+      bankAccount: null,
+    }));
+  }
   if (body.type === "create_bank_account") {
     const bankAccount = await findOrCreateBankAccount(body.clientId, body.bankAccount ?? undefined, body.bankAccount?.currency ?? "AED");
     if (!bankAccount) return res.status(400).json({ error: "The bank account proposal needs a name and currency." });

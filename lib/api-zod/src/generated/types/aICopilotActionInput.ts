@@ -13,6 +13,10 @@ export interface AICopilotActionInput {
   type: AICopilotActionInputType;
   /** @maxItems 100 */
   lineIds?: number[];
+  /** @maxItems 100 */
+  entryIds?: number[];
+  /** @maxItems 100 */
+  statementLineIds?: number[];
   /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */

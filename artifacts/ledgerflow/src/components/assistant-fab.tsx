@@ -8,7 +8,9 @@ import {
   getGetStatementLinesQueryKey, 
   getGetLedgerOverviewQueryKey,
   getGetJournalEntriesQueryKey,
-  getGetBankAccountsQueryKey
+  getGetBankAccountsQueryKey,
+  getGetTrialBalanceQueryKey,
+  getGetFinancialStatementsQueryKey
 } from '@workspace/api-client-react';
 import type { AIChatResponse, AICopilotRecommendation } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -31,29 +33,36 @@ type Message = {
 
 const MAX_IMPORT_FILE_SIZE = 15 * 1024 * 1024;
 
-function RecommendationCard({ rec, activeClientId, onClose }: { rec: AICopilotRecommendation; activeClientId: number; onClose: () => void }) {
+function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: AICopilotRecommendation; activeClientId: number; onClose: () => void; onApplied?: () => void }) {
   const confirmMutation = useConfirmAICopilotAction();
   const queryClient = useQueryClient();
 
-  const isConfirmable = rec.requiresConfirmation && (rec.type === 'recode_lines' || rec.type === 'create_bank_account');
+  const isBulkAction = rec.type === 'bulk_approve_entries' || rec.type === 'bulk_post_entries';
+  const isConfirmable = rec.requiresConfirmation && (rec.type === 'recode_lines' || rec.type === 'create_bank_account' || isBulkAction);
   const isNavigable = rec.type === 'next_step' || rec.type === 'review_group';
+  const actionLabel = rec.type === 'bulk_approve_entries' ? 'approval' : rec.type === 'bulk_post_entries' ? 'posting' : 'proposal';
   
   const handleConfirm = () => {
     confirmMutation.mutate({
       data: {
-        clientId: activeClientId,
-        type: rec.type as 'recode_lines' | 'create_bank_account',
+        clientId: rec.clientId,
+        type: rec.type as 'recode_lines' | 'create_bank_account' | 'bulk_approve_entries' | 'bulk_post_entries',
         lineIds: rec.lineIds,
+        entryIds: rec.entryIds,
+        statementLineIds: rec.statementLineIds,
         accountSuggestion: rec.accountSuggestion,
         confidence: rec.confidence,
         bankAccount: rec.bankAccount
       }
     }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClientId }) });
-        queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClientId }) });
-        queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey({ clientId: activeClientId }) });
+        queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClientId }) });
+        onApplied?.();
       }
     });
   };
@@ -86,24 +95,43 @@ function RecommendationCard({ rec, activeClientId, onClose }: { rec: AICopilotRe
         </div>
       )}
 
+      {isBulkAction && (
+        <div className="mt-2.5 rounded bg-muted/40 p-2 font-mono text-[10px] text-foreground">
+          <div className="flex items-center justify-between gap-2">
+            <span><span className="text-muted-foreground">Entries:</span> {rec.entryCount ?? rec.entryIds?.length ?? 0}</span>
+            <span><span className="text-muted-foreground">Lines:</span> {rec.lineCount ?? rec.statementLineIds?.length ?? 0}</span>
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <span className="text-muted-foreground">Transition:</span>
+            <span className="font-semibold">{rec.statusTransition?.from ?? rec.fromStatus ?? '—'}</span>
+            <ArrowRight size={11} />
+            <span className="font-semibold">{rec.statusTransition?.to ?? rec.toStatus ?? '—'}</span>
+          </div>
+          <div className="mt-1.5 truncate text-muted-foreground" title={rec.entryIds?.map((id) => `JE-${String(id).padStart(4, '0')}`).join(', ')}>
+            {rec.entryIds?.map((id) => `JE-${String(id).padStart(4, '0')}`).join(' · ')}
+          </div>
+        </div>
+      )}
+
       {isConfirmable && (
         <div className="mt-3 border-t border-border pt-3">
           {confirmMutation.isSuccess ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-primary">
-              <Check size={13} /> Applied successfully
+              <Check size={13} /> {actionLabel === 'approval' ? 'Approval confirmed' : actionLabel === 'posting' ? 'Posting confirmed' : 'Applied successfully'}
             </div>
           ) : confirmMutation.isError ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
-              <CircleAlert size={13} /> Failed to apply
+              <CircleAlert size={13} /> Failed to apply {actionLabel}
             </div>
           ) : (
             <button
+              data-testid={rec.type === 'bulk_approve_entries' ? `button-confirm-bulk-approval-${rec.id}` : rec.type === 'bulk_post_entries' ? `button-confirm-bulk-posting-${rec.id}` : `button-confirm-ai-proposal-${rec.id}`}
               onClick={handleConfirm}
               disabled={confirmMutation.isPending}
               className="flex w-full items-center justify-center gap-2 rounded bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {confirmMutation.isPending && <Loader2 size={12} className="animate-spin" />}
-              {confirmMutation.isPending ? 'Applying...' : 'Confirm proposal'}
+              {confirmMutation.isPending ? 'Applying...' : rec.type === 'bulk_approve_entries' ? 'Confirm approval' : rec.type === 'bulk_post_entries' ? 'Confirm posting' : 'Confirm proposal'}
             </button>
           )}
         </div>
@@ -312,6 +340,20 @@ export function AssistantFAB() {
                                 rec={rec} 
                                 activeClientId={activeClient.id} 
                                 onClose={() => setIsOpen(false)} 
+                                onApplied={() => {
+                                  if (rec.type !== 'bulk_post_entries' || !msg.context) return;
+                                  const movedLines = rec.lineCount ?? rec.statementLineIds?.length ?? 0;
+                                  setMessages((current) => current.map((item) => item.id === msg.id && item.context
+                                    ? {
+                                      ...item,
+                                      context: {
+                                        ...item.context,
+                                        pendingLines: Math.max(0, item.context.pendingLines - movedLines),
+                                        postedLines: item.context.postedLines + movedLines,
+                                      },
+                                    }
+                                    : item));
+                                }}
                               />
                             ))}
                           </div>

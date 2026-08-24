@@ -137,6 +137,8 @@ export const AICopilotRecommendationType = {
   review_group: 'review_group',
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
+  bulk_approve_entries: 'bulk_approve_entries',
+  bulk_post_entries: 'bulk_post_entries',
 } as const;
 
 export interface BankAccountDraft {
@@ -151,12 +153,25 @@ export interface BankAccountDraft {
   currency: string;
 }
 
+export type AICopilotRecommendationStatusTransition = {
+  from: string;
+  to: string;
+};
+
 export interface AICopilotRecommendation {
   id: string;
+  clientId: number;
   type: AICopilotRecommendationType;
   title: string;
   summary: string;
   lineIds?: number[];
+  entryIds?: number[];
+  statementLineIds?: number[];
+  entryCount?: number;
+  lineCount?: number;
+  fromStatus?: string;
+  toStatus?: string;
+  statusTransition?: AICopilotRecommendationStatusTransition;
   /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */
@@ -177,6 +192,8 @@ export type AICopilotActionInputType = typeof AICopilotActionInputType[keyof typ
 export const AICopilotActionInputType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
+  bulk_approve_entries: 'bulk_approve_entries',
+  bulk_post_entries: 'bulk_post_entries',
 } as const;
 
 export interface AICopilotActionInput {
@@ -184,17 +201,15 @@ export interface AICopilotActionInput {
   type: AICopilotActionInputType;
   /** @maxItems 100 */
   lineIds?: number[];
+  /** @maxItems 100 */
+  entryIds?: number[];
+  /** @maxItems 100 */
+  statementLineIds?: number[];
   /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
   bankAccount?: BankAccountDraft | null;
-}
-
-export interface AICopilotActionResult {
-  type: string;
-  updatedLineCount: number;
-  bankAccount: BankAccount | null;
 }
 
 export interface JournalLine {
@@ -212,6 +227,20 @@ export interface JournalEntry {
   status: string;
   confidence: number;
   lines: JournalLine[];
+}
+
+export interface AICopilotActionResult {
+  type: string;
+  clientId?: number;
+  entryIds?: number[];
+  statementLineIds?: number[];
+  entryCount?: number;
+  lineCount?: number;
+  fromStatus?: string;
+  toStatus?: string;
+  entries?: JournalEntry[];
+  updatedLineCount: number;
+  bankAccount: BankAccount | null;
 }
 
 export interface TrialBalanceRow {

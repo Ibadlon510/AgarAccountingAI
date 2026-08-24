@@ -244,10 +244,21 @@ export const AskLedgerflowAIResponse = zod.object({
   "answer": zod.string(),
   "recommendations": zod.array(zod.object({
   "id": zod.string(),
-  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account']),
+  "clientId": zod.number(),
+  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account', 'bulk_approve_entries', 'bulk_post_entries']),
   "title": zod.string(),
   "summary": zod.string(),
   "lineIds": zod.array(zod.number()).optional(),
+  "entryIds": zod.array(zod.number()).optional(),
+  "statementLineIds": zod.array(zod.number()).optional(),
+  "entryCount": zod.number().optional(),
+  "lineCount": zod.number().optional(),
+  "fromStatus": zod.string().optional(),
+  "toStatus": zod.string().optional(),
+  "statusTransition": zod.object({
+  "from": zod.string(),
+  "to": zod.string()
+}).optional(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "bankAccount": zod.union([zod.object({
@@ -271,13 +282,19 @@ export const AskLedgerflowAIResponse = zod.object({
  */
 export const confirmAICopilotActionBodyLineIdsMax = 100;
 
+export const confirmAICopilotActionBodyEntryIdsMax = 100;
+
+export const confirmAICopilotActionBodyStatementLineIdsMax = 100;
+
 export const confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 
 
 export const ConfirmAICopilotActionBody = zod.object({
   "clientId": zod.number(),
-  "type": zod.enum(['recode_lines', 'create_bank_account']),
+  "type": zod.enum(['recode_lines', 'create_bank_account', 'bulk_approve_entries', 'bulk_post_entries']),
   "lineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyLineIdsMax).optional(),
+  "entryIds": zod.array(zod.number()).max(confirmAICopilotActionBodyEntryIdsMax).optional(),
+  "statementLineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyStatementLineIdsMax).optional(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "bankAccount": zod.union([zod.object({
@@ -290,6 +307,27 @@ export const ConfirmAICopilotActionBody = zod.object({
 
 export const ConfirmAICopilotActionResponse = zod.object({
   "type": zod.string(),
+  "clientId": zod.number().optional(),
+  "entryIds": zod.array(zod.number()).optional(),
+  "statementLineIds": zod.array(zod.number()).optional(),
+  "entryCount": zod.number().optional(),
+  "lineCount": zod.number().optional(),
+  "fromStatus": zod.string().optional(),
+  "toStatus": zod.string().optional(),
+  "entries": zod.array(zod.object({
+  "id": zod.number(),
+  "statementLineId": zod.number(),
+  "date": zod.string(),
+  "memo": zod.string(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "confidence": zod.number(),
+  "lines": zod.array(zod.object({
+  "account": zod.string(),
+  "debit": zod.number(),
+  "credit": zod.number()
+}))
+})).optional(),
   "updatedLineCount": zod.number(),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
