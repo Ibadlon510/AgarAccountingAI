@@ -31,6 +31,7 @@ const nav = [
   { href: '/financial-statements', label: 'Financial statements', icon: FileSpreadsheet },
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
+const MAX_IMPORT_FILE_SIZE = 15 * 1024 * 1024;
 const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -146,6 +147,11 @@ function ImportStatementPage() {
   const [message, setMessage] = useState('');
   const submit = async () => {
     if (!file) return;
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+      setState('error');
+      setMessage('Statement file is too large. Please choose a file smaller than 15 MB.');
+      return;
+    }
     setState('reading');
     setMessage('');
     try {
@@ -160,7 +166,7 @@ function ImportStatementPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientId: activeClient?.id ?? 1, fileName: file.name, mimeType: file.type || 'application/octet-stream', contentBase64, currency }),
       });
-      const data = await response.json() as { importedCount?: number; error?: string };
+       const data = await response.json().catch(() => ({})) as { importedCount?: number; error?: string };
       if (!response.ok) throw new Error(data.error ?? 'Import failed');
       setState('done');
       setMessage(`${data.importedCount ?? 0} statement lines are ready for review.`);

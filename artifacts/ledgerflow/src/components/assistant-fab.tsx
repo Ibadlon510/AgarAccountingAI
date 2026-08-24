@@ -18,6 +18,8 @@ type Message = {
   };
 };
 
+const MAX_IMPORT_FILE_SIZE = 15 * 1024 * 1024;
+
 export function AssistantFAB() {
   const [isOpen, setIsOpen] = useState(false);
   const { activeClient } = useClientWorkspace();
@@ -86,6 +88,14 @@ export function AssistantFAB() {
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     const progressId = Date.now().toString();
+
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+      setMessages(prev => [...prev,
+        { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
+        { id: progressId, role: 'assistant', type: 'text', content: 'Statement file is too large. Please choose a file smaller than 15 MB.' },
+      ]);
+      return;
+    }
     
     setMessages(prev => [
       ...prev,
