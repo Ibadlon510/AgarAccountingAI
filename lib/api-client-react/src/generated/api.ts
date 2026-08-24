@@ -70,7 +70,8 @@ import type {
   StatementLineInput,
   TrialBalanceRow,
   UploadUrlRequest,
-  UploadUrlResponse
+  UploadUrlResponse,
+  WorkspaceUsage
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -783,6 +784,83 @@ export const useUpdateClient = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUpdateClientMutationOptions(options));
     }
+
+export const getGetLedgerflowUsageUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/usage`
+}
+
+/**
+ * @summary Get server-measured workspace usage and plan limits
+ */
+export const getLedgerflowUsage = async ( options?: Parameters<typeof customFetch>[1]): Promise<WorkspaceUsage> => {
+
+  return customFetch<WorkspaceUsage>(getGetLedgerflowUsageUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLedgerflowUsageQueryKey = () => {
+    return [
+    `/api/ledgerflow/usage`
+    ] as const;
+    }
+
+
+export const getGetLedgerflowUsageQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowUsage>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowUsageQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowUsage>>> = ({ signal }) => getLedgerflowUsage({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowUsage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLedgerflowUsageQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowUsage>>>
+export type GetLedgerflowUsageQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get server-measured workspace usage and plan limits
+ */
+
+export function useGetLedgerflowUsage<TData = Awaited<ReturnType<typeof getLedgerflowUsage>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLedgerflowUsageQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetExchangeRatesUrl = () => {
 

@@ -1,9 +1,8 @@
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
-import OpenAI from "openai";
 import {
   ApproveJournalEntryParams,
   ApproveJournalEntryBody,
@@ -24,6 +23,7 @@ import {
   ImportExchangeRatesBody,
   ImportExchangeRatesResponse,
   ApproveJournalEntryResponse,
+  GetLedgerflowUsageResponse,
   UpdateClientParams,
   UpdateClientBody,
   UpdateClientResponse,
@@ -63,6 +63,7 @@ import {
   aiProviderConfigsTable,
   bankAccountsTable,
   bulkTransitionAuditsTable,
+  aiActivityTable,
   classificationPatternsTable,
   clientWorkspacesTable,
   clientsTable,
@@ -109,11 +110,6 @@ import {
 import { buildReportPdf } from "../lib/reportPdf";
 
 const router: IRouter = Router();
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
-
 type LedgerflowTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
@@ -384,6 +380,75 @@ function normalizedSignatory(signatory: ReportSignatory | undefined, fallback: R
 function currentUserId(req: Request) {
   if (!req.dbUser) throw new Error("Authenticated user is required.");
   return req.dbUser.id;
+}
+
+const USAGE_PLAN = {
+  name: "Starter",
+  statementImportsPerMonth: 100,
+  storedEvidenceBytes: 5 * 1024 * 1024 * 1024,
+  aiActivityPerMonth: 1000,
+  clientWorkspaces: 5,
+} as const;
+const RETENTION_POLICY = {
+  statementEvidenceDays: 365,
+  aiActivityDays: 90,
+  ledgerDataDescription: "Ledger entries remain available while the workspace is active.",
+} as const;
+
+function retentionExpiresAt(days: number) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
+function usageStatus(used: number, limit: number): "healthy" | "approaching" | "at_limit" {
+  if (used >= limit) return "at_limit";
+  if (used >= limit * 0.8) return "approaching";
+  return "healthy";
+}
+
+function usageMetric(used: number, limit: number) {
+  return {
+    used,
+    limit,
+    percentage: Math.min(100, Math.round((used / limit) * 1000) / 10),
+    status: usageStatus(used, limit),
+  };
+}
+
+async function getUserClientIds(userId: string) {
+  const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
+    .from(clientWorkspacesTable)
+    .where(eq(clientWorkspacesTable.userId, userId));
+  return [...new Set(memberships.map((membership) => membership.clientId))];
+}
+
+async function purgeExpiredWorkspaceEvidence(clientIds: number[]) {
+  if (!clientIds.length) return;
+  const expiredEvidence = await db.select({
+    id: statementImportsTable.id,
+    objectPath: statementImportsTable.objectPath,
+  }).from(statementImportsTable).where(and(
+    inArray(statementImportsTable.clientId, clientIds),
+    isNotNull(statementImportsTable.objectPath),
+    lte(statementImportsTable.evidenceExpiresAt, new Date()),
+  ));
+  const removedIds: number[] = [];
+  for (const evidence of expiredEvidence) {
+    if (!evidence.objectPath) continue;
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(evidence.objectPath);
+      await objectFile.delete({ ignoreNotFound: true });
+      removedIds.push(evidence.id);
+    } catch (error) {
+      console.error("Unable to purge expired statement evidence", error);
+    }
+  }
+  if (removedIds.length) {
+    await db.update(statementImportsTable).set({
+      objectPath: null,
+      evidenceExpiresAt: null,
+      fileSize: 0,
+    }).where(inArray(statementImportsTable.id, removedIds));
+  }
 }
 
 async function getOwnedClient(req: Request, requestedClientId?: number) {
@@ -827,7 +892,7 @@ async function recordFailedStatementImport(details: {
     });
   } catch (recordError) {
     // Preserve the original import failure if the audit record cannot be written.
-    console.error("Failed to record statement import failure", recordError);
+    // The original import error is already returned to the caller.
   }
 }
 
@@ -1228,6 +1293,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
   let failedBankAccountId: number | null = null;
   let uploadedFileSize = 0;
   let fileHash: string | undefined;
+  let aiActivityId: number | undefined;
   try {
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
@@ -1316,16 +1382,20 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       extractedText = buffer.toString("utf8");
     }
     const fallback = normalizeRows(extractedText, currency);
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
-      max_completion_tokens: 8192,
-      response_format: { type: "json_object" },
-      messages: [
+    const aiConfig = await getAIProviderConfig(scopedClientId);
+    const [aiActivity] = await db.insert(aiActivityTable).values({
+      clientId: scopedClientId,
+      userId: currentUserId(req),
+      activityType: "statement_extraction",
+      model: aiConfig.model,
+      status: "started",
+    }).returning({ id: aiActivityTable.id });
+    aiActivityId = aiActivity?.id;
+    const content = await completeAI(scopedClientId, [
         { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
         { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
-      ],
-    });
-    const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+      ], { json: true, maxTokens: 8192 });
+    const candidate = JSON.parse(content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
     const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
@@ -1350,6 +1420,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         ),
       };
     }));
+    const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
     const importResult = await db.transaction(async (tx) => {
       const [createdImport] = await tx.insert(statementImportsTable).values({
         clientId: scopedClientId,
@@ -1358,6 +1429,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         mimeType,
         objectPath,
         fileSize: uploadedFileSize,
+        evidenceExpiresAt,
         fileHash: scopedFileHash,
         outcome: "completed",
         importedLineCount: 0,
@@ -1509,6 +1581,9 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
       return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount };
     });
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set({ status: "completed" }).where(eq(aiActivityTable.id, aiActivityId));
+    }
     if (importResult.kind === "duplicate_file") {
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
@@ -1553,6 +1628,9 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         fileHash,
         errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
       });
+    }
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
     }
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
   }
@@ -1643,6 +1721,15 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     }));
     return;
   }
+  const aiConfig = await getAIProviderConfig(client.id);
+  const [aiActivity] = await db.insert(aiActivityTable).values({
+    clientId: client.id,
+    userId: currentUserId(req),
+    activityType: "copilot_chat",
+    model: aiConfig.model,
+    status: "started",
+  }).returning({ id: aiActivityTable.id });
+  const aiActivityId = aiActivity?.id;
   try {
     const content = await completeAI(client.id, [
         {
@@ -1672,8 +1759,14 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
       }
       const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId, lineSuggestions);
     const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set({ status: "completed" }).where(eq(aiActivityTable.id, aiActivityId));
+    }
     res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
+    }
     req.log.error({ err: error }, "AI workspace chat failed");
     if (error instanceof AIProviderError) {
       res.status(error.status).json({ error: error.message });
@@ -1957,11 +2050,68 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   }));
 });
 
+router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  const clientIds = await getUserClientIds(userId);
+  const now = new Date();
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const aiRetentionStart = new Date(now.getTime() - RETENTION_POLICY.aiActivityDays * 24 * 60 * 60 * 1000);
+  await purgeExpiredWorkspaceEvidence(clientIds);
+  if (clientIds.length) {
+    await db.delete(aiActivityTable).where(and(
+      eq(aiActivityTable.userId, userId),
+      inArray(aiActivityTable.clientId, clientIds),
+      lte(aiActivityTable.createdAt, aiRetentionStart),
+    ));
+  }
+  const [imports, aiActivity] = clientIds.length
+    ? await Promise.all([
+      db.select({
+        outcome: statementImportsTable.outcome,
+        fileSize: statementImportsTable.fileSize,
+        objectPath: statementImportsTable.objectPath,
+        evidenceExpiresAt: statementImportsTable.evidenceExpiresAt,
+        createdAt: statementImportsTable.createdAt,
+      }).from(statementImportsTable).where(inArray(statementImportsTable.clientId, clientIds)),
+      db.select({
+        createdAt: aiActivityTable.createdAt,
+        status: aiActivityTable.status,
+      }).from(aiActivityTable).where(and(
+        eq(aiActivityTable.userId, userId),
+        inArray(aiActivityTable.clientId, clientIds),
+      )),
+    ])
+    : [[], []];
+  const completedImports = imports.filter((item) => item.outcome === "completed");
+  const retainedEvidence = completedImports.filter((item) => item.objectPath && item.evidenceExpiresAt && item.evidenceExpiresAt > now);
+  const importsThisPeriod = completedImports.filter((item) => item.createdAt >= periodStart).length;
+  const aiActivityThisPeriod = aiActivity.filter((item) => item.status === "completed" && item.createdAt >= periodStart).length;
+  const evidenceBytes = retainedEvidence.reduce((total, item) => total + (item.fileSize ?? 0), 0);
+  const evidenceMetric = usageMetric(evidenceBytes, USAGE_PLAN.storedEvidenceBytes);
+
+  res.json(GetLedgerflowUsageResponse.parse({
+    plan: USAGE_PLAN.name,
+    asOf: now.toISOString(),
+    billingPeriod: {
+      label: now.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }),
+      startsAt: periodStart.toISOString(),
+    },
+    statementImports: usageMetric(importsThisPeriod, USAGE_PLAN.statementImportsPerMonth),
+    storedEvidence: {
+      documents: retainedEvidence.length,
+      bytes: evidenceBytes,
+      limitBytes: USAGE_PLAN.storedEvidenceBytes,
+      percentage: evidenceMetric.percentage,
+      status: evidenceMetric.status,
+    },
+    aiActivity: usageMetric(aiActivityThisPeriod, USAGE_PLAN.aiActivityPerMonth),
+    clientWorkspaces: usageMetric(clientIds.length, USAGE_PLAN.clientWorkspaces),
+    retention: RETENTION_POLICY,
+  }));
+});
+
 router.get("/clients", async (req, res) => {
-  const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
-    .from(clientWorkspacesTable)
-    .where(eq(clientWorkspacesTable.userId, currentUserId(req)));
-  const clientIds = memberships.map((membership) => membership.clientId);
+  const clientIds = await getUserClientIds(currentUserId(req));
   const clients = clientIds.length
     ? await db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)).orderBy(asc(clientsTable.name))
     : [];

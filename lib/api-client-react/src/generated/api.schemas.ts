@@ -71,6 +71,7 @@ export interface ClientUpdateInput {
   period: string;
 }
 
+export type UsageMetricStatus = typeof UsageMetricStatus[keyof typeof UsageMetricStatus];
 export interface ExchangeRate {
   id: number;
   /**
@@ -837,3 +838,54 @@ export type GetReportPacksParams = {
 clientId: number;
 };
 
+
+export interface UsageMetric {
+  used: number;
+  limit: number;
+  percentage: number;
+  status: UsageMetricStatus;
+}
+
+export type EvidenceUsageStatus = typeof EvidenceUsageStatus[keyof typeof EvidenceUsageStatus];
+
+export type WorkspaceUsageRetention = {
+  statementEvidenceDays: number;
+  aiActivityDays: number;
+  ledgerDataDescription: string;
+};
+
+export type WorkspaceUsageBillingPeriod = {
+  label: string;
+  startsAt: string;
+};
+
+export interface WorkspaceUsage {
+  plan: string;
+  asOf: string;
+  billingPeriod: WorkspaceUsageBillingPeriod;
+  statementImports: UsageMetric;
+  storedEvidence: EvidenceUsage;
+  aiActivity: UsageMetric;
+  clientWorkspaces: UsageMetric;
+  retention: WorkspaceUsageRetention;
+}
+
+export const EvidenceUsageStatus = {
+  healthy: 'healthy',
+  approaching: 'approaching',
+  at_limit: 'at_limit',
+} as const;
+
+export interface EvidenceUsage {
+  documents: number;
+  bytes: number;
+  limitBytes: number;
+  percentage: number;
+  status: EvidenceUsageStatus;
+}
+
+export const UsageMetricStatus = {
+  healthy: 'healthy',
+  approaching: 'approaching',
+  at_limit: 'at_limit',
+} as const;

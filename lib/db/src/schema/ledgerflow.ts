@@ -1,4 +1,4 @@
-import { check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { bigint, check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const usersTable = pgTable("users", {
@@ -126,6 +126,9 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
   mimeType: text("mime_type").notNull().default("application/octet-stream"),
   objectPath: text("object_path"),
   fileSize: integer("file_size"),
+  fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull().default(0),
+  evidenceObjectPath: text("evidence_object_path"),
+  evidenceExpiresAt: timestamp("evidence_expires_at"),
   fileHash: text("file_hash").notNull(),
   outcome: text("outcome").notNull().default("completed"),
   errorMessage: text("error_message"),
@@ -150,6 +153,29 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
     sql`outcome in ('completed', 'duplicate', 'failed')`,
   ),
 }));
+
+export const aiActivityTable = pgTable("ledgerflow_ai_activity", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  activityType: text("activity_type").notNull(),
+  model: text("model").notNull(),
+  status: text("status").notNull().default("completed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ledgerflow_ai_activity_client_created_idx").on(table.clientId, table.createdAt),
+  index("ledgerflow_ai_activity_user_created_idx").on(table.userId, table.createdAt),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_ai_activity_client_fk",
+  }),
+  foreignKey({
+    columns: [table.userId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_ai_activity_user_fk",
+  }),
+]);
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),

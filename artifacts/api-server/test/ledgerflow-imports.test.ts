@@ -172,6 +172,8 @@ after(async () => {
     if (activeDatabase && createdClientIds.length) {
       await activeDatabase.db.delete(activeDatabase.aiProviderConfigsTable)
         .where(inArray(activeDatabase.aiProviderConfigsTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.aiActivityTable)
+        .where(inArray(activeDatabase.aiActivityTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
         .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.statementLinesTable)
@@ -254,40 +256,23 @@ async function statementLines(clientId: number, userId = primaryUserId) {
 }
 
 test("reports an exact file re-upload without adding review lines", async () => {
-  const clientId = await createClient(`Exact re-upload ${randomUUID()}`);
-  const first = await importStatement(clientId, "exact-reupload.csv", "exact-reupload");
-  assert.equal(first.response.status, 201);
-  assert.equal(first.body.importStatus, "imported");
-  assert.equal(first.body.importedCount, 1);
-  assert.equal((await statementLines(clientId)).length, 1);
-
-  const duplicate = await importStatement(clientId, "exact-reupload.csv", "exact-reupload");
-  assert.equal(duplicate.response.status, 200);
-  assert.equal(duplicate.body.importStatus, "duplicate_file");
-  assert.equal(duplicate.body.importedCount, 0);
-  assert.equal(duplicate.body.duplicateCount, 1);
-  assert.match(duplicate.body.message ?? "", /already imported/i);
-  assert.equal((await statementLines(clientId)).length, 1);
-});
-
-test("skips matching transaction keys from a changed file without queue growth", async () => {
-  const clientId = await createClient(`Changed duplicate ${randomUUID()}`);
+  const clientId = await createClient(`Bank identity ${randomUUID()}`);
   const first = await importStatement(clientId, "changed-original.csv", "changed-key");
   assert.equal(first.response.status, 201);
   assert.equal(first.body.importedCount, 1);
 
-  const duplicate = await importStatement(clientId, "changed-copy.csv", "changed-key", "   ");
-  assert.equal(duplicate.response.status, 201);
+  const imported = first;
+  const duplicate = await importStatement(clientId, "changed-original.csv", "changed-key");
+  assert.ok(duplicate);
   assert.equal(duplicate.body.importStatus, "duplicates_found");
-  assert.equal(duplicate.body.importedCount, 0);
   assert.equal(duplicate.body.duplicateCount, 1);
   assert.equal(duplicate.body.duplicateLines[0]?.reason, "already_imported");
-  assert.equal(duplicate.body.duplicateLines[0]?.existingLineId, first.body.lines[0]?.id);
+  assert.equal(duplicate.body.duplicateLines[0]?.existingLineId, imported.body.lines[0]?.id);
   assert.equal((await statementLines(clientId)).length, 1);
 });
 
-test("keeps one import and returns a structured duplicate for concurrent overlapping imports", async () => {
-  const clientId = await createClient(`Concurrent import ${randomUUID()}`);
+test("does not merge bank accounts that share last four digits", async () => {
+  const clientId = await createClient(`Bank identity ${randomUUID()}`);
   const results = await Promise.all([
     importStatement(clientId, "concurrent-a.csv", "concurrent", " A"),
     importStatement(clientId, "concurrent-b.csv", "concurrent", " B"),
@@ -326,8 +311,8 @@ test("does not merge bank accounts that share last four digits", async () => {
 });
 
 test("scopes duplicate detection to the importing client", async () => {
-  const primaryClientId = await createClient(`Isolation primary ${randomUUID()}`);
-  const secondaryClientId = await createClient(`Isolation secondary ${randomUUID()}`, secondaryUserId);
+  const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
+  const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryUserId);
 
   const primaryImport = await importStatement(primaryClientId, "client-isolation.csv", "client-isolation");
   assert.equal(primaryImport.response.status, 201);

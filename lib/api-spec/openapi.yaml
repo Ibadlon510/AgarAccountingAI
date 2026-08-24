@@ -147,6 +147,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Client"
+  /ledgerflow/usage:
+    get:
+      operationId: getLedgerflowUsage
+      tags: [ledgerflow]
+      summary: Get server-measured workspace usage and plan limits
+      responses:
+        "200":
+          description: Workspace usage and retention policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceUsage"
   /ledgerflow/exchange-rates:
     get:
       operationId: getExchangeRates
@@ -865,6 +877,53 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+    UsageMetric:
+      type: object
+      required: [used, limit, percentage, status]
+      properties:
+        used: { type: number }
+        limit: { type: number }
+        percentage: { type: number }
+        status: { type: string, enum: [healthy, approaching, at_limit] }
+    EvidenceUsage:
+      type: object
+      required: [documents, bytes, limitBytes, percentage, status]
+      properties:
+        documents: { type: number }
+        bytes: { type: number }
+        limitBytes: { type: number }
+        percentage: { type: number }
+        status: { type: string, enum: [healthy, approaching, at_limit] }
+    WorkspaceUsage:
+      type: object
+      required: [plan, asOf, billingPeriod, statementImports, storedEvidence, aiActivity, clientWorkspaces, retention]
+      properties:
+        plan: { type: string }
+        asOf: { type: string, format: date-time }
+        billingPeriod:
+          type: object
+          required: [label, startsAt]
+          properties:
+            label: { type: string }
+            startsAt: { type: string, format: date-time }
+        statementImports:
+          allOf:
+            - $ref: "#/components/schemas/UsageMetric"
+        storedEvidence:
+          $ref: "#/components/schemas/EvidenceUsage"
+        aiActivity:
+          allOf:
+            - $ref: "#/components/schemas/UsageMetric"
+        clientWorkspaces:
+          allOf:
+            - $ref: "#/components/schemas/UsageMetric"
+        retention:
+          type: object
+          required: [statementEvidenceDays, aiActivityDays, ledgerDataDescription]
+          properties:
+            statementEvidenceDays: { type: number }
+            aiActivityDays: { type: number }
+            ledgerDataDescription: { type: string }
     ExchangeRate:
       type: object
       required: [id, sourceCurrency, functionalCurrency, effectiveDate, rate, source]

@@ -64,6 +64,157 @@ const clerkAppearance = {
     borderRadius: "0.65rem",
   },
 };
+
+function WorkspaceSettingsPage() {
+  const { activeClient } = useClientWorkspace();
+  const [, setLocation] = useLocation();
+  const mutation = useUpdateClient();
+  const ratesQuery = useGetExchangeRates({ query: { queryKey: getGetExchangeRatesQueryKey() } });
+  const createRate = useCreateExchangeRate();
+  const updateRate = useUpdateExchangeRate();
+  const deleteRate = useDeleteExchangeRate();
+  const importRates = useImportExchangeRates();
+  const bankAccountsQuery = useGetBankAccounts({ clientId: activeClient?.id ?? 0 });
+  const [form, setForm] = useState({
+    name: activeClient?.name ?? '',
+    legalName: activeClient?.legalName ?? '',
+    functionalCurrency: activeClient?.functionalCurrency ?? 'AED',
+    basis: activeClient?.basis ?? 'IFRS',
+    period: activeClient?.period ?? '',
+  });
+  const [editingRateId, setEditingRateId] = useState<number | null>(null);
+  const [rateForm, setRateForm] = useState({ sourceCurrency: 'USD', functionalCurrency: activeClient?.functionalCurrency ?? 'AED', effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
+  const [rateImportError, setRateImportError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  if (!activeClient) return <WorkspaceRecoveryState onRetry={() => setLocation('/')} />;
+
+  const resetRateForm = () => {
+    setEditingRateId(null);
+    setRateForm({ sourceCurrency: 'USD', functionalCurrency: activeClient.functionalCurrency, effectiveDate: new Date().toISOString().slice(0, 10), rate: '', source: 'Manual', note: '' });
+  };
+  const invalidateRates = () => {
+    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+  };
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaved(false);
+    mutation.mutate({ id: activeClient.id, data: form }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+        setSaved(true);
+      },
+    });
+  };
+  const saveRate = (event: React.FormEvent) => {
+    event.preventDefault();
+    const data = { ...rateForm, sourceCurrency: rateForm.sourceCurrency.toUpperCase(), functionalCurrency: rateForm.functionalCurrency.toUpperCase(), rate: Number(rateForm.rate), note: rateForm.note || null };
+    const options = { onSuccess: () => { invalidateRates(); resetRateForm(); } };
+    if (editingRateId) updateRate.mutate({ id: editingRateId, data }, options);
+    else createRate.mutate({ data }, options);
+  };
+  const editRate = (rate: ExchangeRate) => {
+    setEditingRateId(rate.id);
+    setRateForm({ sourceCurrency: rate.sourceCurrency, functionalCurrency: rate.functionalCurrency, effectiveDate: rate.effectiveDate, rate: String(rate.rate), source: rate.source, note: rate.note ?? '' });
+  };
+  const importRateFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setRateImportError('');
+      const [header, ...rows] = (await file.text()).split(/\r?\n/).filter(Boolean);
+      const columns = header.split(',').map((value) => value.trim().toLowerCase().replaceAll(/[^a-z]/g, ''));
+      const valueAt = (cells: string[], names: string[]) => cells[columns.findIndex((column) => names.includes(column))] ?? '';
+      const rates = rows.map((row) => {
+        const cells = row.split(',').map((value) => value.trim().replace(/^"|"$/g, ''));
+        return {
+          effectiveDate: valueAt(cells, ['effectivedate', 'date']),
+          sourceCurrency: valueAt(cells, ['sourcecurrency', 'fromcurrency', 'source']),
+          functionalCurrency: valueAt(cells, ['functionalcurrency', 'tocurrency', 'functional']),
+          rate: Number(valueAt(cells, ['rate', 'exchangerate'])),
+          source: valueAt(cells, ['ratesource', 'source']) || 'Imported CSV',
+          note: valueAt(cells, ['note', 'memo']) || null,
+        };
+      }).filter((rate) => rate.effectiveDate && rate.sourceCurrency && rate.functionalCurrency && Number.isFinite(rate.rate));
+      if (!rates.length) throw new Error('Use headers: effectiveDate, sourceCurrency, functionalCurrency, rate.');
+      importRates.mutate({ data: { rates } }, { onSuccess: invalidateRates });
+    } catch (error) {
+      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read.');
+    }
+  };
+  const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
+
+  return <div>
+    <PageHeading
+      eyebrow="Workspace administration"
+      title="Workspace settings"
+      description="Keep the reporting context, conversion schedule, and connected evidence sources for this client in one place."
+      action={<Link href="/" data-testid="link-settings-back-overview" className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-xs font-semibold text-muted-foreground hover:border-primary/40 hover:text-foreground"><ArrowRight className="rotate-180" size={14} /> Back to overview</Link>}
+    />
+    <div className="grid gap-6 xl:grid-cols-[220px_minmax(0,1fr)]">
+      <aside className="h-fit rounded-lg border border-card-border bg-card p-3 xl:sticky xl:top-[102px]">
+        <div className="px-2 py-2 font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">Settings index</div>
+        <nav className="mt-2 space-y-1">
+          {[
+            ['#client-profile', 'Client profile'],
+            ['#exchange-rates', 'Exchange rates'],
+            ['#bank-accounts', 'Bank accounts'],
+            ['#usage-limits', 'Usage & limits'],
+          ].map(([href, label]) => <a key={href} href={href} data-testid={`link-settings-${label.toLowerCase().replace(/ & /g, '-').replace(/ /g, '-')}`} className="block rounded-md px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">{label}</a>)}
+        </nav>
+        <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
+          <div className="flex items-center gap-2 text-[11px] font-semibold text-primary"><Settings2 size={14} /> Active client</div>
+          <div data-testid="text-settings-active-client" className="mt-2 text-xs font-semibold">{activeClient.name}</div>
+          <div className="mt-1 font-mono text-[10px] text-muted-foreground">{activeClient.functionalCurrency} · {activeClient.basis}</div>
+        </div>
+      </aside>
+      <div className="min-w-0 space-y-6">
+        <section id="client-profile" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-primary/10 text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client profile</div><h2 className="mt-2 text-base font-semibold">Identity and reporting context</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">These values appear on close views and determine how imported activity is converted for reporting.</p></div></div>
+          <form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2">
+            <label className="block text-xs font-medium">Client name<input data-testid="input-page-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
+            <label className="block text-xs font-medium">Legal name<input data-testid="input-page-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
+            <label className="block text-xs font-medium">Functional currency<select data-testid="select-page-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label>
+            <label className="block text-xs font-medium">Reporting basis<select data-testid="select-page-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label>
+            <label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-page-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
+            {(mutation.isError || saved) && <p data-testid={saved ? 'status-page-settings-saved' : 'status-page-settings-error'} className={`text-xs sm:col-span-2 ${saved ? 'text-primary' : 'text-destructive'}`}>{saved ? 'Workspace settings saved.' : 'Settings could not be saved. Check the details and try again.'}</p>}
+            <div className="flex justify-end sm:col-span-2"><button data-testid="button-page-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save profile settings'}</button></div>
+          </form>
+        </section>
+        <section id="exchange-rates" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {importRates.isPending ? 'Importing…' : 'Import CSV'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => importRateFile(event.target.files?.[0])} /></label></div>
+          <form onSubmit={saveRate} className="mt-5 grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 md:grid-cols-6">
+            <label className="text-[10px] font-medium">Source<input data-testid="input-page-rate-source-currency" required maxLength={3} value={rateForm.sourceCurrency} onChange={(event) => setRateForm({ ...rateForm, sourceCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
+            <label className="text-[10px] font-medium">Functional<input data-testid="input-page-rate-functional-currency" required maxLength={3} value={rateForm.functionalCurrency} onChange={(event) => setRateForm({ ...rateForm, functionalCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
+            <label className="text-[10px] font-medium">Effective date<input data-testid="input-page-rate-effective-date" required type="date" value={rateForm.effectiveDate} onChange={(event) => setRateForm({ ...rateForm, effectiveDate: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 text-xs" /></label>
+            <label className="text-[10px] font-medium">Rate<input data-testid="input-page-rate-value" required min="0.0000001" step="any" type="number" value={rateForm.rate} onChange={(event) => setRateForm({ ...rateForm, rate: event.target.value })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
+            <label className="text-[10px] font-medium">Source note<input data-testid="input-page-rate-note" value={rateForm.note} onChange={(event) => setRateForm({ ...rateForm, note: event.target.value })} placeholder="e.g. Central bank" className="mt-1 h-9 w-full rounded border border-input bg-card px-2 text-xs" /></label>
+            <div className="flex items-end gap-2"><button data-testid="button-page-save-exchange-rate" disabled={createRate.isPending || updateRate.isPending} className="h-9 rounded bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{editingRateId ? 'Update' : 'Add rate'}</button>{editingRateId && <button type="button" data-testid="button-page-cancel-exchange-rate" onClick={resetRateForm} className="h-9 rounded border border-border px-2 text-[11px] font-semibold">Cancel</button>}</div>
+          </form>
+          {(createRate.isError || updateRate.isError || importRates.isError || rateImportError) && <p data-testid="status-page-exchange-rate-error" className="mt-3 text-xs text-destructive">{rateImportError || 'The rate could not be saved. Use three-letter currency codes, a valid date, and a rate greater than zero.'}</p>}
+          <div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data.map((rate) => <tr data-testid={`row-page-exchange-rate-${rate.id}`} key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-page-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-page-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: invalidateRates })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div>
+        </section>
+        <section id="bank-accounts" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Import another statement to add a new account.</p></div></div>
+          <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
+        </section>
+        <WorkspaceUsageSection />
+        <section id="administration" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+          <div className="flex items-start justify-between gap-4"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace administration</div><h2 className="mt-2 text-base font-semibold">More controls for your team</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">These are the next places to manage how your firm uses LedgerFlow. They are shown here so the workspace has one clear home for operational settings.</p></div><Settings2 className="shrink-0 text-muted-foreground" size={18} /></div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {[
+              { id: 'users', title: 'Users & permissions', detail: 'Invite teammates, assign admin or bookkeeper access, and control which client workspaces each person can open.', status: 'Coming with team access', icon: CircleCheck },
+              { id: 'billing', title: 'Billing & plan', detail: 'View the current plan, manage payment details, and see invoices or renewal information in one place.', status: 'Billing connection needed', icon: FileCheck2 },
+               { id: 'usage', title: 'Usage & limits', detail: 'Track statement imports, stored evidence, AI activity, and workspace limits before they affect a close.', status: 'Available above', icon: BarChart3 },
+              { id: 'security', title: 'Security & audit', detail: 'Review sign-in activity, retention controls, export history, and the audit trail for sensitive workspace actions.', status: 'Audit expansion planned', icon: CircleAlert },
+            ].map(({ id, title, detail, status, icon: Icon }) => <div data-testid={`card-settings-${id}`} key={id} className="rounded-lg border border-border bg-background p-4"><div className="flex items-start gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground"><Icon size={16} /></div><div className="min-w-0"><h3 className="text-xs font-semibold">{title}</h3><p className="mt-2 text-[11px] leading-5 text-muted-foreground">{detail}</p><span data-testid={`status-settings-${id}`} className="mt-3 inline-flex rounded-full bg-muted px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] text-muted-foreground">{status}</span></div></div></div>)}
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>;
+}
 function stripBase(path: string): string {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || "/" : path;
 }
@@ -121,6 +272,12 @@ function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose:
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="workspace-settings-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace configuration</div><h2 id="workspace-settings-title" className="mt-2 text-lg font-semibold">Workspace settings</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Keep the client profile, reporting basis, currency, and close period aligned.</p></div><button data-testid="button-close-workspace-settings" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive sm:col-span-2">Settings could not be saved. Check the details and try again.</p>}<div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save settings'}</button></div></form><AIProviderSettingsPanel clientId={client.id} /></div></div>;
 }
 
+type UsageMetricView = {
+  used: number;
+  limit: number;
+  percentage: number;
+  status: 'healthy' | 'approaching' | 'at_limit';
+};
 function HelpDialog({ onClose }: { onClose: () => void }) {
   const steps = [
     ['01', 'Import evidence', 'Upload a PDF, CSV, XLS, or XLSX statement. LedgerFlow turns it into reviewable bank lines.'],
@@ -310,7 +467,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
     <tr data-testid={`row-statement-line-${line.id}`} className={`group transition-colors hover:bg-secondary/30 ${expanded ? 'bg-secondary/20' : ''}`}>
       <td className="whitespace-nowrap px-5 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td>
       <td className="max-w-[250px] px-4 py-4"><div className="truncate text-[12px] font-semibold">{line.description}</div><div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="rounded bg-muted px-1.5 py-0.5">{line.source}</span><span>· {line.currency}</span>{bankAccountName && <span className="truncate">· {bankAccountName}</span>}</div></td>
-      <td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={line.suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${line.suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{line.suggestionSource === 'workspace_learning' ? `Workspace learned · ${line.supportingPatternCount} confirmed pattern${line.supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div></td>
+      <td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={(line as any).suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${(line as any).suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{(line as any).suggestionSource === 'workspace_learning' ? `Workspace learned · ${(line as any).supportingPatternCount} confirmed pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div></td>
       <td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td>
       <td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-2"><div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${confidence > 85 ? 'bg-primary' : 'bg-accent'}`} style={{ width: `${confidence}%` }} /></div><span className="font-mono text-[10px]">{confidence}%</span></div>}</td>
       <td className="px-4 py-4"><StatusPill status={line.status} /></td>
@@ -336,10 +493,10 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
               </select>
             </label>
             <button data-testid={`button-confirm-classification-${line.id}`} onClick={() => onConfirmClassification(line, selectedAccount)} disabled={processing} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary/30 bg-background px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50">
-              <Check size={13} /> {line.suggestionSource === 'workspace_learning' && selectedAccount === line.accountSuggestion ? 'Confirm learned account' : 'Confirm account'}
+              <Check size={13} /> {(line as any).suggestionSource === 'workspace_learning' && selectedAccount === line.accountSuggestion ? 'Confirm learned account' : 'Confirm account'}
             </button>
           </div>
-          <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{line.suggestionSource === 'workspace_learning' ? `This match is based on ${line.supportingPatternCount} confirmed workspace pattern${line.supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
+          <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{(line as any).suggestionSource === 'workspace_learning' ? `This match is based on ${(line as any).supportingPatternCount} confirmed workspace pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
         </div>}
         <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : approved ? 'This entry is approved and ready to post to the ledger.' : 'Approval is required before this line can be posted.'}</p>
@@ -617,4 +774,176 @@ function AIProviderSettingsPanel({ clientId }: { clientId: number }) {
   const status = settings.data?.credentialStatus;
   const error = save.error ?? test.error ?? remove.error;
   return <section className="mt-6 border-t border-border pt-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI provider</div><h3 className="mt-1 text-sm font-semibold">AI connection</h3><p className="mt-1 max-w-xl text-[11px] leading-5 text-muted-foreground">Choose Replit-managed OpenAI or use a workspace-owned OpenAI or Anthropic API key. Approved models are updated by your workspace without requiring a LedgerFlow update.</p></div>{settings.data && <span className={`rounded-full px-2 py-1 font-mono text-[9px] ${status === 'configured' || settings.data.provider === 'managed_openai' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>{settings.data.provider === 'managed_openai' ? 'Managed connection' : status === 'configured' ? 'Key configured' : status?.replaceAll('_', ' ')}</span>}</div><form onSubmit={saveSettings} className="mt-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs font-medium">Provider<select data-testid="select-ai-provider" value={provider} onChange={(event) => chooseProvider(event.target.value as AIProviderName)} disabled={settings.isLoading} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50"><option value="managed_openai">Replit-managed OpenAI</option><option value="openai">Workspace-owned OpenAI</option><option value="anthropic">Workspace-owned Anthropic</option></select></label><label className="block text-xs font-medium">Model<select data-testid="select-ai-model" value={model} onChange={(event) => setModel(event.target.value)} disabled={settings.isLoading || !activeModels.length} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50">{selectedModelIsUnavailable && <option value={model} disabled>{selectedModel ? `${selectedModel.displayName} — retired` : `${model} — unavailable`}</option>}{activeModels.length ? activeModels.map((item) => <option key={item.model} value={item.model}>{item.displayName} ({item.model})</option>) : <option value="">No active approved models</option>}</select><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">Only active models can be selected for new configurations.</span></label>{selectedModelIsUnavailable && <p data-testid="ai-model-recovery-guidance" role="alert" className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-[11px] leading-5 text-destructive sm:col-span-2">This workspace is configured with a model that is no longer available. Select an active replacement above, then save before testing or using the AI assistant.</p>}{provider !== 'managed_openai' && <label className="block text-xs font-medium sm:col-span-2">API key<input data-testid="input-ai-provider-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings.data?.provider === provider && settings.data.credentialLast4 ? `Stored key ends in ${settings.data.credentialLast4}; enter a key only to replace it` : 'Paste the workspace API key'} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">{provider === 'anthropic' ? 'A Claude Pro or Max subscription is not an Anthropic API credential; API billing is separate.' : 'Use an API key created for this workspace. The full key is never returned to your browser.'}</span></label>}<div className="flex flex-wrap items-center gap-2 sm:col-span-2"><button data-testid="button-save-ai-settings" disabled={save.isPending || settings.isLoading || selectedModelIsUnavailable || !model} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{save.isPending ? 'Saving…' : provider === 'managed_openai' ? 'Use managed OpenAI' : apiKey ? 'Save & rotate key' : 'Save provider'}</button><button data-testid="button-test-ai-provider" type="button" onClick={testSettings} disabled={test.isPending || save.isPending || settings.isLoading || selectedModelIsUnavailable || !model} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">{test.isPending ? 'Testing…' : 'Test connection'}</button>{settings.data?.provider !== 'managed_openai' && <button data-testid="button-remove-ai-provider-key" type="button" onClick={removeCredential} disabled={remove.isPending} className="rounded-md px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50">{remove.isPending ? 'Removing…' : 'Remove key'}</button>}</div></form>{settings.isLoading && <p className="mt-3 text-[11px] text-muted-foreground">Loading AI connection…</p>}{notice && <p data-testid="ai-settings-notice" className="mt-3 text-[11px] font-medium text-primary">{notice}</p>}{error && <p data-testid="ai-settings-error" className="mt-3 text-[11px] font-medium text-destructive">{error instanceof Error ? error.message : 'AI provider settings could not be updated. Try again.'}</p>}</section>;
+}
+
+function MetricCard({ title, metric, formatValue, description }: { title: string; metric: UsageMetricView; formatValue: (v: number) => string; description: string }) {
+  const isApproaching = metric.status === 'approaching';
+  const isAtLimit = metric.status === 'at_limit';
+
+  return (
+    <div className="rounded-lg border border-card-border p-4">
+       <div className="flex items-start justify-between gap-2">
+         <h4 className="text-sm font-medium">{title}</h4>
+         <div className="text-right">
+           <div className="text-xs font-mono font-semibold text-foreground">{formatValue(metric.used)} <span className="text-muted-foreground font-normal">/ {formatValue(metric.limit)}</span></div>
+         </div>
+       </div>
+
+       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${isAtLimit ? 'bg-destructive' : isApproaching ? 'bg-[#f59e0b]' : 'bg-primary'}`}
+            style={{ width: `${Math.min(100, metric.percentage)}%` }}
+         />
+       </div>
+
+       <div className="mt-3 flex items-start justify-between gap-2">
+         <div className="text-[11px] leading-snug text-muted-foreground">{description}</div>
+         {isAtLimit ? (
+           <span className="inline-flex shrink-0 items-center rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">Limit reached</span>
+         ) : isApproaching ? (
+           <span className="inline-flex shrink-0 items-center rounded bg-[#f59e0b]/10 px-1.5 py-0.5 text-[10px] font-medium text-[#d97706]">Nearing limit</span>
+         ) : null}
+       </div>
+        {isAtLimit && (
+         <div className="mt-2 text-[10px] font-medium text-destructive leading-tight border-t border-destructive/10 pt-2">
+            This has reached the current plan allowance. Existing close data remains available; this release does not automatically block bookkeeping actions.
+         </div>
+       )}
+       {isApproaching && !isAtLimit && (
+         <div className="mt-2 text-[10px] font-medium text-[#d97706] leading-tight border-t border-[#f59e0b]/10 pt-2">
+           Heads up: Approaching your current limit. Review your usage to avoid interruptions.
+         </div>
+       )}
+    </div>
+  );
+}
+
+function WorkspaceUsageSection() {
+  const usageQuery = useGetLedgerflowUsage({
+    query: {
+      queryKey: getGetLedgerflowUsageQueryKey(),
+      staleTime: 5 * 60 * 1000,
+      refetchOnMount: true,
+    }
+  });
+
+  const refresh = () => {
+    void usageQuery.refetch();
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  if (usageQuery.isError) {
+    return (
+      <section id="usage-limits" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Resource allocation</div>
+            <h2 className="mt-2 text-base font-semibold">Usage & limits</h2>
+            <p className="mt-1 text-xs text-destructive">Could not load usage data. Please try again later.</p>
+          </div>
+          <button onClick={refresh} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted">
+             <RefreshCw size={14} className={usageQuery.isFetching ? "animate-spin" : ""} /> Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section id="usage-limits" data-testid="section-page-usage-limits" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Resource allocation</div>
+          <h2 className="mt-2 text-base font-semibold">Usage & limits</h2>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Keep track of retained statement evidence, successful AI activity, and retention policies. Data reflects activity in the current billing cycle.</p>
+        </div>
+        <button data-testid="button-refresh-usage" onClick={refresh} disabled={usageQuery.isFetching} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted disabled:opacity-50">
+           <RefreshCw size={14} className={usageQuery.isFetching ? "animate-spin" : ""} /> Refresh usage
+        </button>
+      </div>
+
+      {usageQuery.isLoading || !usageQuery.data ? (
+        <div className="mt-6 space-y-4">
+           <div className="h-24 w-full rounded-md skeleton"></div>
+           <div className="h-24 w-full rounded-md skeleton"></div>
+        </div>
+      ) : (
+        <div className="mt-6 space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-3">
+             <div className="flex items-center gap-4">
+                <div className="grid size-8 place-items-center rounded bg-primary/20 text-primary">
+                  <Sparkles size={14} />
+                </div>
+                <div>
+                   <div className="text-xs font-semibold text-foreground">{usageQuery.data.plan} plan</div>
+                   <div className="text-[11px] text-muted-foreground">Cycle: {usageQuery.data.billingPeriod.label} (started {shortDate(usageQuery.data.billingPeriod.startsAt)})</div>
+                </div>
+             </div>
+             {usageQuery.data.asOf && (
+                <div className="text-right text-[10px] text-muted-foreground">
+                   Last updated: {new Date(usageQuery.data.asOf).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </div>
+             )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+             <MetricCard
+              title="Statement imports"
+              metric={usageQuery.data.statementImports}
+              formatValue={(v) => v.toLocaleString()}
+              description="Bank statement files parsed this cycle."
+            />
+             <MetricCard
+              title="AI activity"
+              metric={usageQuery.data.aiActivity}
+              formatValue={(v) => v.toLocaleString()}
+              description="Successful provider-backed AI work this cycle."
+            />
+             <MetricCard
+              title="Client workspaces"
+              metric={usageQuery.data.clientWorkspaces}
+              formatValue={(v) => v.toLocaleString()}
+              description="Active client ledgers in this account."
+            />
+             <MetricCard
+              title="Stored evidence"
+              metric={{ ...usageQuery.data.storedEvidence, limit: usageQuery.data.storedEvidence.limitBytes, used: usageQuery.data.storedEvidence.bytes }}
+              formatValue={formatBytes}
+              description={`${usageQuery.data.storedEvidence.documents.toLocaleString()} documents currently stored.`}
+            />
+          </div>
+
+          <div className="rounded-md border border-border px-5 py-5">
+            <h3 className="text-sm font-semibold">Data retention</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Your workspace adheres to the following data retention policies:</p>
+
+            <div className="mt-5 grid gap-4 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="pt-4 sm:pt-0 sm:pr-4">
+                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Source Evidence</div>
+                 <div className="mt-2 text-sm font-semibold">{usageQuery.data.retention.statementEvidenceDays} days</div>
+                 <div className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">This report measures retained statement evidence against this workspace policy.</div>
+              </div>
+              <div className="pt-4 sm:px-4 sm:pt-0">
+                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">AI Activity Logs</div>
+                 <div className="mt-2 text-sm font-semibold">{usageQuery.data.retention.aiActivityDays} days</div>
+                 <div className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">Usage tracking records activity events, not chat content, for this rolling window.</div>
+              </div>
+              <div className="pt-4 sm:pl-4 sm:pt-0">
+                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Ledger Data</div>
+                 <div className="mt-2 text-sm font-semibold">While active</div>
+                 <div className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{usageQuery.data.retention.ledgerDataDescription}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }

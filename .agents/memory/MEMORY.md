@@ -11,3 +11,4 @@
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
 - [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.
 - [Legacy demo workspace remediation](legacy-demo-workspace-remediation.md) — only a full untouched historical signature may be rerouted; record successful remediation instead of inferring it later.
+- [Usage retention accounting](usage-retention-accounting.md) — report only persisted, unexpired evidence and successful provider-backed AI completions.

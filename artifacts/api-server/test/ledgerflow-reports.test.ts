@@ -121,3 +121,33 @@ test("serves client-scoped reports through Clerk session claims", async () => {
   assert.equal(financialStatements.response.status, 200);
   assert.equal(forbidden.response.status, 403);
 });
+
+type WorkspaceUsageSummary = {
+  statementImports: { used: number };
+  storedEvidence: { documents: number; bytes: number; status: string };
+  aiActivity: { used: number };
+  clientWorkspaces: { used: number };
+  retention: { statementEvidenceDays: number; aiActivityDays: number; ledgerDataDescription: string };
+};
+
+test("reports usage only for the authenticated workspace", async () => {
+  const beforePrimary = await request<WorkspaceUsageSummary>("/ledgerflow/usage");
+  const beforeSecondary = await request<WorkspaceUsageSummary>("/ledgerflow/usage", undefined, secondaryUserId);
+  const created = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: `Usage scope ${randomUUID()}`, legalName: "Usage scope LLC" }),
+  });
+  assert.equal(created.response.status, 201);
+
+  const [afterPrimary, afterSecondary] = await Promise.all([
+    request<WorkspaceUsageSummary>("/ledgerflow/usage"),
+    request<WorkspaceUsageSummary>("/ledgerflow/usage", undefined, secondaryUserId),
+  ]);
+  assert.equal(afterPrimary.response.status, 200);
+  assert.equal(afterSecondary.response.status, 200);
+  assert.equal(afterPrimary.body.clientWorkspaces.used, beforePrimary.body.clientWorkspaces.used + 1);
+  assert.equal(afterSecondary.body.clientWorkspaces.used, beforeSecondary.body.clientWorkspaces.used);
+  assert.equal(afterSecondary.body.storedEvidence.documents, beforeSecondary.body.storedEvidence.documents);
+  assert.equal(afterPrimary.body.retention.statementEvidenceDays, 365);
+  assert.equal(afterPrimary.body.retention.aiActivityDays, 90);
+});

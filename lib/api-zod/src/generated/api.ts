@@ -55,11 +55,6 @@ export const LogoutBrowserSessionResponse = zod.void()
  */
 
 
-
-
-
-
-
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -140,7 +135,47 @@ export const UpdateClientResponse = zod.object({
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
 })
 
-
+/**
+ * @summary Get server-measured workspace usage and plan limits
+ */
+export const GetLedgerflowUsageResponse = zod.object({
+  "plan": zod.string(),
+  "asOf": zod.coerce.date(),
+  "billingPeriod": zod.object({
+  "label": zod.string(),
+  "startsAt": zod.coerce.date()
+}),
+  "statementImports": zod.object({
+  "used": zod.number(),
+  "limit": zod.number(),
+  "percentage": zod.number(),
+  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
+}),
+  "storedEvidence": zod.object({
+  "documents": zod.number(),
+  "bytes": zod.number(),
+  "limitBytes": zod.number(),
+  "percentage": zod.number(),
+  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
+}),
+  "aiActivity": zod.object({
+  "used": zod.number(),
+  "limit": zod.number(),
+  "percentage": zod.number(),
+  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
+}),
+  "clientWorkspaces": zod.object({
+  "used": zod.number(),
+  "limit": zod.number(),
+  "percentage": zod.number(),
+  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
+}),
+  "retention": zod.object({
+  "statementEvidenceDays": zod.number(),
+  "aiActivityDays": zod.number(),
+  "ledgerDataDescription": zod.string()
+})
+})
 /**
  * @summary List the authenticated workspace exchange-rate schedule
  */
@@ -151,7 +186,6 @@ export const getExchangeRatesResponseFunctionalCurrencyMin = 3;
 export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 
 export const getExchangeRatesResponseRateExclusiveMin = 0;
-
 
 
 export const GetExchangeRatesResponseItem = zod.object({
@@ -178,7 +212,6 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
 
-
 export const CreateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
@@ -195,7 +228,6 @@ export const createExchangeRateResponseFunctionalCurrencyMin = 3;
 export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
-
 
 
 export const CreateExchangeRateResponse = zod.object({
@@ -225,7 +257,6 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
 
-
 export const UpdateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
@@ -242,7 +273,6 @@ export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
 export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
-
 
 
 export const UpdateExchangeRateResponse = zod.object({
@@ -278,8 +308,6 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
 
-
-
 export const ImportExchangeRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
@@ -298,7 +326,6 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
-
 
 
 export const ImportExchangeRatesResponse = zod.object({
@@ -371,7 +398,6 @@ export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
 export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
-
 
 
 export const CreateBankAccountBody = zod.object({
@@ -627,7 +653,6 @@ export const GetLedgerflowAISettingsResponse = zod.object({
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
-
 
 
 export const UpdateLedgerflowAISettingsBody = zod.object({
@@ -969,7 +994,6 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
  */
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
-
 
 
 export const CreateReportPackBody = zod.object({
@@ -1401,5 +1425,4 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
-
 
