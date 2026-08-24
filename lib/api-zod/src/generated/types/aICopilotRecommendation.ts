@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AICopilotRecommendationStatusTransition } from './aICopilotRecommendationStatusTransition';
+import type { AICopilotRecommendationSuggestionSource } from './aICopilotRecommendationSuggestionSource';
 import type { AICopilotRecommendationType } from './aICopilotRecommendationType';
 import type { BankAccountDraft } from './bankAccountDraft';
 
@@ -27,10 +28,8 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  /** @nullable */
-  suggestionSource?: string | null;
-  /** @nullable */
-  supportingPatternCount?: number | null;
+  suggestionSource?: AICopilotRecommendationSuggestionSource;
+  supportingPatternCount?: number;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }

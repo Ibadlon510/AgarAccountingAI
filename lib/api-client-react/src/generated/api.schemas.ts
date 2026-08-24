@@ -5,44 +5,6 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface AuthUser {
-  id: string;
-  /** @nullable */
-  email: string | null;
-  /** @nullable */
-  firstName: string | null;
-  /** @nullable */
-  lastName: string | null;
-  /** @nullable */
-  profileImageUrl: string | null;
-}
-
-export interface AuthUserEnvelope {
-  user: AuthUser | null;
-}
-
-export interface MobileTokenExchangeRequest {
-  /** @minLength 1 */
-  code: string;
-  /** @minLength 1 */
-  code_verifier: string;
-  /** @minLength 1 */
-  redirect_uri: string;
-  /** @minLength 1 */
-  state: string;
-  /** @minLength 1 */
-  nonce?: string;
-}
-
-export interface MobileTokenExchangeSuccess {
-  token: string;
-}
-
-export const LogoutSuccessValue = {
-  success: true,
-} as const;
-export type LogoutSuccess = typeof LogoutSuccessValue;
-
 export interface HealthStatus {
   status: string;
 }
@@ -151,6 +113,15 @@ export interface LedgerOverview {
   missingRateCurrencies: string[];
 }
 
+export type StatementLineSuggestionSource = typeof StatementLineSuggestionSource[keyof typeof StatementLineSuggestionSource];
+
+
+export const StatementLineSuggestionSource = {
+  ai: 'ai',
+  heuristic: 'heuristic',
+  workspace_learning: 'workspace_learning',
+} as const;
+
 export interface StatementLine {
   id: number;
   /** @nullable */
@@ -166,10 +137,8 @@ export interface StatementLine {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  /** @nullable */
-  suggestionSource?: string | null;
-  /** @nullable */
-  supportingPatternCount?: number | null;
+  suggestionSource?: StatementLineSuggestionSource;
+  supportingPatternCount?: number;
   /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */
@@ -244,56 +213,13 @@ export interface BankAccount {
 
 export interface StatementImportResult {
   fileName: string;
-  importId: number;
   importStatus: StatementImportResultImportStatus;
   message?: string;
-  sourceUrl?: string;
   importedCount: number;
   duplicateCount: number;
   duplicateLines: StatementImportDuplicate[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
-}
-
-export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof StatementImportOutcome];
-
-
-export const StatementImportOutcome = {
-  completed: 'completed',
-  duplicate: 'duplicate',
-  failed: 'failed',
-} as const;
-
-export interface StatementImport {
-  id: number;
-  fileName: string;
-  mimeType: string;
-  outcome: StatementImportOutcome;
-  /** @nullable */
-  errorMessage?: string | null;
-  importedLineCount: number;
-  createdAt: string;
-  /** @nullable */
-  sourceUrl?: string | null;
-}
-
-export interface UploadUrlRequest {
-  clientId: number;
-  name: string;
-  size: number;
-  contentType: string;
-}
-
-export type UploadUrlResponseMetadata = {
-  name: string;
-  size: number;
-  contentType: string;
-};
-
-export interface UploadUrlResponse {
-  uploadURL: string;
-  objectPath: string;
-  metadata: UploadUrlResponseMetadata;
 }
 
 export interface BankAccountInput {
@@ -341,6 +267,15 @@ export const AICopilotRecommendationType = {
   bulk_post_entries: 'bulk_post_entries',
 } as const;
 
+export type AICopilotRecommendationSuggestionSource = typeof AICopilotRecommendationSuggestionSource[keyof typeof AICopilotRecommendationSuggestionSource];
+
+
+export const AICopilotRecommendationSuggestionSource = {
+  ai: 'ai',
+  heuristic: 'heuristic',
+  workspace_learning: 'workspace_learning',
+} as const;
+
 export interface BankAccountDraft {
   name: string;
   /** @nullable */
@@ -376,10 +311,8 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  /** @nullable */
-  suggestionSource?: string | null;
-  /** @nullable */
-  supportingPatternCount?: number | null;
+  suggestionSource?: AICopilotRecommendationSuggestionSource;
+  supportingPatternCount?: number;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }
@@ -409,23 +342,6 @@ export const AICredentialStatus = {
   unavailable: 'unavailable',
 } as const;
 
-export type AIModelStatus = typeof AIModelStatus[keyof typeof AIModelStatus];
-
-
-export const AIModelStatus = {
-  active: 'active',
-  retired: 'retired',
-} as const;
-
-export interface AIModelOption {
-  provider: AIProvider;
-  model: string;
-  displayName: string;
-  status: AIModelStatus;
-  /** @nullable */
-  retiredAt: string | null;
-}
-
 export interface AIProviderSettings {
   clientId: number;
   provider: AIProvider;
@@ -440,8 +356,7 @@ export interface AIProviderSettings {
   credentialUpdatedAt: string | null;
   /** @nullable */
   lastTestedAt: string | null;
-  /** Provider-specific approved model catalog, including retired models for existing configurations. */
-  availableModels: AIModelOption[];
+  availableModels: string[];
 }
 
 export interface AIProviderSettingsInput {
@@ -576,14 +491,6 @@ export interface FinancialStatements {
   cashFlow: StatementSection[];
 }
 
-export type BeginBrowserLoginParams = {
-returnTo?: string;
-};
-
-export type LogoutBrowserSessionParams = {
-returnTo?: string;
-};
-
 export type GetLedgerOverviewParams = {
 clientId?: number;
 };
@@ -596,10 +503,6 @@ export type GetStatementLinesParams = {
 clientId?: number;
 currency?: string;
 status?: string;
-};
-
-export type GetStatementImportsParams = {
-clientId: number;
 };
 
 export type GetLedgerflowAISettingsParams = {
@@ -622,3 +525,4 @@ export type GetFinancialStatementsParams = {
 clientId?: number;
 period?: string;
 };
+

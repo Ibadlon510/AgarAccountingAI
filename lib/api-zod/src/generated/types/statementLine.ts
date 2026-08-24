@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineSuggestionSource } from './statementLineSuggestionSource';
 
 export interface StatementLine {
   id: number;
@@ -21,10 +22,8 @@ export interface StatementLine {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  /** @nullable */
-  suggestionSource?: string | null;
-  /** @nullable */
-  supportingPatternCount?: number | null;
+  suggestionSource?: StatementLineSuggestionSource;
+  supportingPatternCount?: number;
   /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */

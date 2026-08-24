@@ -9,7 +9,7 @@ LedgerFlow is an AI-assisted bookkeeping workspace that takes multi-currency ban
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — Postgres connection string; Clerk keys are provisioned as environment secrets.
 
 ## Stack
 
@@ -19,6 +19,7 @@ LedgerFlow is an AI-assisted bookkeeping workspace that takes multi-currency ban
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Authentication: Replit-managed Clerk with cookie-based web sessions and local-user JIT provisioning
 
 ## Where things live
 

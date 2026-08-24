@@ -42,7 +42,6 @@ import {
   PostJournalEntryBody,
   ImportStatementBody,
   ImportStatementResponse,
-  GetStatementImportsResponse,
   RemoveLedgerflowAICredentialBody,
   RemoveLedgerflowAICredentialResponse,
   TestLedgerflowAISettingsBody,
@@ -274,8 +273,8 @@ function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functio
 }
 
 function currentUserId(req: Request) {
-  if (!req.user) throw new Error("Authenticated user is required.");
-  return req.user.id;
+  if (!req.dbUser) throw new Error("Authenticated user is required.");
+  return req.dbUser.id;
 }
 
 async function getOwnedClient(req: Request, requestedClientId?: number) {
@@ -1036,7 +1035,8 @@ function normalizeRows(text: string, currency: string): ParsedBankLine[] {
 router.post("/ledgerflow/import-statement", async (req, res) => {
   const parsed = ImportStatementBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
-  const { clientId, bankAccountId, fileName, mimeType, objectPath, currency = "AED" } = parsed.data;
+  const { clientId, bankAccountId, fileName, mimeType, objectPath, currency = "AED" } = parsed.data as typeof parsed.data & { objectPath?: string };
+  if (!objectPath) return res.status(400).json({ error: "A verified statement upload is required." });
   let activeClientId: number | undefined;
   let failedBankAccountId: number | null = null;
   let uploadedFileSize = 0;
@@ -1045,7 +1045,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
     const scopedClientId = client.id;
-    if (!scopedStatementObjectPath(req.user!.id, scopedClientId, objectPath)) {
+    if (!req.dbUser || !scopedStatementObjectPath(req.dbUser.id, scopedClientId, objectPath)) {
       return res.status(403).json({ error: "This statement upload is not assigned to the selected client workspace." });
     }
     const metadataError = validateStatementMetadata(fileName, mimeType, 1);
@@ -1378,7 +1378,7 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
   const imports = await db.select().from(statementImportsTable)
     .where(eq(statementImportsTable.clientId, client.id))
     .orderBy(desc(statementImportsTable.createdAt));
-  return res.json(GetStatementImportsResponse.parse(imports.map((statementImport) => ({
+  return res.json(imports.map((statementImport) => ({
     id: statementImport.id,
     fileName: statementImport.fileName,
     mimeType: statementImport.mimeType,
@@ -1387,7 +1387,7 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
     importedLineCount: statementImport.importedLineCount,
     createdAt: statementImport.createdAt.toISOString(),
     sourceUrl: statementImport.objectPath ? statementSourceUrl(statementImport.id) : null,
-  }))));
+  })));
 });
 
 router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {

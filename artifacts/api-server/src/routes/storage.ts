@@ -1,6 +1,5 @@
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { RequestUploadUrlBody, RequestUploadUrlResponse } from "@workspace/api-zod";
 import { clientWorkspacesTable, db } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
@@ -10,15 +9,19 @@ const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
 
 router.post("/storage/uploads/request-url", async (req: Request, res: Response) => {
-  const parsed = RequestUploadUrlBody.safeParse(req.body);
-  if (!parsed.success || !req.user) {
-    res.status(parsed.success ? 401 : 400).json({ error: parsed.success ? "Authentication required" : "Missing or invalid required fields" });
+  const body = req.body as { clientId?: unknown; name?: unknown; size?: unknown; contentType?: unknown };
+  if (!req.dbUser) {
+    res.status(401).json({ error: "Authentication required" });
     return;
   }
-  const { clientId, name, size, contentType } = parsed.data;
+  if (typeof body.clientId !== "number" || typeof body.name !== "string" || typeof body.size !== "number" || typeof body.contentType !== "string") {
+    res.status(400).json({ error: "Missing or invalid required fields" });
+    return;
+  }
+  const { clientId, name, size, contentType } = body;
   const [membership] = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
-    .where(and(eq(clientWorkspacesTable.clientId, clientId), eq(clientWorkspacesTable.userId, req.user.id)))
+    .where(and(eq(clientWorkspacesTable.clientId, clientId), eq(clientWorkspacesTable.userId, req.dbUser.id)))
     .limit(1);
   if (!membership) {
     res.status(403).json({ error: "You do not have access to this client workspace." });
@@ -30,14 +33,14 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     return;
   }
   try {
-    const prefix = `uploads/${encodeURIComponent(req.user.id)}/${clientId}`;
+    const prefix = `uploads/${encodeURIComponent(req.dbUser.id)}/${clientId}`;
     const uploadURL = await objectStorageService.getObjectEntityUploadURL(prefix);
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-    res.json(RequestUploadUrlResponse.parse({
+    res.json({
       uploadURL,
       objectPath,
       metadata: { name, size, contentType },
-    }));
+    });
   } catch (error) {
     req.log.error({ err: error }, "Error generating statement upload URL");
     res.status(500).json({ error: "Could not prepare the statement upload. Try again." });
@@ -45,7 +48,7 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
 });
 
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
-  if (!req.user) {
+  if (!req.dbUser) {
     res.status(401).json({ error: "Authentication required" });
     return;
   }
@@ -54,7 +57,7 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   try {
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
     const canAccess = await objectStorageService.canAccessObjectEntity({
-      userId: req.user.id,
+      userId: req.dbUser.id,
       objectFile,
     });
     if (!canAccess) {

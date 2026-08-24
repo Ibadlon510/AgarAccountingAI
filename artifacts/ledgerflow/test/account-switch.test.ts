@@ -8,7 +8,7 @@ import {
 import {
   clearUserScopedState,
   getActiveWorkspaceStorageKey,
-} from '../../../lib/replit-auth-web/src/auth-state';
+} from '../src/lib/user-state';
 
 class MemoryStorage {
   private readonly values = new Map<string, string>();

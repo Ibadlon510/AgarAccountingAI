@@ -9,3 +9,4 @@
 - [PostgreSQL lock-wait observability](postgres-lock-wait-observability.md) — activity state may be disabled here; use wait events and blocking PIDs to synchronize race tests.
 - [Exchange-rate remediation](exchange-rate-remediation.md) — schedule changes re-resolve workspace conversions so a newly added rate restores reporting coverage.
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
+- [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.

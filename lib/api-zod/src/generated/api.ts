@@ -9,79 +9,6 @@ import * as zod from 'zod';
 
 
 /**
- * @summary Get the currently authenticated user
- */
-export const GetCurrentAuthUserResponse = zod.object({
-  "user": zod.union([zod.object({
-  "id": zod.string(),
-  "email": zod.string().nullable(),
-  "firstName": zod.string().nullable(),
-  "lastName": zod.string().nullable(),
-  "profileImageUrl": zod.string().nullable()
-}),zod.null()])
-})
-
-
-/**
- * @summary Start the browser OIDC login flow
- */
-export const BeginBrowserLoginQueryParams = zod.object({
-  "returnTo": zod.coerce.string().optional()
-})
-
-export const BeginBrowserLoginResponse = zod.void()
-
-
-/**
- * @summary Complete the browser OIDC login flow
- */
-export const HandleBrowserLoginCallbackResponse = zod.void()
-
-
-/**
- * @summary Clear the session and begin OIDC logout
- */
-export const logoutBrowserSessionQueryReturnToDefault = `/`;
-
-export const LogoutBrowserSessionQueryParams = zod.object({
-  "returnTo": zod.coerce.string().default(logoutBrowserSessionQueryReturnToDefault)
-})
-
-export const LogoutBrowserSessionResponse = zod.void()
-
-
-/**
- * @summary Exchange a mobile OIDC authorization code for a session token
- */
-
-
-
-
-
-
-
-export const ExchangeMobileAuthorizationCodeBody = zod.object({
-  "code": zod.string().min(1),
-  "code_verifier": zod.string().min(1),
-  "redirect_uri": zod.string().min(1),
-  "state": zod.string().min(1),
-  "nonce": zod.string().min(1).optional()
-})
-
-export const ExchangeMobileAuthorizationCodeResponse = zod.object({
-  "token": zod.string()
-})
-
-
-/**
- * @summary Delete a mobile session token
- */
-export const LogoutMobileSessionResponse = zod.object({
-  "success": zod.literal(true)
-})
-
-
-/**
  * @summary List client workspaces
  */
 export const GetClientsResponseItem = zod.object({
@@ -410,8 +337,8 @@ export const GetStatementLinesResponseItem = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']).optional(),
+  "supportingPatternCount": zod.number().optional(),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
@@ -446,8 +373,8 @@ export const CreateStatementLineResponse = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']).optional(),
+  "supportingPatternCount": zod.number().optional(),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
@@ -470,10 +397,8 @@ export const ImportStatementBody = zod.object({
 
 export const ImportStatementResponse = zod.object({
   "fileName": zod.string(),
-  "importId": zod.number(),
   "importStatus": zod.enum(['imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
   "message": zod.string().optional(),
-  "sourceUrl": zod.string().optional(),
   "importedCount": zod.number(),
   "duplicateCount": zod.number(),
   "duplicateLines": zod.array(zod.object({
@@ -497,8 +422,8 @@ export const ImportStatementResponse = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']).optional(),
+  "supportingPatternCount": zod.number().optional(),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
@@ -514,36 +439,6 @@ export const ImportStatementResponse = zod.object({
   "currency": zod.string()
 }),zod.null()]).optional()
 })
-
-
-/**
- * @summary List statement import trail
- */
-export const GetStatementImportsQueryParams = zod.object({
-  "clientId": zod.coerce.number()
-})
-
-export const GetStatementImportsResponseItem = zod.object({
-  "id": zod.number(),
-  "fileName": zod.string(),
-  "mimeType": zod.string(),
-  "outcome": zod.enum(['completed', 'duplicate', 'failed']),
-  "errorMessage": zod.string().nullish(),
-  "importedLineCount": zod.number(),
-  "createdAt": zod.string(),
-  "sourceUrl": zod.string().nullish()
-})
-export const GetStatementImportsResponse = zod.array(GetStatementImportsResponseItem)
-
-
-/**
- * @summary Download an imported statement source document
- */
-export const GetStatementImportSourceParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const GetStatementImportSourceResponse = zod.unknown()
 
 
 /**
@@ -578,8 +473,8 @@ export const AskLedgerflowAIResponse = zod.object({
 }).optional(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']).optional(),
+  "supportingPatternCount": zod.number().optional(),
   "bankAccount": zod.union([zod.object({
   "name": zod.string(),
   "bankName": zod.string().nullish(),
@@ -611,13 +506,7 @@ export const GetLedgerflowAISettingsResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
+  "availableModels": zod.array(zod.string())
 })
 
 
@@ -642,13 +531,7 @@ export const UpdateLedgerflowAISettingsResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
+  "availableModels": zod.array(zod.string())
 })
 
 
@@ -667,13 +550,7 @@ export const TestLedgerflowAISettingsResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
+  "availableModels": zod.array(zod.string())
 })
 
 
@@ -692,13 +569,7 @@ export const RemoveLedgerflowAICredentialResponse = zod.object({
   "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
   "credentialUpdatedAt": zod.coerce.date().nullable(),
   "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
+  "availableModels": zod.array(zod.string())
 })
 
 
@@ -938,34 +809,4 @@ export const GetFinancialStatementsResponse = zod.object({
 }))
 })
 
-
-/**
- * @summary Request a presigned URL for a private statement upload
- */
-export const RequestUploadUrlBody = zod.object({
-  "clientId": zod.number(),
-  "name": zod.string(),
-  "size": zod.number(),
-  "contentType": zod.string()
-})
-
-export const RequestUploadUrlResponse = zod.object({
-  "uploadURL": zod.string(),
-  "objectPath": zod.string(),
-  "metadata": zod.object({
-  "name": zod.string(),
-  "size": zod.number(),
-  "contentType": zod.string()
-})
-})
-
-
-/**
- * @summary Serve an authorized private object
- */
-export const GetStorageObjectParams = zod.object({
-  "objectPath": zod.coerce.string()
-})
-
-export const GetStorageObjectResponse = zod.unknown()
 

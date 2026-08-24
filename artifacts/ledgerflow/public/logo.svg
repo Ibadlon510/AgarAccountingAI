@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 40" role="img" aria-labelledby="title">
+  <title>LedgerFlow</title>
+  <rect width="40" height="40" rx="9" fill="#315f57"/>
+  <path d="M12 11h5v13.5c0 2.8 1.7 4.5 4.4 4.5H29v5h-7.9C15.5 34 12 30.5 12 25V11Z" fill="#f7f4ec"/>
+  <text x="48" y="26" fill="#213238" font-family="DM Sans,Arial,sans-serif" font-size="16" font-weight="700">LedgerFlow</text>
+</svg>

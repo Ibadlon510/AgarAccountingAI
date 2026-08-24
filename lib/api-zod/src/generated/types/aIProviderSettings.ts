@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AICredentialStatus } from './aICredentialStatus';
-import type { AIModelOption } from './aIModelOption';
 import type { AIProvider } from './aIProvider';
 
 export interface AIProviderSettings {
@@ -23,6 +22,5 @@ export interface AIProviderSettings {
   credentialUpdatedAt: Date | null;
   /** @nullable */
   lastTestedAt: Date | null;
-  /** Provider-specific approved model catalog, including retired models for existing configurations. */
-  availableModels: AIModelOption[];
+  availableModels: string[];
 }
