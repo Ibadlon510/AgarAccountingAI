@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ReportNoteRowsItem = {
-  label: string;
-  amount: number;
-  comparativeAmount: number;
+export type GetStatementImportsParams = {
+clientId: number;
 };

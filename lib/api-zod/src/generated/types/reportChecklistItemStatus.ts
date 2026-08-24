@@ -6,13 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ReportApplicabilityItemStatus = typeof ReportApplicabilityItemStatus[keyof typeof ReportApplicabilityItemStatus];
+export type ReportChecklistItemStatus = typeof ReportChecklistItemStatus[keyof typeof ReportChecklistItemStatus];
 
 
-export const ReportApplicabilityItemStatus = {
+export const ReportChecklistItemStatus = {
   applicable: 'applicable',
   not_applicable: 'not_applicable',
   immaterial: 'immaterial',
   satisfied: 'satisfied',
-  requires_input: 'requires_input',
+  requires_accountant_input: 'requires_accountant_input',
 } as const;

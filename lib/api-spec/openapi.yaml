@@ -12,9 +12,87 @@ tags:
     description: Health operations
   - name: ledgerflow
     description: Accounting workflow operations
+  - name: auth
+    description: Browser and mobile authentication endpoints
   - name: Storage
     description: Object storage upload and serving endpoints.
 paths:
+  /auth/user:
+    get:
+      operationId: getCurrentAuthUser
+      tags: [auth]
+      summary: Get the currently authenticated user
+      responses:
+        "200":
+          description: Authentication state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+  /login:
+    get:
+      operationId: beginBrowserLogin
+      tags: [auth]
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the OIDC authorization endpoint
+  /callback:
+    get:
+      operationId: handleBrowserLoginCallback
+      tags: [auth]
+      summary: Complete the browser OIDC login flow
+      responses:
+        "302":
+          description: Redirect back to the safe in-app location
+  /logout:
+    get:
+      operationId: logoutBrowserSession
+      tags: [auth]
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema: { type: string, default: / }
+      responses:
+        "302":
+          description: Redirect to the OIDC provider logout endpoint
+  /mobile-auth/token-exchange:
+    post:
+      operationId: exchangeMobileAuthorizationCode
+      tags: [auth]
+      summary: Exchange a mobile OIDC authorization code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileTokenExchangeRequest"
+      responses:
+        "200":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTokenExchangeSuccess"
+  /mobile-auth/logout:
+    post:
+      operationId: logoutMobileSession
+      tags: [auth]
+      summary: Delete a mobile session token
+      responses:
+        "200":
+          description: Session deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutSuccess"
   /clients:
     get:
       operationId: getClients
@@ -289,6 +367,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementImportResult"
+  /ledgerflow/statement-imports:
+    get:
+      operationId: getStatementImports
+      tags: [ledgerflow]
+      summary: List statement import trail
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Authorized statement import trail
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatementImport"
+  /ledgerflow/statement-imports/{id}/source:
+    get:
+      operationId: getStatementImportSource
+      tags: [ledgerflow]
+      summary: Download an imported statement source document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Private source document
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: The statement is not in an accessible workspace
+        "404":
+          description: Source document not found
   /ledgerflow/ai-chat:
     post:
       operationId: askLedgerflowAI
@@ -524,30 +643,193 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FinancialStatements"
-  /ledgerflow/report-pack:
+  /ledgerflow/report-packs:
     get:
-      operationId: getReportPack
+      operationId: getReportPacks
       tags: [ledgerflow]
-      summary: Get a reconciled comparative IFRS-style report pack
+      summary: List saved IFRS report-pack snapshots
       parameters:
         - name: clientId
           in: query
-          required: false
+          required: true
           schema: { type: number }
-        - name: period
-          in: query
-          required: false
-          description: Reporting period end in YYYY-MM-DD format. Defaults to the client close period or latest posted entry.
-          schema: { type: string, format: date }
       responses:
         "200":
-          description: Report pack preview and validation state
+          description: Saved report packs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReportPackSummary"
+    post:
+      operationId: createReportPack
+      tags: [ledgerflow]
+      summary: Generate a comparative IFRS-style report pack snapshot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportPackInput"
+      responses:
+        "201":
+          description: Draft report pack snapshot
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReportPack"
+        "422":
+          description: Report data cannot be generated safely
+  /ledgerflow/report-packs/{id}:
+    get:
+      operationId: getReportPack
+      tags: [ledgerflow]
+      summary: Get one saved report-pack snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Report pack snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPack"
+        "404":
+          description: Report pack not found
+    patch:
+      operationId: updateReportPack
+      tags: [ledgerflow]
+      summary: Update report-pack inputs or finalize after review
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportPackUpdate"
+      responses:
+        "200":
+          description: Updated report pack
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportPack"
+        "409":
+          description: Finalization is blocked by validation or accountant inputs
+  /ledgerflow/report-packs/{id}/pdf:
+    get:
+      operationId: downloadReportPackPdf
+      tags: [ledgerflow]
+      summary: Download the saved report-pack snapshot as a PDF
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: A4 report-pack PDF
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "409":
+          description: Final export is blocked until the report is finalized
+        "404":
+          description: Report pack not found
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for a private statement upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Presigned upload URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        "400":
+          description: Missing or invalid required fields
+        "403":
+          description: Workspace access denied
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an authorized private object
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Private object content
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Authentication required
+        "403":
+          description: Object access denied
+        "404":
+          description: Object not found
 components:
   schemas:
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id: { type: string }
+        email: { type: ["string", "null"] }
+        firstName: { type: ["string", "null"] }
+        lastName: { type: ["string", "null"] }
+        profileImageUrl: { type: ["string", "null"] }
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/AuthUser"
+            - type: "null"
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code: { type: string, minLength: 1 }
+        code_verifier: { type: string, minLength: 1 }
+        redirect_uri: { type: string, minLength: 1 }
+        state: { type: string, minLength: 1 }
+        nonce: { type: string, minLength: 1 }
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string }
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success: { type: boolean, const: true }
     HealthStatus:
       type: object
       properties:
@@ -663,8 +945,8 @@ components:
         source: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
-        suggestionSource: { type: string, enum: [ai, heuristic, workspace_learning] }
-        supportingPatternCount: { type: number }
+        suggestionSource: { type: ["string", "null"] }
+        supportingPatternCount: { type: ["number", "null"] }
         functionalCurrency: { type: ["string", "null"] }
         functionalAmount: { type: ["number", "null"] }
         exchangeRate: { type: ["number", "null"] }
@@ -693,11 +975,13 @@ components:
         currency: { type: string }
     StatementImportResult:
       type: object
-      required: [fileName, importStatus, importedCount, duplicateCount, duplicateLines, lines]
+      required: [fileName, importId, importStatus, importedCount, duplicateCount, duplicateLines, lines]
       properties:
         fileName: { type: string }
+        importId: { type: number }
         importStatus: { type: string, enum: [imported, imported_with_duplicates, duplicates_found, duplicate_file] }
         message: { type: string }
+        sourceUrl: { type: string }
         importedCount: { type: number }
         duplicateCount: { type: number }
         duplicateLines:
@@ -712,6 +996,39 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
             - type: "null"
+    StatementImport:
+      type: object
+      required: [id, fileName, mimeType, outcome, importedLineCount, createdAt]
+      properties:
+        id: { type: number }
+        fileName: { type: string }
+        mimeType: { type: string }
+        outcome: { type: string, enum: [completed, duplicate, failed] }
+        errorMessage: { type: ["string", "null"] }
+        importedLineCount: { type: number }
+        createdAt: { type: string }
+        sourceUrl: { type: ["string", "null"] }
+    UploadUrlRequest:
+      type: object
+      required: [clientId, name, size, contentType]
+      properties:
+        clientId: { type: number }
+        name: { type: string }
+        size: { type: number }
+        contentType: { type: string }
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath, metadata]
+      properties:
+        uploadURL: { type: string }
+        objectPath: { type: string }
+        metadata:
+          type: object
+          required: [name, size, contentType]
+          properties:
+            name: { type: string }
+            size: { type: number }
+            contentType: { type: string }
     StatementImportDuplicate:
       type: object
       required: [date, description, currency, amount, direction, existingLineId, reason]
@@ -775,6 +1092,18 @@ components:
     AICredentialStatus:
       type: string
       enum: [not_configured, configured, invalid, unavailable]
+    AIModelStatus:
+      type: string
+      enum: [active, retired]
+    AIModelOption:
+      type: object
+      required: [provider, model, displayName, status, retiredAt]
+      properties:
+        provider: { $ref: "#/components/schemas/AIProvider" }
+        model: { type: string }
+        displayName: { type: string }
+        status: { $ref: "#/components/schemas/AIModelStatus" }
+        retiredAt: { type: ["string", "null"], format: date-time }
     AIProviderSettings:
       type: object
       required: [clientId, provider, model, credentialStatus, credentialLast4, credentialUpdatedAt, lastTestedAt, availableModels]
@@ -788,7 +1117,9 @@ components:
         lastTestedAt: { type: ["string", "null"], format: date-time }
         availableModels:
           type: array
-          items: { type: string }
+          description: Provider-specific approved model catalog, including retired models for existing configurations.
+          items:
+            $ref: "#/components/schemas/AIModelOption"
     AIProviderSettingsInput:
       type: object
       required: [clientId, provider, model]
@@ -832,8 +1163,8 @@ components:
             to: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
-        suggestionSource: { type: string, enum: [ai, heuristic, workspace_learning] }
-        supportingPatternCount: { type: number }
+        suggestionSource: { type: ["string", "null"] }
+        supportingPatternCount: { type: ["number", "null"] }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccountDraft"
@@ -989,93 +1320,167 @@ components:
         cashFlow:
           type: array
           items: { $ref: "#/components/schemas/StatementSection" }
-    ComparativeStatementSection:
+    ReportPackInput:
       type: object
-      required: [label, amount, comparativeAmount]
+      required: [clientId, periodEnd]
+      properties:
+        clientId: { type: number }
+        periodEnd: { type: string, format: date }
+        reportingBasis: { type: string, enum: [IFRS, "IFRS for SMEs"] }
+        presentationProfile: { type: string, enum: ["IAS 1", "IFRS 18"] }
+        presentationCurrency: { type: string, minLength: 3, maxLength: 3 }
+        roundingPolicy: { type: string, enum: ["Nearest whole unit", "Nearest 2 decimals"] }
+    ReportPackSummary:
+      type: object
+      required: [id, clientId, periodEnd, comparativePeriodEnd, reportingBasis, presentationProfile, presentationCurrency, status, validationErrorCount, createdAt]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        periodEnd: { type: string, format: date }
+        comparativePeriodEnd: { type: string, format: date }
+        reportingBasis: { type: string }
+        presentationProfile: { type: string }
+        presentationCurrency: { type: string }
+        status: { type: string, enum: [draft, finalized] }
+        validationErrorCount: { type: number }
+        createdAt: { type: string, format: date-time }
+    ReportAmount:
+      type: object
+      required: [label, current, comparative, noteRef, sourceEntryIds, sourceLineIds]
       properties:
         label: { type: string }
-        amount: { type: number }
-        comparativeAmount: { type: number }
+        current: { type: number }
+        comparative: { type: number }
+        noteRef: { type: string }
+        sourceEntryIds:
+          type: array
+          items: { type: number }
+        sourceLineIds:
+          type: array
+          items: { type: number }
         children:
           type: array
-          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
-    ReportValidationIssue:
-      type: object
-      required: [code, severity, message, details]
-      properties:
-        code: { type: string }
-        severity: { type: string, enum: [error, warning, input] }
-        message: { type: string }
-        details:
-          type: array
-          items: { type: string }
+          items: { $ref: "#/components/schemas/ReportAmount" }
     ReportNote:
       type: object
-      required: [number, title, status, narrative, rows]
+      required: [number, title, narrative, requiresInput, tables]
       properties:
         number: { type: number }
         title: { type: string }
-        status: { type: string, enum: [generated, requires_input, not_applicable] }
         narrative: { type: string }
-        rows:
+        requiresInput: { type: boolean }
+        tables:
           type: array
           items:
             type: object
-            required: [label, amount, comparativeAmount]
+            required: [label, current, comparative]
             properties:
               label: { type: string }
-              amount: { type: number }
-              comparativeAmount: { type: number }
-    ReportApplicabilityItem:
+              current: { type: number }
+              comparative: { type: number }
+    ReportValidation:
       type: object
-      required: [standard, topic, status, rationale]
+      required: [status, errorCount, checks]
+      properties:
+        status: { type: string, enum: [pass, blocked] }
+        errorCount: { type: number }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [id, label, status, detail, blocking]
+            properties:
+              id: { type: string }
+              label: { type: string }
+              status: { type: string, enum: [pass, error, warning] }
+              detail: { type: string }
+              blocking: { type: boolean }
+    ReportChecklistItem:
+      type: object
+      required: [standard, title, status, prompt]
       properties:
         standard: { type: string }
-        topic: { type: string }
-        status: { type: string, enum: [applicable, not_applicable, immaterial, satisfied, requires_input] }
-        rationale: { type: string }
-    ReportPack:
+        title: { type: string }
+        status: { type: string, enum: [applicable, not_applicable, immaterial, satisfied, requires_accountant_input] }
+        prompt: { type: string }
+    ReportSignatory:
       type: object
-      required: [period, comparativePeriod, periodEnd, comparativePeriodEnd, entityName, legalName, basis, functionalCurrency, status, validationIssues, applicability, financialPosition, profitOrLoss, changesInEquity, cashFlows, notes, traceability]
+      required: [preparedBy, reviewedBy, authorizedBy]
       properties:
-        period: { type: string }
-        comparativePeriod: { type: string }
-        periodEnd: { type: string, format: date }
-        comparativePeriodEnd: { type: string, format: date }
+        preparedBy: { type: string }
+        reviewedBy: { type: string }
+        authorizedBy: { type: string }
+        authorizationDate: { type: ["string", "null"], format: date }
+    ReportSnapshot:
+      type: object
+      required: [entityName, legalName, periodEnd, comparativePeriodEnd, presentationCurrency, reportingBasis, presentationProfile, statementOfFinancialPosition, profitOrLossAndOci, changesInEquity, cashFlows, notes, traceability]
+      properties:
         entityName: { type: string }
         legalName: { type: string }
-        basis: { type: string }
-        functionalCurrency: { type: string }
-        status: { type: string, enum: [ready, needs_review] }
-        validationIssues:
+        periodEnd: { type: string, format: date }
+        comparativePeriodEnd: { type: string, format: date }
+        presentationCurrency: { type: string }
+        reportingBasis: { type: string }
+        presentationProfile: { type: string }
+        statementOfFinancialPosition:
           type: array
-          items: { $ref: "#/components/schemas/ReportValidationIssue" }
-        applicability:
+          items: { $ref: "#/components/schemas/ReportAmount" }
+        profitOrLossAndOci:
           type: array
-          items: { $ref: "#/components/schemas/ReportApplicabilityItem" }
-        financialPosition:
-          type: array
-          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
-        profitOrLoss:
-          type: array
-          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+          items: { $ref: "#/components/schemas/ReportAmount" }
         changesInEquity:
           type: array
-          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+          items: { $ref: "#/components/schemas/ReportAmount" }
         cashFlows:
           type: array
-          items: { $ref: "#/components/schemas/ComparativeStatementSection" }
+          items: { $ref: "#/components/schemas/ReportAmount" }
         notes:
           type: array
           items: { $ref: "#/components/schemas/ReportNote" }
         traceability:
           type: object
-          required: [postedEntryCount, comparativePostedEntryCount, sourceLineCount, missingRateCount, missingRateCurrencies]
+          required: [postedEntryCount, postedLineCount, sourceImportCount]
           properties:
             postedEntryCount: { type: number }
-            comparativePostedEntryCount: { type: number }
-            sourceLineCount: { type: number }
-            missingRateCount: { type: number }
-            missingRateCurrencies:
-              type: array
-              items: { type: string }
+            postedLineCount: { type: number }
+            sourceImportCount: { type: number }
+    ReportPack:
+      type: object
+      required: [id, clientId, periodStart, periodEnd, comparativePeriodStart, comparativePeriodEnd, reportingBasis, presentationProfile, presentationCurrency, roundingPolicy, status, snapshot, validation, notes, checklist, signatory, createdAt, updatedAt, finalizedAt]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        comparativePeriodStart: { type: string, format: date }
+        comparativePeriodEnd: { type: string, format: date }
+        reportingBasis: { type: string }
+        presentationProfile: { type: string }
+        presentationCurrency: { type: string }
+        roundingPolicy: { type: string }
+        status: { type: string, enum: [draft, finalized] }
+        snapshot: { $ref: "#/components/schemas/ReportSnapshot" }
+        validation: { $ref: "#/components/schemas/ReportValidation" }
+        notes:
+          type: array
+          items: { $ref: "#/components/schemas/ReportNote" }
+        checklist:
+          type: array
+          items: { $ref: "#/components/schemas/ReportChecklistItem" }
+        signatory: { $ref: "#/components/schemas/ReportSignatory" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        finalizedAt: { type: ["string", "null"], format: date-time }
+    ReportPackUpdate:
+      type: object
+      required: [clientId, action]
+      properties:
+        clientId: { type: number }
+        action: { type: string, enum: [update_inputs, finalize] }
+        notes:
+          type: array
+          items: { $ref: "#/components/schemas/ReportNote" }
+        checklist:
+          type: array
+          items: { $ref: "#/components/schemas/ReportChecklistItem" }
+        signatory: { $ref: "#/components/schemas/ReportSignatory" }

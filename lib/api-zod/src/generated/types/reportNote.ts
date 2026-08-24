@@ -5,13 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { ReportNoteRowsItem } from './reportNoteRowsItem';
-import type { ReportNoteStatus } from './reportNoteStatus';
+import type { ReportNoteTablesItem } from './reportNoteTablesItem';
 
 export interface ReportNote {
   number: number;
   title: string;
-  status: ReportNoteStatus;
   narrative: string;
-  rows: ReportNoteRowsItem[];
+  requiresInput: boolean;
+  tables: ReportNoteTablesItem[];
 }

@@ -6,9 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface ComparativeStatementSection {
+export type ReportNoteTablesItem = {
   label: string;
-  amount: number;
-  comparativeAmount: number;
-  children?: ComparativeStatementSection[];
-}
+  current: number;
+  comparative: number;
+};

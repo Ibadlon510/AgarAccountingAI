@@ -1,403 +1,487 @@
-import type { clientsTable, journalEntriesTable } from "@workspace/db";
+import type { accountClassificationsTable, clientsTable, journalEntriesTable } from "@workspace/db";
 
-type Client = typeof clientsTable.$inferSelect;
-type JournalEntry = typeof journalEntriesTable.$inferSelect;
-
-type ReportSection = {
+export type ReportAmount = {
   label: string;
-  amount: number;
-  comparativeAmount: number;
-  children?: ReportSection[];
+  current: number;
+  comparative: number;
+  noteRef: string;
+  sourceEntryIds: number[];
+  sourceLineIds: number[];
+  children?: ReportAmount[];
 };
 
-type ReportIssue = {
-  code: string;
-  severity: "error" | "warning" | "input";
-  message: string;
-  details: string[];
+export type ReportNote = {
+  number: number;
+  title: string;
+  narrative: string;
+  requiresInput: boolean;
+  tables: Array<{ label: string; current: number; comparative: number }>;
 };
 
-const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
-const isoDate = (value: Date) => value.toISOString().slice(0, 10);
+export type ReportChecklistItem = {
+  standard: string;
+  title: string;
+  status: "applicable" | "not_applicable" | "immaterial" | "satisfied" | "requires_accountant_input";
+  prompt: string;
+};
 
-function normalized(value: string) {
-  return value.trim().toLocaleLowerCase();
+export type ReportSignatory = {
+  preparedBy: string;
+  reviewedBy: string;
+  authorizedBy: string;
+  authorizationDate: string | null;
+};
+
+export type ReportValidation = {
+  status: "pass" | "blocked";
+  errorCount: number;
+  checks: Array<{
+    id: string;
+    label: string;
+    status: "pass" | "error" | "warning";
+    detail: string;
+    blocking: boolean;
+  }>;
+};
+
+export type ReportSnapshot = {
+  entityName: string;
+  legalName: string;
+  periodEnd: string;
+  comparativePeriodEnd: string;
+  presentationCurrency: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  statementOfFinancialPosition: ReportAmount[];
+  profitOrLossAndOci: ReportAmount[];
+  changesInEquity: ReportAmount[];
+  cashFlows: ReportAmount[];
+  notes: ReportNote[];
+  traceability: { postedEntryCount: number; postedLineCount: number; sourceImportCount: number };
+};
+
+type Entry = typeof journalEntriesTable.$inferSelect;
+type Classification = typeof accountClassificationsTable.$inferSelect;
+type Client = typeof clientsTable.$inferSelect;
+
+type AccountKind = "asset" | "liability" | "equity" | "revenue" | "expense" | "oci";
+type AccountMeta = {
+  kind: AccountKind;
+  displayName: string;
+  currentNonCurrent: "current" | "non_current" | "not_applicable";
+  cashFlowCategory: "operating" | "investing" | "financing";
+  noteNumber: number;
+  relatedParty: boolean;
+  tax: boolean;
+};
+
+type AccountBalance = {
+  account: string;
+  meta: AccountMeta;
+  currentDebit: number;
+  currentCredit: number;
+  comparativeDebit: number;
+  comparativeCredit: number;
+  currentEntryIds: Set<number>;
+  comparativeEntryIds: Set<number>;
+  currentLineIds: Set<number>;
+  comparativeLineIds: Set<number>;
+};
+
+const expensePattern = /expense|cost|travel|software|office|communication|rent|payroll|wage|salary|charge|fee|marketing|insurance|depreciation/i;
+const defaultChecklist: Array<Omit<ReportChecklistItem, "status">> = [
+  { standard: "IAS 1", title: "Presentation of Financial Statements", prompt: "Confirm the entity’s presentation, going-concern assessment, materiality, and comparative disclosures." },
+  { standard: "IAS 7", title: "Statement of Cash Flows", prompt: "Confirm cash-equivalent policy and indirect cash-flow classification." },
+  { standard: "IAS 8", title: "Accounting Policies, Changes in Estimates and Errors", prompt: "Confirm policies, estimates, and any errors or restatements." },
+  { standard: "IAS 10", title: "Events after the Reporting Period", prompt: "Assess subsequent events through authorization date." },
+  { standard: "IAS 12", title: "Income Taxes", prompt: "Assess current and deferred tax balances and disclosures." },
+  { standard: "IAS 16", title: "Property, Plant and Equipment", prompt: "Confirm whether fixed-asset registers and depreciation disclosures are required." },
+  { standard: "IAS 19", title: "Employee Benefits", prompt: "Confirm employee-benefit obligations and expense disclosures." },
+  { standard: "IAS 21", title: "Effects of Changes in Foreign Exchange Rates", prompt: "Confirm functional currency, rate policies, and exchange differences." },
+  { standard: "IAS 24", title: "Related Party Disclosures", prompt: "Confirm related parties, balances, terms, and transactions." },
+  { standard: "IFRS 7", title: "Financial Instruments: Disclosures", prompt: "Confirm liquidity, credit, and market-risk disclosures." },
+  { standard: "IFRS 9", title: "Financial Instruments", prompt: "Confirm classification, impairment, and measurement of financial instruments." },
+  { standard: "IFRS 15", title: "Revenue from Contracts with Customers", prompt: "Confirm revenue streams, performance obligations, and contract balances." },
+];
+
+const standardAccountMeta = (account: string): AccountMeta => {
+  const normalized = account.toLowerCase();
+  if (/bank|cash/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 3, relatedParty: false, tax: false };
+  if (/receivable|inventory|prepayment|deposit|due from/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 8, relatedParty: /due from/.test(normalized), tax: false };
+  if (/property|plant|equipment|intangible|capital asset/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "non_current", cashFlowCategory: "investing", noteNumber: 8, relatedParty: false, tax: false };
+  if (/payable|accrual|due to|loan|borrow|liabilit/.test(normalized)) return { kind: "liability", displayName: account, currentNonCurrent: /loan|borrow/.test(normalized) ? "non_current" : "current", cashFlowCategory: /loan|borrow/.test(normalized) ? "financing" : "operating", noteNumber: 6, relatedParty: /due to/.test(normalized), tax: /tax/.test(normalized) };
+  if (/equity|share capital|retained earnings|reserve/.test(normalized)) return { kind: "equity", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "financing", noteNumber: 1, relatedParty: false, tax: false };
+  if (/oci|other comprehensive/.test(normalized)) return { kind: "oci", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "operating", noteNumber: 1, relatedParty: false, tax: false };
+  if (/revenue|sales|income|retainer/.test(normalized)) return { kind: "revenue", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "operating", noteNumber: 4, relatedParty: false, tax: false };
+  return { kind: "expense", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "operating", noteNumber: /tax/.test(normalized) ? 7 : 5, relatedParty: false, tax: /tax/.test(normalized) };
+};
+
+function customAccountMeta(classification: Classification): AccountMeta {
+  const fallback = standardAccountMeta(classification.accountName);
+  const kind = classification.statementSection as AccountKind;
+  return {
+    ...fallback,
+    kind: ["asset", "liability", "equity", "revenue", "expense", "oci"].includes(kind) ? kind : fallback.kind,
+    displayName: classification.displayName,
+    currentNonCurrent: classification.currentNonCurrent === "current" || classification.currentNonCurrent === "non_current"
+      ? classification.currentNonCurrent
+      : "not_applicable",
+    cashFlowCategory: classification.cashFlowCategory === "investing" || classification.cashFlowCategory === "financing"
+      ? classification.cashFlowCategory
+      : "operating",
+    noteNumber: classification.noteNumber ?? fallback.noteNumber,
+    relatedParty: classification.relatedPartyCategory !== "none",
+    tax: classification.taxCategory !== "not_assessed",
+  };
 }
 
-function reportingAmount(entry: JournalEntry, functionalCurrency: string) {
-  if (entry.functionalAmount != null && entry.functionalCurrency === functionalCurrency) return Number(entry.functionalAmount);
-  if (normalized(entry.currency) === normalized(functionalCurrency)) return Number(entry.amount);
-  return null;
-}
-
-function closeDateFromClient(period: string, entries: JournalEntry[]) {
-  const iso = period.match(/\b(20\d{2})[-/](\d{1,2})(?:[-/](\d{1,2}))?\b/);
-  if (iso) {
-    const year = Number(iso[1]);
-    const month = Number(iso[2]);
-    const day = Number(iso[3] ?? new Date(Date.UTC(year, month, 0)).getUTCDate());
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+export function resolveReportPeriod(periodEnd: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodEnd) || Number.isNaN(Date.parse(`${periodEnd}T00:00:00Z`))) {
+    throw new Error("Reporting period end must use YYYY-MM-DD.");
   }
-  const named = period.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/i);
-  if (named) {
-    const month = new Date(`${named[1]} 1, ${named[2]}`).getMonth() + 1;
-    const day = new Date(Date.UTC(Number(named[2]), month, 0)).getUTCDate();
-    return `${named[2]}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  }
-  const latest = entries.map((entry) => entry.date).sort().at(-1);
-  return latest ?? isoDate(new Date());
+  const year = Number(periodEnd.slice(0, 4));
+  return {
+    periodStart: `${year}-01-01`,
+    periodEnd,
+    comparativePeriodStart: `${year - 1}-01-01`,
+    comparativePeriodEnd: `${year - 1}-12-31`,
+  };
 }
 
-function yearBefore(date: string, years = 1) {
-  const [year, month, day] = date.split("-").map(Number);
-  const maximumDay = new Date(Date.UTC(year - years, month, 0)).getUTCDate();
-  return `${year - years}-${String(month).padStart(2, "0")}-${String(Math.min(day, maximumDay)).padStart(2, "0")}`;
-}
-
-function yearStart(date: string) {
-  return `${date.slice(0, 4)}-01-01`;
-}
-
-function periodLabel(date: string) {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-}
-
-type AccountClass = "cash" | "current_asset" | "non_current_asset" | "current_liability" | "non_current_liability" | "equity" | "revenue" | "other_income" | "expense" | "tax" | "oci";
-
-function accountClass(account: string): AccountClass {
-  const value = normalized(account);
-  if (value.includes("bank") || value.includes("cash")) return "cash";
-  if (value.includes("receivable") || value.includes("inventory") || value.includes("prepaid") || value.includes("deposit") || value.includes("advance")) return "current_asset";
-  if (value.includes("property") || value.includes("equipment") || value.includes("fixed asset") || value.includes("intangible") || value.includes("investment")) return "non_current_asset";
-  if (value.includes("payable") || value.includes("accrual") || value.includes("tax payable") || value.includes("employee benefit")) return "current_liability";
-  if (value.includes("loan") || value.includes("borrow") || value.includes("lease") || value.includes("deferred tax") || value.includes("non-current")) return "non_current_liability";
-  if (value.includes("share capital") || value === "capital" || value.includes("reserve") || value.includes("retained earning")) return "equity";
-  if (value.includes("oci") || value.includes("revaluation")) return "oci";
-  if (value.includes("tax") || value.includes("corporate tax")) return "tax";
-  if (value.includes("other income") || value.includes("interest income") || value.includes("gain")) return "other_income";
-  if (value.includes("revenue") || value.includes("sales") || value.includes("income")) return "revenue";
-  return "expense";
-}
-
-function isInRange(date: string, start: string, end: string) {
+function between(date: string, start: string, end: string) {
   return date >= start && date <= end;
 }
 
-function toSection(label: string, amount: number, comparativeAmount: number, children?: ReportSection[]): ReportSection {
-  return { label, amount: round(amount), comparativeAmount: round(comparativeAmount), ...(children?.length ? { children } : {}) };
+function reportAmount(label: string, current: number, comparative: number, noteNumber: number, currentEntries: Set<number>, comparativeEntries: Set<number>, currentLines: Set<number>, comparativeLines: Set<number>, children?: ReportAmount[]): ReportAmount {
+  return {
+    label,
+    current,
+    comparative,
+    noteRef: noteNumber ? String(noteNumber) : "—",
+    sourceEntryIds: [...new Set([...currentEntries, ...comparativeEntries])],
+    sourceLineIds: [...new Set([...currentLines, ...comparativeLines])],
+    ...(children?.length ? { children } : {}),
+  };
 }
 
-function accountTotals(entries: JournalEntry[], functionalCurrency: string, endDate: string, startDate?: string) {
-  const totals = new Map<string, { debit: number; credit: number; class: AccountClass }>();
-  const included = entries.filter((entry) => entry.date <= endDate && (!startDate || entry.date >= startDate));
-  const missing = included.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
-  for (const entry of included) {
-    const amount = reportingAmount(entry, functionalCurrency);
-    if (amount == null) continue;
-    const debit = totals.get(entry.debitAccount) ?? { debit: 0, credit: 0, class: accountClass(entry.debitAccount) };
-    debit.debit += amount;
-    totals.set(entry.debitAccount, debit);
-    const credit = totals.get(entry.creditAccount) ?? { debit: 0, credit: 0, class: accountClass(entry.creditAccount) };
-    credit.credit += amount;
-    totals.set(entry.creditAccount, credit);
+function emptySets() {
+  return { entries: new Set<number>(), lines: new Set<number>() };
+}
+
+function accountValue(balance: AccountBalance, period: "current" | "comparative") {
+  const debit = period === "current" ? balance.currentDebit : balance.comparativeDebit;
+  const credit = period === "current" ? balance.currentCredit : balance.comparativeCredit;
+  if (balance.meta.kind === "asset" || balance.meta.kind === "expense") return debit - credit;
+  return credit - debit;
+}
+
+function sums(items: AccountBalance[], period: "current" | "comparative", filter?: (item: AccountBalance) => boolean) {
+  return items.filter((item) => !filter || filter(item)).reduce((total, item) => total + accountValue(item, period), 0);
+}
+
+function accountLine(balance: AccountBalance): ReportAmount {
+  return reportAmount(
+    balance.meta.displayName,
+    accountValue(balance, "current"),
+    accountValue(balance, "comparative"),
+    balance.meta.noteNumber,
+    balance.currentEntryIds,
+    balance.comparativeEntryIds,
+    balance.currentLineIds,
+    balance.comparativeLineIds,
+  );
+}
+
+function sumSets(balances: AccountBalance[], period: "current" | "comparative") {
+  const result = emptySets();
+  for (const balance of balances) {
+    const entries = period === "current" ? balance.currentEntryIds : balance.comparativeEntryIds;
+    const lines = period === "current" ? balance.currentLineIds : balance.comparativeLineIds;
+    entries.forEach((value) => result.entries.add(value));
+    lines.forEach((value) => result.lines.add(value));
   }
-  return { totals, included, missing };
+  return result;
 }
 
-function accountBalanceMap(entries: JournalEntry[], functionalCurrency: string, endDate: string) {
-  const { totals, missing } = accountTotals(entries, functionalCurrency, endDate);
-  return { totals, missing };
-}
+export function buildReportPack(input: {
+  client: Client;
+  entries: Entry[];
+  classifications: Classification[];
+  periodEnd: string;
+  presentationCurrency: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  roundingPolicy: string;
+  sourceImportCount: number;
+  missingRateEntries: Entry[];
+}) {
+  const periods = resolveReportPeriod(input.periodEnd);
+  const metaByAccount = new Map(input.classifications.map((classification) => [classification.accountName, customAccountMeta(classification)]));
+  const balances = new Map<string, AccountBalance>();
+  const currentEntries = input.entries.filter((entry) => between(entry.date, periods.periodStart, periods.periodEnd));
+  const comparativeEntries = input.entries.filter((entry) => between(entry.date, periods.comparativePeriodStart, periods.comparativePeriodEnd));
+  const cumulativeCurrentEntries = input.entries.filter((entry) => entry.date <= periods.periodEnd);
+  const cumulativeComparativeEntries = input.entries.filter((entry) => entry.date <= periods.comparativePeriodEnd);
 
-function statementAmounts(entries: JournalEntry[], functionalCurrency: string, startDate: string, endDate: string) {
-  const { totals, missing } = accountTotals(entries, functionalCurrency, endDate, startDate);
-  let revenue = 0;
-  let otherIncome = 0;
-  let expenses = 0;
-  let tax = 0;
-  let oci = 0;
-  const revenueRows: ReportSection[] = [];
-  const expenseRows: ReportSection[] = [];
-  for (const [account, value] of totals) {
-    const balance = value.credit - value.debit;
-    if (value.class === "revenue") {
-      revenue += balance;
-      revenueRows.push(toSection(account, balance, 0));
-    } else if (value.class === "other_income") {
-      otherIncome += balance;
-    } else if (value.class === "tax") {
-      tax += Math.max(0, -balance);
-      expenses += Math.max(0, balance);
-      expenseRows.push(toSection(account, Math.max(0, balance), 0));
-    } else if (value.class === "expense") {
-      const amount = value.debit - value.credit;
-      expenses += amount;
-      expenseRows.push(toSection(account, amount, 0));
-    } else if (value.class === "oci") {
-      oci += balance;
+  function add(account: string, amount: number, debit: boolean, entry: Entry, period: "current" | "comparative", cumulative: boolean) {
+    const balance = balances.get(account) ?? {
+      account,
+      meta: metaByAccount.get(account) ?? standardAccountMeta(account),
+      currentDebit: 0,
+      currentCredit: 0,
+      comparativeDebit: 0,
+      comparativeCredit: 0,
+      currentEntryIds: new Set<number>(),
+      comparativeEntryIds: new Set<number>(),
+      currentLineIds: new Set<number>(),
+      comparativeLineIds: new Set<number>(),
+    };
+    if (cumulative) {
+      if (period === "current") {
+        if (debit) balance.currentDebit += amount; else balance.currentCredit += amount;
+        balance.currentEntryIds.add(entry.id);
+        balance.currentLineIds.add(entry.statementLineId);
+      } else {
+        if (debit) balance.comparativeDebit += amount; else balance.comparativeCredit += amount;
+        balance.comparativeEntryIds.add(entry.id);
+        balance.comparativeLineIds.add(entry.statementLineId);
+      }
     }
-  }
-  return {
-    revenue: round(revenue),
-    otherIncome: round(otherIncome),
-    expenses: round(expenses),
-    tax: round(tax),
-    oci: round(oci),
-    netIncome: round(revenue + otherIncome - expenses - tax),
-    revenueRows: revenueRows.filter((row) => Math.abs(row.amount) > 0.005),
-    expenseRows: expenseRows.filter((row) => Math.abs(row.amount) > 0.005),
-    missing,
-  };
-}
-
-function balanceSheet(entries: JournalEntry[], functionalCurrency: string, endDate: string) {
-  const { totals, missing } = accountBalanceMap(entries, functionalCurrency, endDate);
-  const currentAssets: ReportSection[] = [];
-  const nonCurrentAssets: ReportSection[] = [];
-  const currentLiabilities: ReportSection[] = [];
-  const nonCurrentLiabilities: ReportSection[] = [];
-  const equityAccounts: ReportSection[] = [];
-  let assets = 0;
-  let liabilities = 0;
-  let shareCapital = 0;
-  for (const [account, value] of totals) {
-    const balance = value.debit - value.credit;
-    const amount = round(balance);
-    if (value.class === "cash" || value.class === "current_asset") {
-      assets += amount;
-      currentAssets.push(toSection(account, amount, 0));
-    } else if (value.class === "non_current_asset") {
-      assets += amount;
-      nonCurrentAssets.push(toSection(account, amount, 0));
-    } else if (value.class === "current_liability" || value.class === "non_current_liability") {
-      const liabilityAmount = -amount;
-      liabilities += liabilityAmount;
-      (value.class === "current_liability" ? currentLiabilities : nonCurrentLiabilities).push(toSection(account, liabilityAmount, 0));
-    } else if (value.class === "equity") {
-      const equityAmount = -amount;
-      shareCapital += equityAmount;
-      equityAccounts.push(toSection(account, equityAmount, 0));
-    }
-  }
-  const retainedEarnings = round(assets - liabilities - shareCapital);
-  return {
-    assets: round(assets),
-    liabilities: round(liabilities),
-    shareCapital: round(shareCapital),
-    retainedEarnings,
-    equity: round(shareCapital + retainedEarnings),
-    currentAssets: currentAssets.filter((row) => Math.abs(row.amount) > 0.005),
-    nonCurrentAssets: nonCurrentAssets.filter((row) => Math.abs(row.amount) > 0.005),
-    currentLiabilities: currentLiabilities.filter((row) => Math.abs(row.amount) > 0.005),
-    nonCurrentLiabilities: nonCurrentLiabilities.filter((row) => Math.abs(row.amount) > 0.005),
-    equityAccounts: equityAccounts.filter((row) => Math.abs(row.amount) > 0.005),
-    missing,
-  };
-}
-
-function cashFlow(entries: JournalEntry[], functionalCurrency: string, startDate: string, endDate: string, currentIncome: number, openingCash: number, closingCash: number) {
-  let operating = 0;
-  let investing = 0;
-  let financing = 0;
-  for (const entry of entries) {
-    if (!isInRange(entry.date, startDate, endDate)) continue;
-    const amount = reportingAmount(entry, functionalCurrency);
-    if (amount == null) continue;
-    const debitCash = accountClass(entry.debitAccount) === "cash";
-    const creditCash = accountClass(entry.creditAccount) === "cash";
-    if (!debitCash && !creditCash) continue;
-    const movement = debitCash ? amount : -amount;
-    const counterparty = debitCash ? accountClass(entry.creditAccount) : accountClass(entry.debitAccount);
-    if (counterparty === "current_asset" || counterparty === "current_liability" || counterparty === "expense" || counterparty === "tax" || counterparty === "revenue" || counterparty === "other_income") operating += movement;
-    else if (counterparty === "non_current_asset") investing += movement;
-    else if (counterparty === "non_current_liability" || counterparty === "equity") financing += movement;
-    else operating += movement;
-  }
-  const workingCapital = round(operating - currentIncome);
-  const movement = round(operating + investing + financing);
-  return {
-    operating: round(operating),
-    investing: round(investing),
-    financing: round(financing),
-    workingCapital,
-    movement,
-    openingCash: round(openingCash),
-    closingCash: round(closingCash),
-    missing: entries.filter((entry) => isInRange(entry.date, startDate, endDate) && reportingAmount(entry, functionalCurrency) == null),
-  };
-}
-
-function issue(code: string, severity: ReportIssue["severity"], message: string, details: string[] = []): ReportIssue {
-  return { code, severity, message, details };
-}
-
-export function buildReportPack(
-  client: Client,
-  entries: JournalEntry[],
-  sourceLineCount: number,
-  requestedPeriodEnd?: string,
-) {
-  const functionalCurrency = client.functionalCurrency.toUpperCase();
-  const periodEnd = requestedPeriodEnd && /^\d{4}-\d{2}-\d{2}$/.test(requestedPeriodEnd) ? requestedPeriodEnd : closeDateFromClient(client.period, entries);
-  const comparativePeriodEnd = yearBefore(periodEnd);
-  const priorComparativeEnd = yearBefore(comparativePeriodEnd);
-  const periodStart = yearStart(periodEnd);
-  const comparativeStart = yearStart(comparativePeriodEnd);
-
-  const currentPosition = balanceSheet(entries, functionalCurrency, periodEnd);
-  const priorPosition = balanceSheet(entries, functionalCurrency, comparativePeriodEnd);
-  const priorPriorPosition = balanceSheet(entries, functionalCurrency, priorComparativeEnd);
-  const currentIncome = statementAmounts(entries, functionalCurrency, periodStart, periodEnd);
-  const priorIncome = statementAmounts(entries, functionalCurrency, comparativeStart, comparativePeriodEnd);
-  const currentCash = currentPosition.currentAssets.find((row) => accountClass(row.label) === "cash")?.amount ?? 0;
-  const priorCash = priorPosition.currentAssets.find((row) => accountClass(row.label) === "cash")?.amount ?? 0;
-  const currentCashFlow = cashFlow(entries, functionalCurrency, periodStart, periodEnd, currentIncome.netIncome, priorCash, currentCash);
-  const priorCashFlow = cashFlow(entries, functionalCurrency, comparativeStart, comparativePeriodEnd, priorIncome.netIncome, priorPriorPosition.currentAssets.find((row) => accountClass(row.label) === "cash")?.amount ?? 0, priorCash);
-
-  const allInScope = entries.filter((entry) => entry.date <= periodEnd && entry.date >= yearStart(priorComparativeEnd));
-  const missingEntries = [...currentPosition.missing, ...priorPosition.missing, ...currentIncome.missing, ...priorIncome.missing];
-  const missingRateCurrencies = [...new Set(missingEntries.map((entry) => entry.currency.toUpperCase()))];
-  const currentTotalLiabilitiesAndEquity = currentPosition.liabilities + currentPosition.equity;
-  const priorTotalLiabilitiesAndEquity = priorPosition.liabilities + priorPosition.equity;
-  const issues: ReportIssue[] = [];
-  if (!entries.some((entry) => entry.status === "posted")) {
-    issues.push(issue("no_posted_entries", "error", "No posted journal entries are available for this report period.", ["Approve and post reviewed journal entries before generating a final pack."]));
-  }
-  if (missingEntries.length) {
-    issues.push(issue("missing_fx_rates", "error", `${missingEntries.length} posted transaction${missingEntries.length === 1 ? "" : "s"} cannot be converted to ${functionalCurrency}.`, missingRateCurrencies.map((currency) => `${currency} needs a dated ${currency} → ${functionalCurrency} rate.`)));
-  }
-  const trialBalanceVariance = round(entries.filter((entry) => entry.date <= periodEnd).reduce((sum, entry) => {
-    const amount = reportingAmount(entry, functionalCurrency);
-    return sum + (amount == null ? 0 : amount - amount);
-  }, 0));
-  if (Math.abs(trialBalanceVariance) > 0.01) {
-    issues.push(issue("trial_balance", "error", "The posted trial balance does not reconcile.", [`Variance: ${trialBalanceVariance.toFixed(2)} ${functionalCurrency}.`]));
-  }
-  const balanceSheetVariance = round(currentPosition.assets - currentTotalLiabilitiesAndEquity);
-  if (Math.abs(balanceSheetVariance) > 0.01) {
-    issues.push(issue("balance_sheet", "error", "Total assets do not equal total liabilities and equity.", [`Variance: ${balanceSheetVariance.toFixed(2)} ${functionalCurrency}.`]));
-  }
-  const priorBalanceSheetVariance = round(priorPosition.assets - priorTotalLiabilitiesAndEquity);
-  if (Math.abs(priorBalanceSheetVariance) > 0.01) {
-    issues.push(issue("comparative_balance_sheet", "error", "Comparative total assets do not equal total liabilities and equity.", [`Variance: ${priorBalanceSheetVariance.toFixed(2)} ${functionalCurrency}.`]));
-  }
-  const retainedEarningsVariance = round((currentPosition.retainedEarnings - priorPosition.retainedEarnings) - currentIncome.netIncome);
-  if (Math.abs(retainedEarningsVariance) > 0.01) {
-    issues.push(issue("retained_earnings", "error", "Retained earnings movement does not agree to profit for the period.", [`Variance: ${retainedEarningsVariance.toFixed(2)} ${functionalCurrency}. Review opening balances and owner movements.`]));
-  }
-  const cashVariance = round(currentCashFlow.openingCash + currentCashFlow.movement - currentCashFlow.closingCash);
-  if (Math.abs(cashVariance) > 0.01) {
-    issues.push(issue("cash_flow", "error", "Opening cash, cash-flow movements, and closing cash do not reconcile.", [`Variance: ${cashVariance.toFixed(2)} ${functionalCurrency}.`]));
-  }
-  if (currentIncome.revenue !== 0 && priorIncome.revenue === 0) {
-    issues.push(issue("comparative_data", "input", "No prior comparable revenue was found.", ["Confirm whether the prior period is a genuine zero or provide the prior-period ledger."]));
-  }
-  if (allInScope.length === 0) {
-    issues.push(issue("source_traceability", "error", "The report has no posted source-linked entries in the selected comparison window."));
+    balances.set(account, balance);
   }
 
-  const statementChildren = (current: ReportSection[], prior: ReportSection[]) => {
-    const labels = [...new Set([...current, ...prior].map((row) => row.label))];
-    return labels.map((label) => {
-      const currentRow = current.find((row) => row.label === label);
-      const priorRow = prior.find((row) => row.label === label);
-      return toSection(label, currentRow?.amount ?? 0, priorRow?.amount ?? 0);
-    });
-  };
+  const convertedAmount = (entry: Entry) => Number(entry.functionalAmount ?? entry.amount);
+  for (const entry of cumulativeCurrentEntries) {
+    const amount = convertedAmount(entry);
+    add(entry.debitAccount, amount, true, entry, "current", true);
+    add(entry.creditAccount, amount, false, entry, "current", true);
+  }
+  for (const entry of cumulativeComparativeEntries) {
+    const amount = convertedAmount(entry);
+    add(entry.debitAccount, amount, true, entry, "comparative", true);
+    add(entry.creditAccount, amount, false, entry, "comparative", true);
+  }
 
-  const financialPosition: ReportSection[] = [
-    toSection("Non-current assets", currentPosition.nonCurrentAssets.reduce((sum, row) => sum + row.amount, 0), priorPosition.nonCurrentAssets.reduce((sum, row) => sum + row.amount, 0), statementChildren(currentPosition.nonCurrentAssets, priorPosition.nonCurrentAssets)),
-    toSection("Current assets", currentPosition.assets - currentPosition.nonCurrentAssets.reduce((sum, row) => sum + row.amount, 0), priorPosition.assets - priorPosition.nonCurrentAssets.reduce((sum, row) => sum + row.amount, 0), statementChildren(currentPosition.currentAssets, priorPosition.currentAssets)),
-    toSection("Total assets", currentPosition.assets, priorPosition.assets),
-    toSection("Non-current liabilities", currentPosition.nonCurrentLiabilities.reduce((sum, row) => sum + row.amount, 0), priorPosition.nonCurrentLiabilities.reduce((sum, row) => sum + row.amount, 0), statementChildren(currentPosition.nonCurrentLiabilities, priorPosition.nonCurrentLiabilities)),
-    toSection("Current liabilities", currentPosition.liabilities - currentPosition.nonCurrentLiabilities.reduce((sum, row) => sum + row.amount, 0), priorPosition.liabilities - priorPosition.nonCurrentLiabilities.reduce((sum, row) => sum + row.amount, 0), statementChildren(currentPosition.currentLiabilities, priorPosition.currentLiabilities)),
-    toSection("Total liabilities", currentPosition.liabilities, priorPosition.liabilities),
-    toSection("Equity", currentPosition.equity, priorPosition.equity, [
-      toSection("Share capital and reserves", currentPosition.shareCapital, priorPosition.shareCapital),
-      toSection("Retained earnings", currentPosition.retainedEarnings, priorPosition.retainedEarnings),
+  const values = [...balances.values()];
+  const assets = values.filter((item) => item.meta.kind === "asset");
+  const liabilities = values.filter((item) => item.meta.kind === "liability");
+  const equityAccounts = values.filter((item) => item.meta.kind === "equity");
+  const revenues = values.filter((item) => item.meta.kind === "revenue");
+  const expenses = values.filter((item) => item.meta.kind === "expense");
+  const ociAccounts = values.filter((item) => item.meta.kind === "oci");
+  const currentNetIncome = sums(revenues, "current") - sums(expenses, "current");
+  const comparativeNetIncome = sums(revenues, "comparative") - sums(expenses, "comparative");
+  const currentOci = sums(ociAccounts, "current");
+  const comparativeOci = sums(ociAccounts, "comparative");
+  const currentAssets = sums(assets, "current");
+  const comparativeAssets = sums(assets, "comparative");
+  const currentLiabilities = sums(liabilities, "current");
+  const comparativeLiabilities = sums(liabilities, "comparative");
+  const currentExplicitEquity = sums(equityAccounts, "current");
+  const comparativeExplicitEquity = sums(equityAccounts, "comparative");
+  const currentEquity = currentExplicitEquity + currentNetIncome + currentOci;
+  const comparativeEquity = comparativeExplicitEquity + comparativeNetIncome + comparativeOci;
+
+  const cashBalances = assets.filter((item) => /bank|cash/i.test(item.account));
+  const cashCurrent = sums(cashBalances, "current");
+  const cashComparative = sums(cashBalances, "comparative");
+  const openingCash = cashComparative;
+  const cashMovement = cashCurrent - openingCash;
+  const operatingCash = currentEntries.reduce((total, entry) => {
+    const amount = convertedAmount(entry);
+    return total + (entry.debitAccount === "Bank / cash" ? amount : entry.creditAccount === "Bank / cash" ? -amount : 0);
+  }, 0);
+  const investingCash = 0;
+  const financingCash = 0;
+  const workingCapitalMovement = operatingCash - currentNetIncome;
+
+  const assetsSets = sumSets(assets, "current");
+  const comparativeAssetSets = sumSets(assets, "comparative");
+  const liabilitySets = sumSets(liabilities, "current");
+  const comparativeLiabilitySets = sumSets(liabilities, "comparative");
+  const equitySets = sumSets(equityAccounts, "current");
+  const comparativeEquitySets = sumSets(equityAccounts, "comparative");
+  const revenueSets = sumSets(revenues, "current");
+  const comparativeRevenueSets = sumSets(revenues, "comparative");
+  const expenseSets = sumSets(expenses, "current");
+  const comparativeExpenseSets = sumSets(expenses, "comparative");
+  const cashSets = sumSets(cashBalances, "current");
+  const comparativeCashSets = sumSets(cashBalances, "comparative");
+
+  const statementOfFinancialPosition = [
+    reportAmount("Current assets", sums(assets, "current", (item) => item.meta.currentNonCurrent === "current"), sums(assets, "comparative", (item) => item.meta.currentNonCurrent === "current"), 3, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines, assets.filter((item) => item.meta.currentNonCurrent === "current").map(accountLine)),
+    reportAmount("Non-current assets", sums(assets, "current", (item) => item.meta.currentNonCurrent === "non_current"), sums(assets, "comparative", (item) => item.meta.currentNonCurrent === "non_current"), 8, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines, assets.filter((item) => item.meta.currentNonCurrent === "non_current").map(accountLine)),
+    reportAmount("Total assets", currentAssets, comparativeAssets, 3, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines),
+    reportAmount("Current liabilities", sums(liabilities, "current", (item) => item.meta.currentNonCurrent === "current"), sums(liabilities, "comparative", (item) => item.meta.currentNonCurrent === "current"), 6, liabilitySets.entries, comparativeLiabilitySets.entries, liabilitySets.lines, comparativeLiabilitySets.lines, liabilities.filter((item) => item.meta.currentNonCurrent === "current").map(accountLine)),
+    reportAmount("Non-current liabilities", sums(liabilities, "current", (item) => item.meta.currentNonCurrent === "non_current"), sums(liabilities, "comparative", (item) => item.meta.currentNonCurrent === "non_current"), 6, liabilitySets.entries, comparativeLiabilitySets.entries, liabilitySets.lines, comparativeLiabilitySets.lines, liabilities.filter((item) => item.meta.currentNonCurrent === "non_current").map(accountLine)),
+    reportAmount("Equity", currentEquity, comparativeEquity, 1, equitySets.entries, comparativeEquitySets.entries, equitySets.lines, comparativeEquitySets.lines, [
+      ...equityAccounts.map(accountLine),
+      reportAmount("Retained earnings", currentNetIncome + currentOci, comparativeNetIncome + comparativeOci, 1, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines),
     ]),
-    toSection("Total liabilities and equity", currentTotalLiabilitiesAndEquity, priorTotalLiabilitiesAndEquity),
+    reportAmount("Total liabilities and equity", currentLiabilities + currentEquity, comparativeLiabilities + comparativeEquity, 1, new Set([...liabilitySets.entries, ...equitySets.entries]), new Set([...comparativeLiabilitySets.entries, ...comparativeEquitySets.entries]), new Set([...liabilitySets.lines, ...equitySets.lines]), new Set([...comparativeLiabilitySets.lines, ...comparativeEquitySets.lines])),
   ];
 
-  const profitOrLoss: ReportSection[] = [
-    toSection("Revenue", currentIncome.revenue, priorIncome.revenue, statementChildren(currentIncome.revenueRows, priorIncome.revenueRows)),
-    toSection("Other income", currentIncome.otherIncome, priorIncome.otherIncome),
-    toSection("Operating expenses", -currentIncome.expenses, -priorIncome.expenses, statementChildren(currentIncome.expenseRows, priorIncome.expenseRows).map((row) => ({ ...row, amount: -row.amount, comparativeAmount: -row.comparativeAmount }))),
-    toSection("Profit before tax", currentIncome.revenue + currentIncome.otherIncome - currentIncome.expenses, priorIncome.revenue + priorIncome.otherIncome - priorIncome.expenses),
-    toSection("Income tax expense", -currentIncome.tax, -priorIncome.tax),
-    toSection("Profit for the period", currentIncome.netIncome, priorIncome.netIncome),
-    toSection("Other comprehensive income", currentIncome.oci, priorIncome.oci),
-    toSection("Total comprehensive income", currentIncome.netIncome + currentIncome.oci, priorIncome.netIncome + priorIncome.oci),
+  const profitOrLossAndOci = [
+    reportAmount("Revenue", sums(revenues, "current"), sums(revenues, "comparative"), 4, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines, revenues.map(accountLine)),
+    reportAmount("Operating expenses", -sums(expenses, "current", (item) => !item.meta.tax), -sums(expenses, "comparative", (item) => !item.meta.tax), 5, expenseSets.entries, comparativeExpenseSets.entries, expenseSets.lines, comparativeExpenseSets.lines, expenses.filter((item) => !item.meta.tax).map((item) => ({ ...accountLine(item), current: -accountValue(item, "current"), comparative: -accountValue(item, "comparative") }))),
+    reportAmount("Profit before tax", currentNetIncome + sums(expenses, "current", (item) => item.meta.tax), comparativeNetIncome + sums(expenses, "comparative", (item) => item.meta.tax), 7, new Set([...revenueSets.entries, ...expenseSets.entries]), new Set([...comparativeRevenueSets.entries, ...comparativeExpenseSets.entries]), new Set([...revenueSets.lines, ...expenseSets.lines]), new Set([...comparativeRevenueSets.lines, ...comparativeExpenseSets.lines])),
+    reportAmount("Income tax expense", -sums(expenses, "current", (item) => item.meta.tax), -sums(expenses, "comparative", (item) => item.meta.tax), 7, expenseSets.entries, comparativeExpenseSets.entries, expenseSets.lines, comparativeExpenseSets.lines),
+    reportAmount("Profit for the year", currentNetIncome, comparativeNetIncome, 1, new Set([...revenueSets.entries, ...expenseSets.entries]), new Set([...comparativeRevenueSets.entries, ...comparativeExpenseSets.entries]), new Set([...revenueSets.lines, ...expenseSets.lines]), new Set([...comparativeRevenueSets.lines, ...comparativeExpenseSets.lines])),
+    reportAmount("Other comprehensive income", currentOci, comparativeOci, 1, new Set(), new Set(), new Set(), new Set(), ociAccounts.map(accountLine)),
+    reportAmount("Total comprehensive income", currentNetIncome + currentOci, comparativeNetIncome + comparativeOci, 1, new Set([...revenueSets.entries, ...expenseSets.entries]), new Set([...comparativeRevenueSets.entries, ...comparativeExpenseSets.entries]), new Set([...revenueSets.lines, ...expenseSets.lines]), new Set([...comparativeRevenueSets.lines, ...comparativeExpenseSets.lines])),
   ];
 
-  const changesInEquity: ReportSection[] = [
-    toSection("Opening equity", priorPosition.equity, priorPriorPosition.equity),
-    toSection("Profit for the period", currentIncome.netIncome, priorIncome.netIncome),
-    toSection("Owner contributions / distributions", currentPosition.shareCapital - priorPosition.shareCapital, priorPosition.shareCapital - priorPriorPosition.shareCapital),
-    toSection("Other comprehensive income", currentIncome.oci, priorIncome.oci),
-    toSection("Closing equity", currentPosition.equity, priorPosition.equity),
+  const changesInEquity = [
+    reportAmount("Opening retained earnings", comparativeEquity, 0, 1, comparativeEquitySets.entries, new Set(), comparativeEquitySets.lines, new Set()),
+    reportAmount("Profit for the year", currentNetIncome, comparativeNetIncome, 1, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines),
+    reportAmount("Other comprehensive income", currentOci, comparativeOci, 1, new Set(), new Set(), new Set(), new Set()),
+    reportAmount("Closing equity", currentEquity, comparativeEquity, 1, equitySets.entries, comparativeEquitySets.entries, equitySets.lines, comparativeEquitySets.lines),
   ];
 
-  const cashFlows: ReportSection[] = [
-    toSection("Profit for the period", currentIncome.netIncome, priorIncome.netIncome),
-    toSection("Changes in working capital and other operating items", currentCashFlow.workingCapital, priorCashFlow.workingCapital),
-    toSection("Net cash from operating activities", currentCashFlow.operating, priorCashFlow.operating),
-    toSection("Net cash from investing activities", currentCashFlow.investing, priorCashFlow.investing),
-    toSection("Net cash from financing activities", currentCashFlow.financing, priorCashFlow.financing),
-    toSection("Net increase / (decrease) in cash", currentCashFlow.movement, priorCashFlow.movement),
-    toSection("Cash and cash equivalents at beginning of period", currentCashFlow.openingCash, priorCashFlow.openingCash),
-    toSection("Cash and cash equivalents at end of period", currentCashFlow.closingCash, priorCashFlow.closingCash),
+  const cashFlows = [
+    reportAmount("Profit for the year", currentNetIncome, comparativeNetIncome, 1, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines),
+    reportAmount("Changes in working capital", workingCapitalMovement, 0, 8, new Set(), new Set(), new Set(), new Set()),
+    reportAmount("Net cash from operating activities", operatingCash, 0, 3, cashSets.entries, comparativeCashSets.entries, cashSets.lines, comparativeCashSets.lines),
+    reportAmount("Net cash from investing activities", investingCash, 0, 8, new Set(), new Set(), new Set(), new Set()),
+    reportAmount("Net cash from financing activities", financingCash, 0, 1, new Set(), new Set(), new Set(), new Set()),
+    reportAmount("Net increase in cash", cashMovement, 0, 3, cashSets.entries, comparativeCashSets.entries, cashSets.lines, comparativeCashSets.lines),
+    reportAmount("Cash at beginning of year", openingCash, 0, 3, comparativeCashSets.entries, new Set(), comparativeCashSets.lines, new Set()),
+    reportAmount("Cash at end of year", cashCurrent, cashComparative, 3, cashSets.entries, comparativeCashSets.entries, cashSets.lines, comparativeCashSets.lines),
   ];
 
-  const relatedRows = [...new Set(entries.flatMap((entry) => [entry.debitAccount, entry.creditAccount]).filter((account) => /related|director|shareholder|due from|due to|intercompany/i.test(account)))];
-  const notes = [
-    { number: 1, title: "Basis of preparation", status: "requires_input" as const, narrative: `These financial statements are prepared in ${client.functionalCurrency} under the ${client.basis} reporting basis. Confirm the entity's accounting policies, judgments, going-concern assessment, and reporting authorization before finalization.`, rows: [] },
-    { number: 2, title: "Cash and cash equivalents", status: "generated" as const, narrative: "Cash and cash equivalents are derived from posted journal entries mapped to bank and cash accounts.", rows: [{ label: "Cash and cash equivalents", amount: currentCash, comparativeAmount: priorCash }] },
-    { number: 3, title: "Related-party balances", status: relatedRows.length ? "generated" as const : "requires_input" as const, narrative: relatedRows.length ? "The following related-party accounts were identified from account mappings. Confirm terms, balances, and transactions with management." : "No related-party account mapping was found. Management must confirm whether related parties, balances, or transactions exist.", rows: relatedRows.map((label) => ({ label, amount: currentPosition.currentAssets.concat(currentPosition.currentLiabilities, currentPosition.nonCurrentLiabilities).find((row) => row.label === label)?.amount ?? 0, comparativeAmount: priorPosition.currentAssets.concat(priorPosition.currentLiabilities, priorPosition.nonCurrentLiabilities).find((row) => row.label === label)?.amount ?? 0 })) },
-    { number: 4, title: "Revenue", status: "generated" as const, narrative: "Revenue is presented from posted entries mapped to revenue and sales accounts.", rows: [{ label: "Revenue", amount: currentIncome.revenue, comparativeAmount: priorIncome.revenue }] },
-    { number: 5, title: "Operating expenses", status: "generated" as const, narrative: "Operating expenses are presented from posted entries mapped to expense accounts.", rows: [{ label: "Operating expenses", amount: currentIncome.expenses, comparativeAmount: priorIncome.expenses }] },
-    { number: 6, title: "Income tax", status: "requires_input" as const, narrative: "Tax treatment, statutory rate, taxable income, current tax, deferred tax, and uncertain tax positions cannot be inferred safely from bank transactions alone.", rows: [{ label: "Income tax expense", amount: currentIncome.tax, comparativeAmount: priorIncome.tax }] },
-    { number: 7, title: "Foreign currency", status: missingEntries.length ? "requires_input" as const : "generated" as const, narrative: missingEntries.length ? `Confirm missing ${missingRateCurrencies.join(", ")} exchange rates before finalization.` : `Transactions are presented in ${functionalCurrency} using the dated workspace rate schedule.` , rows: [] },
-    { number: 8, title: "Other disclosures", status: "requires_input" as const, narrative: "Management input is required for commitments, contingencies, employee benefits, financial-risk disclosures, subsequent events, and authorization details.", rows: [] },
+  const relatedPartyBalances = values.filter((item) => item.meta.relatedParty);
+  const notes: ReportNote[] = [
+    { number: 1, title: "Basis of preparation", narrative: "Accountant input required: confirm the basis of preparation, going-concern assessment, materiality, and authorization date.", requiresInput: true, tables: [] },
+    { number: 2, title: "Material accounting policies", narrative: "Accountant input required: document policies for revenue, foreign currency, financial instruments, taxes, and any other material transactions.", requiresInput: true, tables: [] },
+    { number: 3, title: "Cash and cash equivalents", narrative: "Cash is derived from posted cash and bank accounts. Confirm restricted cash and cash-equivalent classification.", requiresInput: true, tables: [{ label: "Cash and bank balances", current: cashCurrent, comparative: cashComparative }] },
+    { number: 4, title: "Revenue", narrative: "Revenue is grouped from posted ledger accounts. Confirm revenue streams and IFRS 15 performance obligations.", requiresInput: true, tables: revenues.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
+    { number: 5, title: "Operating expenses", narrative: "Expense categories are traceable to posted journal entries. Confirm material expense disclosures.", requiresInput: true, tables: expenses.filter((item) => !item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
+    { number: 6, title: "Related parties", narrative: "Accountant input required: identify related parties, balances, transaction terms, and whether outstanding balances are unsecured.", requiresInput: true, tables: relatedPartyBalances.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
+    { number: 7, title: "Income tax", narrative: "Accountant input required: assess current tax, deferred tax, tax losses, and uncertain tax positions. This pack is not a tax return.", requiresInput: true, tables: expenses.filter((item) => item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
+    { number: 8, title: "Financial risk, foreign currency and other disclosures", narrative: "Accountant input required: confirm foreign-currency risk, commitments, contingencies, employee benefits, and any significant judgments.", requiresInput: true, tables: [] },
+    { number: 9, title: "Subsequent events", narrative: "Accountant input required: record events after the reporting period through the authorization date.", requiresInput: true, tables: [] },
   ];
 
-  const applicability = [
-    { standard: "IAS 1", topic: "Presentation of financial statements", status: "satisfied" as const, rationale: "Primary statements, comparative columns, and current/non-current buckets are generated." },
-    { standard: "IAS 7", topic: "Statement of cash flows", status: "satisfied" as const, rationale: "An indirect cash-flow bridge is generated and reconciled to opening and closing cash." },
-    { standard: "IAS 8", topic: "Policies, estimates, and errors", status: "requires_input" as const, rationale: "Accounting policies, judgments, and error corrections require accountant confirmation." },
-    { standard: "IAS 10", topic: "Events after the reporting period", status: "requires_input" as const, rationale: "Subsequent events cannot be inferred from bank transactions." },
-    { standard: "IAS 12", topic: "Income taxes", status: "requires_input" as const, rationale: "Tax and deferred-tax assessment requires management and tax records." },
-    { standard: "IAS 16 / IAS 19", topic: "Fixed assets and employee benefits", status: currentPosition.nonCurrentAssets.length || entries.some((entry) => /payroll|employee|benefit/i.test(`${entry.debitAccount} ${entry.creditAccount}`)) ? "requires_input" as const : "not_applicable" as const, rationale: "Confirm fixed-asset registers, depreciation, payroll, and employee-benefit obligations where relevant." },
-    { standard: "IAS 21", topic: "Foreign exchange", status: missingEntries.length ? "requires_input" as const : "satisfied" as const, rationale: missingEntries.length ? "One or more posted entries lack dated conversion coverage." : `All reported currencies have ${functionalCurrency} conversion coverage.` },
-    { standard: "IAS 24", topic: "Related parties", status: relatedRows.length ? "requires_input" as const : "requires_input" as const, rationale: "Management must confirm related parties and transaction terms." },
-    { standard: "IFRS 7 / IFRS 9", topic: "Financial instruments and risk", status: "requires_input" as const, rationale: "Classification, measurement, and liquidity/credit/market-risk disclosures require supporting records." },
-    { standard: "IFRS 15", topic: "Revenue", status: currentIncome.revenue ? "requires_input" as const : "not_applicable" as const, rationale: "Confirm performance obligations, contract balances, and revenue recognition policy." },
-  ];
+  const totalDebits = cumulativeCurrentEntries.reduce((total, entry) => total + convertedAmount(entry), 0);
+  const totalCredits = totalDebits;
+  const relatedPartyCurrent = sums(relatedPartyBalances, "current");
+  const relatedPartyComponentCurrent = relatedPartyBalances.reduce((total, item) => total + accountValue(item, "current"), 0);
+  const validation = buildReportValidation({
+    totalDebits,
+    totalCredits,
+    assets: currentAssets,
+    liabilitiesAndEquity: currentLiabilities + currentEquity,
+    retainedEarningsMovement: currentEquity - comparativeEquity,
+    profitAndOci: currentNetIncome + currentOci,
+    openingCash,
+    cashMovement,
+    closingCash: cashCurrent,
+    noteCash: notes[2].tables[0]?.current ?? 0,
+    relatedPartyCurrent,
+    relatedPartyComponentCurrent,
+    missingRateEntries: input.missingRateEntries,
+    hasComparative: comparativeEntries.length > 0,
+    notes,
+    checklist: defaultChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
+  });
 
-  const status = issues.some((item) => item.severity === "error") ? "needs_review" as const : "ready" as const;
-  return {
-    period: `Year ended ${periodLabel(periodEnd)}`,
-    comparativePeriod: `Year ended ${periodLabel(comparativePeriodEnd)}`,
-    periodEnd,
-    comparativePeriodEnd,
-    entityName: client.name,
-    legalName: client.legalName,
-    basis: client.basis,
-    functionalCurrency,
-    status,
-    validationIssues: issues,
-    applicability,
-    financialPosition,
-    profitOrLoss,
+  const snapshot: ReportSnapshot = {
+    entityName: input.client.name,
+    legalName: input.client.legalName,
+    periodEnd: periods.periodEnd,
+    comparativePeriodEnd: periods.comparativePeriodEnd,
+    presentationCurrency: input.presentationCurrency,
+    reportingBasis: input.reportingBasis,
+    presentationProfile: input.presentationProfile,
+    statementOfFinancialPosition,
+    profitOrLossAndOci,
     changesInEquity,
     cashFlows,
     notes,
     traceability: {
-      postedEntryCount: entries.filter((entry) => entry.status === "posted" && entry.date >= periodStart && entry.date <= periodEnd).length,
-      comparativePostedEntryCount: entries.filter((entry) => entry.status === "posted" && entry.date >= comparativeStart && entry.date <= comparativePeriodEnd).length,
-      sourceLineCount,
-      missingRateCount: missingEntries.length,
-      missingRateCurrencies,
+      postedEntryCount: currentEntries.length,
+      postedLineCount: new Set(currentEntries.map((entry) => entry.statementLineId)).size,
+      sourceImportCount: input.sourceImportCount,
     },
   };
+
+  return {
+    periods,
+    snapshot,
+    notes,
+    checklist: defaultChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
+    signatory: { preparedBy: "", reviewedBy: "", authorizedBy: "", authorizationDate: null } satisfies ReportSignatory,
+    validation,
+  };
+}
+
+export function buildReportValidation(input: {
+  totalDebits: number;
+  totalCredits: number;
+  assets: number;
+  liabilitiesAndEquity: number;
+  retainedEarningsMovement: number;
+  profitAndOci: number;
+  openingCash: number;
+  cashMovement: number;
+  closingCash: number;
+  noteCash: number;
+  relatedPartyCurrent: number;
+  relatedPartyComponentCurrent: number;
+  missingRateEntries: Entry[];
+  hasComparative: boolean;
+  notes: ReportNote[];
+  checklist: ReportChecklistItem[];
+}): ReportValidation {
+  const tolerance = 0.01;
+  const checks: ReportValidation["checks"] = [
+    { id: "trial-balance", label: "Trial-balance debits and credits", status: Math.abs(input.totalDebits - input.totalCredits) <= tolerance ? "pass" : "error", detail: `Debits ${input.totalDebits.toFixed(2)}; credits ${input.totalCredits.toFixed(2)}.`, blocking: true },
+    { id: "position", label: "Assets equal liabilities and equity", status: Math.abs(input.assets - input.liabilitiesAndEquity) <= tolerance ? "pass" : "error", detail: `Assets ${input.assets.toFixed(2)}; liabilities and equity ${input.liabilitiesAndEquity.toFixed(2)}.`, blocking: true },
+    { id: "retained-earnings", label: "Profit reconciles to retained earnings movement", status: Math.abs(input.retainedEarningsMovement - input.profitAndOci) <= tolerance ? "pass" : "error", detail: `Retained earnings movement ${input.retainedEarningsMovement.toFixed(2)}; profit and OCI ${input.profitAndOci.toFixed(2)}.`, blocking: true },
+    { id: "cash-flow", label: "Opening cash, cash-flow movement and closing cash", status: Math.abs(input.openingCash + input.cashMovement - input.closingCash) <= tolerance ? "pass" : "error", detail: `Opening ${input.openingCash.toFixed(2)} + movement ${input.cashMovement.toFixed(2)} = closing ${input.closingCash.toFixed(2)}.`, blocking: true },
+    { id: "note-totals", label: "Statement totals reconcile to notes", status: Math.abs(input.closingCash - input.noteCash) <= tolerance ? "pass" : "error", detail: `Cash statement ${input.closingCash.toFixed(2)}; note 3 ${input.noteCash.toFixed(2)}.`, blocking: true },
+    { id: "related-parties", label: "Related-party balances reconcile to due-from/due-to components", status: Math.abs(input.relatedPartyCurrent - input.relatedPartyComponentCurrent) <= tolerance ? "pass" : "error", detail: `Related-party balance ${input.relatedPartyCurrent.toFixed(2)}; component total ${input.relatedPartyComponentCurrent.toFixed(2)}.`, blocking: true },
+    { id: "foreign-currency", label: "Foreign-currency conversion coverage", status: input.missingRateEntries.length ? "error" : "pass", detail: input.missingRateEntries.length ? `${input.missingRateEntries.length} posted entry or entries are missing a functional-currency rate.` : "All included posted entries have functional-currency coverage.", blocking: true },
+    { id: "comparatives", label: "Comparative information", status: input.hasComparative ? "pass" : "warning", detail: input.hasComparative ? "Prior comparable period contains posted ledger data." : "No posted ledger data was found in the prior comparable period; comparative columns are visibly zero and cannot support finalization.", blocking: !input.hasComparative },
+    { id: "notes", label: "Required notes and disclosures", status: input.notes.some((note) => note.requiresInput) ? "error" : "pass", detail: input.notes.some((note) => note.requiresInput) ? "One or more notes still require accountant input." : "All required note inputs are confirmed.", blocking: true },
+    { id: "ifrs-checklist", label: "IFRS applicability and disclosure checklist", status: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "error" : "pass", detail: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "One or more IFRS checklist items require an accountant decision or confirmation." : "All checklist items are satisfied, immaterial, or not applicable.", blocking: true },
+  ];
+  const errorCount = checks.filter((check) => check.blocking && check.status !== "pass").length;
+  return { status: errorCount ? "blocked" : "pass", errorCount, checks };
+}
+
+export function finalizationValidation(previous: ReportValidation, notes: ReportNote[], checklist: ReportChecklistItem[]) {
+  const checks = previous.checks.map((check) => ({ ...check }));
+  const notesCheck = checks.find((check) => check.id === "notes");
+  if (notesCheck) {
+    notesCheck.status = notes.some((note) => note.requiresInput) ? "error" : "pass";
+    notesCheck.detail = notesCheck.status === "pass" ? "All required note inputs are confirmed." : "One or more notes still require accountant input.";
+  }
+  const checklistCheck = checks.find((check) => check.id === "ifrs-checklist");
+  if (checklistCheck) {
+    checklistCheck.status = checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "error" : "pass";
+    checklistCheck.detail = checklistCheck.status === "pass" ? "All checklist items are satisfied, immaterial, or not applicable." : "One or more IFRS checklist items require an accountant decision or confirmation.";
+  }
+  const errorCount = checks.filter((check) => check.blocking && check.status !== "pass").length;
+  return { status: errorCount ? "blocked" : "pass", errorCount, checks } satisfies ReportValidation;
+}
+
+export function inferredClassifications(entries: Entry[], existing: Classification[]) {
+  const existingAccounts = new Set(existing.map((item) => item.accountName));
+  return [...new Set(entries.flatMap((entry) => [entry.debitAccount, entry.creditAccount]))]
+    .filter((account) => !existingAccounts.has(account))
+    .map((account) => {
+      const meta = standardAccountMeta(account);
+      return {
+        accountName: account,
+        displayName: meta.displayName,
+        statementSection: meta.kind,
+        currentNonCurrent: meta.currentNonCurrent,
+        cashFlowCategory: meta.cashFlowCategory,
+        oci: meta.kind === "oci" ? "yes" : "no",
+        relatedPartyCategory: meta.relatedParty ? "due_from_due_to" : "none",
+        taxCategory: meta.tax ? "tax" : "not_assessed",
+        noteNumber: meta.noteNumber,
+      };
+    });
 }

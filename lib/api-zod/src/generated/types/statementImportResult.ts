@@ -12,8 +12,10 @@ import type { StatementLine } from './statementLine';
 
 export interface StatementImportResult {
   fileName: string;
+  importId: number;
   importStatus: StatementImportResultImportStatus;
   message?: string;
+  sourceUrl?: string;
   importedCount: number;
   duplicateCount: number;
   duplicateLines: StatementImportDuplicate[];

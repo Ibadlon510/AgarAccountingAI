@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type ReportPackStatus = typeof ReportPackStatus[keyof typeof ReportPackStatus];
+export type ReportPackSummaryStatus = typeof ReportPackSummaryStatus[keyof typeof ReportPackSummaryStatus];
 
 
-export const ReportPackStatus = {
+export const ReportPackSummaryStatus = {
   draft: 'draft',
   finalized: 'finalized',
 } as const;

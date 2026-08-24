@@ -5,29 +5,32 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { ComparativeStatementSection } from './comparativeStatementSection';
-import type { ReportApplicabilityItem } from './reportApplicabilityItem';
+import type { ReportChecklistItem } from './reportChecklistItem';
 import type { ReportNote } from './reportNote';
 import type { ReportPackStatus } from './reportPackStatus';
-import type { ReportPackTraceability } from './reportPackTraceability';
-import type { ReportValidationIssue } from './reportValidationIssue';
+import type { ReportSignatory } from './reportSignatory';
+import type { ReportSnapshot } from './reportSnapshot';
+import type { ReportValidation } from './reportValidation';
 
 export interface ReportPack {
-  period: string;
-  comparativePeriod: string;
+  id: number;
+  clientId: number;
+  periodStart: Date;
   periodEnd: Date;
+  comparativePeriodStart: Date;
   comparativePeriodEnd: Date;
-  entityName: string;
-  legalName: string;
-  basis: string;
-  functionalCurrency: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  presentationCurrency: string;
+  roundingPolicy: string;
   status: ReportPackStatus;
-  validationIssues: ReportValidationIssue[];
-  applicability: ReportApplicabilityItem[];
-  financialPosition: ComparativeStatementSection[];
-  profitOrLoss: ComparativeStatementSection[];
-  changesInEquity: ComparativeStatementSection[];
-  cashFlows: ComparativeStatementSection[];
+  snapshot: ReportSnapshot;
+  validation: ReportValidation;
   notes: ReportNote[];
-  traceability: ReportPackTraceability;
+  checklist: ReportChecklistItem[];
+  signatory: ReportSignatory;
+  createdAt: Date;
+  updatedAt: Date;
+  /** @nullable */
+  finalizedAt: Date | null;
 }

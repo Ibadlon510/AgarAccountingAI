@@ -215,6 +215,61 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   }),
 }));
 
+export const accountClassificationsTable = pgTable("ledgerflow_account_classifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  accountName: text("account_name").notNull(),
+  displayName: text("display_name").notNull(),
+  statementSection: text("statement_section").notNull(),
+  currentNonCurrent: text("current_non_current").notNull().default("not_applicable"),
+  cashFlowCategory: text("cash_flow_category").notNull().default("operating"),
+  oci: text("oci").notNull().default("no"),
+  relatedPartyCategory: text("related_party_category").notNull().default("none"),
+  taxCategory: text("tax_category").notNull().default("not_assessed"),
+  noteNumber: integer("note_number"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => ({
+  clientAccountUnique: uniqueIndex("ledgerflow_account_classifications_client_account_idx").on(table.clientId, table.accountName),
+  clientForeignKey: foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_account_classifications_client_fk",
+  }),
+}));
+
+export const reportPacksTable = pgTable("ledgerflow_report_packs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  createdBy: varchar("created_by").notNull(),
+  periodStart: date("period_start", { mode: "string" }).notNull(),
+  periodEnd: date("period_end", { mode: "string" }).notNull(),
+  comparativePeriodStart: date("comparative_period_start", { mode: "string" }).notNull(),
+  comparativePeriodEnd: date("comparative_period_end", { mode: "string" }).notNull(),
+  reportingBasis: text("reporting_basis").notNull().default("IFRS"),
+  presentationProfile: text("presentation_profile").notNull().default("IAS 1"),
+  presentationCurrency: varchar("presentation_currency", { length: 3 }).notNull(),
+  roundingPolicy: text("rounding_policy").notNull().default("Nearest whole unit"),
+  status: text("status").notNull().default("draft"),
+  snapshot: jsonb("snapshot").notNull(),
+  validation: jsonb("validation").notNull(),
+  notes: jsonb("notes").notNull(),
+  checklist: jsonb("checklist").notNull(),
+  signatory: jsonb("signatory").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+}, (table) => [
+  index("ledgerflow_report_packs_client_period_idx").on(table.clientId, table.periodEnd),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_report_packs_client_fk",
+  }),
+  check("ledgerflow_report_packs_status_check", sql`status in ('draft', 'finalized')`),
+  check("ledgerflow_report_packs_basis_check", sql`reporting_basis in ('IFRS', 'IFRS for SMEs')`),
+]);
+
 export const bulkTransitionAuditsTable = pgTable("ledgerflow_bulk_transition_audits", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
@@ -233,6 +288,8 @@ export const bulkTransitionAuditsTable = pgTable("ledgerflow_bulk_transition_aud
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
 export type JournalEntry = typeof journalEntriesTable.$inferSelect;
+export type AccountClassification = typeof accountClassificationsTable.$inferSelect;
+export type ReportPack = typeof reportPacksTable.$inferSelect;
 
 export type BulkTransitionAudit = typeof bulkTransitionAuditsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;

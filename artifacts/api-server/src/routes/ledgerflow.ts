@@ -15,6 +15,8 @@ import {
   CreateBankAccountResponse,
   CreateExchangeRateBody,
   CreateExchangeRateResponse,
+  CreateReportPackBody,
+  CreateReportPackResponse,
   DeleteExchangeRateParams,
   GetBankAccountsQueryParams,
   GetBankAccountsResponse,
@@ -32,6 +34,10 @@ import {
   CreateStatementLineResponse,
   GetFinancialStatementsQueryParams,
   GetFinancialStatementsResponse,
+  GetReportPackParams,
+  GetReportPackResponse,
+  GetReportPacksQueryParams,
+  GetReportPacksResponse,
   GetLedgerflowAISettingsQueryParams,
   GetLedgerflowAISettingsResponse,
   GetJournalEntriesResponse,
@@ -48,8 +54,12 @@ import {
   TestLedgerflowAISettingsResponse,
   UpdateLedgerflowAISettingsBody,
   UpdateLedgerflowAISettingsResponse,
+  UpdateReportPackBody,
+  UpdateReportPackParams,
+  UpdateReportPackResponse,
 } from "@workspace/api-zod";
 import {
+  accountClassificationsTable,
   bankAccountsTable,
   classificationPatternsTable,
   clientWorkspacesTable,
@@ -57,6 +67,7 @@ import {
   db,
   exchangeRatesTable,
   journalEntriesTable,
+  reportPacksTable,
   statementImportsTable,
   statementLinesTable,
   usersTable,
@@ -83,6 +94,17 @@ import {
   validateXlsxArchive,
   validateStatementMetadata,
 } from "../lib/statementDocument";
+import {
+  buildReportPack,
+  finalizationValidation,
+  inferredClassifications,
+  type ReportChecklistItem,
+  type ReportNote,
+  type ReportSignatory,
+  type ReportSnapshot,
+  type ReportValidation,
+} from "../lib/reportPack";
+import { buildReportPdf } from "../lib/reportPdf";
 
 const router: IRouter = Router();
 const openai = new OpenAI({
@@ -261,6 +283,79 @@ function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functio
   if (entry.functionalAmount != null && entry.functionalCurrency === functionalCurrency) return number(entry.functionalAmount);
   if (normalizeCurrency(entry.currency) === functionalCurrency) return number(entry.amount);
   return null;
+}
+
+function reportPackResponse(pack: typeof reportPacksTable.$inferSelect) {
+  return {
+    id: pack.id,
+    clientId: pack.clientId,
+    periodStart: calendarDate(pack.periodStart),
+    periodEnd: calendarDate(pack.periodEnd),
+    comparativePeriodStart: calendarDate(pack.comparativePeriodStart),
+    comparativePeriodEnd: calendarDate(pack.comparativePeriodEnd),
+    reportingBasis: pack.reportingBasis,
+    presentationProfile: pack.presentationProfile,
+    presentationCurrency: pack.presentationCurrency,
+    roundingPolicy: pack.roundingPolicy,
+    status: pack.status,
+    snapshot: pack.snapshot as ReportSnapshot,
+    validation: pack.validation as ReportValidation,
+    notes: pack.notes as ReportNote[],
+    checklist: pack.checklist as ReportChecklistItem[],
+    signatory: pack.signatory as ReportSignatory,
+    createdAt: pack.createdAt,
+    updatedAt: pack.updatedAt,
+    finalizedAt: pack.finalizedAt,
+  };
+}
+
+function reportPackSummary(pack: typeof reportPacksTable.$inferSelect) {
+  const validation = pack.validation as ReportValidation;
+  return {
+    id: pack.id,
+    clientId: pack.clientId,
+    periodEnd: calendarDate(pack.periodEnd),
+    comparativePeriodEnd: calendarDate(pack.comparativePeriodEnd),
+    reportingBasis: pack.reportingBasis,
+    presentationProfile: pack.presentationProfile,
+    presentationCurrency: pack.presentationCurrency,
+    status: pack.status,
+    validationErrorCount: validation.errorCount,
+    createdAt: pack.createdAt,
+  };
+}
+
+function mergeReportNotes(existing: ReportNote[], updates: ReportNote[] | undefined) {
+  if (!updates) return existing;
+  const supplied = new Map(updates.map((note) => [note.number, note]));
+  return existing.map((note) => {
+    const update = supplied.get(note.number);
+    if (!update) return note;
+    return {
+      ...note,
+      narrative: update.narrative.trim().slice(0, 8_000),
+      requiresInput: update.requiresInput,
+    };
+  });
+}
+
+function mergeReportChecklist(existing: ReportChecklistItem[], updates: ReportChecklistItem[] | undefined) {
+  if (!updates) return existing;
+  const supplied = new Map(updates.map((item) => [item.standard, item]));
+  return existing.map((item) => {
+    const update = supplied.get(item.standard);
+    return update ? { ...item, status: update.status, prompt: update.prompt.trim().slice(0, 2_000) } : item;
+  });
+}
+
+function normalizedSignatory(signatory: ReportSignatory | undefined, fallback: ReportSignatory) {
+  if (!signatory) return fallback;
+  return {
+    preparedBy: signatory.preparedBy.trim().slice(0, 160),
+    reviewedBy: signatory.reviewedBy.trim().slice(0, 160),
+    authorizedBy: signatory.authorizedBy.trim().slice(0, 160),
+    authorizationDate: calendarDate(signatory.authorizationDate),
+  };
 }
 
 function currentUserId(req: Request) {
@@ -2184,6 +2279,159 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
     ],
   };
   res.json(GetFinancialStatementsResponse.parse(report));
+});
+
+router.get("/ledgerflow/report-packs", async (req, res) => {
+  const { clientId } = GetReportPacksQueryParams.parse(req.query);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const packs = await db.select().from(reportPacksTable)
+    .where(eq(reportPacksTable.clientId, client.id))
+    .orderBy(desc(reportPacksTable.createdAt));
+  res.json(GetReportPacksResponse.parse(packs.map(reportPackSummary)));
+});
+
+router.post("/ledgerflow/report-packs", async (req, res) => {
+  const body = CreateReportPackBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const periodEnd = calendarDate(body.periodEnd);
+  if (!periodEnd || !periodEnd.endsWith("-12-31")) {
+    return res.status(422).json({ error: "Full IFRS report packs currently require an annual reporting period ending on December 31." });
+  }
+  const reportingBasis = body.reportingBasis ?? "IFRS";
+  if (reportingBasis !== "IFRS") {
+    return res.status(422).json({ error: "IFRS for SMEs is not available for statutory-style packs yet. Select full IFRS for this report." });
+  }
+  const presentationProfile = body.presentationProfile ?? "IAS 1";
+  if (presentationProfile === "IFRS 18" && periodEnd.slice(0, 4) < "2027") {
+    return res.status(422).json({ error: "IFRS 18 presentation is available only for periods beginning on or after January 1, 2027." });
+  }
+  const presentationCurrency = normalizeCurrency(body.presentationCurrency ?? client.functionalCurrency);
+  if (presentationCurrency !== normalizeCurrency(client.functionalCurrency)) {
+    return res.status(422).json({ error: "This release presents only in the client's functional currency. Update the functional currency or add a future presentation-currency conversion workflow." });
+  }
+
+  const entries = await db.select().from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, client.id),
+    eq(journalEntriesTable.status, "posted"),
+    lte(journalEntriesTable.date, periodEnd),
+  ));
+  const missingRateEntries = entries.filter((entry) => reportingAmount(entry, presentationCurrency) == null);
+  const convertedEntries = entries.filter((entry) => reportingAmount(entry, presentationCurrency) != null);
+  const classifications = await db.select().from(accountClassificationsTable).where(eq(accountClassificationsTable.clientId, client.id));
+  const inferred = inferredClassifications(convertedEntries, classifications);
+  if (inferred.length) {
+    await db.insert(accountClassificationsTable).values(inferred.map((classification) => ({
+      clientId: client.id,
+      ...classification,
+    }))).onConflictDoNothing({
+      target: [accountClassificationsTable.clientId, accountClassificationsTable.accountName],
+    });
+  }
+  const effectiveClassifications = inferred.length
+    ? await db.select().from(accountClassificationsTable).where(eq(accountClassificationsTable.clientId, client.id))
+    : classifications;
+  const sourceImports = await db.select({ id: statementImportsTable.id }).from(statementImportsTable)
+    .where(and(eq(statementImportsTable.clientId, client.id), eq(statementImportsTable.outcome, "completed")));
+  const generated = buildReportPack({
+    client,
+    entries: convertedEntries,
+    classifications: effectiveClassifications,
+    periodEnd,
+    presentationCurrency,
+    reportingBasis,
+    presentationProfile,
+    roundingPolicy: body.roundingPolicy ?? "Nearest whole unit",
+    sourceImportCount: sourceImports.length,
+    missingRateEntries,
+  });
+  const [pack] = await db.insert(reportPacksTable).values({
+    clientId: client.id,
+    createdBy: currentUserId(req),
+    periodStart: generated.periods.periodStart,
+    periodEnd: generated.periods.periodEnd,
+    comparativePeriodStart: generated.periods.comparativePeriodStart,
+    comparativePeriodEnd: generated.periods.comparativePeriodEnd,
+    reportingBasis,
+    presentationProfile,
+    presentationCurrency,
+    roundingPolicy: body.roundingPolicy ?? "Nearest whole unit",
+    status: "draft",
+    snapshot: generated.snapshot,
+    validation: generated.validation,
+    notes: generated.notes,
+    checklist: generated.checklist,
+    signatory: generated.signatory,
+  }).returning();
+  return res.status(201).json(CreateReportPackResponse.parse(reportPackResponse(pack)));
+});
+
+router.get("/ledgerflow/report-packs/:id", async (req, res) => {
+  const { id } = GetReportPackParams.parse({ id: Number(req.params.id) });
+  const [pack] = await db.select().from(reportPacksTable).where(eq(reportPacksTable.id, id)).limit(1);
+  if (!pack) return res.status(404).json({ error: "Report pack not found." });
+  const client = await requireOwnedClient(req, res, pack.clientId);
+  if (!client) return;
+  return res.json(GetReportPackResponse.parse(reportPackResponse(pack)));
+});
+
+router.patch("/ledgerflow/report-packs/:id", async (req, res) => {
+  const { id } = UpdateReportPackParams.parse({ id: Number(req.params.id) });
+  const body = UpdateReportPackBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const [pack] = await db.select().from(reportPacksTable).where(and(
+    eq(reportPacksTable.id, id),
+    eq(reportPacksTable.clientId, client.id),
+  )).limit(1);
+  if (!pack) return res.status(404).json({ error: "Report pack not found for this client." });
+  if (pack.status === "finalized") {
+    return res.status(409).json({ error: "Finalized report snapshots are immutable. Generate a new draft to make changes." });
+  }
+  const notes = mergeReportNotes(pack.notes as ReportNote[], body.notes);
+  const checklist = mergeReportChecklist(pack.checklist as ReportChecklistItem[], body.checklist);
+  const signatory = normalizedSignatory(body.signatory as ReportSignatory | undefined, pack.signatory as ReportSignatory);
+  const validation = finalizationValidation(pack.validation as ReportValidation, notes, checklist);
+  const snapshot = { ...(pack.snapshot as ReportSnapshot), notes };
+  if (body.action === "finalize") {
+    const missingSignatories = [signatory.preparedBy, signatory.reviewedBy, signatory.authorizedBy, signatory.authorizationDate].some((value) => !value);
+    if (validation.status !== "pass" || missingSignatories) {
+      return res.status(409).json({
+        error: missingSignatories
+          ? "Add prepared-by, reviewed-by, authorized-by, and authorization date before finalizing."
+          : "Resolve every blocking reconciliation, note, and IFRS checklist item before finalizing.",
+        validation,
+      });
+    }
+  }
+  const [updated] = await db.update(reportPacksTable).set({
+    snapshot,
+    validation,
+    notes,
+    checklist,
+    signatory,
+    status: body.action === "finalize" ? "finalized" : "draft",
+    finalizedAt: body.action === "finalize" ? new Date() : null,
+    updatedAt: new Date(),
+  }).where(eq(reportPacksTable.id, pack.id)).returning();
+  return res.json(UpdateReportPackResponse.parse(reportPackResponse(updated)));
+});
+
+router.get("/ledgerflow/report-packs/:id/pdf", async (req, res) => {
+  const { id } = GetReportPackParams.parse({ id: Number(req.params.id) });
+  const [pack] = await db.select().from(reportPacksTable).where(eq(reportPacksTable.id, id)).limit(1);
+  if (!pack) return res.status(404).json({ error: "Report pack not found." });
+  const client = await requireOwnedClient(req, res, pack.clientId);
+  if (!client) return;
+  if (pack.status !== "finalized") {
+    return res.status(409).json({ error: "Finalize the reviewed report pack before downloading its PDF." });
+  }
+  const pdf = buildReportPdf(pack.snapshot as ReportSnapshot, pack.signatory as ReportSignatory);
+  const filename = `${client.legalName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "ledgerflow"}-${calendarDate(pack.periodEnd)}-financial-statements.pdf`;
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  return res.send(pdf);
 });
 
 export default router;

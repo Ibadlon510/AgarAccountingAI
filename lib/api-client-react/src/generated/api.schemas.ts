@@ -5,6 +5,44 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface AuthUser {
+  id: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  /** @nullable */
+  profileImageUrl: string | null;
+}
+
+export interface AuthUserEnvelope {
+  user: AuthUser | null;
+}
+
+export interface MobileTokenExchangeRequest {
+  /** @minLength 1 */
+  code: string;
+  /** @minLength 1 */
+  code_verifier: string;
+  /** @minLength 1 */
+  redirect_uri: string;
+  /** @minLength 1 */
+  state: string;
+  /** @minLength 1 */
+  nonce?: string;
+}
+
+export interface MobileTokenExchangeSuccess {
+  token: string;
+}
+
+export const LogoutSuccessValue = {
+  success: true,
+} as const;
+export type LogoutSuccess = typeof LogoutSuccessValue;
+
 export interface HealthStatus {
   status: string;
 }
@@ -113,15 +151,6 @@ export interface LedgerOverview {
   missingRateCurrencies: string[];
 }
 
-export type StatementLineSuggestionSource = typeof StatementLineSuggestionSource[keyof typeof StatementLineSuggestionSource];
-
-
-export const StatementLineSuggestionSource = {
-  ai: 'ai',
-  heuristic: 'heuristic',
-  workspace_learning: 'workspace_learning',
-} as const;
-
 export interface StatementLine {
   id: number;
   /** @nullable */
@@ -137,8 +166,10 @@ export interface StatementLine {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  suggestionSource?: StatementLineSuggestionSource;
-  supportingPatternCount?: number;
+  /** @nullable */
+  suggestionSource?: string | null;
+  /** @nullable */
+  supportingPatternCount?: number | null;
   /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */
@@ -213,13 +244,56 @@ export interface BankAccount {
 
 export interface StatementImportResult {
   fileName: string;
+  importId: number;
   importStatus: StatementImportResultImportStatus;
   message?: string;
+  sourceUrl?: string;
   importedCount: number;
   duplicateCount: number;
   duplicateLines: StatementImportDuplicate[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
+}
+
+export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof StatementImportOutcome];
+
+
+export const StatementImportOutcome = {
+  completed: 'completed',
+  duplicate: 'duplicate',
+  failed: 'failed',
+} as const;
+
+export interface StatementImport {
+  id: number;
+  fileName: string;
+  mimeType: string;
+  outcome: StatementImportOutcome;
+  /** @nullable */
+  errorMessage?: string | null;
+  importedLineCount: number;
+  createdAt: string;
+  /** @nullable */
+  sourceUrl?: string | null;
+}
+
+export interface UploadUrlRequest {
+  clientId: number;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+export type UploadUrlResponseMetadata = {
+  name: string;
+  size: number;
+  contentType: string;
+};
+
+export interface UploadUrlResponse {
+  uploadURL: string;
+  objectPath: string;
+  metadata: UploadUrlResponseMetadata;
 }
 
 export interface BankAccountInput {
@@ -267,15 +341,6 @@ export const AICopilotRecommendationType = {
   bulk_post_entries: 'bulk_post_entries',
 } as const;
 
-export type AICopilotRecommendationSuggestionSource = typeof AICopilotRecommendationSuggestionSource[keyof typeof AICopilotRecommendationSuggestionSource];
-
-
-export const AICopilotRecommendationSuggestionSource = {
-  ai: 'ai',
-  heuristic: 'heuristic',
-  workspace_learning: 'workspace_learning',
-} as const;
-
 export interface BankAccountDraft {
   name: string;
   /** @nullable */
@@ -311,8 +376,10 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
-  suggestionSource?: AICopilotRecommendationSuggestionSource;
-  supportingPatternCount?: number;
+  /** @nullable */
+  suggestionSource?: string | null;
+  /** @nullable */
+  supportingPatternCount?: number | null;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }
@@ -342,6 +409,23 @@ export const AICredentialStatus = {
   unavailable: 'unavailable',
 } as const;
 
+export type AIModelStatus = typeof AIModelStatus[keyof typeof AIModelStatus];
+
+
+export const AIModelStatus = {
+  active: 'active',
+  retired: 'retired',
+} as const;
+
+export interface AIModelOption {
+  provider: AIProvider;
+  model: string;
+  displayName: string;
+  status: AIModelStatus;
+  /** @nullable */
+  retiredAt: string | null;
+}
+
 export interface AIProviderSettings {
   clientId: number;
   provider: AIProvider;
@@ -356,7 +440,8 @@ export interface AIProviderSettings {
   credentialUpdatedAt: string | null;
   /** @nullable */
   lastTestedAt: string | null;
-  availableModels: string[];
+  /** Provider-specific approved model catalog, including retired models for existing configurations. */
+  availableModels: AIModelOption[];
 }
 
 export interface AIProviderSettingsInput {
@@ -491,105 +576,221 @@ export interface FinancialStatements {
   cashFlow: StatementSection[];
 }
 
-export interface ComparativeStatementSection {
-  label: string;
-  amount: number;
-  comparativeAmount: number;
-  children?: ComparativeStatementSection[];
-}
-
-export type ReportValidationIssueSeverity = typeof ReportValidationIssueSeverity[keyof typeof ReportValidationIssueSeverity];
+export type ReportPackInputReportingBasis = typeof ReportPackInputReportingBasis[keyof typeof ReportPackInputReportingBasis];
 
 
-export const ReportValidationIssueSeverity = {
-  error: 'error',
-  warning: 'warning',
-  input: 'input',
+export const ReportPackInputReportingBasis = {
+  IFRS: 'IFRS',
+  IFRS_for_SMEs: 'IFRS for SMEs',
 } as const;
 
-export interface ReportValidationIssue {
-  code: string;
-  severity: ReportValidationIssueSeverity;
-  message: string;
-  details: string[];
-}
-
-export type ReportNoteStatus = typeof ReportNoteStatus[keyof typeof ReportNoteStatus];
+export type ReportPackInputPresentationProfile = typeof ReportPackInputPresentationProfile[keyof typeof ReportPackInputPresentationProfile];
 
 
-export const ReportNoteStatus = {
-  generated: 'generated',
-  requires_input: 'requires_input',
-  not_applicable: 'not_applicable',
+export const ReportPackInputPresentationProfile = {
+  IAS_1: 'IAS 1',
+  IFRS_18: 'IFRS 18',
 } as const;
 
-export type ReportNoteRowsItem = {
+export type ReportPackInputRoundingPolicy = typeof ReportPackInputRoundingPolicy[keyof typeof ReportPackInputRoundingPolicy];
+
+
+export const ReportPackInputRoundingPolicy = {
+  Nearest_whole_unit: 'Nearest whole unit',
+  Nearest_2_decimals: 'Nearest 2 decimals',
+} as const;
+
+export interface ReportPackInput {
+  clientId: number;
+  periodEnd: string;
+  reportingBasis?: ReportPackInputReportingBasis;
+  presentationProfile?: ReportPackInputPresentationProfile;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  presentationCurrency?: string;
+  roundingPolicy?: ReportPackInputRoundingPolicy;
+}
+
+export type ReportPackSummaryStatus = typeof ReportPackSummaryStatus[keyof typeof ReportPackSummaryStatus];
+
+
+export const ReportPackSummaryStatus = {
+  draft: 'draft',
+  finalized: 'finalized',
+} as const;
+
+export interface ReportPackSummary {
+  id: number;
+  clientId: number;
+  periodEnd: string;
+  comparativePeriodEnd: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  presentationCurrency: string;
+  status: ReportPackSummaryStatus;
+  validationErrorCount: number;
+  createdAt: string;
+}
+
+export interface ReportAmount {
   label: string;
-  amount: number;
-  comparativeAmount: number;
+  current: number;
+  comparative: number;
+  noteRef: string;
+  sourceEntryIds: number[];
+  sourceLineIds: number[];
+  children?: ReportAmount[];
+}
+
+export type ReportNoteTablesItem = {
+  label: string;
+  current: number;
+  comparative: number;
 };
 
 export interface ReportNote {
   number: number;
   title: string;
-  status: ReportNoteStatus;
   narrative: string;
-  rows: ReportNoteRowsItem[];
+  requiresInput: boolean;
+  tables: ReportNoteTablesItem[];
 }
 
-export type ReportApplicabilityItemStatus = typeof ReportApplicabilityItemStatus[keyof typeof ReportApplicabilityItemStatus];
+export type ReportValidationStatus = typeof ReportValidationStatus[keyof typeof ReportValidationStatus];
 
 
-export const ReportApplicabilityItemStatus = {
+export const ReportValidationStatus = {
+  pass: 'pass',
+  blocked: 'blocked',
+} as const;
+
+export type ReportValidationChecksItemStatus = typeof ReportValidationChecksItemStatus[keyof typeof ReportValidationChecksItemStatus];
+
+
+export const ReportValidationChecksItemStatus = {
+  pass: 'pass',
+  error: 'error',
+  warning: 'warning',
+} as const;
+
+export type ReportValidationChecksItem = {
+  id: string;
+  label: string;
+  status: ReportValidationChecksItemStatus;
+  detail: string;
+  blocking: boolean;
+};
+
+export interface ReportValidation {
+  status: ReportValidationStatus;
+  errorCount: number;
+  checks: ReportValidationChecksItem[];
+}
+
+export type ReportChecklistItemStatus = typeof ReportChecklistItemStatus[keyof typeof ReportChecklistItemStatus];
+
+
+export const ReportChecklistItemStatus = {
   applicable: 'applicable',
   not_applicable: 'not_applicable',
   immaterial: 'immaterial',
   satisfied: 'satisfied',
-  requires_input: 'requires_input',
+  requires_accountant_input: 'requires_accountant_input',
 } as const;
 
-export interface ReportApplicabilityItem {
+export interface ReportChecklistItem {
   standard: string;
-  topic: string;
-  status: ReportApplicabilityItemStatus;
-  rationale: string;
+  title: string;
+  status: ReportChecklistItemStatus;
+  prompt: string;
+}
+
+export interface ReportSignatory {
+  preparedBy: string;
+  reviewedBy: string;
+  authorizedBy: string;
+  /** @nullable */
+  authorizationDate?: string | null;
+}
+
+export type ReportSnapshotTraceability = {
+  postedEntryCount: number;
+  postedLineCount: number;
+  sourceImportCount: number;
+};
+
+export interface ReportSnapshot {
+  entityName: string;
+  legalName: string;
+  periodEnd: string;
+  comparativePeriodEnd: string;
+  presentationCurrency: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  statementOfFinancialPosition: ReportAmount[];
+  profitOrLossAndOci: ReportAmount[];
+  changesInEquity: ReportAmount[];
+  cashFlows: ReportAmount[];
+  notes: ReportNote[];
+  traceability: ReportSnapshotTraceability;
 }
 
 export type ReportPackStatus = typeof ReportPackStatus[keyof typeof ReportPackStatus];
 
 
 export const ReportPackStatus = {
-  ready: 'ready',
-  needs_review: 'needs_review',
+  draft: 'draft',
+  finalized: 'finalized',
 } as const;
 
-export type ReportPackTraceability = {
-  postedEntryCount: number;
-  comparativePostedEntryCount: number;
-  sourceLineCount: number;
-  missingRateCount: number;
-  missingRateCurrencies: string[];
+export interface ReportPack {
+  id: number;
+  clientId: number;
+  periodStart: string;
+  periodEnd: string;
+  comparativePeriodStart: string;
+  comparativePeriodEnd: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  presentationCurrency: string;
+  roundingPolicy: string;
+  status: ReportPackStatus;
+  snapshot: ReportSnapshot;
+  validation: ReportValidation;
+  notes: ReportNote[];
+  checklist: ReportChecklistItem[];
+  signatory: ReportSignatory;
+  createdAt: string;
+  updatedAt: string;
+  /** @nullable */
+  finalizedAt: string | null;
+}
+
+export type ReportPackUpdateAction = typeof ReportPackUpdateAction[keyof typeof ReportPackUpdateAction];
+
+
+export const ReportPackUpdateAction = {
+  update_inputs: 'update_inputs',
+  finalize: 'finalize',
+} as const;
+
+export interface ReportPackUpdate {
+  clientId: number;
+  action: ReportPackUpdateAction;
+  notes?: ReportNote[];
+  checklist?: ReportChecklistItem[];
+  signatory?: ReportSignatory;
+}
+
+export type BeginBrowserLoginParams = {
+returnTo?: string;
 };
 
-export interface ReportPack {
-  period: string;
-  comparativePeriod: string;
-  periodEnd: string;
-  comparativePeriodEnd: string;
-  entityName: string;
-  legalName: string;
-  basis: string;
-  functionalCurrency: string;
-  status: ReportPackStatus;
-  validationIssues: ReportValidationIssue[];
-  applicability: ReportApplicabilityItem[];
-  financialPosition: ComparativeStatementSection[];
-  profitOrLoss: ComparativeStatementSection[];
-  changesInEquity: ComparativeStatementSection[];
-  cashFlows: ComparativeStatementSection[];
-  notes: ReportNote[];
-  traceability: ReportPackTraceability;
-}
+export type LogoutBrowserSessionParams = {
+returnTo?: string;
+};
 
 export type GetLedgerOverviewParams = {
 clientId?: number;
@@ -603,6 +804,10 @@ export type GetStatementLinesParams = {
 clientId?: number;
 currency?: string;
 status?: string;
+};
+
+export type GetStatementImportsParams = {
+clientId: number;
 };
 
 export type GetLedgerflowAISettingsParams = {
@@ -626,11 +831,7 @@ clientId?: number;
 period?: string;
 };
 
-export type GetReportPackParams = {
-clientId?: number;
-/**
- * Reporting period end in YYYY-MM-DD format. Defaults to the client close period or latest posted entry.
- */
-period?: string;
+export type GetReportPacksParams = {
+clientId: number;
 };
 
