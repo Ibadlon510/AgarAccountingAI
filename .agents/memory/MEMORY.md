@@ -1,2 +1,3 @@
 - [Generated Zod integer compatibility](zod-integer-compatibility.md) — OpenAPI integer types can fail generated Zod builds in this workspace; prefer number types until the shared Zod version is aligned.
 - [Mutation scope contracts](mutation-scope-contracts.md) — use named request bodies, not query parameters, when adding generated mutation scope in this workspace.
+- [PDF worker bundling](pdf-worker-bundling.md) — pdf-parse needs its worker emitted beside the bundled API server.
