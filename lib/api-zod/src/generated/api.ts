@@ -156,7 +156,9 @@ export const GetStatementLinesResponseItem = zod.object({
   "status": zod.string(),
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish()
+  "confidence": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']),
+  "supportingPatternCount": zod.number()
 })
 export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem)
 
@@ -185,7 +187,9 @@ export const CreateStatementLineResponse = zod.object({
   "status": zod.string(),
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish()
+  "confidence": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']),
+  "supportingPatternCount": zod.number()
 })
 
 
@@ -227,7 +231,9 @@ export const ImportStatementResponse = zod.object({
   "status": zod.string(),
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish()
+  "confidence": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']),
+  "supportingPatternCount": zod.number()
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -272,6 +278,8 @@ export const AskLedgerflowAIResponse = zod.object({
 }).optional(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
+  "suggestionSource": zod.enum(['ai', 'heuristic', 'workspace_learning']).optional(),
+  "supportingPatternCount": zod.number().optional(),
   "bankAccount": zod.union([zod.object({
   "name": zod.string(),
   "bankName": zod.string().nullish(),

@@ -33,6 +33,7 @@ export interface LedgerOverview {
   completionPercent: number;
 }
 
+export type StatementLineSuggestionSource = typeof StatementLineSuggestionSource[keyof typeof StatementLineSuggestionSource];
 export interface StatementLine {
   id: number;
   /** @nullable */
@@ -48,6 +49,8 @@ export interface StatementLine {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
+  suggestionSource: StatementLineSuggestionSource;
+  supportingPatternCount: number;
 }
 
 export interface StatementLineInput {
@@ -139,6 +142,7 @@ export const AICopilotRecommendationType = {
   bulk_post_entries: 'bulk_post_entries',
 } as const;
 
+export type AICopilotRecommendationSuggestionSource = typeof AICopilotRecommendationSuggestionSource[keyof typeof AICopilotRecommendationSuggestionSource];
 export interface BankAccountDraft {
   name: string;
   /** @nullable */
@@ -174,6 +178,8 @@ export interface AICopilotRecommendation {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
+  suggestionSource?: AICopilotRecommendationSuggestionSource;
+  supportingPatternCount?: number;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }
@@ -359,4 +365,16 @@ export const StatementImportResultImportStatus = {
   imported_with_duplicates: 'imported_with_duplicates',
   duplicates_found: 'duplicates_found',
   duplicate_file: 'duplicate_file',
+} as const;
+
+export const AICopilotRecommendationSuggestionSource = {
+  ai: 'ai',
+  heuristic: 'heuristic',
+  workspace_learning: 'workspace_learning',
+} as const;
+
+export const StatementLineSuggestionSource = {
+  ai: 'ai',
+  heuristic: 'heuristic',
+  workspace_learning: 'workspace_learning',
 } as const;

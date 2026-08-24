@@ -78,6 +78,11 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
         )}
       </div>
       <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">{rec.summary}</p>
+      {rec.suggestionSource === 'workspace_learning' && (
+        <div data-testid={`workspace-learning-recommendation-${rec.id}`} className="mt-2 inline-flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 font-mono text-[10px] font-semibold text-primary">
+          <Sparkles size={11} /> Workspace learned · {rec.supportingPatternCount ?? 0} confirmed pattern{(rec.supportingPatternCount ?? 0) === 1 ? '' : 's'}
+        </div>
+      )}
       
       {rec.type === 'recode_lines' && rec.accountSuggestion && (
         <div className="mt-2.5 flex items-center gap-2 text-[10px] font-mono">

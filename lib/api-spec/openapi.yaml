@@ -511,7 +511,7 @@ components:
         completionPercent: { type: number }
     StatementLine:
       type: object
-      required: [id, date, description, currency, amount, direction, status, source]
+      required: [id, date, description, currency, amount, direction, status, source, suggestionSource, supportingPatternCount]
       properties:
         id: { type: number }
         bankAccountId: { type: ["number", "null"] }
@@ -524,6 +524,8 @@ components:
         source: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
+        suggestionSource: { type: string, enum: [ai, heuristic, workspace_learning] }
+        supportingPatternCount: { type: number }
     StatementLineInput:
       type: object
       required: [date, description, currency, amount, direction]
@@ -653,6 +655,8 @@ components:
             to: { type: string }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
+        suggestionSource: { type: string, enum: [ai, heuristic, workspace_learning] }
+        supportingPatternCount: { type: number }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccountDraft"

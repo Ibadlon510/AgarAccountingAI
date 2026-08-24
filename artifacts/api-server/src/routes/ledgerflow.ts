@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 import OpenAI from "openai";
@@ -32,6 +32,7 @@ import {
 } from "@workspace/api-zod";
 import {
   bankAccountsTable,
+  classificationPatternsTable,
   clientWorkspacesTable,
   clientsTable,
   db,
@@ -200,6 +201,153 @@ function suggestAccount(description: string, direction: string) {
   return "General expenses";
 }
 
+const classificationAccounts = new Set([
+  "Revenue",
+  "Other income",
+  "Travel & entertainment",
+  "Software & subscriptions",
+  "Office expenses",
+  "Communication expenses",
+  "Rent expense",
+  "Payroll",
+  "Bank charges",
+  "General expenses",
+]);
+const vendorNoiseWords = new Set([
+  "account", "ae", "bank", "charge", "charges", "co", "company", "credit",
+  "debit", "fee", "fees", "fze", "fz", "inc", "invoice", "ltd", "llc",
+  "payout", "payment", "payments", "ref", "reference", "transaction", "uae",
+]);
+
+function normalizeVendor(description: string) {
+  return description
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !/^\d+$/.test(token) && !vendorNoiseWords.has(token))
+    .join(" ")
+    .slice(0, 160);
+}
+
+type SuggestionSource = "ai" | "heuristic" | "workspace_learning";
+type ClassificationSuggestion = {
+  accountSuggestion: string;
+  confidence: number;
+  suggestionSource: SuggestionSource;
+  supportingPatternCount: number;
+};
+
+class RecodeConflictError extends Error {}
+
+async function getWorkspacePatterns(userId: string) {
+  return db.select().from(classificationPatternsTable).where(eq(classificationPatternsTable.userId, userId));
+}
+
+function findWorkspaceSuggestion(
+  patterns: Array<typeof classificationPatternsTable.$inferSelect>,
+  description: string,
+): ClassificationSuggestion | null {
+  const normalized = normalizeVendor(description);
+  if (!normalized) return null;
+  const tokens = new Set(normalized.split(" "));
+  const candidates = patterns.map((pattern) => {
+    const patternTokens = new Set(pattern.normalizedVendor.split(" "));
+    const overlap = [...tokens].filter((token) => patternTokens.has(token)).length;
+    const union = new Set([...tokens, ...patternTokens]).size;
+    const similarity = normalized === pattern.normalizedVendor
+      ? 1
+      : union === 0 ? 0 : overlap / union;
+    return { pattern, similarity };
+  }).filter(({ similarity }) => similarity >= 0.62)
+    .sort((a, b) => b.similarity - a.similarity
+      || b.pattern.confirmationCount - a.pattern.confirmationCount
+      || Number(b.pattern.confidence) - Number(a.pattern.confidence));
+  const best = candidates[0];
+  if (!best) return null;
+
+  // Do not choose between equally plausible confirmed accounts. Falling back to
+  // the normal heuristic is safer than crossing a client's classification.
+  const competingAccount = candidates.find(({ pattern, similarity }) =>
+    pattern.accountSuggestion !== best.pattern.accountSuggestion
+      && similarity >= best.similarity - 0.08,
+  );
+  if (competingAccount) return null;
+
+  const confidence = Math.min(
+    0.99,
+    Math.max(0.85, Number(best.pattern.confidence)) * (0.92 + best.similarity * 0.08),
+  );
+  return {
+    accountSuggestion: best.pattern.accountSuggestion,
+    confidence,
+    suggestionSource: "workspace_learning",
+    supportingPatternCount: best.pattern.confirmationCount,
+  };
+}
+
+async function recordClassificationPattern(
+  userId: string,
+  description: string,
+  accountSuggestion: string,
+  confidence: number | string | null | undefined,
+  executor: Pick<typeof db, "insert"> = db,
+) {
+  const normalizedVendor = normalizeVendor(description);
+  const normalizedAccount = accountSuggestion.trim().slice(0, 160);
+  if (!normalizedVendor || !classificationAccounts.has(normalizedAccount)) return;
+  const confirmedConfidence = Math.min(0.99, Math.max(0.85, Number(confidence) || 0.85));
+  await executor.insert(classificationPatternsTable).values({
+    userId,
+    normalizedVendor,
+    accountSuggestion: normalizedAccount,
+    confidence: confirmedConfidence.toFixed(2),
+    confirmationCount: 1,
+  }).onConflictDoUpdate({
+    target: [
+      classificationPatternsTable.userId,
+      classificationPatternsTable.normalizedVendor,
+      classificationPatternsTable.accountSuggestion,
+    ],
+    set: {
+      confirmationCount: sql`${classificationPatternsTable.confirmationCount} + 1`,
+      confidence: sql`GREATEST(${classificationPatternsTable.confidence}, ${confirmedConfidence.toFixed(2)})`,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+function lineSuggestion(
+  line: { description: string; direction: string; accountSuggestion?: string | null; confidence?: string | number | null },
+  patterns: Array<typeof classificationPatternsTable.$inferSelect>,
+): ClassificationSuggestion {
+  const learned = findWorkspaceSuggestion(patterns, line.description);
+  if (learned) return learned;
+  const accountSuggestion = line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
+  const confidence = Number(line.confidence);
+  return {
+    accountSuggestion,
+    confidence: Number.isFinite(confidence) ? confidence : 0.75,
+    suggestionSource: line.accountSuggestion ? "ai" : "heuristic",
+    supportingPatternCount: 0,
+  };
+}
+
+function statementLineResponse(
+  line: typeof statementLinesTable.$inferSelect,
+  patterns: Array<typeof classificationPatternsTable.$inferSelect>,
+) {
+  const suggestion = lineSuggestion(line, patterns);
+  return {
+    ...line,
+    amount: number(line.amount),
+    accountSuggestion: suggestion.accountSuggestion,
+    confidence: suggestion.confidence,
+    suggestionSource: suggestion.suggestionSource,
+    supportingPatternCount: suggestion.supportingPatternCount,
+  };
+}
+
 async function ensureSuggestedAccounts() {
   const lines = await db.select().from(statementLinesTable);
   for (const line of lines.filter((item) => !item.accountSuggestion)) {
@@ -317,6 +465,8 @@ type AICopilotRecommendation = {
   statusTransition?: { from: string; to: string };
   accountSuggestion?: string | null;
   confidence?: number | null;
+  suggestionSource?: SuggestionSource;
+  supportingPatternCount?: number;
   bankAccount?: { name: string; bankName: string | null; accountNumberLast4: string | null; currency: string } | null;
   requiresConfirmation: boolean;
 };
@@ -470,8 +620,31 @@ function defaultAICopilotRecommendations(
   pendingLines: Array<typeof statementLinesTable.$inferSelect>,
   bankAccounts: Array<typeof bankAccountsTable.$inferSelect>,
   clientId: number,
+  lineSuggestions: Map<number, ClassificationSuggestion>,
 ): AICopilotRecommendation[] {
   const recommendations: AICopilotRecommendation[] = [];
+  const learnedLines = pendingLines.filter((line) =>
+    lineSuggestions.get(line.id)?.suggestionSource === "workspace_learning",
+  );
+  if (learnedLines.length) {
+    const firstSuggestion = lineSuggestions.get(learnedLines[0].id)!;
+    const matchingAccountLines = learnedLines.filter((line) =>
+      lineSuggestions.get(line.id)?.accountSuggestion === firstSuggestion.accountSuggestion,
+    ).slice(0, 20);
+    recommendations.push({
+      id: `workspace-learning-${matchingAccountLines.map((line) => line.id).join("-")}`,
+      clientId,
+      type: "recode_lines",
+      title: `Confirm ${firstSuggestion.accountSuggestion} learned from this workspace`,
+      summary: `${matchingAccountLines.length} pending transaction${matchingAccountLines.length === 1 ? "" : "s"} match a confirmed workspace pattern. Confirm or override the suggested account before approval. Supporting confirmations: ${firstSuggestion.supportingPatternCount}.`,
+      lineIds: matchingAccountLines.map((line) => line.id),
+      accountSuggestion: firstSuggestion.accountSuggestion,
+      confidence: firstSuggestion.confidence,
+      suggestionSource: "workspace_learning",
+      supportingPatternCount: firstSuggestion.supportingPatternCount,
+      requiresConfirmation: true,
+    });
+  }
   const groups = new Map<string, Array<typeof statementLinesTable.$inferSelect>>();
   for (const line of pendingLines) {
     const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
@@ -720,6 +893,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     });
     const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
+    const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
       eq(bankAccountsTable.id, Number(bankAccountId)),
       eq(bankAccountsTable.clientId, scopedClientId),
@@ -783,8 +957,11 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         bankAccountId: detectedBankAccount?.id ?? null,
       }).where(eq(statementImportsTable.id, createdImport.id));
       const preparedLines = lines.map((line) => {
-        const accountSuggestion = line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
-        const parsedConfidence = Number(line.confidence);
+        const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, line.description);
+        const accountSuggestion = workspaceSuggestion?.accountSuggestion
+          || line.accountSuggestion?.trim()
+          || suggestAccount(line.description, line.direction);
+        const parsedConfidence = workspaceSuggestion?.confidence ?? Number(line.confidence);
         const confidence = Number.isFinite(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 1
           ? parsedConfidence.toFixed(2)
           : "0.75";
@@ -900,7 +1077,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       importedCount: inserted.length,
       duplicateCount: duplicateLines.length,
       duplicateLines,
-      lines: inserted.map((line) => ({ ...line, amount: number(line.amount), confidence: line.confidence == null ? null : number(line.confidence) })),
+      lines: inserted.map((line) => statementLineResponse(line, workspacePatterns)),
       bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null,
     }));
   } catch (error) {
@@ -926,6 +1103,8 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
   const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
   const bankAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id));
+  const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
+  const lineSuggestions = new Map(lines.map((line) => [line.id, lineSuggestion(line, workspacePatterns)]));
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
@@ -961,7 +1140,10 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
           content: JSON.stringify({
             client: { name: client.name, legalName: client.legalName, basis: client.basis, functionalCurrency: client.functionalCurrency, period: client.period },
             bankAccounts: bankAccounts.map(bankAccountResponse),
-            reviewQueue: pendingLines.slice(0, 50).map((line) => ({ id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: line.accountSuggestion })),
+             reviewQueue: pendingLines.slice(0, 50).map((line) => {
+               const suggestion = lineSuggestions.get(line.id);
+               return { id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: suggestion?.accountSuggestion, suggestionSource: suggestion?.suggestionSource, supportingPatternCount: suggestion?.supportingPatternCount };
+             }),
              journalEntries: entries.filter((entry) => entry.status !== "posted").slice(0, 50).map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: entry.status, debit: entry.debitAccount, credit: entry.creditAccount })),
             question: message,
           }),
@@ -969,8 +1151,13 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
       ],
     });
     const raw = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
-     const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
-     const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId);
+      const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
+      const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
+        .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
+      if (learnedRecommendation && !recommendations.some((recommendation) => recommendation.suggestionSource === "workspace_learning")) {
+        recommendations.unshift(learnedRecommendation);
+      }
+      const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId, lineSuggestions);
     const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
     res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
@@ -1105,43 +1292,73 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   if (!lineIds.length || !accountSuggestion) {
     return res.status(400).json({ error: "Select at least one line and a proposed account before confirming a recode." });
   }
-  const selectedLines = await db.select().from(statementLinesTable).where(and(
-    eq(statementLinesTable.clientId, client.id),
-    inArray(statementLinesTable.id, lineIds),
-  ));
-  if (selectedLines.length !== lineIds.length) {
-    return res.status(404).json({ error: "One or more selected statement lines are not available in this client." });
-  }
-  if (selectedLines.some((line) => line.status === "posted")) {
-    return res.status(409).json({ error: "Posted statement lines cannot be recoded through the AI assistant." });
-  }
-  const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, client.id),
-    inArray(journalEntriesTable.statementLineId, lineIds),
-  ));
-  if (entries.some((entry) => entry.status !== "suggested")) {
-    return res.status(409).json({ error: "Only still-suggested journal entries can be recoded. Review approved entries individually." });
+  if (!classificationAccounts.has(accountSuggestion)) {
+    return res.status(400).json({ error: "Choose one of LedgerFlow's supported accounts before confirming a classification." });
   }
   const confidence = Number.isFinite(Number(body.confidence)) && Number(body.confidence) >= 0 && Number(body.confidence) <= 1
     ? Number(body.confidence).toFixed(2)
     : "0.75";
-  await db.transaction(async (tx) => {
-    await tx.update(statementLinesTable).set({ accountSuggestion, confidence }).where(and(
-      eq(statementLinesTable.clientId, client.id),
-      inArray(statementLinesTable.id, lineIds),
-    ));
-    for (const line of selectedLines) {
-      await tx.update(journalEntriesTable).set({
-        confidence,
-        debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
-        creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
-      }).where(and(
+  let selectedLines: Array<typeof statementLinesTable.$inferSelect>;
+  try {
+    selectedLines = await db.transaction(async (tx) => {
+      const lockedLines = await tx.select().from(statementLinesTable).where(and(
+        eq(statementLinesTable.clientId, client.id),
+        inArray(statementLinesTable.id, lineIds),
+      )).for("update");
+      if (lockedLines.length !== lineIds.length) {
+        throw new RecodeConflictError("One or more selected statement lines are not available in this client.");
+      }
+      if (lockedLines.some((line) => line.status === "posted")) {
+        throw new RecodeConflictError("Posted statement lines cannot be recoded through the AI assistant.");
+      }
+
+      const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
         eq(journalEntriesTable.clientId, client.id),
-        eq(journalEntriesTable.statementLineId, line.id),
-        eq(journalEntriesTable.status, "suggested"),
-      ));
+        inArray(journalEntriesTable.statementLineId, lineIds),
+      )).for("update");
+      const entryLineIds = new Set(lockedEntries.map((entry) => entry.statementLineId));
+      if (
+        lockedEntries.length !== lockedLines.length
+        || entryLineIds.size !== lockedLines.length
+        || lockedEntries.some((entry) => entry.status !== "suggested")
+      ) {
+        throw new RecodeConflictError("Only still-suggested journal entries can be recoded. Review approved entries individually.");
+      }
+
+      for (const line of lockedLines) {
+        const [updatedEntry] = await tx.update(journalEntriesTable).set({
+          confidence,
+          debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
+          creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
+        }).where(and(
+          eq(journalEntriesTable.clientId, client.id),
+          eq(journalEntriesTable.statementLineId, line.id),
+          eq(journalEntriesTable.status, "suggested"),
+        )).returning({ id: journalEntriesTable.id });
+        if (!updatedEntry) throw new RecodeConflictError("A selected journal entry changed while its classification was being confirmed.");
+      }
+
+      const updatedLines = await tx.update(statementLinesTable).set({ accountSuggestion, confidence }).where(and(
+        eq(statementLinesTable.clientId, client.id),
+        inArray(statementLinesTable.id, lineIds),
+        ne(statementLinesTable.status, "posted"),
+      )).returning({ id: statementLinesTable.id });
+      if (updatedLines.length !== lockedLines.length) {
+        throw new RecodeConflictError("A selected statement line changed while its classification was being confirmed.");
+      }
+
+      for (const line of lockedLines) {
+        await recordClassificationPattern(currentUserId(req), line.description, accountSuggestion, confidence, tx);
+      }
+      return lockedLines;
     }
-  });
+    );
+  } catch (error) {
+    if (error instanceof RecodeConflictError) {
+      return res.status(409).json({ error: error.message });
+    }
+    throw error;
+  }
   return res.json(ConfirmAICopilotActionResponse.parse({
     type: body.type,
     updatedLineCount: selectedLines.length,
@@ -1232,16 +1449,13 @@ router.get("/ledgerflow/statement-lines", async (req, res) => {
   const parsed = GetStatementLinesQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, parsed.clientId);
   if (!client) return;
+  const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
   const lines = await db.select().from(statementLinesTable).where(and(
     eq(statementLinesTable.clientId, client.id),
     parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
     parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
   )).orderBy(asc(statementLinesTable.date));
-  res.json(GetStatementLinesResponse.parse(lines.map((line) => ({
-    ...line,
-    amount: number(line.amount),
-    confidence: line.confidence == null ? null : number(line.confidence),
-  }))));
+  res.json(GetStatementLinesResponse.parse(lines.map((line) => statementLineResponse(line, workspacePatterns))));
 });
 
 router.post("/ledgerflow/statement-lines", async (req, res) => {
@@ -1258,21 +1472,19 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
       .limit(1);
     if (!bankAccount) return res.status(400).json({ error: "Selected bank account was not found for this client." });
   }
+  const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
+  const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, body.description);
   const line = await db.transaction((tx) => createStatementLineAndJournal(tx, {
     ...body,
     clientId: client.id,
     amount: String(body.amount),
     status: "needs_review",
     source: "Manual entry",
-    accountSuggestion: suggestAccount(body.description, body.direction),
-    confidence: "0.75",
+    accountSuggestion: workspaceSuggestion?.accountSuggestion || suggestAccount(body.description, body.direction),
+    confidence: (workspaceSuggestion?.confidence ?? 0.75).toFixed(2),
   }));
   if (!line) throw new Error("Manual statement line was not created.");
-  return res.status(201).json(CreateStatementLineResponse.parse({
-    ...line,
-    amount: number(line.amount),
-    confidence: line.confidence == null ? null : number(line.confidence),
-  }));
+  return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns)));
 });
 
 router.get("/ledgerflow/journal-entries", async (req, res) => {
@@ -1297,6 +1509,18 @@ router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
   if (!entry) {
     res.status(409).json({ error: "This journal entry is not available for approval for this client" });
     return;
+  }
+  const [line] = await db.select().from(statementLinesTable).where(and(
+    eq(statementLinesTable.id, entry.statementLineId),
+    eq(statementLinesTable.clientId, client.id),
+  ));
+  if (line) {
+    const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+    try {
+      await recordClassificationPattern(currentUserId(req), line.description, accountSuggestion, entry.confidence);
+    } catch (error) {
+      req.log.warn({ err: error }, "Classification learning could not be recorded after approval");
+    }
   }
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(entry)));
 });
