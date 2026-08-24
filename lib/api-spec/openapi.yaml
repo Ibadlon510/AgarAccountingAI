@@ -44,6 +44,29 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Client"
+  /clients/{id}:
+    patch:
+      operationId: updateClient
+      tags: [ledgerflow]
+      summary: Update a client workspace
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientUpdateInput"
+      responses:
+        "200":
+          description: Client workspace updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
   /healthz:
     get:
       operationId: healthCheck
@@ -265,6 +288,15 @@ components:
       properties:
         name: { type: string }
         legalName: { type: string }
+    ClientUpdateInput:
+      type: object
+      required: [name, legalName, functionalCurrency, basis, period]
+      properties:
+        name: { type: string }
+        legalName: { type: string }
+        functionalCurrency: { type: string }
+        basis: { type: string }
+        period: { type: string }
     LedgerOverview:
       type: object
       required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent]

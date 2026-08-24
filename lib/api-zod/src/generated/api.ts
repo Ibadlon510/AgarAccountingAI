@@ -41,6 +41,31 @@ export const CreateClientResponse = zod.object({
 
 
 /**
+ * @summary Update a client workspace
+ */
+export const UpdateClientParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateClientBody = zod.object({
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string()
+})
+
+export const UpdateClientResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string()
+})
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

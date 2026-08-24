@@ -23,6 +23,14 @@ export interface ClientInput {
   legalName: string;
 }
 
+export interface ClientUpdateInput {
+  name: string;
+  legalName: string;
+  functionalCurrency: string;
+  basis: string;
+  period: string;
+}
+
 export interface LedgerOverview {
   period: string;
   currencies: string[];

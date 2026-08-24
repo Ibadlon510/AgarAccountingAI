@@ -9,6 +9,9 @@ import {
   AskLedgerflowAIBody,
   AskLedgerflowAIResponse,
   ApproveJournalEntryResponse,
+  UpdateClientParams,
+  UpdateClientBody,
+  UpdateClientResponse,
   CreateStatementLineBody,
   CreateStatementLineResponse,
   GetFinancialStatementsQueryParams,
@@ -234,6 +237,26 @@ router.post("/clients", async (req, res) => {
     basis: client.basis,
     period: client.period,
   });
+});
+
+router.patch("/clients/:id", async (req, res) => {
+  const { id } = UpdateClientParams.parse(req.params);
+  const body = UpdateClientBody.parse(req.body);
+  const [client] = await db.update(clientsTable)
+    .set(body)
+    .where(eq(clientsTable.id, id))
+    .returning();
+  if (!client) {
+    return res.status(404).json({ error: "Client workspace not found" });
+  }
+  return res.json(UpdateClientResponse.parse({
+    id: client.id,
+    name: client.name,
+    legalName: client.legalName,
+    functionalCurrency: client.functionalCurrency,
+    basis: client.basis,
+    period: client.period,
+  }));
 });
 
 router.get("/ledgerflow/overview", async (req, res) => {

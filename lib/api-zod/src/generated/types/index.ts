@@ -12,6 +12,7 @@ export * from './aIChatResponseContext';
 export * from './approveJournalEntryInput';
 export * from './client';
 export * from './clientInput';
+export * from './clientUpdateInput';
 export * from './financialStatements';
 export * from './getFinancialStatementsParams';
 export * from './getJournalEntriesParams';
