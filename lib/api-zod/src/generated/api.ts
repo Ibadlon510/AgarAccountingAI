@@ -146,6 +146,24 @@ export const ImportStatementResponse = zod.object({
 
 
 /**
+ * @summary Ask the AI assistant about a client workspace
+ */
+export const AskLedgerflowAIBody = zod.object({
+  "clientId": zod.number(),
+  "message": zod.string()
+})
+
+export const AskLedgerflowAIResponse = zod.object({
+  "answer": zod.string(),
+  "context": zod.object({
+  "clientName": zod.string(),
+  "pendingLines": zod.number(),
+  "postedLines": zod.number()
+})
+})
+
+
+/**
  * @summary List journal entries
  */
 export const GetJournalEntriesQueryParams = zod.object({
@@ -174,6 +192,10 @@ export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem
  */
 export const ApproveJournalEntryParams = zod.object({
   "id": zod.coerce.number()
+})
+
+export const ApproveJournalEntryBody = zod.object({
+  "clientId": zod.number()
 })
 
 export const ApproveJournalEntryResponse = zod.object({

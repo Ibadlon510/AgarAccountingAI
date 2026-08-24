@@ -6,6 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './aIChatInput';
+export * from './aIChatResponse';
+export * from './aIChatResponseContext';
+export * from './approveJournalEntryInput';
 export * from './client';
 export * from './clientInput';
 export * from './financialStatements';

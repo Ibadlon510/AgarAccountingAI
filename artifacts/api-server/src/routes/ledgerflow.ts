@@ -5,6 +5,9 @@ import * as XLSX from "xlsx";
 import OpenAI from "openai";
 import {
   ApproveJournalEntryParams,
+  ApproveJournalEntryBody,
+  AskLedgerflowAIBody,
+  AskLedgerflowAIResponse,
   ApproveJournalEntryResponse,
   CreateStatementLineBody,
   CreateStatementLineResponse,
@@ -64,6 +67,32 @@ function number(value: string | null | undefined) {
 function clientIdFrom(value: unknown) {
   const parsed = Number(value ?? 1);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+async function createSuggestedEntry(line: {
+  id: number;
+  clientId: number;
+  date: string;
+  description: string;
+  currency: string;
+  amount: string;
+  direction: string;
+  accountSuggestion?: string | null;
+  confidence?: string | null;
+}) {
+  const account = line.accountSuggestion || "Uncategorized";
+  await db.insert(journalEntriesTable).values({
+    statementLineId: line.id,
+    clientId: line.clientId,
+    date: line.date,
+    memo: line.description,
+    currency: line.currency,
+    status: "suggested",
+    confidence: line.confidence ?? "0.80",
+    debitAccount: line.direction === "inflow" ? "Bank / cash" : account,
+    creditAccount: line.direction === "inflow" ? account : "Bank / cash",
+    amount: line.amount,
+  });
 }
 
 type ParsedBankLine = {
@@ -132,10 +161,51 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       accountSuggestion: null,
       confidence: null,
     }))).returning() : [];
+    for (const line of inserted) await createSuggestedEntry(line);
     return res.status(201).json({ fileName, importedCount: inserted.length, lines: inserted.map((line) => ({ ...line, amount: number(line.amount) })) });
   } catch (error) {
     req.log.error({ err: error }, "Statement import failed");
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
+  }
+});
+
+router.post("/ledgerflow/ai-chat", async (req, res) => {
+  const { clientId, message } = AskLedgerflowAIBody.parse(req.body);
+  const client = (await db.select().from(clientsTable).where(eq(clientsTable.id, clientId)))[0];
+  if (!client) {
+    res.status(404).json({ error: "Client workspace not found" });
+    return;
+  }
+  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, clientId));
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId));
+  const pendingLines = lines.filter((line) => line.status !== "posted");
+  const postedLines = lines.filter((line) => line.status === "posted");
+  const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      max_completion_tokens: 1200,
+      messages: [
+        {
+          role: "system",
+          content: "You are LedgerFlow's bookkeeping assistant. Answer questions about the selected client workspace using only the supplied context. Be concise, practical, and clear that AI does not post anything. If asked to post or approve, explain that the accountant must use the review controls. Use AED as the presentation currency and mention source currencies when relevant.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            client: { name: client.name, legalName: client.legalName, basis: client.basis, functionalCurrency: client.functionalCurrency, period: client.period },
+            reviewQueue: pendingLines.slice(0, 20).map((line) => ({ date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: line.accountSuggestion })),
+            approvedEntries: entries.filter((entry) => entry.status === "approved").slice(0, 20).map((entry) => ({ date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, debit: entry.debitAccount, credit: entry.creditAccount })),
+            question: message,
+          }),
+        },
+      ],
+    });
+    const answer = response.choices[0]?.message?.content?.trim() || "I couldn't produce a response for this workspace.";
+    res.json(AskLedgerflowAIResponse.parse({ answer, context }));
+  } catch (error) {
+    req.log.error({ err: error }, "AI workspace chat failed");
+    res.status(502).json({ error: "The AI assistant is temporarily unavailable." });
   }
 });
 
@@ -207,6 +277,7 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
     status: "needs_review",
     source: "Manual entry",
   }).returning();
+  await createSuggestedEntry(line);
   res.status(201).json(CreateStatementLineResponse.parse({
     ...line,
     amount: number(line.amount),
@@ -235,9 +306,31 @@ router.get("/ledgerflow/journal-entries", async (_req, res) => {
 
 router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
   const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
-  const [entry] = await db.update(journalEntriesTable).set({ status: "approved" }).where(eq(journalEntriesTable.id, id)).returning();
-  if (!entry) return res.status(404).json({ error: "Journal entry not found" });
-  await db.update(statementLinesTable).set({ status: "posted" }).where(eq(statementLinesTable.id, entry.statementLineId));
+  const { clientId } = ApproveJournalEntryBody.parse(req.body);
+  const entry = await db.transaction(async (tx) => {
+    const [approved] = await tx.update(journalEntriesTable)
+      .set({ status: "approved" })
+      .where(and(
+        eq(journalEntriesTable.id, id),
+        eq(journalEntriesTable.clientId, clientId),
+        eq(journalEntriesTable.status, "suggested"),
+      ))
+      .returning();
+    if (!approved) return null;
+    const [postedLine] = await tx.update(statementLinesTable)
+      .set({ status: "posted" })
+      .where(and(
+        eq(statementLinesTable.id, approved.statementLineId),
+        eq(statementLinesTable.clientId, clientId),
+      ))
+      .returning();
+    if (!postedLine) throw new Error("Linked statement line was not found for this client");
+    return approved;
+  });
+  if (!entry) {
+    res.status(409).json({ error: "This journal entry is not available to post for this client" });
+    return;
+  }
   return res.json(ApproveJournalEntryResponse.parse({
     id: entry.id,
     statementLineId: entry.statementLineId,
@@ -274,24 +367,41 @@ router.get("/ledgerflow/trial-balance", async (_req, res) => {
 router.get("/ledgerflow/financial-statements", async (req, res) => {
   const { period } = GetFinancialStatementsQueryParams.parse(req.query);
   const clientId = clientIdFrom(req.query.clientId);
-  const isPrimaryClient = clientId === 1;
+  const client = await db.select().from(clientsTable).where(eq(clientsTable.id, clientId));
+  const entries = await db.select().from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.status, "approved"),
+  ));
+  const expenseAccounts = new Map<string, number>();
+  const revenueAccounts = new Map<string, number>();
+  let cash = 0;
+  for (const entry of entries) {
+    const amount = number(entry.amount);
+    if (entry.debitAccount === "Bank / cash") cash += amount;
+    if (entry.creditAccount === "Bank / cash") cash -= amount;
+    if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
+    if (entry.creditAccount !== "Bank / cash") revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
+  }
+  const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
+  const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);
+  const netIncome = totalRevenue - totalExpenses;
   const report = {
-    period: period ?? "August 2026",
+    period: period ?? client[0]?.period ?? "Current period",
     incomeStatement: [
-      { label: "Revenue", amount: isPrimaryClient ? 41200 : 0, children: [{ label: "Service revenue", amount: isPrimaryClient ? 41200 : 0 }] },
-      { label: "Operating expenses", amount: isPrimaryClient ? -3328.5 : 0, children: [{ label: "Travel & entertainment", amount: isPrimaryClient ? -1840 : 0 }, { label: "Office expenses", amount: isPrimaryClient ? -389 : 0 }, { label: "Software & subscriptions", amount: isPrimaryClient ? -624.5 : 0 }, { label: "Communication expenses", amount: isPrimaryClient ? -475 : 0 }] },
-      { label: "Net income", amount: isPrimaryClient ? 37871.5 : 0 },
+      { label: "Revenue", amount: totalRevenue, children: [...revenueAccounts.entries()].map(([label, amount]) => ({ label, amount })) },
+      { label: "Operating expenses", amount: -totalExpenses, children: [...expenseAccounts.entries()].map(([label, amount]) => ({ label, amount: -amount })) },
+      { label: "Net income", amount: netIncome },
     ],
     balanceSheet: [
-      { label: "Assets", amount: isPrimaryClient ? 118420 : 0, children: [{ label: "Bank / cash", amount: isPrimaryClient ? 118420 : 0 }] },
+      { label: "Assets", amount: cash, children: [{ label: "Bank / cash", amount: cash }] },
       { label: "Liabilities", amount: 0 },
-      { label: "Equity", amount: isPrimaryClient ? 118420 : 0 },
+      { label: "Equity", amount: cash },
     ],
     cashFlow: [
-      { label: "Net income", amount: isPrimaryClient ? 37871.5 : 0 },
+      { label: "Net income", amount: netIncome },
       { label: "Changes in working capital", amount: 0 },
-      { label: "Net cash from operating activities", amount: isPrimaryClient ? 37871.5 : 0 },
-      { label: "Net increase in cash", amount: isPrimaryClient ? 37871.5 : 0 },
+      { label: "Net cash from operating activities", amount: cash },
+      { label: "Net increase in cash", amount: cash },
     ],
   };
   res.json(GetFinancialStatementsResponse.parse(report));

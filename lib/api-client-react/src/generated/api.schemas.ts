@@ -70,6 +70,26 @@ export interface StatementImportResult {
   lines: StatementLine[];
 }
 
+export interface ApproveJournalEntryInput {
+  clientId: number;
+}
+
+export interface AIChatInput {
+  clientId: number;
+  message: string;
+}
+
+export type AIChatResponseContext = {
+  clientName: string;
+  pendingLines: number;
+  postedLines: number;
+};
+
+export interface AIChatResponse {
+  answer: string;
+  context: AIChatResponseContext;
+}
+
 export interface JournalLine {
   account: string;
   debit: number;

@@ -20,6 +20,9 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AIChatInput,
+  AIChatResponse,
+  ApproveJournalEntryInput,
   Client,
   ClientInput,
   FinancialStatements,
@@ -601,6 +604,77 @@ export const useImportStatement = <TError = ErrorType<unknown>,
       return useMutation(getImportStatementMutationOptions(options));
     }
 
+export const getAskLedgerflowAIUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/ai-chat`
+}
+
+/**
+ * @summary Ask the AI assistant about a client workspace
+ */
+export const askLedgerflowAI = async (aIChatInput: AIChatInput, options?: Parameters<typeof customFetch>[1]): Promise<AIChatResponse> => {
+
+  return customFetch<AIChatResponse>(getAskLedgerflowAIUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aIChatInput)
+  }
+);}
+
+
+
+
+
+export const getAskLedgerflowAIMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext> => {
+
+const mutationKey = ['askLedgerflowAI'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof askLedgerflowAI>>, {data: BodyType<AIChatInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  askLedgerflowAI(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AskLedgerflowAIMutationResult = NonNullable<Awaited<ReturnType<typeof askLedgerflowAI>>>
+    export type AskLedgerflowAIMutationBody = BodyType<AIChatInput>
+    export type AskLedgerflowAIMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Ask the AI assistant about a client workspace
+ */
+export const useAskLedgerflowAI = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof askLedgerflowAI>>,
+        TError,
+        {data: BodyType<AIChatInput>},
+        TContext
+      > => {
+      return useMutation(getAskLedgerflowAIMutationOptions(options));
+    }
+
 export const getGetJournalEntriesUrl = (params?: GetJournalEntriesParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -696,14 +770,15 @@ export const getApproveJournalEntryUrl = (id: number,) => {
 /**
  * @summary Approve a suggested journal entry
  */
-export const approveJournalEntry = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
+export const approveJournalEntry = async (id: number,
+    approveJournalEntryInput: ApproveJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
 
   return customFetch<JournalEntry>(getApproveJournalEntryUrl(id),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(approveJournalEntryInput)
   }
 );}
 
@@ -712,8 +787,8 @@ export const approveJournalEntry = async (id: number, options?: Parameters<typeo
 
 
 export const getApproveJournalEntryMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext> => {
 
 const mutationKey = ['approveJournalEntry'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -725,10 +800,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveJournalEntry>>, {id: number}> = (props) => {
-          const {id} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveJournalEntry>>, {id: number;data: BodyType<ApproveJournalEntryInput>}> = (props) => {
+          const {id,data} = props ?? {};
 
-          return  approveJournalEntry(id,requestOptions)
+          return  approveJournalEntry(id,data,requestOptions)
         }
 
 
@@ -739,18 +814,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type ApproveJournalEntryMutationResult = NonNullable<Awaited<ReturnType<typeof approveJournalEntry>>>
-
+    export type ApproveJournalEntryMutationBody = BodyType<ApproveJournalEntryInput>
     export type ApproveJournalEntryMutationError = ErrorType<unknown>
 
     /**
  * @summary Approve a suggested journal entry
  */
 export const useApproveJournalEntry = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof approveJournalEntry>>,
         TError,
-        {id: number},
+        {id: number;data: BodyType<ApproveJournalEntryInput>},
         TContext
       > => {
       return useMutation(getApproveJournalEntryMutationOptions(options));

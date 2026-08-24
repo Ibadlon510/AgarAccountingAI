@@ -138,6 +138,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementImportResult"
+  /ledgerflow/ai-chat:
+    post:
+      operationId: askLedgerflowAI
+      tags: [ledgerflow]
+      summary: Ask the AI assistant about a client workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIChatInput"
+      responses:
+        "200":
+          description: Workspace-aware AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIChatResponse"
   /ledgerflow/journal-entries:
     get:
       operationId: getJournalEntries
@@ -168,6 +186,12 @@ paths:
           required: true
           schema:
             type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveJournalEntryInput"
       responses:
         "200":
           description: Approved journal entry
@@ -296,6 +320,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StatementLine"
+    ApproveJournalEntryInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+    AIChatInput:
+      type: object
+      required: [clientId, message]
+      properties:
+        clientId: { type: number }
+        message: { type: string }
+    AIChatResponse:
+      type: object
+      required: [answer, context]
+      properties:
+        answer: { type: string }
+        context:
+          type: object
+          required: [clientName, pendingLines, postedLines]
+          properties:
+            clientName: { type: string }
+            pendingLines: { type: number }
+            postedLines: { type: number }
     JournalLine:
       type: object
       required: [account, debit, credit]
