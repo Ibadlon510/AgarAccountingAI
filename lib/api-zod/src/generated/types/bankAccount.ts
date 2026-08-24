@@ -6,12 +6,13 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface StatementImportInput {
+export interface BankAccount {
+  id: number;
   clientId: number;
+  name: string;
   /** @nullable */
-  bankAccountId?: number | null;
-  fileName: string;
-  mimeType: string;
-  contentBase64: string;
+  bankName?: string | null;
+  /** @nullable */
+  accountNumberLast4?: string | null;
   currency: string;
 }

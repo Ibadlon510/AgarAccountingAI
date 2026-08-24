@@ -7,6 +7,12 @@ import {
   ApproveJournalEntryBody,
   AskLedgerflowAIBody,
   AskLedgerflowAIResponse,
+  ConfirmAICopilotActionBody,
+  ConfirmAICopilotActionResponse,
+  CreateBankAccountBody,
+  CreateBankAccountResponse,
+  GetBankAccountsQueryParams,
+  GetBankAccountsResponse,
   ApproveJournalEntryResponse,
   UpdateClientParams,
   UpdateClientBody,
@@ -22,7 +28,7 @@ import {
   GetTrialBalanceResponse,
   PostJournalEntryBody,
 } from "@workspace/api-zod";
-import { clientsTable, db, journalEntriesTable, statementLinesTable } from "@workspace/db";
+import { bankAccountsTable, clientsTable, db, journalEntriesTable, statementLinesTable } from "@workspace/db";
 
 const router: IRouter = Router();
 const openai = new OpenAI({
@@ -63,7 +69,10 @@ async function ensureSeeded() {
     ]);
   }
   const existing = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).limit(1);
-  if (existing.length > 0) return;
+  if (existing.length > 0) {
+    await ensureSuggestedAccounts();
+    return;
+  }
   const inserted = await db.insert(statementLinesTable).values(seedLines).returning();
   await db.insert(journalEntriesTable).values(inserted.map((line) => ({
     clientId: line.clientId,
@@ -98,6 +107,41 @@ function clientIdFrom(value: unknown) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+function suggestAccount(description: string, direction: string) {
+  const text = description.toLowerCase();
+  if (direction === "inflow") {
+    if (/stripe|retainer|client|invoice|sale|sales|payment|payout|customer/.test(text)) return "Revenue";
+    return "Other income";
+  }
+  if (/emirates|airline|flight|hotel|taxi|uber|careem|travel/.test(text)) return "Travel & entertainment";
+  if (/aws|azure|google cloud|software|subscription|saas|adobe|microsoft|hosting/.test(text)) return "Software & subscriptions";
+  if (/office|stationery|supplies|printer/.test(text)) return "Office expenses";
+  if (/telecom|etisalat|du\\b|internet|phone|mobile/.test(text)) return "Communication expenses";
+  if (/rent|lease/.test(text)) return "Rent expense";
+  if (/salary|payroll|wages/.test(text)) return "Payroll";
+  if (/fee|charge|commission/.test(text)) return "Bank charges";
+  return "General expenses";
+}
+
+async function ensureSuggestedAccounts() {
+  const lines = await db.select().from(statementLinesTable);
+  for (const line of lines.filter((item) => !item.accountSuggestion)) {
+    const accountSuggestion = suggestAccount(line.description, line.direction);
+    const confidence = "0.75";
+    await db.update(statementLinesTable)
+      .set({ accountSuggestion, confidence })
+      .where(eq(statementLinesTable.id, line.id));
+
+    await db.update(journalEntriesTable)
+      .set({
+        confidence,
+        debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
+        creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
+      })
+      .where(eq(journalEntriesTable.statementLineId, line.id));
+  }
+}
+
 async function createSuggestedEntry(line: {
   id: number;
   clientId: number;
@@ -109,7 +153,7 @@ async function createSuggestedEntry(line: {
   accountSuggestion?: string | null;
   confidence?: string | null;
 }) {
-  const account = line.accountSuggestion || "Uncategorized";
+  const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
   await db.insert(journalEntriesTable).values({
     statementLineId: line.id,
     clientId: line.clientId,
@@ -130,26 +174,209 @@ type ParsedBankLine = {
   amount: number;
   direction: "inflow" | "outflow";
   currency: string;
+  accountSuggestion?: string;
+  confidence?: number | string;
 };
+
+type BankAccountDraft = {
+  name?: string | null;
+  bankName?: string | null;
+  accountNumberLast4?: string | null;
+  currency?: string | null;
+};
+
+type AICopilotRecommendation = {
+  id: string;
+  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account";
+  title: string;
+  summary: string;
+  lineIds?: number[];
+  accountSuggestion?: string | null;
+  confidence?: number | null;
+  bankAccount?: { name: string; bankName: string | null; accountNumberLast4: string | null; currency: string } | null;
+  requiresConfirmation: boolean;
+};
+
+const suggestedAccounts = [
+  "Revenue",
+  "Other income",
+  "Travel & entertainment",
+  "Software & subscriptions",
+  "Office expenses",
+  "Communication expenses",
+  "Rent expense",
+  "Payroll",
+  "Bank charges",
+  "General expenses",
+];
+
+function cleanBankAccountDraft(draft: BankAccountDraft | undefined | null, fallbackCurrency: string) {
+  const name = draft?.name?.trim();
+  if (!name) return null;
+  const digits = (draft?.accountNumberLast4 ?? "").replace(/\D/g, "");
+  return {
+    name: name.slice(0, 120),
+    bankName: draft?.bankName?.trim().slice(0, 120) || null,
+    accountNumberLast4: digits.length >= 4 ? digits.slice(-4) : null,
+    currency: (draft?.currency?.trim() || fallbackCurrency).toUpperCase().slice(0, 3),
+  };
+}
+
+function bankAccountResponse(account: typeof bankAccountsTable.$inferSelect) {
+  return {
+    id: account.id,
+    clientId: account.clientId,
+    name: account.name,
+    bankName: account.bankName,
+    accountNumberLast4: account.accountNumberLast4,
+    currency: account.currency,
+  };
+}
+
+async function findOrCreateBankAccount(clientId: number, draft: BankAccountDraft | undefined | null, fallbackCurrency: string) {
+  const clean = cleanBankAccountDraft(draft, fallbackCurrency);
+  if (!clean) return null;
+  const existingAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId));
+  const existing = existingAccounts.find((account) =>
+    (clean.accountNumberLast4 && account.accountNumberLast4 === clean.accountNumberLast4)
+    || (account.name.toLowerCase() === clean.name.toLowerCase() && account.currency === clean.currency),
+  );
+  if (existing) return existing;
+  const [created] = await db.insert(bankAccountsTable).values({ clientId, ...clean }).returning();
+  return created;
+}
+
+function safeText(value: unknown, fallback: string, maxLength = 160) {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, maxLength) : fallback;
+}
+
+function collectAICopilotRecommendations(
+  rawRecommendations: unknown,
+  pendingLines: Array<typeof statementLinesTable.$inferSelect>,
+): AICopilotRecommendation[] {
+  const validLineIds = new Set(pendingLines.map((line) => line.id));
+  if (!Array.isArray(rawRecommendations)) return [];
+  const recommendations: AICopilotRecommendation[] = [];
+
+  for (const raw of rawRecommendations.slice(0, 3)) {
+    if (!raw || typeof raw !== "object") continue;
+    const candidate = raw as Record<string, unknown>;
+    const type = candidate.type;
+    const lineIds = Array.isArray(candidate.lineIds)
+      ? [...new Set(candidate.lineIds.filter((id): id is number => typeof id === "number" && validLineIds.has(id)))].slice(0, 100)
+      : [];
+
+    if (type === "recode_lines") {
+      const accountSuggestion = safeText(candidate.accountSuggestion, "");
+      if (!accountSuggestion || lineIds.length === 0) continue;
+      const confidence = Number(candidate.confidence);
+      recommendations.push({
+        id: `recode-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
+        type,
+        title: safeText(candidate.title, `Recode ${lineIds.length} transactions`),
+        summary: safeText(candidate.summary, `Apply ${accountSuggestion} to the selected review lines.`),
+        lineIds,
+        accountSuggestion,
+        confidence: Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : 0.75,
+        requiresConfirmation: true,
+      });
+    }
+
+    if (type === "review_group" && lineIds.length > 1) {
+      recommendations.push({
+        id: `group-${lineIds.join("-")}`,
+        type,
+        title: safeText(candidate.title, `Review ${lineIds.length} similar transactions together`),
+        summary: safeText(candidate.summary, "These transactions share a recurring pattern and can be checked as a group."),
+        lineIds,
+        accountSuggestion: typeof candidate.accountSuggestion === "string" ? candidate.accountSuggestion : null,
+        requiresConfirmation: false,
+      });
+    }
+
+    if (type === "create_bank_account") {
+      const bankAccount = cleanBankAccountDraft(candidate.bankAccount as BankAccountDraft | undefined, "AED");
+      if (!bankAccount) continue;
+      recommendations.push({
+        id: `bank-${bankAccount.name.toLowerCase().replace(/\W+/g, "-")}-${bankAccount.accountNumberLast4 ?? "new"}`,
+        type,
+        title: safeText(candidate.title, `Create bank account: ${bankAccount.name}`),
+        summary: safeText(candidate.summary, "Keep this statement stream separate from the client’s other bank activity."),
+        bankAccount,
+        requiresConfirmation: true,
+      });
+    }
+  }
+  return recommendations;
+}
+
+function defaultAICopilotRecommendations(
+  pendingLines: Array<typeof statementLinesTable.$inferSelect>,
+  bankAccounts: Array<typeof bankAccountsTable.$inferSelect>,
+): AICopilotRecommendation[] {
+  const recommendations: AICopilotRecommendation[] = [];
+  const groups = new Map<string, Array<typeof statementLinesTable.$inferSelect>>();
+  for (const line of pendingLines) {
+    const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
+    const members = groups.get(account) ?? [];
+    members.push(line);
+    groups.set(account, members);
+  }
+  const recurringGroup = [...groups.entries()].find(([, members]) => members.length >= 2);
+  if (recurringGroup) {
+    const [accountSuggestion, members] = recurringGroup;
+    recommendations.push({
+      id: `group-${members.slice(0, 20).map((line) => line.id).join("-")}`,
+      type: "review_group",
+      title: `Review ${members.length} ${accountSuggestion} suggestions together`,
+      summary: "These transactions already share the same proposed counter-account. Inspect one pattern before approving any of them.",
+      lineIds: members.slice(0, 20).map((line) => line.id),
+      accountSuggestion,
+      requiresConfirmation: false,
+    });
+  }
+  if (pendingLines.length) {
+    recommendations.push({
+      id: "next-review-step",
+      type: "next_step",
+      title: `${pendingLines.length} lines are waiting for review`,
+      summary: "Confirm the suggested accounts, then approve the journal entries you stand behind. AI will never post them for you.",
+      requiresConfirmation: false,
+    });
+  }
+  if (bankAccounts.length === 0) {
+    recommendations.push({
+      id: "next-bank-account-step",
+      type: "next_step",
+      title: "Set up the first bank account",
+      summary: "Upload a statement with a visible account header or ask me to prepare a bank-account setup card.",
+      requiresConfirmation: false,
+    });
+  }
+  return recommendations.slice(0, 3);
+}
 
 function normalizeRows(text: string, currency: string): ParsedBankLine[] {
   return text.split(/\r?\n/).slice(1).map((row) => {
     const cells = row.split(/,|\t|;/).map((cell) => cell.trim().replace(/^"|"$/g, ""));
     const amountCell = cells.find((cell) => /-?\d[\d,]*(\.\d+)?/.test(cell)) ?? "0";
     const amount = Number(amountCell.replace(/[^0-9.-]/g, ""));
+    const description = cells.slice(1, Math.max(2, cells.length - 1)).join(" ") || "Imported bank activity";
     return {
       date: cells[0] ?? "",
-      description: cells.slice(1, Math.max(2, cells.length - 1)).join(" ") || "Imported bank activity",
+      description,
       amount: Math.abs(amount),
       direction: (amount < 0 ? "outflow" : "inflow") as "outflow" | "inflow",
       currency,
+      accountSuggestion: suggestAccount(description, amount < 0 ? "outflow" : "inflow"),
+      confidence: 0.75,
     };
   }).filter((line) => line.date && line.amount > 0);
 }
 
 router.post("/ledgerflow/import-statement", async (req, res) => {
-  const { clientId, fileName, mimeType, contentBase64, currency = "AED" } = req.body as {
-    clientId?: number; fileName?: string; mimeType?: string; contentBase64?: string; currency?: string;
+  const { clientId, bankAccountId, fileName, mimeType, contentBase64, currency = "AED" } = req.body as {
+    clientId?: number; bankAccountId?: number | null; fileName?: string; mimeType?: string; contentBase64?: string; currency?: string;
   };
   if (!fileName || !mimeType || !contentBase64) return res.status(400).json({ error: "A statement file is required" });
   try {
@@ -173,27 +400,43 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       max_completion_tokens: 8192,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: "Extract bank statement transactions. Return JSON only: {\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\"}]}. Never invent transactions. Use the statement's stated currency when available." },
+        { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
         { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
       ],
     });
-    const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[] };
+    const candidate = JSON.parse(response.choices[0]?.message?.content ?? "{\"lines\":[]}") as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
     const activeClientId = clientIdFrom(clientId);
-    const inserted = lines.length ? await db.insert(statementLinesTable).values(lines.map((line) => ({
-      clientId: activeClientId,
-      date: line.date,
-      description: line.description,
-      currency: line.currency || currency,
-      amount: String(Math.abs(line.amount)),
-      direction: line.direction,
-      status: "needs_review",
-      source: `Imported: ${fileName}`,
-      accountSuggestion: null,
-      confidence: null,
-    }))).returning() : [];
+    const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
+      eq(bankAccountsTable.id, Number(bankAccountId)),
+      eq(bankAccountsTable.clientId, activeClientId),
+    )))[0];
+    if (bankAccountId != null && !selectedBankAccount) {
+      return res.status(400).json({ error: "Selected bank account was not found for this client." });
+    }
+    const detectedBankAccount = selectedBankAccount ?? await findOrCreateBankAccount(activeClientId, candidate.bankAccount, currency);
+    const inserted = lines.length ? await db.insert(statementLinesTable).values(lines.map((line) => {
+      const accountSuggestion = line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
+      const parsedConfidence = Number(line.confidence);
+      const confidence = Number.isFinite(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 1
+        ? parsedConfidence.toFixed(2)
+        : "0.75";
+      return {
+        clientId: activeClientId,
+        bankAccountId: detectedBankAccount?.id ?? null,
+        date: line.date,
+        description: line.description,
+        currency: line.currency || currency,
+        amount: String(Math.abs(line.amount)),
+        direction: line.direction,
+        status: "needs_review" as const,
+        source: `Imported: ${fileName}`,
+        accountSuggestion,
+        confidence,
+      };
+    })).returning() : [];
     for (const line of inserted) await createSuggestedEntry(line);
-    return res.status(201).json({ fileName, importedCount: inserted.length, lines: inserted.map((line) => ({ ...line, amount: number(line.amount) })) });
+    return res.status(201).json({ fileName, importedCount: inserted.length, lines: inserted.map((line) => ({ ...line, amount: number(line.amount) })), bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null });
   } catch (error) {
     req.log.error({ err: error }, "Statement import failed");
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
@@ -209,6 +452,7 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   }
   const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, clientId));
   const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId));
+  const bankAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId));
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
@@ -216,28 +460,107 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     const response = await openai.chat.completions.create({
       model: "gpt-5.6-luna",
       max_completion_tokens: 1200,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: "You are LedgerFlow's bookkeeping assistant. Answer questions about the selected client workspace using only the supplied context. Be concise, practical, and clear that AI does not post anything. If asked to post or approve, explain that the accountant must use the review controls. Use AED as the presentation currency and mention source currencies when relevant.",
+          content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
         },
         {
           role: "user",
           content: JSON.stringify({
             client: { name: client.name, legalName: client.legalName, basis: client.basis, functionalCurrency: client.functionalCurrency, period: client.period },
-            reviewQueue: pendingLines.slice(0, 20).map((line) => ({ date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: line.accountSuggestion })),
+            bankAccounts: bankAccounts.map(bankAccountResponse),
+            reviewQueue: pendingLines.slice(0, 50).map((line) => ({ id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: line.accountSuggestion })),
             approvedEntries: entries.filter((entry) => entry.status === "approved").slice(0, 20).map((entry) => ({ date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, debit: entry.debitAccount, credit: entry.creditAccount })),
             question: message,
           }),
         },
       ],
     });
-    const answer = response.choices[0]?.message?.content?.trim() || "I couldn't produce a response for this workspace.";
-    res.json(AskLedgerflowAIResponse.parse({ answer, context }));
+    const raw = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
+    const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines);
+    const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts);
+    const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
+    res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
     req.log.error({ err: error }, "AI workspace chat failed");
     res.status(502).json({ error: "The AI assistant is temporarily unavailable." });
   }
+});
+
+router.get("/ledgerflow/bank-accounts", async (req, res) => {
+  const { clientId } = GetBankAccountsQueryParams.parse(req.query);
+  const accounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, clientId)).orderBy(asc(bankAccountsTable.name));
+  res.json(GetBankAccountsResponse.parse(accounts.map(bankAccountResponse)));
+});
+
+router.post("/ledgerflow/bank-accounts", async (req, res) => {
+  const body = CreateBankAccountBody.parse(req.body);
+  const account = await findOrCreateBankAccount(body.clientId, body, body.currency);
+  if (!account) return res.status(400).json({ error: "A bank account name is required." });
+  return res.status(201).json(CreateBankAccountResponse.parse(bankAccountResponse(account)));
+});
+
+router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
+  const body = ConfirmAICopilotActionBody.parse(req.body);
+  if (body.type === "create_bank_account") {
+    const bankAccount = await findOrCreateBankAccount(body.clientId, body.bankAccount ?? undefined, body.bankAccount?.currency ?? "AED");
+    if (!bankAccount) return res.status(400).json({ error: "The bank account proposal needs a name and currency." });
+    return res.json(ConfirmAICopilotActionResponse.parse({
+      type: body.type,
+      updatedLineCount: 0,
+      bankAccount: bankAccountResponse(bankAccount),
+    }));
+  }
+
+  const lineIds = [...new Set(body.lineIds ?? [])];
+  const accountSuggestion = body.accountSuggestion?.trim();
+  if (!lineIds.length || !accountSuggestion) {
+    return res.status(400).json({ error: "Select at least one line and a proposed account before confirming a recode." });
+  }
+  const selectedLines = await db.select().from(statementLinesTable).where(and(
+    eq(statementLinesTable.clientId, body.clientId),
+    inArray(statementLinesTable.id, lineIds),
+  ));
+  if (selectedLines.length !== lineIds.length) {
+    return res.status(404).json({ error: "One or more selected statement lines are not available in this client." });
+  }
+  if (selectedLines.some((line) => line.status === "posted")) {
+    return res.status(409).json({ error: "Posted statement lines cannot be recoded through the AI assistant." });
+  }
+  const entries = await db.select().from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, body.clientId),
+    inArray(journalEntriesTable.statementLineId, lineIds),
+  ));
+  if (entries.some((entry) => entry.status !== "suggested")) {
+    return res.status(409).json({ error: "Only still-suggested journal entries can be recoded. Review approved entries individually." });
+  }
+  const confidence = Number.isFinite(Number(body.confidence)) && Number(body.confidence) >= 0 && Number(body.confidence) <= 1
+    ? Number(body.confidence).toFixed(2)
+    : "0.75";
+  await db.transaction(async (tx) => {
+    await tx.update(statementLinesTable).set({ accountSuggestion, confidence }).where(and(
+      eq(statementLinesTable.clientId, body.clientId),
+      inArray(statementLinesTable.id, lineIds),
+    ));
+    for (const line of selectedLines) {
+      await tx.update(journalEntriesTable).set({
+        confidence,
+        debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
+        creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
+      }).where(and(
+        eq(journalEntriesTable.clientId, body.clientId),
+        eq(journalEntriesTable.statementLineId, line.id),
+        eq(journalEntriesTable.status, "suggested"),
+      ));
+    }
+  });
+  return res.json(ConfirmAICopilotActionResponse.parse({
+    type: body.type,
+    updatedLineCount: selectedLines.length,
+    bankAccount: null,
+  }));
 });
 
 router.get("/clients", async (_req, res) => {
@@ -329,6 +652,8 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
     amount: String(body.amount),
     status: "needs_review",
     source: "Manual entry",
+    accountSuggestion: suggestAccount(body.description, body.direction),
+    confidence: "0.75",
   }).returning();
   await createSuggestedEntry(line);
   res.status(201).json(CreateStatementLineResponse.parse({

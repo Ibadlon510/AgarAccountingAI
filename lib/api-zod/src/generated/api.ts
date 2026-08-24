@@ -92,6 +92,52 @@ export const GetLedgerOverviewResponse = zod.object({
 
 
 /**
+ * @summary List a client's bank accounts
+ */
+export const GetBankAccountsQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetBankAccountsResponseItem = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().nullish(),
+  "currency": zod.string()
+})
+export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
+
+
+/**
+ * @summary Create a client bank account
+ */
+
+export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
+export const createBankAccountBodyCurrencyMin = 3;
+export const createBankAccountBodyCurrencyMax = 3;
+
+
+
+export const CreateBankAccountBody = zod.object({
+  "clientId": zod.number(),
+  "name": zod.string().min(1),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().regex(createBankAccountBodyAccountNumberLast4RegExp).nullish(),
+  "currency": zod.string().min(createBankAccountBodyCurrencyMin).max(createBankAccountBodyCurrencyMax)
+})
+
+export const CreateBankAccountResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().nullish(),
+  "currency": zod.string()
+})
+
+
+/**
  * @summary List bank statement lines
  */
 export const GetStatementLinesQueryParams = zod.object({
@@ -102,6 +148,7 @@ export const GetStatementLinesQueryParams = zod.object({
 
 export const GetStatementLinesResponseItem = zod.object({
   "id": zod.number(),
+  "bankAccountId": zod.number().nullish(),
   "date": zod.string(),
   "description": zod.string(),
   "currency": zod.string(),
@@ -120,6 +167,7 @@ export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem
  */
 export const CreateStatementLineBody = zod.object({
   "clientId": zod.number().optional(),
+  "bankAccountId": zod.number().nullish(),
   "date": zod.string(),
   "description": zod.string(),
   "currency": zod.string(),
@@ -129,6 +177,7 @@ export const CreateStatementLineBody = zod.object({
 
 export const CreateStatementLineResponse = zod.object({
   "id": zod.number(),
+  "bankAccountId": zod.number().nullish(),
   "date": zod.string(),
   "description": zod.string(),
   "currency": zod.string(),
@@ -146,6 +195,7 @@ export const CreateStatementLineResponse = zod.object({
  */
 export const ImportStatementBody = zod.object({
   "clientId": zod.number(),
+  "bankAccountId": zod.number().nullish(),
   "fileName": zod.string(),
   "mimeType": zod.string(),
   "contentBase64": zod.string(),
@@ -157,6 +207,7 @@ export const ImportStatementResponse = zod.object({
   "importedCount": zod.number(),
   "lines": zod.array(zod.object({
   "id": zod.number(),
+  "bankAccountId": zod.number().nullish(),
   "date": zod.string(),
   "description": zod.string(),
   "currency": zod.string(),
@@ -166,7 +217,15 @@ export const ImportStatementResponse = zod.object({
   "source": zod.string(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish()
-}))
+})),
+  "bankAccount": zod.union([zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().nullish(),
+  "currency": zod.string()
+}),zod.null()]).optional()
 })
 
 
@@ -178,13 +237,68 @@ export const AskLedgerflowAIBody = zod.object({
   "message": zod.string()
 })
 
+export const askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
+
+
 export const AskLedgerflowAIResponse = zod.object({
   "answer": zod.string(),
+  "recommendations": zod.array(zod.object({
+  "id": zod.string(),
+  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account']),
+  "title": zod.string(),
+  "summary": zod.string(),
+  "lineIds": zod.array(zod.number()).optional(),
+  "accountSuggestion": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "bankAccount": zod.union([zod.object({
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().regex(askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp).nullish(),
+  "currency": zod.string()
+}),zod.null()]).optional(),
+  "requiresConfirmation": zod.boolean()
+})),
   "context": zod.object({
   "clientName": zod.string(),
   "pendingLines": zod.number(),
   "postedLines": zod.number()
 })
+})
+
+
+/**
+ * @summary Apply a user-confirmed AI bookkeeping proposal
+ */
+export const confirmAICopilotActionBodyLineIdsMax = 100;
+
+export const confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
+
+
+export const ConfirmAICopilotActionBody = zod.object({
+  "clientId": zod.number(),
+  "type": zod.enum(['recode_lines', 'create_bank_account']),
+  "lineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyLineIdsMax).optional(),
+  "accountSuggestion": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "bankAccount": zod.union([zod.object({
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().regex(confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp).nullish(),
+  "currency": zod.string()
+}),zod.null()]).optional()
+})
+
+export const ConfirmAICopilotActionResponse = zod.object({
+  "type": zod.string(),
+  "updatedLineCount": zod.number(),
+  "bankAccount": zod.union([zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().nullish(),
+  "currency": zod.string()
+}),zod.null()])
 })
 
 
@@ -238,12 +352,34 @@ export const ApproveJournalEntryResponse = zod.object({
 }))
 })
 
+
 /**
  * @summary Post an approved journal entry to the ledger
  */
 export const PostJournalEntryParams = zod.object({
   "id": zod.coerce.number()
 })
+
+export const PostJournalEntryBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const PostJournalEntryResponse = zod.object({
+  "id": zod.number(),
+  "statementLineId": zod.number(),
+  "date": zod.string(),
+  "memo": zod.string(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "confidence": zod.number(),
+  "lines": zod.array(zod.object({
+  "account": zod.string(),
+  "debit": zod.number(),
+  "credit": zod.number()
+}))
+})
+
+
 /**
  * @summary Get trial balance
  */
@@ -288,21 +424,4 @@ export const GetFinancialStatementsResponse = zod.object({
 }))
 })
 
-export const PostJournalEntryBody = zod.object({
-  "clientId": zod.number()
-})
 
-export const PostJournalEntryResponse = zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-}))
-})

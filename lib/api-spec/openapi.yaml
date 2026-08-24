@@ -97,6 +97,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LedgerOverview"
+  /ledgerflow/bank-accounts:
+    get:
+      operationId: getBankAccounts
+      tags: [ledgerflow]
+      summary: List a client's bank accounts
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Client bank accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BankAccount"
+    post:
+      operationId: createBankAccount
+      tags: [ledgerflow]
+      summary: Create a client bank account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankAccountInput"
+      responses:
+        "201":
+          description: Client bank account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankAccount"
   /ledgerflow/statement-lines:
     get:
       operationId: getStatementLines
@@ -179,6 +215,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIChatResponse"
+  /ledgerflow/ai-actions/confirm:
+    post:
+      operationId: confirmAICopilotAction
+      tags: [ledgerflow]
+      summary: Apply a user-confirmed AI bookkeeping proposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AICopilotActionInput"
+      responses:
+        "200":
+          description: AI action applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AICopilotActionResult"
   /ledgerflow/journal-entries:
     get:
       operationId: getJournalEntries
@@ -340,6 +394,7 @@ components:
       required: [id, date, description, currency, amount, direction, status, source]
       properties:
         id: { type: number }
+        bankAccountId: { type: ["number", "null"] }
         date: { type: string }
         description: { type: string }
         currency: { type: string }
@@ -354,6 +409,7 @@ components:
       required: [date, description, currency, amount, direction]
       properties:
         clientId: { type: number }
+        bankAccountId: { type: ["number", "null"] }
         date: { type: string }
         description: { type: string }
         currency: { type: string }
@@ -364,6 +420,7 @@ components:
       required: [clientId, fileName, mimeType, contentBase64, currency]
       properties:
         clientId: { type: number }
+        bankAccountId: { type: ["number", "null"] }
         fileName: { type: string }
         mimeType: { type: string }
         contentBase64: { type: string }
@@ -378,6 +435,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StatementLine"
+        bankAccount:
+          oneOf:
+            - $ref: "#/components/schemas/BankAccount"
+            - type: "null"
+    BankAccount:
+      type: object
+      required: [id, clientId, name, currency]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        name: { type: string }
+        bankName: { type: ["string", "null"] }
+        accountNumberLast4: { type: ["string", "null"] }
+        currency: { type: string }
+    BankAccountInput:
+      type: object
+      required: [clientId, name, currency]
+      properties:
+        clientId: { type: number }
+        name: { type: string, minLength: 1 }
+        bankName: { type: ["string", "null"] }
+        accountNumberLast4: { type: ["string", "null"], pattern: "^[0-9]{4}$" }
+        currency: { type: string, minLength: 3, maxLength: 3 }
     ApproveJournalEntryInput:
       type: object
       required: [clientId]
@@ -391,9 +471,13 @@ components:
         message: { type: string }
     AIChatResponse:
       type: object
-      required: [answer, context]
+      required: [answer, context, recommendations]
       properties:
         answer: { type: string }
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AICopilotRecommendation"
         context:
           type: object
           required: [clientName, pendingLines, postedLines]
@@ -401,6 +485,58 @@ components:
             clientName: { type: string }
             pendingLines: { type: number }
             postedLines: { type: number }
+    AICopilotRecommendation:
+      type: object
+      required: [id, type, title, summary, requiresConfirmation]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account] }
+        title: { type: string }
+        summary: { type: string }
+        lineIds:
+          type: array
+          items: { type: number }
+        accountSuggestion: { type: ["string", "null"] }
+        confidence: { type: ["number", "null"] }
+        bankAccount:
+          oneOf:
+            - $ref: "#/components/schemas/BankAccountDraft"
+            - type: "null"
+        requiresConfirmation: { type: boolean }
+    BankAccountDraft:
+      type: object
+      required: [name, currency]
+      properties:
+        name: { type: string }
+        bankName: { type: ["string", "null"] }
+        accountNumberLast4: { type: ["string", "null"], pattern: "^[0-9]{4}$" }
+        currency: { type: string }
+    AICopilotActionInput:
+      type: object
+      required: [clientId, type]
+      properties:
+        clientId: { type: number }
+        type: { type: string, enum: [recode_lines, create_bank_account] }
+        lineIds:
+          type: array
+          items: { type: number }
+          maxItems: 100
+        accountSuggestion: { type: ["string", "null"] }
+        confidence: { type: ["number", "null"] }
+        bankAccount:
+          oneOf:
+            - $ref: "#/components/schemas/BankAccountDraft"
+            - type: "null"
+    AICopilotActionResult:
+      type: object
+      required: [type, updatedLineCount, bankAccount]
+      properties:
+        type: { type: string }
+        updatedLineCount: { type: number }
+        bankAccount:
+          oneOf:
+            - $ref: "#/components/schemas/BankAccount"
+            - type: "null"
     JournalLine:
       type: object
       required: [account, debit, credit]

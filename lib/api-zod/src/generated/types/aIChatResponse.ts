@@ -6,8 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AIChatResponseContext } from './aIChatResponseContext';
+import type { AICopilotRecommendation } from './aICopilotRecommendation';
 
 export interface AIChatResponse {
   answer: string;
+  recommendations: AICopilotRecommendation[];
   context: AIChatResponseContext;
 }

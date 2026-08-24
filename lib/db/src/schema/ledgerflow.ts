@@ -10,9 +10,20 @@ export const clientsTable = pgTable("ledgerflow_clients", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  name: text("name").notNull(),
+  bankName: text("bank_name"),
+  accountNumberLast4: text("account_number_last4"),
+  currency: text("currency").notNull().default("AED"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),
+  bankAccountId: integer("bank_account_id"),
   date: text("date").notNull(),
   description: text("description").notNull(),
   currency: text("currency").notNull(),

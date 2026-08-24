@@ -5,10 +5,12 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { BankAccount } from './bankAccount';
 import type { StatementLine } from './statementLine';
 
 export interface StatementImportResult {
   fileName: string;
   importedCount: number;
   lines: StatementLine[];
+  bankAccount?: BankAccount | null;
 }

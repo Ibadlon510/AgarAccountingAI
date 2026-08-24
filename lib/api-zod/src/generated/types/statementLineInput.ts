@@ -8,6 +8,8 @@
 
 export interface StatementLineInput {
   clientId?: number;
+  /** @nullable */
+  bankAccountId?: number | null;
   date: string;
   description: string;
   currency: string;

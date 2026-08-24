@@ -42,6 +42,8 @@ export interface LedgerOverview {
 
 export interface StatementLine {
   id: number;
+  /** @nullable */
+  bankAccountId?: number | null;
   date: string;
   description: string;
   currency: string;
@@ -57,6 +59,8 @@ export interface StatementLine {
 
 export interface StatementLineInput {
   clientId?: number;
+  /** @nullable */
+  bankAccountId?: number | null;
   date: string;
   description: string;
   currency: string;
@@ -66,9 +70,22 @@ export interface StatementLineInput {
 
 export interface StatementImportInput {
   clientId: number;
+  /** @nullable */
+  bankAccountId?: number | null;
   fileName: string;
   mimeType: string;
   contentBase64: string;
+  currency: string;
+}
+
+export interface BankAccount {
+  id: number;
+  clientId: number;
+  name: string;
+  /** @nullable */
+  bankName?: string | null;
+  /** @nullable */
+  accountNumberLast4?: string | null;
   currency: string;
 }
 
@@ -76,6 +93,25 @@ export interface StatementImportResult {
   fileName: string;
   importedCount: number;
   lines: StatementLine[];
+  bankAccount?: BankAccount | null;
+}
+
+export interface BankAccountInput {
+  clientId: number;
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  bankName?: string | null;
+  /**
+     * @nullable
+     * @pattern ^[0-9]{4}$
+     */
+  accountNumberLast4?: string | null;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
 }
 
 export interface ApproveJournalEntryInput {
@@ -93,9 +129,72 @@ export type AIChatResponseContext = {
   postedLines: number;
 };
 
+export type AICopilotRecommendationType = typeof AICopilotRecommendationType[keyof typeof AICopilotRecommendationType];
+
+
+export const AICopilotRecommendationType = {
+  next_step: 'next_step',
+  review_group: 'review_group',
+  recode_lines: 'recode_lines',
+  create_bank_account: 'create_bank_account',
+} as const;
+
+export interface BankAccountDraft {
+  name: string;
+  /** @nullable */
+  bankName?: string | null;
+  /**
+     * @nullable
+     * @pattern ^[0-9]{4}$
+     */
+  accountNumberLast4?: string | null;
+  currency: string;
+}
+
+export interface AICopilotRecommendation {
+  id: string;
+  type: AICopilotRecommendationType;
+  title: string;
+  summary: string;
+  lineIds?: number[];
+  /** @nullable */
+  accountSuggestion?: string | null;
+  /** @nullable */
+  confidence?: number | null;
+  bankAccount?: BankAccountDraft | null;
+  requiresConfirmation: boolean;
+}
+
 export interface AIChatResponse {
   answer: string;
+  recommendations: AICopilotRecommendation[];
   context: AIChatResponseContext;
+}
+
+export type AICopilotActionInputType = typeof AICopilotActionInputType[keyof typeof AICopilotActionInputType];
+
+
+export const AICopilotActionInputType = {
+  recode_lines: 'recode_lines',
+  create_bank_account: 'create_bank_account',
+} as const;
+
+export interface AICopilotActionInput {
+  clientId: number;
+  type: AICopilotActionInputType;
+  /** @maxItems 100 */
+  lineIds?: number[];
+  /** @nullable */
+  accountSuggestion?: string | null;
+  /** @nullable */
+  confidence?: number | null;
+  bankAccount?: BankAccountDraft | null;
+}
+
+export interface AICopilotActionResult {
+  type: string;
+  updatedLineCount: number;
+  bankAccount: BankAccount | null;
 }
 
 export interface JournalLine {
@@ -140,6 +239,10 @@ export type GetLedgerOverviewParams = {
 clientId?: number;
 };
 
+export type GetBankAccountsParams = {
+clientId: number;
+};
+
 export type GetStatementLinesParams = {
 clientId?: number;
 currency?: string;
@@ -158,3 +261,4 @@ export type GetFinancialStatementsParams = {
 clientId?: number;
 period?: string;
 };
+
