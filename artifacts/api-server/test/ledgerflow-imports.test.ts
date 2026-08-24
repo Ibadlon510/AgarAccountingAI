@@ -53,6 +53,7 @@ const createdUserIds: string[] = [];
 const createdSessionIds: string[] = [];
 let primaryToken: string;
 let secondaryToken: string;
+const aiRequests: Array<{ path: string; credential: string | undefined }> = [];
 
 function testDatabaseUrl() {
   const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
@@ -120,6 +121,19 @@ before(async () => {
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const request = JSON.parse(Buffer.concat(chunks).toString("utf8")) as OpenAIRequest;
     const userMessage = request.messages?.find((message) => message.role === "user")?.content ?? "";
+    const credential = req.headers["x-api-key"] ?? req.headers.authorization?.replace(/^Bearer\s+/i, "");
+    aiRequests.push({ path: req.url ?? "", credential: Array.isArray(credential) ? credential[0] : credential });
+    if (credential === "invalid-key") {
+      res.statusCode = 401;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ error: { message: "invalid key" } }));
+      return;
+    }
+    if (req.url?.startsWith("/v1/messages")) {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(openAIResult(userMessage)) }] }));
+      return;
+    }
     const responseBody = {
       choices: [{ message: { content: JSON.stringify(openAIResult(userMessage)) } }],
     };
@@ -129,6 +143,8 @@ before(async () => {
   const aiPort = await listen(aiServer);
   process.env.AI_INTEGRATIONS_OPENAI_API_KEY = "ledgerflow-test-openai-key";
   process.env.AI_INTEGRATIONS_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
+  process.env.LEDGERFLOW_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
+  process.env.LEDGERFLOW_ANTHROPIC_BASE_URL = `http://127.0.0.1:${aiPort}`;
 
   app = (await import("../src/app")).default;
   database = await import("@workspace/db");
@@ -160,6 +176,8 @@ after(async () => {
   const activeAIServer = aiServer;
   try {
     if (activeDatabase && createdClientIds.length) {
+      await activeDatabase.db.delete(activeDatabase.aiProviderConfigsTable)
+        .where(inArray(activeDatabase.aiProviderConfigsTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
         .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.statementLinesTable)
@@ -337,4 +355,102 @@ test("scopes duplicate detection to the importing client", async () => {
   assert.equal(secondaryImport.body.importedCount, 1);
   assert.equal((await statementLines(primaryClientId)).length, 1);
   assert.equal((await statementLines(secondaryClientId, secondaryToken)).length, 1);
+});
+
+test("keeps workspace AI credentials redacted, isolated, rotatable, and routes extraction through the selected provider", async () => {
+  const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
+  const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryToken);
+
+  const defaultSettings = await request<{ provider: string; credentialLast4: string | null }>(
+    `/ledgerflow/ai-settings?clientId=${primaryClientId}`,
+  );
+  assert.equal(defaultSettings.response.status, 200);
+  assert.equal(defaultSettings.body.provider, "managed_openai");
+  assert.equal(defaultSettings.body.credentialLast4, null);
+
+  const missingKey = await request<{ error: string }>("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({ clientId: primaryClientId, provider: "anthropic", model: "claude-3-5-sonnet-latest" }),
+  });
+  assert.equal(missingKey.response.status, 400);
+  assert.match(missingKey.body.error, /add an api key/i);
+
+  const saved = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      clientId: primaryClientId,
+      provider: "anthropic",
+      model: "claude-3-5-sonnet-latest",
+      apiKey: "anthropic-first-key-1234",
+    }),
+  });
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.body.provider, "anthropic");
+  assert.equal(saved.body.credentialLast4, "1234");
+  assert.equal(JSON.stringify(saved.body).includes("anthropic-first-key-1234"), false);
+
+  const crossWorkspaceRead = await request<{ error: string }>(
+    `/ledgerflow/ai-settings?clientId=${secondaryClientId}`,
+  );
+  assert.equal(crossWorkspaceRead.response.status, 403);
+
+  const rotated = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      clientId: primaryClientId,
+      provider: "anthropic",
+      model: "claude-3-5-sonnet-latest",
+      apiKey: "anthropic-rotated-key-5678",
+    }),
+  });
+  assert.equal(rotated.response.status, 200);
+  assert.equal(rotated.body.credentialLast4, "5678");
+
+  const tested = await request<{ credentialStatus: string; lastTestedAt: string | null }>("/ledgerflow/ai-settings/test", {
+    method: "POST",
+    body: JSON.stringify({ clientId: primaryClientId }),
+  });
+  assert.equal(tested.response.status, 200);
+  assert.equal(tested.body.credentialStatus, "configured");
+  assert.ok(tested.body.lastTestedAt);
+
+  const routedImport = await importStatement(primaryClientId, "anthropic-provider.csv", "anthropic-provider");
+  assert.equal(routedImport.response.status, 201);
+  assert.ok(aiRequests.some((item) => item.path === "/v1/messages" && item.credential === "anthropic-rotated-key-5678"));
+  const routedChat = await request<{ answer: string }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({ clientId: primaryClientId, message: "What should I review first?" }),
+  });
+  assert.equal(routedChat.response.status, 200);
+  assert.ok(routedChat.body.answer.length > 0);
+  assert.ok(aiRequests.filter((item) => item.path === "/v1/messages" && item.credential === "anthropic-rotated-key-5678").length >= 2);
+
+  const invalid = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
+    method: "PUT",
+    body: JSON.stringify({
+      clientId: primaryClientId,
+      provider: "openai",
+      model: "gpt-4o-mini",
+      apiKey: "invalid-key",
+    }),
+  });
+  assert.equal(invalid.response.status, 200);
+  const invalidTest = await request<{ error: string }>("/ledgerflow/ai-settings/test", {
+    method: "POST",
+    body: JSON.stringify({ clientId: primaryClientId }),
+  });
+  assert.equal(invalidTest.response.status, 502);
+  assert.match(invalidTest.body.error, /credential was rejected/i);
+
+  const removed = await request<{ provider: string; credentialLast4: string | null }>("/ledgerflow/ai-settings/credential", {
+    method: "DELETE",
+    body: JSON.stringify({ clientId: primaryClientId }),
+  });
+  assert.equal(removed.response.status, 200);
+  assert.equal(removed.body.provider, "managed_openai");
+  assert.equal(removed.body.credentialLast4, null);
+
+  const managedImport = await importStatement(primaryClientId, "managed-provider.csv", "managed-provider");
+  assert.equal(managedImport.response.status, 201);
+  assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "ledgerflow-test-openai-key"));
 });

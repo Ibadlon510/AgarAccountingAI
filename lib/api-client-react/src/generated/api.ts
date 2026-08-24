@@ -24,6 +24,9 @@ import type {
   AIChatResponse,
   AICopilotActionInput,
   AICopilotActionResult,
+  AIProviderSettings,
+  AIProviderSettingsInput,
+  AIProviderSettingsTestInput,
   ApproveJournalEntryInput,
   AuthUserEnvelope,
   BankAccount,
@@ -37,6 +40,7 @@ import type {
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
   GetLedgerOverviewParams,
+  GetLedgerflowAISettingsParams,
   GetStatementLinesParams,
   GetTrialBalanceParams,
   HealthStatus,
@@ -1376,6 +1380,303 @@ export const useAskLedgerflowAI = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAskLedgerflowAIMutationOptions(options));
+    }
+
+export const getGetLedgerflowAISettingsUrl = (params: GetLedgerflowAISettingsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/ai-settings?${stringifiedParams}` : `/api/ledgerflow/ai-settings`
+}
+
+/**
+ * @summary Get redacted AI provider settings for a client workspace
+ */
+export const getLedgerflowAISettings = async (params: GetLedgerflowAISettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+
+  return customFetch<AIProviderSettings>(getGetLedgerflowAISettingsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLedgerflowAISettingsQueryKey = (params?: GetLedgerflowAISettingsParams,) => {
+    return [
+    `/api/ledgerflow/ai-settings`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLedgerflowAISettingsQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError = ErrorType<unknown>>(params: GetLedgerflowAISettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAISettingsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAISettings>>> = ({ signal }) => getLedgerflowAISettings(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLedgerflowAISettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAISettings>>>
+export type GetLedgerflowAISettingsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get redacted AI provider settings for a client workspace
+ */
+
+export function useGetLedgerflowAISettings<TData = Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError = ErrorType<unknown>>(
+ params: GetLedgerflowAISettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLedgerflowAISettingsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateLedgerflowAISettingsUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/ai-settings`
+}
+
+/**
+ * @summary Select an AI provider and optionally add or rotate its API credential
+ */
+export const updateLedgerflowAISettings = async (aIProviderSettingsInput: AIProviderSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+
+  return customFetch<AIProviderSettings>(getUpdateLedgerflowAISettingsUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aIProviderSettingsInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateLedgerflowAISettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext> => {
+
+const mutationKey = ['updateLedgerflowAISettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, {data: BodyType<AIProviderSettingsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateLedgerflowAISettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLedgerflowAISettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateLedgerflowAISettings>>>
+    export type UpdateLedgerflowAISettingsMutationBody = BodyType<AIProviderSettingsInput>
+    export type UpdateLedgerflowAISettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Select an AI provider and optionally add or rotate its API credential
+ */
+export const useUpdateLedgerflowAISettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLedgerflowAISettings>>,
+        TError,
+        {data: BodyType<AIProviderSettingsInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateLedgerflowAISettingsMutationOptions(options));
+    }
+
+export const getTestLedgerflowAISettingsUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/ai-settings/test`
+}
+
+/**
+ * @summary Test the selected AI provider without returning its credential
+ */
+export const testLedgerflowAISettings = async (aIProviderSettingsTestInput: AIProviderSettingsTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+
+  return customFetch<AIProviderSettings>(getTestLedgerflowAISettingsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aIProviderSettingsTestInput)
+  }
+);}
+
+
+
+
+
+export const getTestLedgerflowAISettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext> => {
+
+const mutationKey = ['testLedgerflowAISettings'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testLedgerflowAISettings>>, {data: BodyType<AIProviderSettingsTestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  testLedgerflowAISettings(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestLedgerflowAISettingsMutationResult = NonNullable<Awaited<ReturnType<typeof testLedgerflowAISettings>>>
+    export type TestLedgerflowAISettingsMutationBody = BodyType<AIProviderSettingsTestInput>
+    export type TestLedgerflowAISettingsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Test the selected AI provider without returning its credential
+ */
+export const useTestLedgerflowAISettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testLedgerflowAISettings>>,
+        TError,
+        {data: BodyType<AIProviderSettingsTestInput>},
+        TContext
+      > => {
+      return useMutation(getTestLedgerflowAISettingsMutationOptions(options));
+    }
+
+export const getRemoveLedgerflowAICredentialUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/ai-settings/credential`
+}
+
+/**
+ * @summary Remove the workspace-owned AI credential and return to managed OpenAI
+ */
+export const removeLedgerflowAICredential = async (aIProviderSettingsTestInput: AIProviderSettingsTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+
+  return customFetch<AIProviderSettings>(getRemoveLedgerflowAICredentialUrl(),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aIProviderSettingsTestInput)
+  }
+);}
+
+
+
+
+
+export const getRemoveLedgerflowAICredentialMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext> => {
+
+const mutationKey = ['removeLedgerflowAICredential'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, {data: BodyType<AIProviderSettingsTestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  removeLedgerflowAICredential(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveLedgerflowAICredentialMutationResult = NonNullable<Awaited<ReturnType<typeof removeLedgerflowAICredential>>>
+    export type RemoveLedgerflowAICredentialMutationBody = BodyType<AIProviderSettingsTestInput>
+    export type RemoveLedgerflowAICredentialMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Remove the workspace-owned AI credential and return to managed OpenAI
+ */
+export const useRemoveLedgerflowAICredential = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeLedgerflowAICredential>>,
+        TError,
+        {data: BodyType<AIProviderSettingsTestInput>},
+        TContext
+      > => {
+      return useMutation(getRemoveLedgerflowAICredentialMutationOptions(options));
     }
 
 export const getConfirmAICopilotActionUrl = () => {

@@ -190,6 +190,7 @@ export interface AIChatResponse {
   context: AIChatResponseContext;
 }
 
+export type AIProvider = typeof AIProvider[keyof typeof AIProvider];
 export type AICopilotActionInputType = typeof AICopilotActionInputType[keyof typeof AICopilotActionInputType];
 
 
@@ -285,6 +286,9 @@ currency?: string;
 status?: string;
 };
 
+export type GetLedgerflowAISettingsParams = {
+clientId: number;
+};
 export type GetJournalEntriesParams = {
 clientId?: number;
 };
@@ -341,7 +345,6 @@ export interface AuthUserEnvelope {
 export const LogoutSuccessValue = {
   success: true,
 } as const;
-
 export interface StatementImportDuplicate {
   date: string;
   description: string;
@@ -352,14 +355,13 @@ export interface StatementImportDuplicate {
   existingLineId: number | null;
   reason: StatementImportDuplicateReason;
 }
-
 export type StatementImportDuplicateReason = typeof StatementImportDuplicateReason[keyof typeof StatementImportDuplicateReason];
+
 
 export const StatementImportDuplicateReason = {
   already_imported: 'already_imported',
   duplicate_in_file: 'duplicate_in_file',
 } as const;
-
 export const StatementImportResultImportStatus = {
   imported: 'imported',
   imported_with_duplicates: 'imported_with_duplicates',
@@ -378,3 +380,47 @@ export const StatementLineSuggestionSource = {
   heuristic: 'heuristic',
   workspace_learning: 'workspace_learning',
 } as const;
+
+export const AIProvider = {
+  managed_openai: 'managed_openai',
+  openai: 'openai',
+  anthropic: 'anthropic',
+} as const;
+
+export type AICredentialStatus = typeof AICredentialStatus[keyof typeof AICredentialStatus];
+
+export interface AIProviderSettingsTestInput {
+  clientId: number;
+}
+
+export interface AIProviderSettingsInput {
+  clientId: number;
+  provider: AIProvider;
+  model: string;
+  /** @minLength 1 */
+  apiKey?: string;
+}
+
+export const AICredentialStatus = {
+  not_configured: 'not_configured',
+  configured: 'configured',
+  invalid: 'invalid',
+  unavailable: 'unavailable',
+} as const;
+
+export interface AIProviderSettings {
+  clientId: number;
+  provider: AIProvider;
+  model: string;
+  credentialStatus: AICredentialStatus;
+  /**
+     * Last four characters only; never the API credential.
+     * @nullable
+     */
+  credentialLast4: string | null;
+  /** @nullable */
+  credentialUpdatedAt: string | null;
+  /** @nullable */
+  lastTestedAt: string | null;
+  availableModels: string[];
+}

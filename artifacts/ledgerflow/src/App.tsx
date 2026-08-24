@@ -11,7 +11,8 @@ import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateStatementLine, useGetClients, useGetFinancialStatements, useGetJournalEntries, useGetLedgerOverview,
-  useConfirmAICopilotAction, useGetBankAccounts, useGetStatementLines, useGetTrialBalance, usePostJournalEntry, useUpdateClient
+  useConfirmAICopilotAction, useGetBankAccounts, useGetLedgerflowAISettings, useGetStatementLines, useGetTrialBalance,
+  usePostJournalEntry, useRemoveLedgerflowAICredential, useTestLedgerflowAISettings, useUpdateClient, useUpdateLedgerflowAISettings
 } from '@workspace/api-client-react';
 import type {
   Client, FinancialStatements, JournalEntry, StatementImportResult, StatementLine, StatementLineInput, StatementSection
@@ -26,7 +27,6 @@ import {
   type AuthUser,
 } from '@workspace/replit-auth-web';
 import { AssistantFAB } from './components/assistant-fab';
-
 const queryClient = new QueryClient();
 const nav = [
   { href: '/', label: 'Close overview', icon: LayoutDashboard },
@@ -72,6 +72,11 @@ function AddClientDialog({ onClose }: { onClose: () => void }) {
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="add-client-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace setup</div><h2 id="add-client-title" className="mt-2 text-lg font-semibold">Add client</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Create a separate IFRS / AED workspace for a new client.</p></div><button data-testid="button-close-add-client" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 space-y-4"><label className="block text-xs font-medium">Client name<input data-testid="input-client-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Northstar Advisory" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-client-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} placeholder="e.g. Northstar Advisory FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive">This client could not be created. Check the details and try again.</p>}<button data-testid="button-submit-client" disabled={mutation.isPending} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Creating workspace…' : <><Plus size={14} /> Create client workspace</>}</button></form></div></div>;
 }
 
+const aiModels = {
+  managed_openai: ['gpt-5.6-luna'],
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+  anthropic: ['claude-3-5-sonnet-latest', 'claude-3-7-sonnet-latest', 'claude-sonnet-4-20250514'],
+} as const;
 function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose: () => void }) {
   const mutation = useUpdateClient();
   const [form, setForm] = useState({
@@ -91,7 +96,7 @@ function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose:
     });
   };
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="w-full max-w-lg rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="workspace-settings-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace configuration</div><h2 id="workspace-settings-title" className="mt-2 text-lg font-semibold">Workspace settings</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Keep the client profile, reporting basis, currency, and close period aligned.</p></div><button data-testid="button-close-workspace-settings" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive sm:col-span-2">Settings could not be saved. Check the details and try again.</p>}<div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save settings'}</button></div></form></div></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="workspace-settings-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace configuration</div><h2 id="workspace-settings-title" className="mt-2 text-lg font-semibold">Workspace settings</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Keep the client profile, reporting basis, currency, and close period aligned.</p></div><button data-testid="button-close-workspace-settings" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-settings-client-name" required value={form.name} onChange={(event) => update('name', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-settings-legal-name" required value={form.legalName} onChange={(event) => update('legalName', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-settings-period" required value={form.period} onChange={(event) => update('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive sm:col-span-2">Settings could not be saved. Check the details and try again.</p>}<div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save settings'}</button></div></form><AIProviderSettingsPanel clientId={client.id} /></div></div>;
 }
 
 function HelpDialog({ onClose }: { onClose: () => void }) {
@@ -423,4 +428,62 @@ function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
 
 function AccessScreen({ onLogin, returnTo }: { onLogin: (returnTo?: string) => void; returnTo: string }) {
   return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="auth-access-screen"><div className="w-full max-w-[420px]"><div className="rounded-lg border border-card-border bg-card p-7 shadow-md sm:p-9"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Review desk</div></div></div><div className="mt-10"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Secure access</div><h1 className="mt-3 font-display text-[36px] leading-[.98] tracking-tight">Your close, ready for review.</h1><p className="mt-4 text-[13px] leading-6 text-muted-foreground">Sign in to open your private bookkeeping review desk. New to LedgerFlow? The same secure flow lets you create an account.</p><button data-testid="button-login" onClick={() => onLogin(returnTo)} className="focus-ring mt-7 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Sign in or create account</button></div></div><p className="mt-5 text-center font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground/70">Secure session · Human approval stays in control</p></div></main>;
+}
+
+function AIProviderSettingsPanel({ clientId }: { clientId: number }) {
+  const params = { clientId };
+  const settings = useGetLedgerflowAISettings(params);
+  const save = useUpdateLedgerflowAISettings();
+  const test = useTestLedgerflowAISettings();
+  const remove = useRemoveLedgerflowAICredential();
+  const [provider, setProvider] = useState<keyof typeof aiModels>('managed_openai');
+  const [model, setModel] = useState<string>(aiModels.managed_openai[0]);
+  const [apiKey, setApiKey] = useState('');
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!settings.data) return;
+    const nextProvider = settings.data.provider as keyof typeof aiModels;
+    setProvider(nextProvider);
+    setModel(settings.data.model);
+  }, [clientId, settings.data?.provider, settings.data?.model]);
+  const chooseProvider = (nextProvider: keyof typeof aiModels) => {
+    setProvider(nextProvider);
+    setModel(aiModels[nextProvider][0]);
+    setApiKey('');
+    setNotice('');
+  };
+  const saveSettings = (event: React.FormEvent) => {
+    event.preventDefault();
+    setNotice('');
+    save.mutate({ data: { clientId, provider, model, ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}) } }, {
+      onSuccess: (result) => {
+        setApiKey('');
+        setNotice(result.provider === 'managed_openai' ? 'Replit-managed OpenAI is selected.' : 'AI provider settings saved. Test the connection before using it.');
+        settings.refetch();
+      },
+    });
+  };
+  const testSettings = () => {
+    setNotice('');
+    test.mutate({ data: { clientId } }, {
+      onSuccess: () => {
+        setNotice('Connection test passed. This workspace can use the selected provider.');
+        settings.refetch();
+      },
+    });
+  };
+  const removeCredential = () => {
+    if (!window.confirm('Remove this workspace API key and switch back to Replit-managed OpenAI?')) return;
+    setNotice('');
+    remove.mutate({ data: { clientId } }, {
+      onSuccess: () => {
+        setApiKey('');
+        setNotice('Workspace API key removed. Replit-managed OpenAI is selected.');
+        settings.refetch();
+      },
+    });
+  };
+  const status = settings.data?.credentialStatus;
+  const error = save.error ?? test.error ?? remove.error;
+  return <section className="mt-6 border-t border-border pt-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI provider</div><h3 className="mt-1 text-sm font-semibold">AI connection</h3><p className="mt-1 max-w-xl text-[11px] leading-5 text-muted-foreground">Choose Replit-managed OpenAI or use a workspace-owned OpenAI or Anthropic API key. LedgerFlow stores only encrypted credential material and never shows the key again.</p></div>{settings.data && <span className={`rounded-full px-2 py-1 font-mono text-[9px] ${status === 'configured' || settings.data.provider === 'managed_openai' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>{settings.data.provider === 'managed_openai' ? 'Managed connection' : status === 'configured' ? 'Key configured' : status?.replaceAll('_', ' ')}</span>}</div><form onSubmit={saveSettings} className="mt-4 grid gap-3 sm:grid-cols-2"><label className="block text-xs font-medium">Provider<select data-testid="select-ai-provider" value={provider} onChange={(event) => chooseProvider(event.target.value as keyof typeof aiModels)} disabled={settings.isLoading} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50"><option value="managed_openai">Replit-managed OpenAI</option><option value="openai">Workspace-owned OpenAI</option><option value="anthropic">Workspace-owned Anthropic</option></select></label><label className="block text-xs font-medium">Model<select data-testid="select-ai-model" value={model} onChange={(event) => setModel(event.target.value)} disabled={settings.isLoading} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50">{aiModels[provider].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>{provider !== 'managed_openai' && <label className="block text-xs font-medium sm:col-span-2">API key<input data-testid="input-ai-provider-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={settings.data?.provider === provider && settings.data.credentialLast4 ? `Stored key ends in ${settings.data.credentialLast4}; enter a key only to replace it` : 'Paste the workspace API key'} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">{provider === 'anthropic' ? 'A Claude Pro or Max subscription is not an Anthropic API credential; API billing is separate.' : 'Use an API key created for this workspace. The full key is never returned to your browser.'}</span></label>}<div className="flex flex-wrap items-center gap-2 sm:col-span-2"><button data-testid="button-save-ai-settings" disabled={save.isPending || settings.isLoading} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{save.isPending ? 'Saving…' : provider === 'managed_openai' ? 'Use managed OpenAI' : apiKey ? 'Save & rotate key' : 'Save provider'}</button><button data-testid="button-test-ai-provider" type="button" onClick={testSettings} disabled={test.isPending || save.isPending || settings.isLoading} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">{test.isPending ? 'Testing…' : 'Test connection'}</button>{settings.data?.provider !== 'managed_openai' && <button data-testid="button-remove-ai-provider-key" type="button" onClick={removeCredential} disabled={remove.isPending} className="rounded-md px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50">{remove.isPending ? 'Removing…' : 'Remove key'}</button>}</div></form>{settings.isLoading && <p className="mt-3 text-[11px] text-muted-foreground">Loading AI connection…</p>}{notice && <p data-testid="ai-settings-notice" className="mt-3 text-[11px] font-medium text-primary">{notice}</p>}{error && <p data-testid="ai-settings-error" className="mt-3 text-[11px] font-medium text-destructive">{error instanceof Error ? error.message : 'AI provider settings could not be updated. Try again.'}</p>}</section>;
 }

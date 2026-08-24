@@ -295,7 +295,12 @@ export const AskLedgerflowAIResponse = zod.object({
 })
 })
 
-
+/**
+ * @summary Get redacted AI provider settings for a client workspace
+ */
+export const GetLedgerflowAISettingsQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
 /**
  * @summary Apply a user-confirmed AI bookkeeping proposal
  */
@@ -408,6 +413,7 @@ export const ApproveJournalEntryResponse = zod.object({
   "credit": zod.number()
 }))
 })
+
 
 /**
  * @summary Post an approved journal entry to the ledger
@@ -523,4 +529,69 @@ export const LogoutMobileSessionResponse = zod.object({
 })
 export const ExchangeMobileAuthorizationCodeResponse = zod.object({
   "token": zod.string()
+})
+
+export const TestLedgerflowAISettingsResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+/**
+ * @summary Test the selected AI provider without returning its credential
+ */
+export const TestLedgerflowAISettingsBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const GetLedgerflowAISettingsResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+export const UpdateLedgerflowAISettingsBody = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "apiKey": zod.string().min(1).optional()
+})
+
+/**
+ * @summary Remove the workspace-owned AI credential and return to managed OpenAI
+ */
+export const RemoveLedgerflowAICredentialBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const RemoveLedgerflowAICredentialResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+export const UpdateLedgerflowAISettingsResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
 })

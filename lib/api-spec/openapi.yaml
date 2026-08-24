@@ -299,6 +299,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIChatResponse"
+  /ledgerflow/ai-settings:
+    get:
+      operationId: getLedgerflowAISettings
+      tags: [ledgerflow]
+      summary: Get redacted AI provider settings for a client workspace
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Redacted provider configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIProviderSettings"
+    put:
+      operationId: updateLedgerflowAISettings
+      tags: [ledgerflow]
+      summary: Select an AI provider and optionally add or rotate its API credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIProviderSettingsInput"
+      responses:
+        "200":
+          description: Redacted provider configuration saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIProviderSettings"
+  /ledgerflow/ai-settings/test:
+    post:
+      operationId: testLedgerflowAISettings
+      tags: [ledgerflow]
+      summary: Test the selected AI provider without returning its credential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIProviderSettingsTestInput"
+      responses:
+        "200":
+          description: Provider test completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIProviderSettings"
+  /ledgerflow/ai-settings/credential:
+    delete:
+      operationId: removeLedgerflowAICredential
+      tags: [ledgerflow]
+      summary: Remove the workspace-owned AI credential and return to managed OpenAI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIProviderSettingsTestInput"
+      responses:
+        "200":
+          description: Credential removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIProviderSettings"
   /ledgerflow/ai-actions/confirm:
     post:
       operationId: confirmAICopilotAction
@@ -625,6 +695,39 @@ components:
             clientName: { type: string }
             pendingLines: { type: number }
             postedLines: { type: number }
+    AIProvider:
+      type: string
+      enum: [managed_openai, openai, anthropic]
+    AICredentialStatus:
+      type: string
+      enum: [not_configured, configured, invalid, unavailable]
+    AIProviderSettings:
+      type: object
+      required: [clientId, provider, model, credentialStatus, credentialLast4, credentialUpdatedAt, lastTestedAt, availableModels]
+      properties:
+        clientId: { type: number }
+        provider: { $ref: "#/components/schemas/AIProvider" }
+        model: { type: string }
+        credentialStatus: { $ref: "#/components/schemas/AICredentialStatus" }
+        credentialLast4: { type: ["string", "null"], description: "Last four characters only; never the API credential." }
+        credentialUpdatedAt: { type: ["string", "null"], format: date-time }
+        lastTestedAt: { type: ["string", "null"], format: date-time }
+        availableModels:
+          type: array
+          items: { type: string }
+    AIProviderSettingsInput:
+      type: object
+      required: [clientId, provider, model]
+      properties:
+        clientId: { type: number }
+        provider: { $ref: "#/components/schemas/AIProvider" }
+        model: { type: string }
+        apiKey: { type: string, minLength: 1, writeOnly: true }
+    AIProviderSettingsTestInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
     AICopilotRecommendation:
       type: object
       required: [id, clientId, type, title, summary, requiresConfirmation]

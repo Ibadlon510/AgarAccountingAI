@@ -54,6 +54,21 @@ export const clientWorkspacesTable = pgTable(
   ],
 );
 
+export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  provider: text("provider").notNull().default("managed_openai"),
+  model: text("model").notNull().default("gpt-5.6-luna"),
+  credentialStatus: text("credential_status").notNull().default("not_configured"),
+  encryptedCredential: text("encrypted_credential"),
+  credentialLast4: text("credential_last4"),
+  credentialUpdatedAt: timestamp("credential_updated_at", { withTimezone: true }),
+  lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
+}, (table) => ({
+  clientUnique: uniqueIndex("ledgerflow_ai_provider_configs_client_idx").on(table.clientId),
+}));
 export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
