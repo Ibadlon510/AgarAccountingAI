@@ -9,6 +9,79 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary Get the currently authenticated user
+ */
+export const GetCurrentAuthUserResponse = zod.object({
+  "user": zod.union([zod.object({
+  "id": zod.string(),
+  "email": zod.string().nullable(),
+  "firstName": zod.string().nullable(),
+  "lastName": zod.string().nullable(),
+  "profileImageUrl": zod.string().nullable()
+}),zod.null()])
+})
+
+
+/**
+ * @summary Start the browser OIDC login flow
+ */
+export const BeginBrowserLoginQueryParams = zod.object({
+  "returnTo": zod.coerce.string().optional()
+})
+
+export const BeginBrowserLoginResponse = zod.void()
+
+
+/**
+ * @summary Complete the browser OIDC login flow
+ */
+export const HandleBrowserLoginCallbackResponse = zod.void()
+
+
+/**
+ * @summary Clear the session and begin OIDC logout
+ */
+export const logoutBrowserSessionQueryReturnToDefault = `/`;
+
+export const LogoutBrowserSessionQueryParams = zod.object({
+  "returnTo": zod.coerce.string().default(logoutBrowserSessionQueryReturnToDefault)
+})
+
+export const LogoutBrowserSessionResponse = zod.void()
+
+
+/**
+ * @summary Exchange a mobile OIDC authorization code for a session token
+ */
+
+
+
+
+
+
+
+export const ExchangeMobileAuthorizationCodeBody = zod.object({
+  "code": zod.string().min(1),
+  "code_verifier": zod.string().min(1),
+  "redirect_uri": zod.string().min(1),
+  "state": zod.string().min(1),
+  "nonce": zod.string().min(1).optional()
+})
+
+export const ExchangeMobileAuthorizationCodeResponse = zod.object({
+  "token": zod.string()
+})
+
+
+/**
+ * @summary Delete a mobile session token
+ */
+export const LogoutMobileSessionResponse = zod.object({
+  "success": zod.literal(true)
+})
+
+
+/**
  * @summary List client workspaces
  */
 export const GetClientsResponseItem = zod.object({
@@ -64,10 +137,182 @@ export const UpdateClientResponse = zod.object({
   "period": zod.string()
 })
 
+
 /**
  * @summary List the authenticated workspace exchange-rate schedule
  */
 export const getExchangeRatesResponseSourceCurrencyMin = 3;
+export const getExchangeRatesResponseSourceCurrencyMax = 3;
+
+export const getExchangeRatesResponseFunctionalCurrencyMin = 3;
+export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
+
+export const getExchangeRatesResponseRateExclusiveMin = 0;
+
+
+
+export const GetExchangeRatesResponseItem = zod.object({
+  "id": zod.number(),
+  "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
+  "functionalCurrency": zod.string().min(getExchangeRatesResponseFunctionalCurrencyMin).max(getExchangeRatesResponseFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(getExchangeRatesResponseRateExclusiveMin),
+  "source": zod.string(),
+  "note": zod.string().nullish()
+})
+export const GetExchangeRatesResponse = zod.array(GetExchangeRatesResponseItem)
+
+
+/**
+ * @summary Add a dated workspace exchange rate
+ */
+export const createExchangeRateBodySourceCurrencyMin = 3;
+export const createExchangeRateBodySourceCurrencyMax = 3;
+
+export const createExchangeRateBodyFunctionalCurrencyMin = 3;
+export const createExchangeRateBodyFunctionalCurrencyMax = 3;
+
+export const createExchangeRateBodyRateExclusiveMin = 0;
+
+
+
+export const CreateExchangeRateBody = zod.object({
+  "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
+  "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(createExchangeRateBodyRateExclusiveMin),
+  "source": zod.string().optional(),
+  "note": zod.string().nullish()
+})
+
+export const createExchangeRateResponseSourceCurrencyMin = 3;
+export const createExchangeRateResponseSourceCurrencyMax = 3;
+
+export const createExchangeRateResponseFunctionalCurrencyMin = 3;
+export const createExchangeRateResponseFunctionalCurrencyMax = 3;
+
+export const createExchangeRateResponseRateExclusiveMin = 0;
+
+
+
+export const CreateExchangeRateResponse = zod.object({
+  "id": zod.number(),
+  "sourceCurrency": zod.string().min(createExchangeRateResponseSourceCurrencyMin).max(createExchangeRateResponseSourceCurrencyMax),
+  "functionalCurrency": zod.string().min(createExchangeRateResponseFunctionalCurrencyMin).max(createExchangeRateResponseFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(createExchangeRateResponseRateExclusiveMin),
+  "source": zod.string(),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Edit a dated workspace exchange rate
+ */
+export const UpdateExchangeRateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateExchangeRateBodySourceCurrencyMin = 3;
+export const updateExchangeRateBodySourceCurrencyMax = 3;
+
+export const updateExchangeRateBodyFunctionalCurrencyMin = 3;
+export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
+
+export const updateExchangeRateBodyRateExclusiveMin = 0;
+
+
+
+export const UpdateExchangeRateBody = zod.object({
+  "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
+  "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(updateExchangeRateBodyRateExclusiveMin),
+  "source": zod.string().optional(),
+  "note": zod.string().nullish()
+})
+
+export const updateExchangeRateResponseSourceCurrencyMin = 3;
+export const updateExchangeRateResponseSourceCurrencyMax = 3;
+
+export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
+export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
+
+export const updateExchangeRateResponseRateExclusiveMin = 0;
+
+
+
+export const UpdateExchangeRateResponse = zod.object({
+  "id": zod.number(),
+  "sourceCurrency": zod.string().min(updateExchangeRateResponseSourceCurrencyMin).max(updateExchangeRateResponseSourceCurrencyMax),
+  "functionalCurrency": zod.string().min(updateExchangeRateResponseFunctionalCurrencyMin).max(updateExchangeRateResponseFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(updateExchangeRateResponseRateExclusiveMin),
+  "source": zod.string(),
+  "note": zod.string().nullish()
+})
+
+
+/**
+ * @summary Remove a dated workspace exchange rate
+ */
+export const DeleteExchangeRateParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteExchangeRateResponse = zod.void()
+
+
+/**
+ * @summary Import dated workspace exchange rates
+ */
+export const importExchangeRatesBodyRatesItemSourceCurrencyMin = 3;
+export const importExchangeRatesBodyRatesItemSourceCurrencyMax = 3;
+
+export const importExchangeRatesBodyRatesItemFunctionalCurrencyMin = 3;
+export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
+
+export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
+
+
+
+
+export const ImportExchangeRatesBody = zod.object({
+  "rates": zod.array(zod.object({
+  "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
+  "functionalCurrency": zod.string().min(importExchangeRatesBodyRatesItemFunctionalCurrencyMin).max(importExchangeRatesBodyRatesItemFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(importExchangeRatesBodyRatesItemRateExclusiveMin),
+  "source": zod.string().optional(),
+  "note": zod.string().nullish()
+})).min(1)
+})
+
+export const importExchangeRatesResponseRatesItemSourceCurrencyMin = 3;
+export const importExchangeRatesResponseRatesItemSourceCurrencyMax = 3;
+
+export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
+export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
+
+export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
+
+
+
+export const ImportExchangeRatesResponse = zod.object({
+  "importedCount": zod.number(),
+  "updatedCount": zod.number(),
+  "rates": zod.array(zod.object({
+  "id": zod.number(),
+  "sourceCurrency": zod.string().min(importExchangeRatesResponseRatesItemSourceCurrencyMin).max(importExchangeRatesResponseRatesItemSourceCurrencyMax),
+  "functionalCurrency": zod.string().min(importExchangeRatesResponseRatesItemFunctionalCurrencyMin).max(importExchangeRatesResponseRatesItemFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(importExchangeRatesResponseRatesItemRateExclusiveMin),
+  "source": zod.string(),
+  "note": zod.string().nullish()
+}))
+})
+
+
 /**
  * Returns server health status
  * @summary Health check
@@ -123,6 +368,7 @@ export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
 export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
+
 
 
 export const CreateBankAccountBody = zod.object({
@@ -214,14 +460,16 @@ export const ImportStatementBody = zod.object({
   "bankAccountId": zod.number().nullish(),
   "fileName": zod.string(),
   "mimeType": zod.string(),
-  "contentBase64": zod.string(),
+  "objectPath": zod.string(),
   "currency": zod.string()
 })
 
 export const ImportStatementResponse = zod.object({
   "fileName": zod.string(),
+  "importId": zod.number(),
   "importStatus": zod.enum(['imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
   "message": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
   "importedCount": zod.number(),
   "duplicateCount": zod.number(),
   "duplicateLines": zod.array(zod.object({
@@ -260,6 +508,36 @@ export const ImportStatementResponse = zod.object({
   "currency": zod.string()
 }),zod.null()]).optional()
 })
+
+
+/**
+ * @summary List statement import trail
+ */
+export const GetStatementImportsQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetStatementImportsResponseItem = zod.object({
+  "id": zod.number(),
+  "fileName": zod.string(),
+  "mimeType": zod.string(),
+  "outcome": zod.enum(['completed', 'duplicate', 'failed']),
+  "errorMessage": zod.string().nullish(),
+  "importedLineCount": zod.number(),
+  "createdAt": zod.string(),
+  "sourceUrl": zod.string().nullish()
+})
+export const GetStatementImportsResponse = zod.array(GetStatementImportsResponseItem)
+
+
+/**
+ * @summary Download an imported statement source document
+ */
+export const GetStatementImportSourceParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetStatementImportSourceResponse = zod.unknown()
 
 
 /**
@@ -316,6 +594,82 @@ export const AskLedgerflowAIResponse = zod.object({
 export const GetLedgerflowAISettingsQueryParams = zod.object({
   "clientId": zod.coerce.number()
 })
+
+export const GetLedgerflowAISettingsResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Select an AI provider and optionally add or rotate its API credential
+ */
+
+
+
+export const UpdateLedgerflowAISettingsBody = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "apiKey": zod.string().min(1).optional()
+})
+
+export const UpdateLedgerflowAISettingsResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Test the selected AI provider without returning its credential
+ */
+export const TestLedgerflowAISettingsBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const TestLedgerflowAISettingsResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Remove the workspace-owned AI credential and return to managed OpenAI
+ */
+export const RemoveLedgerflowAICredentialBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const RemoveLedgerflowAICredentialResponse = zod.object({
+  "clientId": zod.number(),
+  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
+  "model": zod.string(),
+  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
+  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
+  "credentialUpdatedAt": zod.coerce.date().nullable(),
+  "lastTestedAt": zod.coerce.date().nullable(),
+  "availableModels": zod.array(zod.string())
+})
+
+
 /**
  * @summary Apply a user-confirmed AI bookkeeping proposal
  */
@@ -383,12 +737,32 @@ export const ConfirmAICopilotActionResponse = zod.object({
 }),zod.null()])
 })
 
+
 /**
  * @summary List confirmed bulk ledger transitions
  */
 export const GetBulkTransitionAuditsQueryParams = zod.object({
   "clientId": zod.coerce.number().optional()
 })
+
+export const GetBulkTransitionAuditsResponseItem = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "actor": zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string().nullable()
+}),
+  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries']),
+  "fromStatus": zod.string(),
+  "toStatus": zod.string(),
+  "entryIds": zod.array(zod.number()),
+  "statementLineIds": zod.array(zod.number()),
+  "confirmedAt": zod.coerce.date()
+})
+export const GetBulkTransitionAuditsResponse = zod.array(GetBulkTransitionAuditsResponseItem)
+
+
 /**
  * @summary List journal entries
  */
@@ -480,6 +854,8 @@ export const PostJournalEntryResponse = zod.object({
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateStatus": zod.string().optional()
 })
+
+
 /**
  * @summary Get trial balance
  */
@@ -529,300 +905,36 @@ export const GetFinancialStatementsResponse = zod.object({
   "children": zod.array(zod.unknown()).optional()
 }))
 })
-/**
- * @summary Get the currently authenticated user
- */
-export const GetCurrentAuthUserResponse = zod.object({
-  "user": zod.union([zod.object({
-  "id": zod.string(),
-  "email": zod.string().nullable(),
-  "firstName": zod.string().nullable(),
-  "lastName": zod.string().nullable(),
-  "profileImageUrl": zod.string().nullable()
-}),zod.null()])
-})
-/**
- * @summary Clear the session and begin OIDC logout
- */
-export const logoutBrowserSessionQueryReturnToDefault = `/`;
-/**
- * @summary Start the browser OIDC login flow
- */
-export const BeginBrowserLoginQueryParams = zod.object({
-  "returnTo": zod.coerce.string().optional()
-})
-export const LogoutBrowserSessionResponse = zod.void()
-export const BeginBrowserLoginResponse = zod.void()
-export const LogoutBrowserSessionQueryParams = zod.object({
-  "returnTo": zod.coerce.string().default(logoutBrowserSessionQueryReturnToDefault)
-})
-/**
- * @summary Complete the browser OIDC login flow
- */
-export const HandleBrowserLoginCallbackResponse = zod.void()
-export const ExchangeMobileAuthorizationCodeBody = zod.object({
-  "code": zod.string().min(1),
-  "code_verifier": zod.string().min(1),
-  "redirect_uri": zod.string().min(1),
-  "state": zod.string().min(1),
-  "nonce": zod.string().min(1).optional()
-})
-/**
- * @summary Delete a mobile session token
- */
-export const LogoutMobileSessionResponse = zod.object({
-  "success": zod.literal(true)
-})
-export const ExchangeMobileAuthorizationCodeResponse = zod.object({
-  "token": zod.string()
-})
 
-export const GetBulkTransitionAuditsResponseItem = zod.object({
-  "id": zod.number(),
+
+/**
+ * @summary Request a presigned URL for a private statement upload
+ */
+export const RequestUploadUrlBody = zod.object({
   "clientId": zod.number(),
-  "actor": zod.object({
-  "id": zod.string(),
   "name": zod.string(),
-  "email": zod.string().nullable()
-}),
-  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries']),
-  "fromStatus": zod.string(),
-  "toStatus": zod.string(),
-  "entryIds": zod.array(zod.number()),
-  "statementLineIds": zod.array(zod.number()),
-  "confirmedAt": zod.coerce.date()
+  "size": zod.number(),
+  "contentType": zod.string()
 })
 
-export const TestLedgerflowAISettingsResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
+export const RequestUploadUrlResponse = zod.object({
+  "uploadURL": zod.string(),
+  "objectPath": zod.string(),
+  "metadata": zod.object({
+  "name": zod.string(),
+  "size": zod.number(),
+  "contentType": zod.string()
 })
-/**
- * @summary Test the selected AI provider without returning its credential
- */
-export const TestLedgerflowAISettingsBody = zod.object({
-  "clientId": zod.number()
-})
-export const GetLedgerflowAISettingsResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
 })
 
 
 /**
- * @summary Select an AI provider and optionally add or rotate its API credential
+ * @summary Serve an authorized private object
  */
-
-
-export const UpdateLedgerflowAISettingsBody = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "apiKey": zod.string().min(1).optional()
-})
-/**
- * @summary Remove the workspace-owned AI credential and return to managed OpenAI
- */
-export const RemoveLedgerflowAICredentialBody = zod.object({
-  "clientId": zod.number()
+export const GetStorageObjectParams = zod.object({
+  "objectPath": zod.coerce.string()
 })
 
-export const RemoveLedgerflowAICredentialResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
-})
-export const UpdateLedgerflowAISettingsResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.string())
-})
+export const GetStorageObjectResponse = zod.unknown()
 
-export const GetBulkTransitionAuditsResponse = zod.array(GetBulkTransitionAuditsResponseItem)
 
-export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
-
-export const updateExchangeRateResponseRateExclusiveMin = 0;
-
-/**
- * @summary Remove a dated workspace exchange rate
- */
-export const DeleteExchangeRateParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
-
-export const importExchangeRatesResponseRatesItemSourceCurrencyMin = 3;
-
-export const DeleteExchangeRateResponse = zod.void()
-
-export const GetExchangeRatesResponseItem = zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(getExchangeRatesResponseFunctionalCurrencyMin).max(getExchangeRatesResponseFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(getExchangeRatesResponseRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-})
-
-export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
-
-export const UpdateExchangeRateResponse = zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(updateExchangeRateResponseSourceCurrencyMin).max(updateExchangeRateResponseSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(updateExchangeRateResponseFunctionalCurrencyMin).max(updateExchangeRateResponseFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(updateExchangeRateResponseRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-})
-
-export const importExchangeRatesResponseRatesItemSourceCurrencyMax = 3;
-
-export const createExchangeRateResponseFunctionalCurrencyMin = 3;
-
-export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
-
-export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
-
-export const createExchangeRateBodyRateExclusiveMin = 0;
-
-export const getExchangeRatesResponseRateExclusiveMin = 0;
-
-export const createExchangeRateResponseRateExclusiveMin = 0;
-
-export const CreateExchangeRateResponse = zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(createExchangeRateResponseSourceCurrencyMin).max(createExchangeRateResponseSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(createExchangeRateResponseFunctionalCurrencyMin).max(createExchangeRateResponseFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(createExchangeRateResponseRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-})
-
-export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
-
-export const createExchangeRateResponseFunctionalCurrencyMax = 3;
-
-export const createExchangeRateBodySourceCurrencyMax = 3;
-
-export const ImportExchangeRatesBody = zod.object({
-  "rates": zod.array(zod.object({
-  "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(importExchangeRatesBodyRatesItemFunctionalCurrencyMin).max(importExchangeRatesBodyRatesItemFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(importExchangeRatesBodyRatesItemRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})).min(1)
-})
-
-export const ImportExchangeRatesResponse = zod.object({
-  "importedCount": zod.number(),
-  "updatedCount": zod.number(),
-  "rates": zod.array(zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(importExchangeRatesResponseRatesItemSourceCurrencyMin).max(importExchangeRatesResponseRatesItemSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(importExchangeRatesResponseRatesItemFunctionalCurrencyMin).max(importExchangeRatesResponseRatesItemFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(importExchangeRatesResponseRatesItemRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-}))
-})
-
-export const importExchangeRatesBodyRatesItemSourceCurrencyMax = 3;
-
-export const getExchangeRatesResponseFunctionalCurrencyMin = 3;
-
-export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
-
-export const createExchangeRateResponseSourceCurrencyMax = 3;
-
-/**
- * @summary Add a dated workspace exchange rate
- */
-export const createExchangeRateBodySourceCurrencyMin = 3;
-
-/**
- * @summary Edit a dated workspace exchange rate
- */
-export const UpdateExchangeRateParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const updateExchangeRateBodyFunctionalCurrencyMin = 3;
-
-export const createExchangeRateBodyFunctionalCurrencyMin = 3;
-
-export const updateExchangeRateBodySourceCurrencyMax = 3;
-
-export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
-
-export const CreateExchangeRateBody = zod.object({
-  "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
-  "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(createExchangeRateBodyRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})
-
-export const UpdateExchangeRateBody = zod.object({
-  "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
-  "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(updateExchangeRateBodyRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})
-
-export const getExchangeRatesResponseSourceCurrencyMax = 3;
-
-export const updateExchangeRateResponseSourceCurrencyMin = 3;
-
-/**
- * @summary Import dated workspace exchange rates
- */
-export const importExchangeRatesBodyRatesItemSourceCurrencyMin = 3;
-
-export const GetExchangeRatesResponse = zod.array(GetExchangeRatesResponseItem)
-
-export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
-
-export const importExchangeRatesBodyRatesItemFunctionalCurrencyMin = 3;
-
-export const createExchangeRateResponseSourceCurrencyMin = 3;
-
-export const updateExchangeRateResponseSourceCurrencyMax = 3;
-
-export const updateExchangeRateBodySourceCurrencyMin = 3;
-
-export const createExchangeRateBodyFunctionalCurrencyMax = 3;
-
-export const updateExchangeRateBodyRateExclusiveMin = 0;

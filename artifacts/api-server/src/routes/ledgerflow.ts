@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, asc, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
@@ -37,7 +38,15 @@ import {
   GetStatementLinesResponse,
   GetTrialBalanceResponse,
   PostJournalEntryBody,
+  ImportStatementBody,
   ImportStatementResponse,
+  GetStatementImportsResponse,
+  RemoveLedgerflowAICredentialBody,
+  RemoveLedgerflowAICredentialResponse,
+  TestLedgerflowAISettingsBody,
+  TestLedgerflowAISettingsResponse,
+  UpdateLedgerflowAISettingsBody,
+  UpdateLedgerflowAISettingsResponse,
 } from "@workspace/api-zod";
 import {
   bankAccountsTable,
@@ -51,6 +60,28 @@ import {
   statementLinesTable,
   usersTable,
 } from "@workspace/db";
+import {
+  AI_PROVIDER_MODELS,
+  AIProviderError,
+  completeAI,
+  getAIProviderConfig,
+  isAIModel,
+  isAIProvider,
+  removeAIProviderCredential,
+  saveAIProviderConfig,
+  testAIProvider,
+} from "../lib/ai-provider";
+import { ObjectNotFoundError } from "../lib/objectStorage";
+import { objectStorageService } from "./storage";
+import {
+  MAX_STATEMENT_FILE_SIZE,
+  scopedStatementObjectPath,
+  statementObjectPathForClient,
+  statementSourceUrl,
+  validateStatementContents,
+  validateXlsxArchive,
+  validateStatementMetadata,
+} from "../lib/statementDocument";
 
 const router: IRouter = Router();
 const openai = new OpenAI({
@@ -572,6 +603,8 @@ async function recordFailedStatementImport(details: {
   bankAccountId?: number | null;
   fileName: string;
   mimeType: string;
+  objectPath: string;
+  fileSize: number;
   fileHash: string;
   errorMessage: string;
 }) {
@@ -581,6 +614,8 @@ async function recordFailedStatementImport(details: {
       bankAccountId: details.bankAccountId ?? null,
       fileName: details.fileName,
       mimeType: details.mimeType,
+      objectPath: details.objectPath,
+      fileSize: details.fileSize,
       fileHash: details.fileHash,
       outcome: "failed",
       errorMessage: details.errorMessage.slice(0, 500),
@@ -981,18 +1016,41 @@ function normalizeRows(text: string, currency: string): ParsedBankLine[] {
 }
 
 router.post("/ledgerflow/import-statement", async (req, res) => {
-  const { clientId, bankAccountId, fileName, mimeType, contentBase64, currency = "AED" } = req.body as {
-    clientId?: number; bankAccountId?: number | null; fileName?: string; mimeType?: string; contentBase64?: string; currency?: string;
-  };
-  if (!fileName || !mimeType || !contentBase64) return res.status(400).json({ error: "A statement file is required" });
+  const parsed = ImportStatementBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
+  const { clientId, bankAccountId, fileName, mimeType, objectPath, currency = "AED" } = parsed.data;
   let activeClientId: number | undefined;
   let failedBankAccountId: number | null = null;
+  let uploadedFileSize = 0;
   let fileHash: string | undefined;
   try {
-    const buffer = Buffer.from(contentBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
     const scopedClientId = client.id;
+    if (!scopedStatementObjectPath(req.user!.id, scopedClientId, objectPath)) {
+      return res.status(403).json({ error: "This statement upload is not assigned to the selected client workspace." });
+    }
+    const metadataError = validateStatementMetadata(fileName, mimeType, 1);
+    if (metadataError && !metadataError.includes("between 1 byte")) {
+      return res.status(400).json({ error: metadataError });
+    }
+    let objectFile;
+    try {
+      objectFile = await objectStorageService.getObjectEntityFile(objectPath);
+    } catch {
+      return res.status(422).json({ error: "The statement upload is no longer available. Please upload the file again." });
+    }
+    const [objectMetadata] = await objectFile.getMetadata();
+    uploadedFileSize = Number(objectMetadata.size ?? 0);
+    const sizeError = validateStatementMetadata(fileName, mimeType, uploadedFileSize);
+    if (sizeError) return res.status(400).json({ error: sizeError });
+    const storedContentType = String(objectMetadata.contentType ?? "").toLocaleLowerCase();
+    if (storedContentType !== mimeType.toLocaleLowerCase()) {
+      return res.status(422).json({ error: "The stored statement type does not match the verified upload metadata. Please upload it again." });
+    }
+    const [buffer] = await objectFile.download();
+    const contentError = validateStatementContents(fileName, buffer);
+    if (contentError) return res.status(422).json({ error: contentError });
     const scopedFileHash = createHash("sha256").update(buffer).digest("hex");
     activeClientId = scopedClientId;
     fileHash = scopedFileHash;
@@ -1008,17 +1066,20 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           eq(bankAccountsTable.id, previousImport.bankAccountId),
           eq(bankAccountsTable.clientId, scopedClientId),
         )))[0] ?? null;
-      await db.insert(statementImportsTable).values({
+      const [duplicateImport] = await db.insert(statementImportsTable).values({
         clientId: scopedClientId,
         bankAccountId: previousImport.bankAccountId,
         fileName,
         mimeType,
+        objectPath,
+        fileSize: uploadedFileSize,
         fileHash: scopedFileHash,
         outcome: "duplicate",
         importedLineCount: previousImport.importedLineCount,
-      });
+      }).returning();
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
+        importId: duplicateImport.id,
         importStatus: "duplicate_file",
         message: `This statement was already imported for this client. No new lines were added.`,
         importedCount: 0,
@@ -1026,6 +1087,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         duplicateLines: [],
         lines: [],
         bankAccount: previousBankAccount ? bankAccountResponse(previousBankAccount) : null,
+        sourceUrl: statementSourceUrl(duplicateImport.id),
       }));
     }
     let extractedText = "";
@@ -1033,11 +1095,18 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     if (mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
       const { PDFParse } = await import("pdf-parse");
       const parser = new PDFParse({ data: buffer });
-      extractedText = (await parser.getText()).text;
+      extractedText = (await parser.getText({ first: 100 })).text.slice(0, 55_000);
       await parser.destroy();
     } else if (fileName.toLowerCase().endsWith(".xls") || fileName.toLowerCase().endsWith(".xlsx")) {
+      if (fileName.toLowerCase().endsWith(".xlsx")) {
+        const archiveError = validateXlsxArchive(buffer);
+        if (archiveError) return res.status(422).json({ error: archiveError });
+      }
       const workbook = XLSX.read(buffer, { type: "buffer" });
-      extractedText = workbook.SheetNames.map((name) => XLSX.utils.sheet_to_csv(workbook.Sheets[name])).join("\n");
+      extractedText = workbook.SheetNames.slice(0, 20)
+        .map((name) => XLSX.utils.sheet_to_csv(workbook.Sheets[name]))
+        .join("\n")
+        .slice(0, 55_000);
     } else {
       extractedText = buffer.toString("utf8");
     }
@@ -1082,6 +1151,8 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         bankAccountId: null,
         fileName,
         mimeType,
+        objectPath,
+        fileSize: uploadedFileSize,
         fileHash: scopedFileHash,
         outcome: "completed",
         importedLineCount: 0,
@@ -1095,16 +1166,18 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           eq(statementImportsTable.fileHash, scopedFileHash),
           eq(statementImportsTable.outcome, "completed"),
         )).limit(1);
-        await tx.insert(statementImportsTable).values({
+        const [duplicateImport] = await tx.insert(statementImportsTable).values({
           clientId: scopedClientId,
           bankAccountId: completedImport?.bankAccountId ?? selectedBankAccount?.id ?? null,
           fileName,
           mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
           fileHash: scopedFileHash,
           outcome: "duplicate",
           importedLineCount: completedImport?.importedLineCount ?? 0,
-        });
-        return { kind: "duplicate_file" as const, completedImport };
+        }).returning();
+        return { kind: "duplicate_file" as const, completedImport, duplicateImport };
       }
 
       let detectedBankAccount = selectedBankAccount;
@@ -1229,11 +1302,12 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         inserted.push(insertedLine);
       }
       await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
-      return { kind: "imported" as const, inserted, duplicateLines, detectedBankAccount };
+      return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount };
     });
     if (importResult.kind === "duplicate_file") {
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
+        importId: importResult.duplicateImport.id,
         importStatus: "duplicate_file",
         message: "This statement was already imported for this client. No new lines were added.",
         importedCount: 0,
@@ -1241,17 +1315,20 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         duplicateLines: [],
         lines: [],
         bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+        sourceUrl: statementSourceUrl(importResult.duplicateImport.id),
       }));
     }
-    const { inserted, duplicateLines, detectedBankAccount } = importResult;
+    const { importId, inserted, duplicateLines, detectedBankAccount } = importResult;
     const importStatus = inserted.length === 0 ? "duplicates_found" : duplicateLines.length ? "imported_with_duplicates" : "imported";
     const message = duplicateLines.length
       ? `${inserted.length} new line${inserted.length === 1 ? "" : "s"} imported. ${duplicateLines.length} duplicate line${duplicateLines.length === 1 ? "" : "s"} skipped.`
       : `${inserted.length} statement line${inserted.length === 1 ? "" : "s"} imported and ready for review.`;
     return res.status(201).json(ImportStatementResponse.parse({
       fileName,
+      importId,
       importStatus,
       message,
+      sourceUrl: statementSourceUrl(importId),
       importedCount: inserted.length,
       duplicateCount: duplicateLines.length,
       duplicateLines,
@@ -1266,11 +1343,69 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         bankAccountId: failedBankAccountId,
         fileName,
         mimeType,
+        objectPath,
+        fileSize: uploadedFileSize,
         fileHash,
         errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
       });
     }
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
+  }
+});
+
+router.get("/ledgerflow/statement-imports", async (req, res) => {
+  const requestedClientId = Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
+  const imports = await db.select().from(statementImportsTable)
+    .where(eq(statementImportsTable.clientId, client.id))
+    .orderBy(desc(statementImportsTable.createdAt));
+  return res.json(GetStatementImportsResponse.parse(imports.map((statementImport) => ({
+    id: statementImport.id,
+    fileName: statementImport.fileName,
+    mimeType: statementImport.mimeType,
+    outcome: statementImport.outcome,
+    errorMessage: statementImport.errorMessage,
+    importedLineCount: statementImport.importedLineCount,
+    createdAt: statementImport.createdAt.toISOString(),
+    sourceUrl: statementImport.objectPath ? statementSourceUrl(statementImport.id) : null,
+  }))));
+});
+
+router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
+  const importId = Number(req.params.id);
+  if (!Number.isInteger(importId) || importId <= 0) {
+    res.status(404).json({ error: "Source document not found" });
+    return;
+  }
+  const [statementImport] = await db.select().from(statementImportsTable)
+    .where(eq(statementImportsTable.id, importId))
+    .limit(1);
+  if (!statementImport) {
+    res.status(404).json({ error: "Source document not found" });
+    return;
+  }
+  const client = await requireOwnedClient(req, res, statementImport.clientId);
+  if (!client) return;
+  if (!statementImport.objectPath || !statementObjectPathForClient(client.id, statementImport.objectPath)) {
+    res.status(403).json({ error: "You do not have access to this source document." });
+    return;
+  }
+  try {
+    const objectFile = await objectStorageService.getObjectEntityFile(statementImport.objectPath);
+    const response = await objectStorageService.downloadObject(objectFile);
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("Content-Disposition", `attachment; filename="${statementImport.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
+    if (response.body) Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+    else res.end();
+  } catch (error) {
+    if (error instanceof ObjectNotFoundError) {
+      res.status(404).json({ error: "Source document not found" });
+      return;
+    }
+    req.log.error({ err: error }, "Error serving statement source");
+    res.status(500).json({ error: "Could not retrieve the source document. Try again." });
   }
 });
 

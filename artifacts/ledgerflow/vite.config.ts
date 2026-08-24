@@ -50,6 +50,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),
+      '@workspace/object-storage-web': path.resolve(import.meta.dirname, '..', '..', 'lib', 'object-storage-web', 'src', 'index.ts'),
       '@assets': path.resolve(
         import.meta.dirname,
         '..',
@@ -71,6 +72,10 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       strict: true,
+      allow: [
+        path.resolve(import.meta.dirname),
+        path.resolve(import.meta.dirname, '..', '..', 'lib', 'object-storage-web'),
+      ],
     },
   },
   preview: {

@@ -18,6 +18,8 @@ interface UseUploadOptions {
   basePath?: string;
   onSuccess?: (response: UploadResponse) => void;
   onError?: (error: Error) => void;
+  /** Server-required metadata attached to each presigned upload URL request. */
+  requestMetadata?: Record<string, unknown>;
 }
 
 /**
@@ -60,7 +62,7 @@ export function useUpload(options: UseUploadOptions = {}) {
   const [progress, setProgress] = useState(0);
 
   const requestUploadUrl = useCallback(
-    async (file: File): Promise<UploadResponse> => {
+    async (file: File, requestMetadata: Record<string, unknown> = {}): Promise<UploadResponse> => {
       const response = await fetch(`${basePath}/uploads/request-url`, {
         method: 'POST',
         headers: {
@@ -70,6 +72,7 @@ export function useUpload(options: UseUploadOptions = {}) {
           name: file.name,
           size: file.size,
           contentType: file.type || 'application/octet-stream',
+          ...requestMetadata,
         }),
       });
 
@@ -80,7 +83,7 @@ export function useUpload(options: UseUploadOptions = {}) {
 
       return response.json();
     },
-    [],
+    [basePath],
   );
 
   const uploadToPresignedUrl = useCallback(
@@ -101,14 +104,14 @@ export function useUpload(options: UseUploadOptions = {}) {
   );
 
   const uploadFile = useCallback(
-    async (file: File): Promise<UploadResponse | null> => {
+    async (file: File, requestMetadata: Record<string, unknown> = options.requestMetadata ?? {}): Promise<UploadResponse | null> => {
       setIsUploading(true);
       setError(null);
       setProgress(0);
 
       try {
         setProgress(10);
-        const uploadResponse = await requestUploadUrl(file);
+        const uploadResponse = await requestUploadUrl(file, requestMetadata);
 
         setProgress(30);
         await uploadToPresignedUrl(file, uploadResponse.uploadURL);
@@ -145,6 +148,7 @@ export function useUpload(options: UseUploadOptions = {}) {
           name: file.name,
           size: file.size,
           contentType: file.type || 'application/octet-stream',
+          ...options.requestMetadata,
         }),
       });
 
@@ -159,7 +163,7 @@ export function useUpload(options: UseUploadOptions = {}) {
         headers: { 'Content-Type': file.type || 'application/octet-stream' },
       };
     },
-    [],
+    [basePath, options.requestMetadata],
   );
 
   return {

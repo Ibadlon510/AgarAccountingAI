@@ -366,6 +366,9 @@ importers:
       '@workspace/api-client-react':
         specifier: workspace:*
         version: link:../../lib/api-client-react
+      '@workspace/object-storage-web':
+        specifier: workspace:*
+        version: link:../../lib/object-storage-web
       '@workspace/replit-auth-web':
         specifier: workspace:*
         version: link:../../lib/replit-auth-web

@@ -12,6 +12,6 @@ export interface StatementImportInput {
   bankAccountId?: number | null;
   fileName: string;
   mimeType: string;
-  contentBase64: string;
+  objectPath: string;
   currency: string;
 }

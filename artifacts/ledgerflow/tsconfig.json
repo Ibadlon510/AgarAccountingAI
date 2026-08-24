@@ -11,7 +11,8 @@
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@workspace/object-storage-web": ["../../lib/object-storage-web/src/index.ts"]
     }
   },
   "references": [

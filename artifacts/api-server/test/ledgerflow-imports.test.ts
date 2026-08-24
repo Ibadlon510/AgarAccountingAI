@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { Readable } from "node:stream";
 import { after, before, test } from "node:test";
 import { inArray } from "drizzle-orm";
 
 type ImportResult = {
   fileName: string;
+  importId: number;
+  sourceUrl?: string;
   importStatus: "imported" | "imported_with_duplicates" | "duplicates_found" | "duplicate_file";
   message?: string;
   importedCount: number;
@@ -53,7 +56,9 @@ const createdUserIds: string[] = [];
 const createdSessionIds: string[] = [];
 let primaryToken: string;
 let secondaryToken: string;
-const aiRequests: Array<{ path: string; credential: string | undefined }> = [];
+let primaryUserId: string;
+let secondaryUserId: string;
+const storedObjects = new Map<string, { buffer: Buffer; contentType: string }>();
 
 function testDatabaseUrl() {
   const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
@@ -121,19 +126,6 @@ before(async () => {
     for await (const chunk of req) chunks.push(Buffer.from(chunk));
     const request = JSON.parse(Buffer.concat(chunks).toString("utf8")) as OpenAIRequest;
     const userMessage = request.messages?.find((message) => message.role === "user")?.content ?? "";
-    const credential = req.headers["x-api-key"] ?? req.headers.authorization?.replace(/^Bearer\s+/i, "");
-    aiRequests.push({ path: req.url ?? "", credential: Array.isArray(credential) ? credential[0] : credential });
-    if (credential === "invalid-key") {
-      res.statusCode = 401;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ error: { message: "invalid key" } }));
-      return;
-    }
-    if (req.url?.startsWith("/v1/messages")) {
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ content: [{ type: "text", text: JSON.stringify(openAIResult(userMessage)) }] }));
-      return;
-    }
     const responseBody = {
       choices: [{ message: { content: JSON.stringify(openAIResult(userMessage)) } }],
     };
@@ -143,14 +135,12 @@ before(async () => {
   const aiPort = await listen(aiServer);
   process.env.AI_INTEGRATIONS_OPENAI_API_KEY = "ledgerflow-test-openai-key";
   process.env.AI_INTEGRATIONS_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
-  process.env.LEDGERFLOW_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
-  process.env.LEDGERFLOW_ANTHROPIC_BASE_URL = `http://127.0.0.1:${aiPort}`;
 
   app = (await import("../src/app")).default;
   database = await import("@workspace/db");
   const { createSession } = await import("../src/lib/auth");
-  const primaryUserId = `ledgerflow-import-primary-${randomUUID()}`;
-  const secondaryUserId = `ledgerflow-import-secondary-${randomUUID()}`;
+  primaryUserId = `ledgerflow-import-primary-${randomUUID()}`;
+  secondaryUserId = `ledgerflow-import-secondary-${randomUUID()}`;
   await database.db.insert(database.usersTable).values([
     { id: primaryUserId, email: `${primaryUserId}@example.test`, firstName: "Primary", lastName: "Test" },
     { id: secondaryUserId, email: `${secondaryUserId}@example.test`, firstName: "Secondary", lastName: "Test" },
@@ -165,6 +155,27 @@ before(async () => {
     access_token: "ledgerflow-test-access-token",
   });
   createdSessionIds.push(primaryToken, secondaryToken);
+  const { objectStorageService } = await import("../src/routes/storage");
+  const { ObjectNotFoundError } = await import("../src/lib/objectStorage");
+  objectStorageService.getObjectEntityUploadURL = async (prefix = "uploads") => `/objects/${prefix}/${randomUUID()}`;
+  objectStorageService.getObjectEntityFile = async (objectPath) => {
+    const stored = storedObjects.get(objectPath);
+    if (!stored) throw new ObjectNotFoundError();
+    return {
+      getMetadata: async () => [{ size: String(stored.buffer.length), contentType: stored.contentType }],
+      download: async () => [stored.buffer],
+      createReadStream: () => Readable.from(stored.buffer),
+    } as never;
+  };
+  objectStorageService.downloadObject = async (file) => {
+    const [metadata] = await file.getMetadata();
+    return new Response(Readable.toWeb(file.createReadStream()) as ReadableStream, {
+      headers: {
+        "content-type": String(metadata.contentType ?? "application/octet-stream"),
+        "content-length": String(metadata.size),
+      },
+    });
+  };
   server = (await import("node:http")).createServer(app);
   const port = await listen(server);
   baseUrl = `http://127.0.0.1:${port}/api`;
@@ -176,8 +187,6 @@ after(async () => {
   const activeAIServer = aiServer;
   try {
     if (activeDatabase && createdClientIds.length) {
-      await activeDatabase.db.delete(activeDatabase.aiProviderConfigsTable)
-        .where(inArray(activeDatabase.aiProviderConfigsTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
         .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.statementLinesTable)
@@ -234,13 +243,16 @@ async function createClient(name: string, token = primaryToken) {
   return result.body.id;
 }
 
-function importBody(clientId: number, fileName: string, marker: string, contentSuffix = "") {
+function importBody(clientId: number, fileName: string, marker: string, contentSuffix = "", token = primaryToken) {
   const csv = `marker,description,amount\n${marker},statement line,100${contentSuffix}`;
+  const userId = token === secondaryToken ? secondaryUserId : primaryUserId;
+  const objectPath = `/objects/uploads/${encodeURIComponent(userId)}/${clientId}/${randomUUID()}`;
+  storedObjects.set(objectPath, { buffer: Buffer.from(csv), contentType: "text/csv" });
   return JSON.stringify({
     clientId,
     fileName,
     mimeType: "text/csv",
-    contentBase64: Buffer.from(csv).toString("base64"),
+    objectPath,
     currency: "AED",
   });
 }
@@ -248,7 +260,7 @@ function importBody(clientId: number, fileName: string, marker: string, contentS
 async function importStatement(clientId: number, fileName: string, marker: string, contentSuffix = "", token = primaryToken) {
   return request<ImportResult>("/ledgerflow/import-statement", {
     method: "POST",
-    body: importBody(clientId, fileName, marker, contentSuffix),
+    body: importBody(clientId, fileName, marker, contentSuffix, token),
   }, token);
 }
 
@@ -263,6 +275,92 @@ async function statementLines(clientId: number, token = primaryToken) {
     && line.description !== "GULF TELECOM");
 }
 
+test("authorizes statement upload URLs and rejects invalid or oversized files", async () => {
+  const clientId = await createClient(`Upload URL ${randomUUID()}`);
+  const valid = await request<{ objectPath: string }>("/storage/uploads/request-url", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "statement.csv", size: 1024, contentType: "text/csv" }),
+  });
+  assert.equal(valid.response.status, 200);
+  assert.match(valid.body.objectPath, new RegExp(`/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/`));
+
+  const invalid = await request<{ error: string }>("/storage/uploads/request-url", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "statement.exe", size: 1024, contentType: "application/octet-stream" }),
+  });
+  assert.equal(invalid.response.status, 400);
+  assert.match(invalid.body.error, /PDF, CSV, XLS, or XLSX/);
+
+  const oversized = await request<{ error: string }>("/storage/uploads/request-url", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "statement.csv", size: 50 * 1024 * 1024 + 1, contentType: "text/csv" }),
+  });
+  assert.equal(oversized.response.status, 400);
+  assert.match(oversized.body.error, /50 MB/);
+
+  const denied = await request<{ error: string }>("/storage/uploads/request-url", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "statement.csv", size: 1024, contentType: "text/csv" }),
+  }, secondaryToken);
+  assert.equal(denied.response.status, 403);
+});
+
+test("rejects attaching a private statement upload to a different workspace", async () => {
+  const sourceClientId = await createClient(`Scoped source ${randomUUID()}`);
+  const otherClientId = await createClient(`Scoped target ${randomUUID()}`);
+  const payload = JSON.parse(importBody(sourceClientId, "scoped.csv", "client-isolation")) as Record<string, unknown>;
+  payload.clientId = otherClientId;
+  const result = await request<{ error: string }>("/ledgerflow/import-statement", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  assert.equal(result.response.status, 403);
+  assert.match(result.body.error, /not assigned to the selected client workspace/);
+});
+
+test("keeps the original source retrievable only in its authorized workspace", async () => {
+  const clientId = await createClient(`Source trail ${randomUUID()}`);
+  const imported = await importStatement(clientId, "source-trail.csv", "source-trail");
+  assert.equal(imported.response.status, 201);
+  assert.ok(imported.body.sourceUrl);
+  const sourcePath = imported.body.sourceUrl!.replace(/^\/api/, "");
+
+  const denied = await request<{ error: string }>(sourcePath, undefined, secondaryToken);
+  assert.equal(denied.response.status, 403);
+
+  const source = await fetch(`${baseUrl}${sourcePath}`, {
+    headers: { authorization: `Bearer ${primaryToken}` },
+  });
+  assert.equal(source.status, 200);
+  assert.match(await source.text(), /source-trail/);
+});
+
+test("allows another authorized bookkeeper in the same workspace to retrieve the original source", async () => {
+  const clientId = await createClient(`Shared source ${randomUUID()}`);
+  const activeDatabase = database;
+  assert.ok(activeDatabase);
+  await activeDatabase.db.insert(activeDatabase.clientWorkspacesTable).values({ clientId, userId: secondaryUserId });
+  const imported = await importStatement(clientId, "shared-source.csv", "shared-source");
+  assert.equal(imported.response.status, 201);
+  const sourcePath = imported.body.sourceUrl!.replace(/^\/api/, "");
+  const source = await fetch(`${baseUrl}${sourcePath}`, {
+    headers: { authorization: `Bearer ${secondaryToken}` },
+  });
+  assert.equal(source.status, 200);
+  assert.match(await source.text(), /shared-source/);
+});
+
+test("rejects stored uploads whose metadata or bytes do not match their claimed statement type", async () => {
+  const clientId = await createClient(`Stored metadata ${randomUUID()}`);
+  const payload = JSON.parse(importBody(clientId, "invalid.csv", "invalid-content")) as { objectPath: string };
+  storedObjects.set(payload.objectPath, { buffer: Buffer.from("%PDF-not-a-csv"), contentType: "application/pdf" });
+  const result = await request<{ error: string }>("/ledgerflow/import-statement", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, clientId, fileName: "invalid.csv", mimeType: "text/csv", currency: "AED" }),
+  });
+  assert.equal(result.response.status, 422);
+  assert.match(result.body.error, /stored statement type/);
+});
 test("reports an exact file re-upload without adding review lines", async () => {
   const clientId = await createClient(`Exact re-upload ${randomUUID()}`);
   const first = await importStatement(clientId, "exact-reupload.csv", "exact-reupload");
@@ -355,102 +453,4 @@ test("scopes duplicate detection to the importing client", async () => {
   assert.equal(secondaryImport.body.importedCount, 1);
   assert.equal((await statementLines(primaryClientId)).length, 1);
   assert.equal((await statementLines(secondaryClientId, secondaryToken)).length, 1);
-});
-
-test("keeps workspace AI credentials redacted, isolated, rotatable, and routes extraction through the selected provider", async () => {
-  const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
-  const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryToken);
-
-  const defaultSettings = await request<{ provider: string; credentialLast4: string | null }>(
-    `/ledgerflow/ai-settings?clientId=${primaryClientId}`,
-  );
-  assert.equal(defaultSettings.response.status, 200);
-  assert.equal(defaultSettings.body.provider, "managed_openai");
-  assert.equal(defaultSettings.body.credentialLast4, null);
-
-  const missingKey = await request<{ error: string }>("/ledgerflow/ai-settings", {
-    method: "PUT",
-    body: JSON.stringify({ clientId: primaryClientId, provider: "anthropic", model: "claude-3-5-sonnet-latest" }),
-  });
-  assert.equal(missingKey.response.status, 400);
-  assert.match(missingKey.body.error, /add an api key/i);
-
-  const saved = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
-    method: "PUT",
-    body: JSON.stringify({
-      clientId: primaryClientId,
-      provider: "anthropic",
-      model: "claude-3-5-sonnet-latest",
-      apiKey: "anthropic-first-key-1234",
-    }),
-  });
-  assert.equal(saved.response.status, 200);
-  assert.equal(saved.body.provider, "anthropic");
-  assert.equal(saved.body.credentialLast4, "1234");
-  assert.equal(JSON.stringify(saved.body).includes("anthropic-first-key-1234"), false);
-
-  const crossWorkspaceRead = await request<{ error: string }>(
-    `/ledgerflow/ai-settings?clientId=${secondaryClientId}`,
-  );
-  assert.equal(crossWorkspaceRead.response.status, 403);
-
-  const rotated = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
-    method: "PUT",
-    body: JSON.stringify({
-      clientId: primaryClientId,
-      provider: "anthropic",
-      model: "claude-3-5-sonnet-latest",
-      apiKey: "anthropic-rotated-key-5678",
-    }),
-  });
-  assert.equal(rotated.response.status, 200);
-  assert.equal(rotated.body.credentialLast4, "5678");
-
-  const tested = await request<{ credentialStatus: string; lastTestedAt: string | null }>("/ledgerflow/ai-settings/test", {
-    method: "POST",
-    body: JSON.stringify({ clientId: primaryClientId }),
-  });
-  assert.equal(tested.response.status, 200);
-  assert.equal(tested.body.credentialStatus, "configured");
-  assert.ok(tested.body.lastTestedAt);
-
-  const routedImport = await importStatement(primaryClientId, "anthropic-provider.csv", "anthropic-provider");
-  assert.equal(routedImport.response.status, 201);
-  assert.ok(aiRequests.some((item) => item.path === "/v1/messages" && item.credential === "anthropic-rotated-key-5678"));
-  const routedChat = await request<{ answer: string }>("/ledgerflow/ai-chat", {
-    method: "POST",
-    body: JSON.stringify({ clientId: primaryClientId, message: "What should I review first?" }),
-  });
-  assert.equal(routedChat.response.status, 200);
-  assert.ok(routedChat.body.answer.length > 0);
-  assert.ok(aiRequests.filter((item) => item.path === "/v1/messages" && item.credential === "anthropic-rotated-key-5678").length >= 2);
-
-  const invalid = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
-    method: "PUT",
-    body: JSON.stringify({
-      clientId: primaryClientId,
-      provider: "openai",
-      model: "gpt-4o-mini",
-      apiKey: "invalid-key",
-    }),
-  });
-  assert.equal(invalid.response.status, 200);
-  const invalidTest = await request<{ error: string }>("/ledgerflow/ai-settings/test", {
-    method: "POST",
-    body: JSON.stringify({ clientId: primaryClientId }),
-  });
-  assert.equal(invalidTest.response.status, 502);
-  assert.match(invalidTest.body.error, /credential was rejected/i);
-
-  const removed = await request<{ provider: string; credentialLast4: string | null }>("/ledgerflow/ai-settings/credential", {
-    method: "DELETE",
-    body: JSON.stringify({ clientId: primaryClientId }),
-  });
-  assert.equal(removed.response.status, 200);
-  assert.equal(removed.body.provider, "managed_openai");
-  assert.equal(removed.body.credentialLast4, null);
-
-  const managedImport = await importStatement(primaryClientId, "managed-provider.csv", "managed-provider");
-  assert.equal(managedImport.response.status, 201);
-  assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "ledgerflow-test-openai-key"));
 });

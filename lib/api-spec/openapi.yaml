@@ -14,6 +14,8 @@ tags:
     description: Accounting workflow operations
   - name: auth
     description: Browser and mobile authentication endpoints
+  - name: Storage
+    description: Object storage upload and serving endpoints.
 paths:
   /auth/user:
     get:
@@ -365,6 +367,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementImportResult"
+  /ledgerflow/statement-imports:
+    get:
+      operationId: getStatementImports
+      tags: [ledgerflow]
+      summary: List statement import trail
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Authorized statement import trail
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatementImport"
+  /ledgerflow/statement-imports/{id}/source:
+    get:
+      operationId: getStatementImportSource
+      tags: [ledgerflow]
+      summary: Download an imported statement source document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Private source document
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: The statement is not in an accessible workspace
+        "404":
+          description: Source document not found
   /ledgerflow/ai-chat:
     post:
       operationId: askLedgerflowAI
@@ -600,6 +643,52 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FinancialStatements"
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for a private statement upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Presigned upload URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        "400":
+          description: Missing or invalid required fields
+        "403":
+          description: Workspace access denied
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an authorized private object
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Private object content
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Authentication required
+        "403":
+          description: Object access denied
+        "404":
+          description: Object not found
 components:
   schemas:
     AuthUser:
@@ -771,21 +860,23 @@ components:
         direction: { type: string }
     StatementImportInput:
       type: object
-      required: [clientId, fileName, mimeType, contentBase64, currency]
+      required: [clientId, fileName, mimeType, objectPath, currency]
       properties:
         clientId: { type: number }
         bankAccountId: { type: ["number", "null"] }
         fileName: { type: string }
         mimeType: { type: string }
-        contentBase64: { type: string }
+        objectPath: { type: string }
         currency: { type: string }
     StatementImportResult:
       type: object
-      required: [fileName, importStatus, importedCount, duplicateCount, duplicateLines, lines]
+      required: [fileName, importId, importStatus, importedCount, duplicateCount, duplicateLines, lines]
       properties:
         fileName: { type: string }
+        importId: { type: number }
         importStatus: { type: string, enum: [imported, imported_with_duplicates, duplicates_found, duplicate_file] }
         message: { type: string }
+        sourceUrl: { type: string }
         importedCount: { type: number }
         duplicateCount: { type: number }
         duplicateLines:
@@ -800,6 +891,39 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
             - type: "null"
+    StatementImport:
+      type: object
+      required: [id, fileName, mimeType, outcome, importedLineCount, createdAt]
+      properties:
+        id: { type: number }
+        fileName: { type: string }
+        mimeType: { type: string }
+        outcome: { type: string, enum: [completed, duplicate, failed] }
+        errorMessage: { type: ["string", "null"] }
+        importedLineCount: { type: number }
+        createdAt: { type: string }
+        sourceUrl: { type: ["string", "null"] }
+    UploadUrlRequest:
+      type: object
+      required: [clientId, name, size, contentType]
+      properties:
+        clientId: { type: number }
+        name: { type: string }
+        size: { type: number }
+        contentType: { type: string }
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath, metadata]
+      properties:
+        uploadURL: { type: string }
+        objectPath: { type: string }
+        metadata:
+          type: object
+          required: [name, size, contentType]
+          properties:
+            name: { type: string }
+            size: { type: number }
+            contentType: { type: string }
     StatementImportDuplicate:
       type: object
       required: [date, description, currency, amount, direction, existingLineId, reason]

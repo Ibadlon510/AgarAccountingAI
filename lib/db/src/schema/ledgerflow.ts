@@ -110,6 +110,8 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
   bankAccountId: integer("bank_account_id"),
   fileName: text("file_name").notNull(),
   mimeType: text("mime_type").notNull().default("application/octet-stream"),
+  objectPath: text("object_path"),
+  fileSize: integer("file_size"),
   fileHash: text("file_hash").notNull(),
   outcome: text("outcome").notNull().default("completed"),
   errorMessage: text("error_message"),

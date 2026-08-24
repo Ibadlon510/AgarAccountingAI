@@ -14,6 +14,7 @@ import {
   getGetFinancialStatementsQueryKey
 } from '@workspace/api-client-react';
 import type { AIChatResponse, AICopilotRecommendation } from '@workspace/api-client-react';
+import { useUpload } from '@workspace/object-storage-web';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 
@@ -32,7 +33,7 @@ type Message = {
   };
 };
 
-const MAX_IMPORT_FILE_SIZE = 15 * 1024 * 1024;
+const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
 
 function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: AICopilotRecommendation; activeClientId: number; onClose: () => void; onApplied?: () => void }) {
   const confirmMutation = useConfirmAICopilotAction();
@@ -161,6 +162,7 @@ export function AssistantFAB() {
   const queryClient = useQueryClient();
   const chatMutation = useAskLedgerflowAI();
   const importMutation = useImportStatement();
+  const { uploadFile, isUploading } = useUpload();
   
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'assistant', type: 'text', content: 'Hello. I can answer questions about this workspace or extract transactions from a bank statement.' }
@@ -228,7 +230,7 @@ export function AssistantFAB() {
     if (file.size > MAX_IMPORT_FILE_SIZE) {
       setMessages(prev => [...prev,
         { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
-        { id: progressId, role: 'assistant', type: 'text', content: 'Statement file is too large. Please choose a file smaller than 15 MB.' },
+        { id: progressId, role: 'assistant', type: 'text', content: 'Statement file is too large. Choose a file no larger than 50 MB.' },
       ]);
       return;
     }
@@ -236,54 +238,39 @@ export function AssistantFAB() {
     setMessages(prev => [
       ...prev,
       { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
-      { id: progressId, role: 'assistant', type: 'import-progress', content: 'Extracting data...' }
+      { id: progressId, role: 'assistant', type: 'import-progress', content: 'Uploading the original file to private storage...' }
     ]);
 
     try {
-      const contentBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error('Could not read file'));
-        reader.onload = () => resolve(String(reader.result));
-        reader.readAsDataURL(file);
-      });
-
-      importMutation.mutate({
+      const uploaded = await uploadFile(file, { clientId: activeClient.id });
+      if (!uploaded) throw new Error('The private statement upload did not complete. Please try again.');
+      setMessages(prev => prev.map(m => m.id === progressId ? { ...m, content: 'Upload complete. Extracting data...' } : m));
+      const data = await importMutation.mutateAsync({
         data: {
           clientId: activeClient.id,
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
-          contentBase64,
+          objectPath: uploaded.objectPath,
           currency: activeClient.functionalCurrency || 'AED'
         }
-      }, {
-        onSuccess: (data) => {
-          setMessages(prev => prev.map(m => m.id === progressId ? {
-            ...m,
-            type: 'import-result',
-            content: `Import completed.`,
-            importData: {
-              importedCount: data.importedCount,
-              bankAccountName: data.bankAccount?.name,
-              accountNumberLast4: data.bankAccount?.accountNumberLast4,
-            }
-          } : m));
-          
-          queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
-          queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
-        },
-        onError: (err) => {
-          setMessages(prev => prev.map(m => m.id === progressId ? {
-            ...m,
-            type: 'text',
-            content: `Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`
-          } : m));
-        }
       });
+      setMessages(prev => prev.map(m => m.id === progressId ? {
+        ...m,
+        type: 'import-result',
+        content: 'Import completed.',
+        importData: {
+          importedCount: data.importedCount,
+          bankAccountName: data.bankAccount?.name,
+          accountNumberLast4: data.bankAccount?.accountNumberLast4,
+        }
+      } : m));
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
     } catch (error) {
       setMessages(prev => prev.map(m => m.id === progressId ? {
         ...m,
         type: 'text',
-        content: `Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`
+        content: `Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       } : m));
     }
   };
@@ -409,7 +396,7 @@ export function AssistantFAB() {
                 type="button"
                 title="Import statement"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={!activeClient || importMutation.isPending}
+                disabled={!activeClient || importMutation.isPending || isUploading}
                 className="grid size-9 shrink-0 place-items-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 transition-colors"
               >
                 <Paperclip size={17} />
