@@ -19,4 +19,6 @@ export interface WorkspaceInvitation {
   expiresAt: Date;
   createdAt: Date;
   inviteLink?: string;
+  emailSubject?: string;
+  emailBody?: string;
 }

@@ -5,17 +5,17 @@ import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, FileCheck2, FileSpreadsheet, Filter, Landmark,
   LayoutDashboard, LoaderCircle, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
-  Search, Settings2, Sparkles, Table2, UploadCloud, X
+  Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X
 } from 'lucide-react';
 import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance,
-  useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateReportPack
+  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers
 } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection
+  Client, ClientUpdateInput, ExchangeRate, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -46,6 +46,11 @@ const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
+function openInvitationEmail(invitation: Pick<WorkspaceInvitation, 'email' | 'emailSubject' | 'emailBody'>) {
+  if (!invitation.emailSubject || !invitation.emailBody) return;
+  const mailto = `mailto:${encodeURIComponent(invitation.email)}?subject=${encodeURIComponent(invitation.emailSubject)}&body=${encodeURIComponent(invitation.emailBody)}`;
+  window.location.assign(mailto);
+}
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const clerkAppearance = {
@@ -253,6 +258,7 @@ function AddClientDialog({ onClose }: { onClose: () => void }) {
 function TeamAccessSection() {
   const team = useGetWorkspaceMembers({ query: { queryKey: getGetWorkspaceMembersQueryKey() } });
   const invite = useCreateWorkspaceInvitation();
+  const resend = useResendWorkspaceInvitation();
   const updateMember = useUpdateWorkspaceMember();
   const removeMember = useRemoveWorkspaceMember();
   const revoke = useRevokeWorkspaceInvitation();
@@ -274,8 +280,26 @@ function TeamAccessSection() {
         <div><strong>{member.name}</strong> · {member.role}<div className="mt-2 flex flex-wrap gap-3 text-[11px]">{data?.canManage && !member.isCurrentUser ? data.clients.map((client) => <label key={client.id}><input data-testid={`checkbox-member-client-${member.userId}-${client.id}`} type="checkbox" checked={member.clients.some((assigned) => assigned.id === client.id)} disabled={updateMember.isPending} onChange={() => toggleMemberClient(member, client.id)} /> {client.name}</label>) : member.clients.map((client) => <span key={client.id}>{client.name}</span>)}</div></div>
         {data?.canManage && !member.isCurrentUser && <span className="flex gap-2"><select value={member.role} disabled={updateMember.isPending} onChange={(event) => updateMember.mutate({ userId: member.userId, data: { role: event.target.value as 'admin' | 'bookkeeper', clientIds: member.clients.map((client) => client.id) } }, { onSuccess: refresh })} className="rounded border border-input bg-card px-1 text-[11px]"><option value="admin">Admin</option><option value="bookkeeper">Bookkeeper</option></select><button data-testid={`button-remove-member-${member.userId}`} onClick={() => removeMember.mutate({ userId: member.userId }, { onSuccess: refresh })} className="text-destructive"><Trash2 size={14} /></button></span>}
       </div>)}</div>
-      {data?.canManage && <form onSubmit={(event) => { event.preventDefault(); invite.mutate({ data: form }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); setForm((current) => ({ ...current, email: '' })); refresh(); } }); }} className="mt-4 rounded border border-primary/20 bg-primary/5 p-3"><div className="flex items-center gap-2 text-xs font-semibold"><UserPlus size={14} /> Invite teammate</div><div className="mt-3 flex flex-wrap gap-2"><input data-testid="input-invite-email" required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="teammate@firm.com" className="h-8 flex-1 rounded border border-input bg-card px-2 text-xs" /><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'bookkeeper' })} className="h-8 rounded border border-input bg-card px-2 text-xs"><option value="bookkeeper">Bookkeeper</option><option value="admin">Admin</option></select></div><div className="mt-3 flex flex-wrap gap-3">{data.clients.map((client) => <label key={client.id} className="text-[11px]"><input data-testid={`checkbox-invite-client-${client.id}`} type="checkbox" checked={form.clientIds.includes(client.id)} onChange={() => toggle(client.id)} /> {client.name}</label>)}</div><button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground">Create invitation link</button>{link && <input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" />}</form>}
-      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} className="mt-2 flex justify-between rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.status}</span>{invitation.status === 'pending' && <button onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: refresh })} className="text-destructive">Revoke</button>}</div>)}
+      {data?.canManage && <form onSubmit={(event) => {
+        event.preventDefault();
+        invite.mutate({ data: form }, {
+          onSuccess: (result) => {
+            setLink(result.inviteLink ?? '');
+            setForm((current) => ({ ...current, email: '' }));
+            refresh();
+            openInvitationEmail(result);
+          },
+        });
+      }} className="mt-4 rounded border border-primary/20 bg-primary/5 p-3">
+        <div className="flex items-center gap-2 text-xs font-semibold"><UserPlus size={14} /> Invite teammate</div>
+        <div className="mt-3 flex flex-wrap gap-2"><input data-testid="input-invite-email" required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="teammate@firm.com" className="h-8 flex-1 rounded border border-input bg-card px-2 text-xs" /><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'bookkeeper' })} className="h-8 rounded border border-input bg-card px-2 text-xs"><option value="bookkeeper">Bookkeeper</option><option value="admin">Admin</option></select></div>
+        <div className="mt-3 flex flex-wrap gap-3">{data.clients.map((client) => <label key={client.id} className="text-[11px]"><input data-testid={`checkbox-invite-client-${client.id}`} type="checkbox" checked={form.clientIds.includes(client.id)} onChange={() => toggle(client.id)} /> {client.name}</label>)}</div>
+        <button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{invite.isPending ? 'Preparing email…' : <><Mail size={13} /> Email invitation</>}</button>
+        {link && <><input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" /><p className="mt-2 text-[10px] leading-4 text-muted-foreground">Your email app opened with the role, client access, expiry, and secure link. If it did not open, use the invitation link above.</p></>}
+        {invite.isError && <p data-testid="status-invite-error" className="mt-2 text-[10px] text-destructive">The invitation could not be prepared. Check the email and selected client access.</p>}
+      </form>}
+      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} data-testid={`row-workspace-invitation-${invitation.id}`} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.role} · {invitation.status}<small className="ml-2 text-muted-foreground">expires {shortDate(invitation.expiresAt)}</small></span>{invitation.status === 'pending' && <span className="flex gap-3"><button data-testid={`button-resend-invitation-${invitation.id}`} disabled={resend.isPending || revoke.isPending} onClick={() => resend.mutate({ id: invitation.id }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); openInvitationEmail(result); refresh(); } })} className="inline-flex items-center gap-1 text-primary disabled:opacity-50"><RotateCw size={12} /> {resend.isPending ? 'Preparing…' : 'Resend email'}</button><button data-testid={`button-revoke-invitation-${invitation.id}`} disabled={revoke.isPending} onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: refresh })} className="text-destructive disabled:opacity-50">Revoke</button></span>}</div>)}
+      {resend.isError && <p data-testid="status-resend-invitation-error" className="mt-2 text-[10px] text-destructive">This invitation could not be resent. It may no longer be pending.</p>}
     </>}
   </section>;
 }

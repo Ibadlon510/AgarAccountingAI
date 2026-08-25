@@ -225,6 +225,23 @@ paths:
       responses:
         "204":
           description: Invitation revoked
+  /workspace/invitations/{id}/resend:
+    post:
+      operationId: resendWorkspaceInvitation
+      tags: [ledgerflow]
+      summary: Resend a pending workspace invitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Invitation resent with a newly rotated link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceInvitation"
   /workspace/invitations/{token}/accept:
     post:
       operationId: acceptWorkspaceInvitation
@@ -1018,6 +1035,8 @@ components:
         expiresAt: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         inviteLink: { type: string }
+        emailSubject: { type: string }
+        emailBody: { type: string }
     WorkspaceMembers:
       type: object
       required: [currentRole, canManage, clients, members, invitations]

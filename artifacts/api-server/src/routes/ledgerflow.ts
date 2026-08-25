@@ -63,6 +63,8 @@ import {
   UpdateReportPackResponse,
   GetWorkspaceMembersResponse,
   RemoveWorkspaceMemberParams,
+  ResendWorkspaceInvitationParams,
+  ResendWorkspaceInvitationResponse,
   RevokeWorkspaceInvitationParams,
   UpdateWorkspaceMemberBody,
   UpdateWorkspaceMemberParams,
@@ -123,6 +125,7 @@ import { buildReportPdf } from "../lib/reportPdf";
 
 const router: IRouter = Router();
 type LedgerflowTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
   return {
@@ -587,17 +590,78 @@ function invitationResponse(
   invitedBy: string,
   inviteLink?: string,
 ) {
+  const roleLabel = invitation.role === "admin" ? "an admin" : "a bookkeeper";
+  const clients = invitation.clientIds
+    .map((id) => clientsById.get(id))
+    .filter((client): client is typeof clientsTable.$inferSelect => Boolean(client));
   return {
     id: invitation.id,
     email: invitation.email,
     role: invitation.role as WorkspaceRole,
     status: invitation.status as "pending" | "accepted" | "revoked" | "expired",
-    clients: invitation.clientIds.map((id) => clientsById.get(id)).filter((client): client is typeof clientsTable.$inferSelect => Boolean(client)).map(clientSummary),
+    clients: clients.map(clientSummary),
     invitedBy,
     expiresAt: invitation.expiresAt,
     createdAt: invitation.createdAt,
     ...(inviteLink ? { inviteLink } : {}),
+    ...(inviteLink ? {
+      emailSubject: "You’re invited to LedgerFlow",
+      emailBody: [
+        `Hello,`,
+        ``,
+        `${invitedBy} invited you to LedgerFlow as ${roleLabel}.`,
+        ``,
+        `You’ll have access to these client workspaces:`,
+        ...clients.map((client) => `- ${client.name}`),
+        ``,
+        `This invitation expires on ${invitation.expiresAt.toLocaleString("en-US", {
+          dateStyle: "long",
+          timeStyle: "short",
+          timeZone: "UTC",
+        })} UTC.`,
+        `Use the secure link below to join:`,
+        inviteLink,
+        ``,
+        `If you were not expecting this invitation, you can ignore this email.`,
+      ].join("\n"),
+    } : {}),
   };
+}
+
+function invitationLink(req: Request, token: string) {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = typeof forwardedProto === "string" ? forwardedProto : req.protocol;
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const host = typeof forwardedHost === "string" ? forwardedHost : req.get("host");
+  if (!host) throw new Error("Unable to determine the invitation host.");
+  return `${protocol}://${host}/?invite=${encodeURIComponent(token)}`;
+}
+
+async function invitationEmailResponse(
+  req: Request,
+  invitation: typeof workspaceInvitationsTable.$inferSelect,
+) {
+  const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, invitation.clientIds));
+  const [actor] = await db.select().from(usersTable).where(eq(usersTable.id, invitation.invitedByUserId)).limit(1);
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const [rotated] = await db.update(workspaceInvitationsTable)
+    .set({
+      tokenHash,
+      expiresAt: new Date(Date.now() + WORKSPACE_INVITATION_TTL_MS),
+    })
+    .where(and(
+      eq(workspaceInvitationsTable.id, invitation.id),
+      eq(workspaceInvitationsTable.status, "pending"),
+    ))
+    .returning();
+  if (!rotated) return null;
+  return invitationResponse(
+    rotated,
+    new Map(clients.map((client) => [client.id, client])),
+    actor ? displayName(actor) : "Workspace admin",
+    invitationLink(req, token),
+  );
 }
 
 async function workspaceMemberResponse(userId: string, clientIds: number[], currentUserId: string) {
@@ -2440,20 +2504,41 @@ router.post("/workspace/invitations", async (req, res) => {
     clientIds: selectedClientIds,
     invitedByUserId: actorUserId,
     tokenHash,
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    expiresAt: new Date(Date.now() + WORKSPACE_INVITATION_TTL_MS),
   }).returning();
   const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, selectedClientIds));
   const [actor] = await db.select().from(usersTable).where(eq(usersTable.id, actorUserId)).limit(1);
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = typeof forwardedProto === "string" ? forwardedProto : req.protocol;
-  const host = req.headers["x-forwarded-host"] ?? req.get("host");
-  const inviteLink = `${protocol}://${host}/?invite=${encodeURIComponent(token)}`;
+  const inviteLink = invitationLink(req, token);
   res.status(201).json(CreateWorkspaceInvitationResponse.parse(invitationResponse(
     invitation,
     new Map(clients.map((client) => [client.id, client])),
     actor ? displayName(actor) : "Workspace admin",
     inviteLink,
   )));
+});
+
+router.post("/workspace/invitations/:id/resend", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
+  const { id } = ResendWorkspaceInvitationParams.parse(req.params);
+  const clientIds = await getManageableWorkspaceClientIds(currentUserId(req));
+  const [invitation] = await db.select().from(workspaceInvitationsTable)
+    .where(eq(workspaceInvitationsTable.id, id))
+    .limit(1);
+  if (!invitation || !invitation.clientIds.every((clientId) => clientIds.includes(clientId))) {
+    res.status(404).json({ error: "Workspace invitation not found." });
+    return;
+  }
+  if (invitation.status !== "pending") {
+    res.status(409).json({ error: "Only pending invitations can be resent." });
+    return;
+  }
+  const resent = await invitationEmailResponse(req, invitation);
+  if (!resent) {
+    res.status(409).json({ error: "This invitation is no longer pending." });
+    return;
+  }
+  res.json(ResendWorkspaceInvitationResponse.parse(resent));
 });
 
 router.patch("/workspace/members/:userId", async (req, res) => {

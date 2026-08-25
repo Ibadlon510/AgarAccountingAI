@@ -138,6 +138,8 @@ export interface WorkspaceInvitation {
   expiresAt: string;
   createdAt: string;
   inviteLink?: string;
+  emailSubject?: string;
+  emailBody?: string;
 }
 
 export interface WorkspaceMembers {

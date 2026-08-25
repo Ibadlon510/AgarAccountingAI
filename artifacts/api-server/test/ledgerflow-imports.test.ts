@@ -506,3 +506,75 @@ test("invites a bookkeeper with explicit client access and prevents settings adm
   }, invitedUserId);
   assert.equal(blockedClient.response.status, 403);
 });
+
+test("resends a pending invitation with its approved scope and invalidates the earlier link", async () => {
+  const suffix = randomUUID();
+  const client = await request<{ id: number; name: string }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: `Resend scope ${suffix}`, legalName: `Resend scope ${suffix} LLC` }),
+  });
+  assert.equal(client.response.status, 201);
+  createdClientIds.push(client.body.id);
+
+  const invitedUserId = `ledgerflow-resend-bookkeeper-${suffix}`;
+  const invitedEmail = `${invitedUserId}@example.test`;
+  assert.ok(database);
+  await database.db.insert(database.usersTable).values({
+    id: invitedUserId,
+    email: invitedEmail,
+    firstName: "Resend",
+    lastName: "Recipient",
+  });
+  createdUserIds.push(invitedUserId);
+
+  type InvitationEmail = {
+    id: number;
+    role: string;
+    clients: Array<{ id: number; name: string }>;
+    inviteLink: string;
+    emailSubject: string;
+    emailBody: string;
+  };
+  const created = await request<InvitationEmail>("/workspace/invitations", {
+    method: "POST",
+    body: JSON.stringify({
+      email: invitedEmail,
+      role: "admin",
+      clientIds: [client.body.id],
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  assert.match(created.body.emailSubject, /invited to ledgerflow/i);
+  assert.match(created.body.emailBody, /as an admin/i);
+  assert.match(created.body.emailBody, new RegExp(client.body.name));
+  assert.match(created.body.emailBody, /expires on/i);
+
+  const originalToken = new URL(created.body.inviteLink).searchParams.get("invite");
+  assert.ok(originalToken);
+  const resent = await request<InvitationEmail>(`/workspace/invitations/${created.body.id}/resend`, {
+    method: "POST",
+  });
+  assert.equal(resent.response.status, 200);
+  assert.equal(resent.body.id, created.body.id);
+  assert.equal(resent.body.role, created.body.role);
+  assert.deepEqual(resent.body.clients, created.body.clients);
+  assert.match(resent.body.emailBody, /as an admin/i);
+  assert.match(resent.body.emailBody, new RegExp(client.body.name));
+
+  const resentToken = new URL(resent.body.inviteLink).searchParams.get("invite");
+  assert.ok(resentToken);
+  assert.notEqual(resentToken, originalToken);
+
+  const expiredLink = await request<{ error: string }>(`/workspace/invitations/${originalToken}/accept`, {
+    method: "POST",
+  }, invitedUserId);
+  assert.equal(expiredLink.response.status, 404);
+  assert.match(expiredLink.body.error, /no longer available/i);
+
+  const accepted = await request<{ role: string; clients: Array<{ id: number }> }>(`/workspace/invitations/${resentToken}/accept`, {
+    method: "POST",
+  }, invitedUserId);
+  assert.equal(accepted.response.status, 200);
+  assert.equal(accepted.body.role, "admin");
+  assert.deepEqual(accepted.body.clients.map((workspace) => workspace.id), [client.body.id]);
+});

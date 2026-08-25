@@ -181,7 +181,9 @@ export const GetWorkspaceMembersResponse = zod.object({
   "invitedBy": zod.string(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailSubject": zod.string().optional(),
+  "emailBody": zod.string().optional()
 }))
 })
 
@@ -253,7 +255,9 @@ export const CreateWorkspaceInvitationResponse = zod.object({
   "invitedBy": zod.string(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailSubject": zod.string().optional(),
+  "emailBody": zod.string().optional()
 })
 
 
@@ -265,6 +269,31 @@ export const RevokeWorkspaceInvitationParams = zod.object({
 })
 
 export const RevokeWorkspaceInvitationResponse = zod.void()
+
+
+/**
+ * @summary Resend a pending workspace invitation
+ */
+export const ResendWorkspaceInvitationParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResendWorkspaceInvitationResponse = zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "invitedBy": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional(),
+  "emailSubject": zod.string().optional(),
+  "emailBody": zod.string().optional()
+})
 
 
 /**
