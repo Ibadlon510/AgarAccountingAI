@@ -746,6 +746,51 @@ function WorkspaceOnboarding({ starterWorkspace, onComplete, onLogout }: { start
 
   return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="workspace-onboarding"><div className="w-full max-w-2xl"><div className="mb-6 flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Private bookkeeping workspace</div></div></div><button data-testid="button-onboarding-logout" onClick={onLogout} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Sign out</button></div><section className="rounded-lg border border-card-border bg-card p-6 shadow-md sm:p-9"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">First-run setup</div><h1 className="mt-3 font-display text-[38px] leading-[.98] tracking-tight">Set up your private bookkeeping workspace.</h1><p className="mt-4 max-w-xl text-[13px] leading-6 text-muted-foreground">Before you open the close desk, tell LedgerFlow which client and reporting settings belong to this account. This creates a private workspace for your books—no demo transactions are added.</p><form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-onboarding-client-name" required minLength={1} value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="e.g. Northstar Advisory" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-onboarding-legal-name" required minLength={1} value={form.legalName} onChange={(event) => set('legalName', event.target.value)} placeholder="e.g. Northstar Advisory FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-onboarding-currency" value={form.functionalCurrency} onChange={(event) => set('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-onboarding-basis" value={form.basis} onChange={(event) => set('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-onboarding-period" required minLength={1} value={form.period} onChange={(event) => set('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{(validationMessage || error) && <div data-testid="onboarding-error" className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive"><CircleAlert className="mt-0.5 shrink-0" size={14} /><span>{validationMessage || 'Workspace setup could not be saved. Check the details and try again.'}</span></div>}<div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] leading-5 text-muted-foreground">You can change these settings later from Workspace settings.</p><button data-testid="button-submit-onboarding" disabled={pending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">{pending ? <><LoaderCircle size={14} className="animate-spin" /> Saving workspace…</> : <><Check size={14} /> Save and open close overview</>}</button></div></form></section></div></main>;
 }
+
+function CompanyOnboarding({ starterWorkspace, onComplete, onLogout }: { starterWorkspace?: Client; onComplete: (workspace: Client) => Promise<void> | void; onLogout: () => void }) {
+  const create = useCreateClient();
+  const update = useUpdateClient();
+  const [form, setForm] = useState<ClientUpdateInput>(() => ({
+    name: starterWorkspace?.name ?? '',
+    legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
+    functionalCurrency: starterWorkspace?.functionalCurrency ?? 'AED',
+    basis: starterWorkspace?.basis ?? 'IFRS',
+    period: starterWorkspace?.period === 'August 2026' ? '' : starterWorkspace?.period ?? '',
+  }));
+  const [validationMessage, setValidationMessage] = useState('');
+  const pending = create.isPending || update.isPending;
+  const error = create.error || update.error;
+
+  useEffect(() => {
+    setForm({
+      name: starterWorkspace?.name ?? '',
+      legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
+      functionalCurrency: starterWorkspace?.functionalCurrency ?? 'AED',
+      basis: starterWorkspace?.basis ?? 'IFRS',
+      period: starterWorkspace?.period === 'August 2026' ? '' : starterWorkspace?.period ?? '',
+    });
+  }, [starterWorkspace?.id]);
+
+  const set = (field: keyof ClientUpdateInput, value: string) => {
+    setValidationMessage('');
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const data = { ...form, name: form.name.trim(), legalName: form.legalName.trim(), functionalCurrency: 'AED', basis: 'IFRS', period: 'August 2026' };
+    if (!data.name || !data.legalName) {
+      setValidationMessage('Add your company name and legal name to continue.');
+      return;
+    }
+    setValidationMessage('');
+    const onSuccess = (workspace: Client) => void onComplete(workspace);
+    if (starterWorkspace) update.mutate({ id: starterWorkspace.id, data }, { onSuccess });
+    else create.mutate({ data }, { onSuccess });
+  };
+
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="company-onboarding"><div className="w-full max-w-2xl"><div className="mb-6 flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Private bookkeeping workspace</div></div></div><button data-testid="button-onboarding-logout" onClick={onLogout} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Sign out</button></div><section className="rounded-lg border border-card-border bg-card p-6 shadow-md sm:p-9"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Company registration</div><h1 className="mt-3 font-display text-[38px] leading-[.98] tracking-tight">Register your bookkeeping company.</h1><p className="mt-4 max-w-xl text-[13px] leading-6 text-muted-foreground">Start with your firm’s details to create its private LedgerFlow workspace. After you enter the workspace, you can add the clients you do bookkeeping for.</p><form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Company name<input data-testid="input-onboarding-company-name" required minLength={1} value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="e.g. Northstar Bookkeeping" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal company name<input data-testid="input-onboarding-legal-company-name" required minLength={1} value={form.legalName} onChange={(event) => set('legalName', event.target.value)} placeholder="e.g. Northstar Bookkeeping FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{(validationMessage || error) && <div data-testid="onboarding-error" className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive sm:col-span-2"><CircleAlert className="mt-0.5 shrink-0" size={14} /><span>{validationMessage || 'Company setup could not be saved. Check the details and try again.'}</span></div>}<div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] leading-5 text-muted-foreground">You can add bookkeeping clients after opening your workspace. Each client will have its own currency, reporting basis, and close period.</p><button data-testid="button-submit-onboarding" disabled={pending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">{pending ? <><LoaderCircle size={14} className="animate-spin" /> Saving company…</> : <><Check size={14} /> Save and open workspace</>}</button></div></form></section></div></main>;
+}
+
 function LedgerFlowApp({ user, onLogout }: { user: LedgerFlowUser; onLogout: () => void }) {
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   const clients = clientsQuery.data ?? [];
@@ -784,7 +829,7 @@ function LedgerFlowApp({ user, onLogout }: { user: LedgerFlowUser; onLogout: () 
       window.localStorage.setItem(storageKey, String(workspace.id));
       setLocation('/user-portal');
     };
-    return <WorkspaceOnboarding starterWorkspace={starterWorkspace} onComplete={completeOnboarding} onLogout={onLogout} />;
+    return <CompanyOnboarding starterWorkspace={starterWorkspace} onComplete={completeOnboarding} onLogout={onLogout} />;
   }
   return <TooltipProvider><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider><Toaster /></TooltipProvider>;
 }
