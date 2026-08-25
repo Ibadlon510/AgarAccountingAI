@@ -15,3 +15,4 @@
 - [Usage retention accounting](usage-retention-accounting.md) — report only persisted, unexpired evidence and successful provider-backed AI completions.
 - [Onboarding domain separation](onboarding-domain-separation.md) — register the firm first; collect reporting settings for each client when that client is created.
 - [AI import continuity and safety](ai-import-continuity.md) — retain imports across navigation with exact upload identity; only parse bank-provenanced fallback documents.
+- [PDF bank statement extraction](pdf-bank-statement-extraction.md) — recognize bank-provenanced multiline PDF tables deterministically and never let AI replace their complete transaction set.

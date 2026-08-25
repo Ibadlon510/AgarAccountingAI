@@ -16,6 +16,117 @@ const supportedMimeTypes = new Set([
   "application/octet-stream",
 ]);
 
+export type ParsedPdfStatementLine = {
+  date: string;
+  description: string;
+  amount: number;
+  direction: "inflow" | "outflow";
+  currency: string;
+};
+
+const pdfRecordStart = /^(\d{4}-\d{2}-\d{2})(?:\s+(.*))?$/;
+const monetaryToken = /\(?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}\)?/g;
+
+function monetaryValue(value: string) {
+  const normalized = value.trim();
+  const negative = normalized.startsWith("-") || (normalized.startsWith("(") && normalized.endsWith(")"));
+  const amount = Number(normalized.replace(/[(),]/g, ""));
+  return Number.isFinite(amount) ? (negative ? -Math.abs(amount) : amount) : null;
+}
+
+function monetaryValuesInLine(line: string) {
+  return [...line.matchAll(monetaryToken)]
+    .map((match) => monetaryValue(match[0]))
+    .filter((value): value is number => value !== null);
+}
+
+function isLikelyReference(value: string) {
+  return /^[A-Z0-9]{10,}$/i.test(value.trim());
+}
+
+function pdfStatementLines(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Parses bank-statement PDFs whose text extractor writes each printed column on
+ * its own line (date, narrative, reference, amount, balance). The table header
+ * and IBAN requirement keep this format-specific parser from treating generic
+ * financial reports as transaction statements.
+ */
+export function hasPdfBankStatementTable(text: string) {
+  const lines = pdfStatementLines(text);
+  const headerWindow = lines.slice(0, 100).join(" ").toLowerCase();
+  const hasTransactionHeaders = ["date", "transaction", "debit", "credit", "balance"]
+    .every((header) => new RegExp(`\\b${header}\\b`).test(headerWindow));
+  const hasBankProvenance = /\b(iban|swift|bic|routing number|sort code)\b/i.test(lines.slice(0, 100).join(" "));
+  return hasTransactionHeaders && hasBankProvenance;
+}
+
+export function parsePdfBankStatementRows(text: string, currency: string): ParsedPdfStatementLine[] {
+  if (!hasPdfBankStatementTable(text)) return [];
+  const lines = pdfStatementLines(text);
+  const dateIndexes = lines
+    .map((line, index) => (pdfRecordStart.test(line) ? index : -1))
+    .filter((index) => index >= 0);
+  const openingBalanceIndex = lines.findIndex((line) => /^opening balance\b/i.test(line));
+  let previousBalance: number | null = null;
+  if (openingBalanceIndex >= 0) {
+    previousBalance = monetaryValuesInLine(lines[openingBalanceIndex]).at(-1)
+      ?? lines.slice(openingBalanceIndex + 1).flatMap(monetaryValuesInLine).at(0)
+      ?? null;
+  }
+
+  const rows: ParsedPdfStatementLine[] = [];
+  for (let index = 0; index < dateIndexes.length; index += 1) {
+    const start = dateIndexes[index];
+    const end = dateIndexes[index + 1] ?? lines.length;
+    const startMatch = lines[start].match(pdfRecordStart);
+    if (!startMatch) continue;
+    const record = [startMatch[2] ?? "", ...lines.slice(start + 1, end)];
+    const monetaryValues = record.flatMap((line, recordIndex) =>
+      monetaryValuesInLine(line).map((value) => ({ recordIndex, value })),
+    );
+    if (monetaryValues.length < 2) continue;
+
+    const transactionValueCells = record
+      .map((line, recordIndex) => ({ recordIndex, values: monetaryValuesInLine(line) }))
+      .find((item) => item.values.length >= 2);
+    const amountCell = transactionValueCells
+      ? { recordIndex: transactionValueCells.recordIndex, value: transactionValueCells.values.at(-2)! }
+      : monetaryValues.at(-2);
+    const balanceCell = transactionValueCells
+      ? { recordIndex: transactionValueCells.recordIndex, value: transactionValueCells.values.at(-1)! }
+      : monetaryValues.at(-1);
+    if (!amountCell || !balanceCell) continue;
+    const description = record
+      .slice(0, amountCell.recordIndex)
+      .filter((line) => !/^page \d+ of \d+$/i.test(line) && !isLikelyReference(line))
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!description) continue;
+
+    const balanceChange = previousBalance == null ? null : balanceCell.value - previousBalance;
+    const amount = Math.abs(amountCell.value);
+    const direction = balanceChange != null && balanceChange > 0 ? "inflow" : "outflow";
+    if (amount <= 0) continue;
+
+    rows.push({
+      date: startMatch[1],
+      description,
+      amount,
+      direction,
+      currency,
+    });
+    previousBalance = balanceCell.value;
+  }
+  return rows;
+}
+
 export function validateStatementMetadata(fileName: string, mimeType: string, size: number) {
   const extension = extname(fileName).toLocaleLowerCase();
   if (!supportedExtensions.has(extension)) {

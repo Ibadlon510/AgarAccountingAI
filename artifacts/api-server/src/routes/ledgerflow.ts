@@ -104,7 +104,9 @@ import {
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import { objectStorageService } from "./storage";
 import {
+  hasPdfBankStatementTable,
   MAX_STATEMENT_FILE_SIZE,
+  parsePdfBankStatementRows,
   scopedStatementObjectPath,
   statementObjectPathForClient,
   statementSourceUrl,
@@ -1849,8 +1851,20 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     } else {
       extractedText = buffer.toString("utf8");
     }
-    const fallback = normalizeRows(extractedText, currency);
-    if (!hasBankStatementStructure(extractedText, fallback, bankAccountId != null)) {
+    const isPdfStatement = mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
+    const delimitedFallback = normalizeRows(extractedText, currency);
+    const pdfFallback = isPdfStatement
+      ? parsePdfBankStatementRows(extractedText, currency).map((line) => ({
+        ...line,
+        accountSuggestion: suggestAccount(line.description, line.direction),
+        confidence: 0.75,
+      }))
+      : [];
+    const fallback = delimitedFallback.length ? delimitedFallback : pdfFallback;
+    const hasRecognizedPdfTable = isPdfStatement
+      && hasPdfBankStatementTable(extractedText)
+      && pdfFallback.length > 0;
+    if (!hasRecognizedPdfTable && !hasBankStatementStructure(extractedText, fallback, bankAccountId != null)) {
       await recordFailedStatementImport({
         clientId: scopedClientId,
         bankAccountId: null,
@@ -1900,7 +1914,13 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         throw error;
       }
     }
-    const lines = (candidate.lines?.length ? candidate.lines : usingDeterministicFallback ? fallback : []).filter((line) =>
+    const lines = (hasRecognizedPdfTable
+      ? fallback
+      : candidate.lines?.length
+        ? candidate.lines
+        : usingDeterministicFallback
+          ? fallback
+          : []).filter((line) =>
       isIsoDate(line.date)
       && line.description
       && Number.isFinite(Number(line.amount))

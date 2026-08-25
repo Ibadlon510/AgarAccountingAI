@@ -11,7 +11,7 @@ import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
-  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance,
+  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance, useImportStatement,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers
 } from '@workspace/api-client-react';
 import type {
@@ -24,6 +24,7 @@ import { AssistantFAB } from './components/assistant-fab';
 import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
+import { useUpload } from '@workspace/object-storage-web';
 import { clearUserScopedState, getActiveWorkspaceStorageKey, getWorkspaceLoadState, requiresWorkspaceOnboarding, selectWorkspaceForSession } from './lib/user-state';
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -43,7 +44,7 @@ const classificationAccounts = [
   'Inter-account transfer',
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
-const MAX_IMPORT_FILE_SIZE = 15 * 1024 * 1024;
+const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
 const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -455,6 +456,8 @@ function ActionCard({ index, title, detail, href, icon: Icon }: { index: string;
 
 function ImportStatementPage() {
   const { activeClient } = useClientWorkspace();
+  const importMutation = useImportStatement();
+  const { uploadFile, isUploading } = useUpload();
   const [file, setFile] = useState<File | null>(null);
   const [currency, setCurrency] = useState('AED');
   const [state, setState] = useState<'idle' | 'reading' | 'done' | 'error'>('idle');
@@ -464,7 +467,7 @@ function ImportStatementPage() {
     if (!file) return;
     if (file.size > MAX_IMPORT_FILE_SIZE) {
       setState('error');
-      setMessage('Statement file is too large. Please choose a file smaller than 15 MB.');
+      setMessage('Statement file is too large. Please choose a file no larger than 50 MB.');
       setImportResult(null);
       return;
     }
@@ -472,30 +475,29 @@ function ImportStatementPage() {
     setMessage('');
     setImportResult(null);
     try {
-      const contentBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error('Could not read file'));
-        reader.onload = () => resolve(String(reader.result));
-        reader.readAsDataURL(file);
+      if (!activeClient) throw new Error('Select a client workspace before importing a statement.');
+      const uploaded = await uploadFile(file, { clientId: activeClient.id });
+      if (!uploaded) throw new Error('The private statement upload did not complete. Please try again.');
+      const data = await importMutation.mutateAsync({
+        data: {
+          clientId: activeClient.id,
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          objectPath: uploaded.objectPath,
+          currency,
+        },
       });
-      const response = await fetch('/api/ledgerflow/import-statement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: activeClient?.id ?? 1, fileName: file.name, mimeType: file.type || 'application/octet-stream', contentBase64, currency }),
-      });
-      const data = await response.json().catch(() => ({})) as Partial<StatementImportResult> & { error?: string };
-      if (!response.ok) throw new Error(data.error ?? 'Import failed');
       setState('done');
-      setImportResult(data as StatementImportResult);
+      setImportResult(data);
       setMessage(data.message ?? `${data.importedCount ?? 0} statement lines are ready for review.`);
-      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient?.id ?? 1 }) });
-      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient?.id ?? 1 }) });
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
     } catch (error) {
       setState('error');
       setMessage(error instanceof Error ? error.message : 'Import failed');
     }
   };
-  return <div><PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. LedgerFlow extracts the transactions with AI and sends every line to review before it can affect the books.`} /><div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—LedgerFlow will normalize date, description, amount, direction, and currency.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to parse` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setState('idle'); setMessage(''); setImportResult(null); }} /></label><div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end"><label className="block text-xs font-medium">Default statement currency<select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option></select></label><button data-testid="button-parse-statement" onClick={submit} disabled={!file || state === 'reading'} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{state === 'reading' ? 'Extracting statement lines…' : <><Sparkles size={14} /> Extract with AI</>}</button></div>{message && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${state === 'done' ? importResult?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary' : 'border-destructive/25 bg-destructive/5 text-destructive'}`}>{message}{state === 'done' && importResult?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}{importResult && importResult.duplicateCount > 0 && <section data-testid="import-duplicate-summary" className="mt-4 rounded-md border border-accent/25 bg-accent/5 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">Duplicate review result</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{importResult.importStatus === 'duplicate_file' ? 'The identical source file was previously imported for this client, so it was not queued again.' : 'Exact duplicate transaction keys were skipped. Existing review items remain unchanged.'}</p></div><span className="rounded-full bg-accent/15 px-2 py-1 font-mono text-[10px] text-accent-foreground">{importResult.duplicateCount} skipped</span></div>{importResult.duplicateLines.length > 0 && <ul className="mt-3 divide-y divide-accent/15 rounded border border-accent/15 bg-card">{importResult.duplicateLines.map((line, index) => <li key={`${line.date}-${line.description}-${index}`} className="px-3 py-2.5 text-[11px]"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{line.description}</span><span className="font-mono">{shortDate(line.date)} · {money(line.amount, line.currency)}</span></div><div className="mt-1 text-muted-foreground">{line.reason === 'already_imported' ? `Already in this client's review queue${line.existingLineId ? ` (line #${line.existingLineId})` : ''}.` : 'Repeated within this uploaded statement.'}</div></li>)}</ul>}</section>}</section><aside className="rounded-lg border border-accent/25 bg-accent/10 p-6"><div className="font-mono text-[10px] uppercase tracking-[.16em] text-accent-foreground">Review safeguard</div><h2 className="mt-3 font-display text-[28px] leading-[1.05]">AI recreates the lines. You decide what posts.</h2><div className="mt-6 space-y-4 text-xs leading-5 text-accent-foreground/75"><p><strong className="text-accent-foreground">1. Extract</strong><br />The system reads the source statement and proposes normalized bank movements.</p><p><strong className="text-accent-foreground">2. Verify</strong><br />Imported lines enter the review queue with the original file name retained as evidence.</p><p><strong className="text-accent-foreground">3. Post</strong><br />Only approved journal entries can move into the trial balance and financial statements.</p></div></aside></div></div>;
+  return <div><PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. LedgerFlow extracts the transactions with AI and sends every line to review before it can affect the books.`} /><div className="grid gap-6 xl:grid-cols-[1.15fr_.85fr]"><section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—LedgerFlow will normalize date, description, amount, direction, and currency.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to parse` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setState('idle'); setMessage(''); setImportResult(null); }} /></label><div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-end"><label className="block text-xs font-medium">Default statement currency<select value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option></select></label><button data-testid="button-parse-statement" onClick={submit} disabled={!file || state === 'reading' || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{state === 'reading' ? isUploading ? 'Uploading statement…' : 'Extracting statement lines…' : <><Sparkles size={14} /> Extract with AI</>}</button></div>{message && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${state === 'done' ? importResult?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary' : 'border-destructive/25 bg-destructive/5 text-destructive'}`}>{message}{state === 'done' && importResult?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}{importResult && importResult.duplicateCount > 0 && <section data-testid="import-duplicate-summary" className="mt-4 rounded-md border border-accent/25 bg-accent/5 p-4"><div className="flex items-start justify-between gap-3"><div><div className="text-xs font-semibold">Duplicate review result</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{importResult.importStatus === 'duplicate_file' ? 'The identical source file was previously imported for this client, so it was not queued again.' : 'Exact duplicate transaction keys were skipped. Existing review items remain unchanged.'}</p></div><span className="rounded-full bg-accent/15 px-2 py-1 font-mono text-[10px] text-accent-foreground">{importResult.duplicateCount} skipped</span></div>{importResult.duplicateLines.length > 0 && <ul className="mt-3 divide-y divide-accent/15 rounded border border-accent/15 bg-card">{importResult.duplicateLines.map((line, index) => <li key={`${line.date}-${line.description}-${index}`} className="px-3 py-2.5 text-[11px]"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{line.description}</span><span className="font-mono">{shortDate(line.date)} · {money(line.amount, line.currency)}</span></div><div className="mt-1 text-muted-foreground">{line.reason === 'already_imported' ? `Already in this client's review queue${line.existingLineId ? ` (line #${line.existingLineId})` : ''}.` : 'Repeated within this uploaded statement.'}</div></li>)}</ul>}</section>}</section><aside className="rounded-lg border border-accent/25 bg-accent/10 p-6"><div className="font-mono text-[10px] uppercase tracking-[.16em] text-accent-foreground">Review safeguard</div><h2 className="mt-3 font-display text-[28px] leading-[1.05]">AI recreates the lines. You decide what posts.</h2><div className="mt-6 space-y-4 text-xs leading-5 text-accent-foreground/75"><p><strong className="text-accent-foreground">1. Extract</strong><br />The system reads the source statement and proposes normalized bank movements.</p><p><strong className="text-accent-foreground">2. Verify</strong><br />Imported lines enter the review queue with the original file name retained as evidence.</p><p><strong className="text-accent-foreground">3. Post</strong><br />Only approved journal entries can move into the trial balance and financial statements.</p></div></aside></div></div>;
 }
 
 function AddLineDialog({ onClose }: { onClose: () => void }) {
