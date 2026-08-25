@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './accountProfile';
+export * from './accountProfileInput';
 export * from './aIChatInput';
 export * from './aIChatResponse';
 export * from './aIChatResponseContext';

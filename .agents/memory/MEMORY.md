@@ -10,6 +10,7 @@
 - [Exchange-rate remediation](exchange-rate-remediation.md) — schedule changes re-resolve workspace conversions so a newly added rate restores reporting coverage.
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
 - [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.
+- [Clerk onboarding profile resilience](clerk-onboarding-profile-resilience.md) — save required LedgerFlow owner identity locally; a production Clerk profile update can reject otherwise valid onboarding.
 - [Legacy demo workspace remediation](legacy-demo-workspace-remediation.md) — only a full untouched historical signature may be rerouted; record successful remediation instead of inferring it later.
 - [Usage retention accounting](usage-retention-accounting.md) — report only persisted, unexpired evidence and successful provider-backed AI completions.
 - [Onboarding domain separation](onboarding-domain-separation.md) — register the firm first; collect reporting settings for each client when that client is created.

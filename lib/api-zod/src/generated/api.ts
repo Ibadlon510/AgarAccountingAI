@@ -23,6 +23,25 @@ export const GetCurrentAuthUserResponse = zod.object({
 
 
 /**
+ * @summary Save the authenticated account owner's LedgerFlow profile
+ */
+
+
+
+
+export const UpdateLedgerflowAccountProfileBody = zod.object({
+  "firstName": zod.string().min(1),
+  "lastName": zod.string().min(1)
+})
+
+export const UpdateLedgerflowAccountProfileResponse = zod.object({
+  "email": zod.string().nullable(),
+  "firstName": zod.string(),
+  "lastName": zod.string()
+})
+
+
+/**
  * @summary Start the browser OIDC login flow
  */
 export const BeginBrowserLoginQueryParams = zod.object({

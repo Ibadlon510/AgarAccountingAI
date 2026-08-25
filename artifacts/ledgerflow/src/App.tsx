@@ -12,7 +12,7 @@ import {
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance,
-  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers
+  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers
 } from '@workspace/api-client-react';
 import type {
   Client, ClientUpdateInput, ExchangeRate, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
@@ -765,12 +765,12 @@ type CompanyOnboardingUser = {
   firstName: string | null;
   lastName: string | null;
   primaryEmailAddress: { emailAddress: string } | null;
-  update: (params: { firstName: string; lastName: string }) => Promise<unknown>;
 };
 
 function CompanyOnboarding({ starterWorkspace, user, onComplete, onLogout }: { starterWorkspace?: Client; user: CompanyOnboardingUser; onComplete: (workspace: Client) => Promise<void> | void; onLogout: () => void }) {
   const create = useCreateClient();
   const update = useUpdateClient();
+  const updateProfile = useUpdateLedgerflowAccountProfile();
   const [form, setForm] = useState<ClientUpdateInput>(() => ({
     name: starterWorkspace?.name ?? '',
     legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
@@ -784,9 +784,8 @@ function CompanyOnboarding({ starterWorkspace, user, onComplete, onLogout }: { s
     lastName: user.lastName ?? '',
     workEmail: user.primaryEmailAddress?.emailAddress ?? '',
   });
-  const [profilePending, setProfilePending] = useState(false);
-  const pending = create.isPending || update.isPending || profilePending;
-  const error = create.error || update.error;
+  const pending = create.isPending || update.isPending || updateProfile.isPending;
+  const error = create.error || update.error || updateProfile.error;
 
   useEffect(() => {
     setForm({
@@ -819,18 +818,16 @@ function CompanyOnboarding({ starterWorkspace, user, onComplete, onLogout }: { s
       return;
     }
     setValidationMessage('');
-    setProfilePending(true);
     try {
-      if (personal.firstName !== (user.firstName ?? '') || personal.lastName !== (user.lastName ?? '')) {
-        await user.update({ firstName: personal.firstName, lastName: personal.lastName });
-      }
-      const onSuccess = (workspace: Client) => void onComplete(workspace);
-      if (starterWorkspace) update.mutate({ id: starterWorkspace.id, data }, { onSuccess });
-      else create.mutate({ data }, { onSuccess });
+      await updateProfile.mutateAsync({
+        data: { firstName: personal.firstName, lastName: personal.lastName },
+      });
+      const workspace = starterWorkspace
+        ? await update.mutateAsync({ id: starterWorkspace.id, data })
+        : await create.mutateAsync({ data });
+      await onComplete(workspace);
     } catch {
-      setValidationMessage('Your personal details could not be saved. Check them and try again.');
-    } finally {
-      setProfilePending(false);
+      setValidationMessage('We couldn’t save your account details. Check your connection and try again.');
     }
   };
 

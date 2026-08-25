@@ -50,9 +50,17 @@ async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Pro
   if (!dbUser) {
     throw new Error("Could not provision the local user record.");
   }
-  if (identity && (dbUser.email !== identity.email || dbUser.firstName !== identity.firstName || dbUser.lastName !== identity.lastName)) {
+  if (identity && (
+    dbUser.email !== identity.email
+    || (dbUser.firstName == null && identity.firstName != null)
+    || (dbUser.lastName == null && identity.lastName != null)
+  )) {
     const [updated] = await db.update(usersTable)
-      .set(identity)
+      .set({
+        email: identity.email,
+        firstName: dbUser.firstName ?? identity.firstName,
+        lastName: dbUser.lastName ?? identity.lastName,
+      })
       .where(eq(usersTable.id, userId))
       .returning();
     dbUser = updated ?? dbUser;

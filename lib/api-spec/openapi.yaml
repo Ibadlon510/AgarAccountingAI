@@ -29,6 +29,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUserEnvelope"
+  /ledgerflow/account-profile:
+    patch:
+      operationId: updateLedgerflowAccountProfile
+      tags: [ledgerflow]
+      summary: Save the authenticated account owner's LedgerFlow profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountProfileInput"
+      responses:
+        "200":
+          description: Account profile saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountProfile"
   /login:
     get:
       operationId: beginBrowserLogin
@@ -935,6 +953,19 @@ components:
           oneOf:
             - $ref: "#/components/schemas/AuthUser"
             - type: "null"
+    AccountProfile:
+      type: object
+      required: [email, firstName, lastName]
+      properties:
+        email: { type: ["string", "null"] }
+        firstName: { type: string }
+        lastName: { type: string }
+    AccountProfileInput:
+      type: object
+      required: [firstName, lastName]
+      properties:
+        firstName: { type: string, minLength: 1 }
+        lastName: { type: string, minLength: 1 }
     MobileTokenExchangeRequest:
       type: object
       required: [code, code_verifier, redirect_uri, state]

@@ -27,6 +27,8 @@ import type {
   AIProviderSettings,
   AIProviderSettingsInput,
   AIProviderSettingsTestInput,
+  AccountProfile,
+  AccountProfileInput,
   ApproveJournalEntryInput,
   AuthUserEnvelope,
   BankAccount,
@@ -182,6 +184,77 @@ export function useGetCurrentAuthUser<TData = Awaited<ReturnType<typeof getCurre
 
 
 
+
+export const getUpdateLedgerflowAccountProfileUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/account-profile`
+}
+
+/**
+ * @summary Save the authenticated account owner's LedgerFlow profile
+ */
+export const updateLedgerflowAccountProfile = async (accountProfileInput: AccountProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<AccountProfile> => {
+
+  return customFetch<AccountProfile>(getUpdateLedgerflowAccountProfileUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(accountProfileInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateLedgerflowAccountProfileMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext> => {
+
+const mutationKey = ['updateLedgerflowAccountProfile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, {data: BodyType<AccountProfileInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateLedgerflowAccountProfile(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLedgerflowAccountProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>>
+    export type UpdateLedgerflowAccountProfileMutationBody = BodyType<AccountProfileInput>
+    export type UpdateLedgerflowAccountProfileMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Save the authenticated account owner's LedgerFlow profile
+ */
+export const useUpdateLedgerflowAccountProfile = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>,
+        TError,
+        {data: BodyType<AccountProfileInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateLedgerflowAccountProfileMutationOptions(options));
+    }
 
 export const getBeginBrowserLoginUrl = (params?: BeginBrowserLoginParams,) => {
   const normalizedParams = new URLSearchParams();

@@ -22,6 +22,7 @@ const userIds = [
   `historic-starter-new-${randomUUID()}`,
   `usage-owner-${randomUUID()}`,
   `usage-foreign-${randomUUID()}`,
+  `profile-owner-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -243,6 +244,47 @@ test("provisions isolated starter workspaces and configures only the owner's wor
     .where(eq(database.clientWorkspacesTable.clientId, second.body[0].id));
   assert.equal(firstWorkspace.userId, userIds[0]);
   assert.equal(secondWorkspace.userId, userIds[1]);
+});
+
+test("persists onboarding identity before configuring the owner's starter workspace", async () => {
+  const ownerId = userIds[12];
+  const profile = await request<{ email: string | null; firstName: string; lastName: string }>(
+    "/ledgerflow/account-profile",
+    ownerId,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ firstName: "Aisha", lastName: "Rahman" }),
+    },
+  );
+  assert.equal(profile.response.status, 200);
+  assert.equal(profile.body.firstName, "Aisha");
+  assert.equal(profile.body.lastName, "Rahman");
+
+  const workspaces = await request<Array<{ id: number; workspaceState: string }>>("/clients", ownerId);
+  assert.equal(workspaces.response.status, 200);
+  assert.equal(workspaces.body.length, 1);
+  assert.equal(workspaces.body[0].workspaceState, "starter");
+  clientIds.push(workspaces.body[0].id);
+
+  const configured = await request<{ workspaceState: string; legalName: string }>(`/clients/${workspaces.body[0].id}`, ownerId, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: "Northstar Bookkeeping",
+      legalName: "Northstar Bookkeeping FZ-LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "August 2026",
+    }),
+  });
+  assert.equal(configured.response.status, 200);
+  assert.equal(configured.body.workspaceState, "configured");
+  assert.equal(configured.body.legalName, "Northstar Bookkeeping FZ-LLC");
+
+  const [storedProfile] = await database!.db.select({
+    firstName: database!.usersTable.firstName,
+    lastName: database!.usersTable.lastName,
+  }).from(database!.usersTable).where(eq(database!.usersTable.id, ownerId));
+  assert.deepEqual(storedProfile, { firstName: "Aisha", lastName: "Rahman" });
 });
 
 test("continues to classify historic generated placeholders as starter workspaces", async () => {

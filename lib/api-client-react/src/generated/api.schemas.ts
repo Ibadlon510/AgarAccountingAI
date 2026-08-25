@@ -21,6 +21,20 @@ export interface AuthUserEnvelope {
   user: AuthUser | null;
 }
 
+export interface AccountProfile {
+  /** @nullable */
+  email: string | null;
+  firstName: string;
+  lastName: string;
+}
+
+export interface AccountProfileInput {
+  /** @minLength 1 */
+  firstName: string;
+  /** @minLength 1 */
+  lastName: string;
+}
+
 export interface MobileTokenExchangeRequest {
   /** @minLength 1 */
   code: string;

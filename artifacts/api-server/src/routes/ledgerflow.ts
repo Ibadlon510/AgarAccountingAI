@@ -56,6 +56,8 @@ import {
   RemoveLedgerflowAICredentialResponse,
   TestLedgerflowAISettingsBody,
   TestLedgerflowAISettingsResponse,
+  UpdateLedgerflowAccountProfileBody,
+  UpdateLedgerflowAccountProfileResponse,
   UpdateLedgerflowAISettingsBody,
   UpdateLedgerflowAISettingsResponse,
   UpdateReportPackBody,
@@ -2613,6 +2615,34 @@ router.get("/clients", async (req, res) => {
   res.json(clients.map((client) => {
     const legacyDemo = legacyDemoClientIds.has(client.id);
     return clientResponse(client, legacyDemo, legacyDemo ? "legacy_demo" : undefined);
+  }));
+});
+
+router.patch("/ledgerflow/account-profile", async (req, res): Promise<void> => {
+  const parsed = UpdateLedgerflowAccountProfileBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Enter your first and last name to continue." });
+    return;
+  }
+  const firstName = parsed.data.firstName.trim();
+  const lastName = parsed.data.lastName.trim();
+  if (!firstName || !lastName) {
+    res.status(400).json({ error: "Enter your first and last name to continue." });
+    return;
+  }
+  const [user] = await db.update(usersTable)
+    .set({ firstName, lastName })
+    .where(eq(usersTable.id, currentUserId(req)))
+    .returning();
+  if (!user) {
+    res.status(404).json({ error: "Account profile not found." });
+    return;
+  }
+  req.dbUser = user;
+  res.json(UpdateLedgerflowAccountProfileResponse.parse({
+    email: user.email,
+    firstName: user.firstName ?? firstName,
+    lastName: user.lastName ?? lastName,
   }));
 });
 
