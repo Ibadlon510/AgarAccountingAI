@@ -39,6 +39,7 @@ async function request<T>(path: string, init?: RequestInit, userId = primaryUser
 
 type TrialBalanceRow = {
   account: string;
+  category?: string;
   debit: number;
   credit: number;
   balance: number;
@@ -211,6 +212,47 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(postedExpenses - beforeExpenses, -amount);
   assert.equal(postedNetIncome - beforeNetIncome, -amount);
   assert.equal(postedCashFlow - beforeCashFlow, -amount);
+
+  const transferLine = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-25",
+      description: "Transfer to own savings account",
+      currency: "AED",
+      amount: 75,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(transferLine.response.status, 201);
+  assert.equal(transferLine.body.accountSuggestion, "Inter-account transfer");
+  const transferEntries = await request<Array<{ id: number; statementLineId: number }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
+  const transferEntry = transferEntries.body.find((entry) => entry.statementLineId === transferLine.body.id);
+  assert.ok(transferEntry);
+  assert.equal((await request(`/ledgerflow/journal-entries/${transferEntry.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  })).response.status, 200);
+  assert.equal((await request(`/ledgerflow/journal-entries/${transferEntry.id}/post`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  })).response.status, 200);
+
+  const [afterTransferTrialBalance, afterTransferStatements] = await Promise.all([
+    request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`),
+    request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`),
+  ]);
+  const transferAccount = afterTransferTrialBalance.body.find((row) => row.account === "Inter-account transfer");
+  assert.ok(transferAccount);
+  assert.equal(transferAccount.category, "Assets");
+  assert.equal(
+    sectionAmount(afterTransferStatements.body.incomeStatement, "Net income"),
+    postedNetIncome,
+  );
+  assert.equal(
+    sectionAmount(afterTransferStatements.body.cashFlow, "Net cash from operating activities"),
+    postedCashFlow,
+  );
 });
 
 type WorkspaceUsageSummary = {

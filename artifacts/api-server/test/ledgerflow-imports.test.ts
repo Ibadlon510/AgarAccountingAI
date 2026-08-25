@@ -38,6 +38,15 @@ type StatementLine = {
   description: string;
 };
 
+type AIRecommendation = {
+  type: string;
+  lineIds?: number[];
+  entryIds?: number[];
+  statementLineIds?: number[];
+  accountSuggestion?: string;
+  entryCount?: number;
+};
+
 type OpenAIRequest = {
   messages?: Array<{ role?: string; content?: string }>;
 };
@@ -453,6 +462,96 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   const managedImport = await importStatement(primaryClientId, "managed-provider.csv", "managed-provider");
   assert.equal(managedImport.response.status, 201);
   assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "ledgerflow-test-openai-key"));
+});
+
+test("prepares description-scoped recoding, approval, and posting as separate confirmed actions", async () => {
+  const clientId = await createClient(`AI batch scope ${randomUUID()}`);
+  for (const [date, amount] of [["2026-08-23", 150], ["2026-08-24", 250]] as const) {
+    const created = await request<{ id: number }>("/ledgerflow/statement-lines", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId,
+        date,
+        description: "SUNWEB GROUP GMBH payout",
+        currency: "AED",
+        amount,
+        direction: "inflow",
+      }),
+    });
+    assert.equal(created.response.status, 201);
+  }
+
+  const recode = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "All transactions with description SUNWEB GROUP GMBH must be posted as revenue.",
+    }),
+  });
+  assert.equal(recode.response.status, 200);
+  const recodeRecommendation = recode.body.recommendations[0];
+  assert.equal(recodeRecommendation?.type, "recode_lines");
+  assert.equal(recodeRecommendation?.accountSuggestion, "Revenue");
+  assert.equal(recodeRecommendation?.lineIds?.length, 2);
+
+  const recodeConfirmation = await request<{ updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "recode_lines",
+      lineIds: recodeRecommendation?.lineIds,
+      accountSuggestion: recodeRecommendation?.accountSuggestion,
+      confidence: 0.9,
+    }),
+  });
+  assert.equal(recodeConfirmation.response.status, 200);
+  assert.equal(recodeConfirmation.body.updatedLineCount, 2);
+
+  const approval = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "Approve all pending entries with description SUNWEB GROUP GMBH.",
+    }),
+  });
+  assert.equal(approval.response.status, 200);
+  const approvalRecommendation = approval.body.recommendations[0];
+  assert.equal(approvalRecommendation?.type, "bulk_approve_entries");
+  assert.equal(approvalRecommendation?.entryCount, 2);
+  const approvalConfirmation = await request<{ toStatus: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: approvalRecommendation?.type,
+      entryIds: approvalRecommendation?.entryIds,
+      statementLineIds: approvalRecommendation?.statementLineIds,
+    }),
+  });
+  assert.equal(approvalConfirmation.response.status, 200);
+  assert.equal(approvalConfirmation.body.toStatus, "approved");
+
+  const posting = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "Post all approved entries with description SUNWEB GROUP GMBH.",
+    }),
+  });
+  assert.equal(posting.response.status, 200);
+  const postingRecommendation = posting.body.recommendations[0];
+  assert.equal(postingRecommendation?.type, "bulk_post_entries");
+  const postingConfirmation = await request<{ toStatus: string; updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: postingRecommendation?.type,
+      entryIds: postingRecommendation?.entryIds,
+      statementLineIds: postingRecommendation?.statementLineIds,
+    }),
+  });
+  assert.equal(postingConfirmation.response.status, 200);
+  assert.equal(postingConfirmation.body.toStatus, "posted");
+  assert.equal(postingConfirmation.body.updatedLineCount, 2);
 });
 
 test("invites a bookkeeper with explicit client access and prevents settings administration", async () => {

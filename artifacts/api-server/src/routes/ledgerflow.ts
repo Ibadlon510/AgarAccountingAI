@@ -941,8 +941,21 @@ function clientIdFrom(value: unknown) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
+const interAccountTransferAccount = "Inter-account transfer";
+
+function isInterAccountTransferAccount(account: string) {
+  return account === interAccountTransferAccount;
+}
+
+function ledgerAccountCategory(account: string, side: "debit" | "credit") {
+  if (account === "Bank / cash" || isInterAccountTransferAccount(account)) return "Assets";
+  if (side === "credit" && (account === "Revenue" || account === "Other income")) return "Revenue";
+  return "Expenses";
+}
+
 function suggestAccount(description: string, direction: string) {
   const text = description.toLowerCase();
+  if (/\b(?:transfer|xfer|inter[- ]?account|own account|between accounts)\b/.test(text)) return interAccountTransferAccount;
   if (direction === "inflow") {
     if (/stripe|retainer|client|invoice|sale|sales|payment|payout|customer/.test(text)) return "Revenue";
     return "Other income";
@@ -968,6 +981,7 @@ const classificationAccounts = new Set([
   "Payroll",
   "Bank charges",
   "General expenses",
+  interAccountTransferAccount,
 ]);
 const vendorNoiseWords = new Set([
   "account", "ae", "bank", "charge", "charges", "co", "company", "credit",
@@ -1256,7 +1270,71 @@ const suggestedAccounts = [
   "Payroll",
   "Bank charges",
   "General expenses",
+  interAccountTransferAccount,
 ];
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function descriptionScopeFromMessage(message: string) {
+  const quoted = message.match(/\b(?:description|memo|narration)\b[^"'“”]*["“]([^"”]+)["”]/i)?.[1];
+  const unquoted = message.match(/\b(?:description|memo|narration)(?:\s+(?:is|contains|matching|matches|like|of|with))?\s+(.+?)(?=\s+\b(?:must|should|need(?:s)?|as|to|be|classified|recorded|set|approve|approved|post|posted|posting)\b|[.!?]|$)/i)?.[1];
+  const scope = normalizeDescription(quoted ?? unquoted ?? "");
+  return scope.length >= 3 ? scope : null;
+}
+
+function classificationAccountFromMessage(message: string) {
+  const normalized = message.toLowerCase();
+  return [...classificationAccounts]
+    .sort((left, right) => right.length - left.length)
+    .find((account) => new RegExp(`\\b(?:as|to|be|is)\\s+(?:an?\\s+)?${escapeRegExp(account.toLowerCase())}\\b`, "i").test(normalized))
+    ?? null;
+}
+
+function prepareDescriptionRecodeRecommendation(
+  message: string,
+  clientId: number,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+): { recommendation?: AICopilotRecommendation; error?: string } | null {
+  const descriptionScope = descriptionScopeFromMessage(message);
+  const accountSuggestion = classificationAccountFromMessage(message);
+  if (!descriptionScope || !accountSuggestion) return null;
+
+  const matchingLines = lines.filter((line) =>
+    line.clientId === clientId
+      && line.status !== "posted"
+      && normalizeDescription(line.description).includes(descriptionScope),
+  );
+  if (!matchingLines.length) {
+    return { error: `I could not find any unposted statement lines with a description matching “${descriptionScope}” in this client workspace.` };
+  }
+
+  const suggestedEntryLineIds = new Set(entries
+    .filter((entry) => entry.clientId === clientId && entry.status === "suggested")
+    .map((entry) => entry.statementLineId));
+  const eligibleLines = matchingLines.filter((line) => suggestedEntryLineIds.has(line.id));
+  if (eligibleLines.length !== matchingLines.length) {
+    return { error: `I found ${matchingLines.length} matching transaction${matchingLines.length === 1 ? "" : "s"}, but only ${eligibleLines.length} are still suggested and eligible to recode. Review approved or posted items separately.` };
+  }
+
+  const lineIds = eligibleLines.map((line) => line.id);
+  const postingRequested = /\b(?:post|posted|posting)\b/.test(message);
+  return {
+    recommendation: {
+      id: `recode-description-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
+      clientId,
+      type: "recode_lines",
+      title: `Classify ${lineIds.length} transaction${lineIds.length === 1 ? "" : "s"} as ${accountSuggestion}`,
+      summary: `Apply ${accountSuggestion} to still-suggested transactions whose description contains “${descriptionScope}”.${postingRequested ? " Confirm this classification first; approval and posting must be requested and confirmed separately." : ""}`,
+      lineIds,
+      accountSuggestion,
+      confidence: 0.9,
+      requiresConfirmation: true,
+    },
+  };
+}
 
 function cleanBankAccountDraft(draft: BankAccountDraft | undefined | null, fallbackCurrency: string) {
   const name = draft?.name?.trim();
@@ -1345,7 +1423,7 @@ function collectAICopilotRecommendations(
 
     if (type === "recode_lines") {
       const accountSuggestion = safeText(candidate.accountSuggestion, "");
-      if (!accountSuggestion || lineIds.length === 0) continue;
+      if (!accountSuggestion || !classificationAccounts.has(accountSuggestion) || lineIds.length === 0) continue;
       const confidence = Number(candidate.confidence);
       recommendations.push({
         id: `recode-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
@@ -1479,7 +1557,7 @@ function prepareBulkActionRecommendation(
 ): { recommendation?: AICopilotRecommendation; error?: string } | null {
   const normalized = message.toLowerCase();
   const asksToApprove = /\b(?:approve|approval|approving)\b/.test(normalized);
-  const asksToPost = /\b(?:post|posting)\b/.test(normalized);
+  const asksToPost = /\b(?:post|posted|posting)\b/.test(normalized);
   if (!asksToApprove && !asksToPost) return null;
   if (asksToApprove && asksToPost) {
     return { error: "Please choose one transition at a time: approve the entries first, or post entries that are already approved." };
@@ -1491,6 +1569,7 @@ function prepareBulkActionRecommendation(
   const allRequested = /\b(?:all|every|each)\b/.test(normalized);
   const pendingRequested = /\b(?:pending|review|reviewing|suggested|eligible)\b/.test(normalized);
   const approvedRequested = /\bapproved\b/.test(normalized);
+  const descriptionScope = descriptionScopeFromMessage(message);
   const idMatches = normalized.match(/(?:\bje\b|\bjournal entries?\b|\bentries?\b)\s*(?:ids?\s*)?#?\s*\d+(?:\s*(?:,|and)\s*#?\s*\d+)*/g) ?? [];
   const requestedIds = [...new Set(idMatches.flatMap((match) => {
     const numbers = match.match(/\d+/g) ?? [];
@@ -1500,28 +1579,43 @@ function prepareBulkActionRecommendation(
   let selectedEntries: Array<typeof journalEntriesTable.$inferSelect>;
   let scopeDescription: string;
   if (allRequested) {
-    const tokens = normalized.match(/[a-z]+/g) ?? [];
-    const supportedScopeWords = new Set([
-      "please", "can", "could", "would", "you", "approve", "approval", "approving", "post", "posting",
-      "all", "every", "each", "pending", "review", "reviewing", "suggested", "eligible", "approved",
-      "journal", "entry", "entries", "the", "these", "those", "to", "now", "currently", "available",
-      "in", "this", "workspace", "for", "me",
-    ]);
-    if (requestedIds.length || /\ball\s+clients?\b|\bother\s+client\b/.test(normalized) || tokens.some((token) => !supportedScopeWords.has(token))) {
+    if (requestedIds.length || /\ball\s+clients?\b|\bother\s+client\b/.test(normalized)) {
       return { error: "I cannot safely infer a qualified bulk scope. Use “approve all pending entries”, “post all approved entries”, or list specific journal entry IDs." };
     }
     if (type === "bulk_approve_entries") {
       if (!pendingRequested || approvedRequested) {
         return { error: "For bulk approval, specify all pending or suggested entries. Entries that are already approved or posted need a separate scope." };
       }
-      selectedEntries = entries.filter((entry) => entry.status === "suggested");
-      scopeDescription = "all suggested entries";
+      selectedEntries = entries.filter((entry) =>
+        entry.status === "suggested"
+          && (!descriptionScope || Boolean(lines.find((line) =>
+            line.id === entry.statementLineId && normalizeDescription(line.description).includes(descriptionScope),
+          ))),
+      );
+      scopeDescription = descriptionScope ? `suggested entries whose statement description contains “${descriptionScope}”` : "all suggested entries";
     } else {
       if (!approvedRequested || pendingRequested) {
         return { error: "For bulk posting, specify all approved entries. Suggested entries must be approved first." };
       }
-      selectedEntries = entries.filter((entry) => entry.status === "approved");
-      scopeDescription = "all approved entries";
+      selectedEntries = entries.filter((entry) =>
+        entry.status === "approved"
+          && (!descriptionScope || Boolean(lines.find((line) =>
+            line.id === entry.statementLineId && normalizeDescription(line.description).includes(descriptionScope),
+          ))),
+      );
+      scopeDescription = descriptionScope ? `approved entries whose statement description contains “${descriptionScope}”` : "all approved entries";
+    }
+    if (!descriptionScope) {
+      const tokens = normalized.match(/[a-z]+/g) ?? [];
+      const supportedScopeWords = new Set([
+        "please", "can", "could", "would", "you", "approve", "approval", "approving", "post", "posted", "posting",
+        "all", "every", "each", "pending", "review", "reviewing", "suggested", "eligible", "approved",
+        "journal", "entry", "entries", "the", "these", "those", "to", "now", "currently", "available",
+        "in", "this", "workspace", "for", "me",
+      ]);
+      if (tokens.some((token) => !supportedScopeWords.has(token))) {
+        return { error: "I cannot safely infer a qualified bulk scope. Use “approve all pending entries”, “post all approved entries”, or say which statement description the entries must match." };
+      }
     }
   } else if (requestedIds.length) {
     selectedEntries = entries.filter((entry) => requestedIds.includes(entry.id));
@@ -2132,6 +2226,23 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
+  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines);
+  if (descriptionRecode?.error) {
+    res.json(AskLedgerflowAIResponse.parse({
+      answer: descriptionRecode.error,
+      context,
+      recommendations: [],
+    }));
+    return;
+  }
+  if (descriptionRecode?.recommendation) {
+    res.json(AskLedgerflowAIResponse.parse({
+      answer: "I prepared this client-scoped classification for your confirmation. Nothing has changed yet; approval and posting remain separate confirmations.",
+      context,
+      recommendations: [descriptionRecode.recommendation],
+    }));
+    return;
+  }
   const bulkAction = prepareBulkActionRecommendation(message, clientId, entries, lines);
   if (bulkAction?.error) {
     res.json(AskLedgerflowAIResponse.parse({
@@ -3290,10 +3401,10 @@ router.get("/ledgerflow/trial-balance", async (req, res) => {
   for (const entry of entries) {
     const amount = reportingAmount(entry, functionalCurrency);
     if (amount == null) continue;
-    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: entry.debitAccount === "Bank / cash" ? "Assets" : "Expenses" };
+    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: ledgerAccountCategory(entry.debitAccount, "debit") };
     debit.debit += amount;
     accounts.set(entry.debitAccount, debit);
-    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: entry.creditAccount === "Revenue" ? "Revenue" : "Assets" };
+    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: ledgerAccountCategory(entry.creditAccount, "credit") };
     credit.credit += amount;
     accounts.set(entry.creditAccount, credit);
   }
@@ -3332,11 +3443,18 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   const missingEntries = entries.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
   const missingRateCurrencies = [...new Set(missingEntries.map((entry) => entry.currency))];
   let cash = 0;
+  let transferClearing = 0;
+  let operatingCash = 0;
   for (const entry of entries) {
     const amount = reportingAmount(entry, functionalCurrency);
     if (amount == null) continue;
     if (entry.debitAccount === "Bank / cash") cash += amount;
     if (entry.creditAccount === "Bank / cash") cash -= amount;
+    if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
+    if (isInterAccountTransferAccount(entry.creditAccount)) transferClearing -= amount;
+    if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
+    if (entry.debitAccount === "Bank / cash") operatingCash += amount;
+    if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
     if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
     if (entry.creditAccount !== "Bank / cash") revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
   }
@@ -3354,15 +3472,15 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
       { label: "Net income", amount: netIncome },
     ],
     balanceSheet: [
-      { label: "Assets", amount: cash, children: [{ label: "Bank / cash", amount: cash }] },
+      { label: "Assets", amount: cash + transferClearing, children: [{ label: "Bank / cash", amount: cash }, ...(transferClearing ? [{ label: interAccountTransferAccount, amount: transferClearing }] : [])] },
       { label: "Liabilities", amount: 0 },
-      { label: "Equity", amount: cash },
+      { label: "Equity", amount: cash + transferClearing },
     ],
     cashFlow: [
       { label: "Net income", amount: netIncome },
       { label: "Changes in working capital", amount: 0 },
-      { label: "Net cash from operating activities", amount: cash },
-      { label: "Net increase in cash", amount: cash },
+      { label: "Net cash from operating activities", amount: operatingCash },
+      { label: "Net increase in cash", amount: operatingCash },
     ],
   };
   res.json(GetFinancialStatementsResponse.parse(report));
