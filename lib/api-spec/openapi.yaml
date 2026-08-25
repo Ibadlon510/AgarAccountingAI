@@ -1093,7 +1093,7 @@ components:
         status: { type: string, enum: [healthy, approaching, at_limit] }
     WorkspaceUsage:
       type: object
-      required: [plan, asOf, billingPeriod, statementImports, storedEvidence, aiActivity, clientWorkspaces, retention]
+      required: [plan, asOf, billingPeriod, statementImports, storedEvidence, aiActivity, aiCost, clientAiCosts, clientWorkspaces, retention]
       properties:
         plan: { type: string }
         asOf: { type: string, format: date-time }
@@ -1111,6 +1111,12 @@ components:
         aiActivity:
           allOf:
             - $ref: "#/components/schemas/UsageMetric"
+        aiCost:
+          $ref: "#/components/schemas/AICostSummary"
+        clientAiCosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientAICostUsage"
         clientWorkspaces:
           allOf:
             - $ref: "#/components/schemas/UsageMetric"
@@ -1121,6 +1127,40 @@ components:
             statementEvidenceDays: { type: number }
             aiActivityDays: { type: number }
             ledgerDataDescription: { type: string }
+    AICostModelUsage:
+      type: object
+      required: [provider, model, activityCount, estimatedCostUsd]
+      properties:
+        provider: { type: string }
+        model: { type: string }
+        activityCount: { type: number }
+        estimatedCostUsd: { type: number }
+    AICostSummary:
+      type: object
+      required: [completedActivities, activitiesWithEstimate, activitiesWithoutEstimate, replitPricedActivities, providerDirectPricedActivities, inputTokens, outputTokens, estimatedReplitCreditsUsd, estimatedProviderDirectUsd, estimatedTotalProviderCostUsd, models]
+      properties:
+        completedActivities: { type: number }
+        activitiesWithEstimate: { type: number }
+        activitiesWithoutEstimate: { type: number }
+        replitPricedActivities: { type: number }
+        providerDirectPricedActivities: { type: number }
+        inputTokens: { type: number }
+        outputTokens: { type: number }
+        estimatedReplitCreditsUsd: { type: number }
+        estimatedProviderDirectUsd: { type: number }
+        estimatedTotalProviderCostUsd: { type: number }
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/AICostModelUsage"
+    ClientAICostUsage:
+      type: object
+      required: [clientId, clientName, usage]
+      properties:
+        clientId: { type: number }
+        clientName: { type: string }
+        usage:
+          $ref: "#/components/schemas/AICostSummary"
     ExchangeRate:
       type: object
       required: [id, sourceCurrency, functionalCurrency, effectiveDate, rate, source]

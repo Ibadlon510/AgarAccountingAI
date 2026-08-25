@@ -361,7 +361,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
        <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-4 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>IFRS / AED</span><span>{activeClient?.period ?? '—'}</span></div></div><button data-testid="button-settings" onClick={() => setSettingsOpen(true)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-[12px] text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Settings2 size={16} /><span className={collapsed ? 'md:hidden' : ''}>Workspace settings</span></button></div>
     </aside>
      <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8"><div className="flex items-center gap-3"><button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="hidden h-5 w-px bg-border md:block" /><div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div></div><div className="flex items-center gap-2 md:gap-3"><select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="hidden h-9 max-w-[180px] rounded-md border border-input bg-card px-2 text-xs font-semibold md:block">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button data-testid="button-add-client" onClick={() => setCreateClientOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} /><span className="hidden sm:inline">Add client</span></button><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div><button data-testid="button-help" onClick={() => setHelpOpen(true)} aria-label="Open help" className="grid size-8 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"><CircleHelp size={16} /></button><button data-testid="button-logout" onClick={onLogout} aria-label={`Sign out ${displayName}`} className="group flex items-center gap-2 rounded-full border border-border bg-card pl-1 pr-2.5 py-1 text-left hover:border-primary/40"><span className="grid size-7 place-items-center rounded-full bg-primary font-mono text-[10px] font-medium text-primary-foreground">{initials}</span><span className="hidden max-w-[120px] truncate text-[11px] font-semibold sm:inline">{displayName}</span><LogOut size={13} className="text-muted-foreground transition-colors group-hover:text-foreground" /></button></div></header><main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>{createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}{settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}{helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}</div>
-     {settingsOpen && <div className="fixed inset-0 z-[60] overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm"><div className="mx-auto my-5 w-full max-w-3xl rounded-lg border border-card-border bg-card p-6 shadow-2xl"><div className="flex justify-end"><button data-testid="button-close-team-settings" onClick={() => setSettingsOpen(false)} className="text-xs text-muted-foreground">Close</button></div><TeamAccessSection /></div></div>}
+     {settingsOpen && <div className="fixed inset-0 z-[60] overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm"><div className="mx-auto my-5 w-full max-w-3xl rounded-lg border border-card-border bg-card p-6 shadow-2xl"><div className="flex justify-end"><button data-testid="button-close-team-settings" onClick={() => setSettingsOpen(false)} className="text-xs text-muted-foreground">Close</button></div><TeamAccessSection /><WorkspaceUsageSection /></div></div>}
      <AssistantFAB />
   </div>;
 }
@@ -1010,6 +1010,15 @@ function WorkspaceUsageSection() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
+  const estimatedUsd = (amount: number, meteredActivities: number) => {
+    return meteredActivities > 0 ? money(amount, 'USD') : 'Pricing unavailable';
+  };
+  const providerLabel = (provider: string) => {
+    if (provider === 'managed_openai') return 'Replit-managed OpenAI';
+    if (provider === 'openai') return 'Workspace-owned OpenAI';
+    if (provider === 'anthropic') return 'Workspace-owned Anthropic';
+    return provider.replaceAll('_', ' ');
+  };
 
   if (usageQuery.isError) {
     return (
@@ -1076,7 +1085,7 @@ function WorkspaceUsageSection() {
               title="AI activity"
               metric={usageQuery.data.aiActivity}
               formatValue={(v) => v.toLocaleString()}
-              description="Successful provider-backed AI work this cycle."
+               description="Successful provider-backed AI completions, including connection tests, this cycle."
             />
              <MetricCard
               title="Client workspaces"
@@ -1091,6 +1100,70 @@ function WorkspaceUsageSection() {
               description={`${usageQuery.data.storedEvidence.documents.toLocaleString()} documents currently stored.`}
             />
           </div>
+
+           <section data-testid="card-estimated-ai-cost" className="rounded-lg border border-primary/20 bg-primary/5 p-5">
+             <div className="flex flex-wrap items-start justify-between gap-4">
+               <div>
+                 <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI spend estimate</div>
+                 <h3 className="mt-2 text-base font-semibold">AI cost by client</h3>
+                 <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Provider-reported tokens are priced using the approved model catalog at the time each successful activity completes.</p>
+               </div>
+               <div className="rounded-md border border-primary/20 bg-card px-4 py-3 text-right">
+                 <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Estimated Replit credits</div>
+                <div data-testid="text-estimated-replit-ai-cost" className="mt-1 text-lg font-semibold text-primary">{estimatedUsd(usageQuery.data.aiCost.estimatedReplitCreditsUsd, usageQuery.data.aiCost.replitPricedActivities)}</div>
+                 <div className="mt-1 text-[10px] text-muted-foreground">{usageQuery.data.aiCost.completedActivities.toLocaleString()} successful activities</div>
+               </div>
+             </div>
+
+             <div className="mt-5 grid gap-3 sm:grid-cols-3">
+               <div className="rounded-md border border-border bg-card p-3">
+                 <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Replit-managed AI</div>
+                 <div className="mt-1 text-sm font-semibold">{estimatedUsd(usageQuery.data.aiCost.estimatedReplitCreditsUsd, usageQuery.data.aiCost.replitPricedActivities)}</div>
+                 <div className="mt-1 text-[10px] leading-4 text-muted-foreground">Estimated deduction from Replit credits.</div>
+               </div>
+               <div className="rounded-md border border-border bg-card p-3">
+                 <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Workspace-owned keys</div>
+                 <div className="mt-1 text-sm font-semibold">{estimatedUsd(usageQuery.data.aiCost.estimatedProviderDirectUsd, usageQuery.data.aiCost.providerDirectPricedActivities)}</div>
+                 <div className="mt-1 text-[10px] leading-4 text-muted-foreground">Billed directly by OpenAI or Anthropic, not by Replit.</div>
+               </div>
+               <div className="rounded-md border border-border bg-card p-3">
+                 <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Usage captured</div>
+                 <div className="mt-1 text-sm font-semibold">{usageQuery.data.aiCost.inputTokens.toLocaleString()} in · {usageQuery.data.aiCost.outputTokens.toLocaleString()} out</div>
+                 <div className="mt-1 text-[10px] leading-4 text-muted-foreground">{usageQuery.data.aiCost.activitiesWithEstimate.toLocaleString()} priced · {usageQuery.data.aiCost.activitiesWithoutEstimate.toLocaleString()} unavailable</div>
+               </div>
+             </div>
+
+             <div className="mt-5 overflow-hidden rounded-md border border-border bg-card">
+               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-border bg-muted/45 px-4 py-2 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">
+                 <span>Client workspace and model</span>
+                 <span>Estimated cost</span>
+               </div>
+               <div className="divide-y divide-border">
+                 {usageQuery.data.clientAiCosts.map((clientCost) => (
+                   <div data-testid={`row-estimated-ai-cost-${clientCost.clientId}`} key={clientCost.clientId} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3">
+                     <div className="min-w-0">
+                       <div className="text-xs font-semibold">{clientCost.clientName}</div>
+                       {clientCost.usage.models.length ? (
+                         <div className="mt-1 flex flex-wrap gap-1.5">
+                           {clientCost.usage.models.map((model) => (
+                             <span key={`${model.provider}-${model.model}`} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
+                               {providerLabel(model.provider)} · {model.model} · {model.activityCount} call{model.activityCount === 1 ? '' : 's'}
+                             </span>
+                           ))}
+                         </div>
+                       ) : <div className="mt-1 text-[10px] text-muted-foreground">No successful AI activity this cycle.</div>}
+                       {clientCost.usage.activitiesWithoutEstimate > 0 && <div className="mt-1 text-[10px] text-muted-foreground">{clientCost.usage.activitiesWithoutEstimate} activity{clientCost.usage.activitiesWithoutEstimate === 1 ? '' : 'ies'} without token or price metadata.</div>}
+                     </div>
+                     <div className="text-right">
+                       <div className="text-xs font-semibold">{estimatedUsd(clientCost.usage.estimatedReplitCreditsUsd, clientCost.usage.replitPricedActivities)}</div>
+                       {clientCost.usage.providerDirectPricedActivities > 0 && <div className="mt-1 text-[10px] text-muted-foreground">+ {money(clientCost.usage.estimatedProviderDirectUsd, 'USD')} direct provider</div>}
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+             <p data-testid="text-ai-cost-disclaimer" className="mt-4 text-[10px] leading-5 text-muted-foreground">This is an estimate, not an invoice. Replit-managed AI follows provider public pricing and is deducted from Replit credits; the Replit usage page is the final source of truth. Models without configured pricing or token metadata are shown as unavailable and excluded from totals.</p>
+           </section>
 
           <div className="rounded-md border border-border px-5 py-5">
             <h3 className="text-sm font-semibold">Data retention</h3>

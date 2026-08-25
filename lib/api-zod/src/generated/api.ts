@@ -346,6 +346,46 @@ export const GetLedgerflowUsageResponse = zod.object({
   "percentage": zod.number(),
   "status": zod.enum(['healthy', 'approaching', 'at_limit'])
 }),
+  "aiCost": zod.object({
+  "completedActivities": zod.number(),
+  "activitiesWithEstimate": zod.number(),
+  "activitiesWithoutEstimate": zod.number(),
+  "replitPricedActivities": zod.number(),
+  "providerDirectPricedActivities": zod.number(),
+  "inputTokens": zod.number(),
+  "outputTokens": zod.number(),
+  "estimatedReplitCreditsUsd": zod.number(),
+  "estimatedProviderDirectUsd": zod.number(),
+  "estimatedTotalProviderCostUsd": zod.number(),
+  "models": zod.array(zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "activityCount": zod.number(),
+  "estimatedCostUsd": zod.number()
+}))
+}),
+  "clientAiCosts": zod.array(zod.object({
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "usage": zod.object({
+  "completedActivities": zod.number(),
+  "activitiesWithEstimate": zod.number(),
+  "activitiesWithoutEstimate": zod.number(),
+  "replitPricedActivities": zod.number(),
+  "providerDirectPricedActivities": zod.number(),
+  "inputTokens": zod.number(),
+  "outputTokens": zod.number(),
+  "estimatedReplitCreditsUsd": zod.number(),
+  "estimatedProviderDirectUsd": zod.number(),
+  "estimatedTotalProviderCostUsd": zod.number(),
+  "models": zod.array(zod.object({
+  "provider": zod.string(),
+  "model": zod.string(),
+  "activityCount": zod.number(),
+  "estimatedCostUsd": zod.number()
+}))
+})
+})),
   "clientWorkspaces": zod.object({
   "used": zod.number(),
   "limit": zod.number(),

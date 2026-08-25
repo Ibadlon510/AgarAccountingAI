@@ -213,7 +213,7 @@ test("rejects ineligible report-pack basis, profile, and period combinations", a
   ];
 
   for (const body of requests) {
-    const result = await request<{ error: string }>("/ledgerflow/report-packs", {
+    const result: { response: Response; body: { error: string } } = await request<{ error: string }>("/ledgerflow/report-packs", {
       method: "POST",
       body: JSON.stringify({ clientId: testClientId, presentationCurrency: "AED", ...body }),
     });

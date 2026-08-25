@@ -20,6 +20,8 @@ const userIds = [
   `configured-demo-owner-${randomUUID()}`,
   `historic-starter-owner-${randomUUID()}`,
   `historic-starter-new-${randomUUID()}`,
+  `usage-owner-${randomUUID()}`,
+  `usage-foreign-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -128,6 +130,7 @@ after(async () => {
       await database.db.delete(database.statementImportsTable).where(inArray(database.statementImportsTable.clientId, clientIds));
       await database.db.delete(database.statementLinesTable).where(inArray(database.statementLinesTable.clientId, clientIds));
       await database.db.delete(database.bankAccountsTable).where(inArray(database.bankAccountsTable.clientId, clientIds));
+      await database.db.delete(database.aiActivityTable).where(inArray(database.aiActivityTable.clientId, clientIds));
       await database.db.delete(database.aiProviderConfigsTable).where(inArray(database.aiProviderConfigsTable.clientId, clientIds));
       await database.db.delete(database.clientWorkspacesTable).where(inArray(database.clientWorkspacesTable.clientId, clientIds));
       await database.db.delete(database.clientsTable).where(inArray(database.clientsTable.id, clientIds));
@@ -258,6 +261,129 @@ test("continues to classify historic generated placeholders as starter workspace
     assert.equal(response.body[0].id, client.id);
     assert.equal(response.body[0].workspaceState, "starter");
   }
+});
+
+test("reports current-cycle AI estimates per authorized client without counting failures or another workspace", async () => {
+  assert.ok(database);
+  const ownerId = userIds[11];
+  const foreignUserId = userIds[12];
+  await database.db.insert(database.usersTable).values([{ id: ownerId }, { id: foreignUserId }]);
+  const [managedClient, directClient, foreignClient] = await database.db.insert(database.clientsTable).values([
+    { name: "Managed AI client", legalName: "Managed AI client FZ-LLC" },
+    { name: "Direct AI client", legalName: "Direct AI client FZ-LLC" },
+    { name: "Foreign AI client", legalName: "Foreign AI client FZ-LLC" },
+  ]).returning();
+  clientIds.push(managedClient.id, directClient.id, foreignClient.id);
+  await database.db.insert(database.clientWorkspacesTable).values([
+    { clientId: managedClient.id, userId: ownerId },
+    { clientId: directClient.id, userId: ownerId },
+    { clientId: foreignClient.id, userId: foreignUserId },
+  ]);
+  await database.db.insert(database.aiActivityTable).values([
+    {
+      clientId: managedClient.id,
+      userId: ownerId,
+      activityType: "copilot_chat",
+      provider: "managed_openai",
+      model: "metered-managed",
+      inputTokens: 1_000,
+      outputTokens: 500,
+      estimatedCostUsd: "0.00500000",
+      billingSource: "replit_credits",
+      status: "completed",
+    },
+    {
+      clientId: managedClient.id,
+      userId: ownerId,
+      activityType: "copilot_chat",
+      provider: "managed_openai",
+      model: "unpriced-managed",
+      billingSource: "replit_credits",
+      status: "completed",
+    },
+    {
+      clientId: managedClient.id,
+      userId: ownerId,
+      activityType: "copilot_chat",
+      provider: "managed_openai",
+      model: "failed-managed",
+      inputTokens: 10,
+      outputTokens: 10,
+      estimatedCostUsd: "9.00000000",
+      billingSource: "replit_credits",
+      status: "failed",
+    },
+    {
+      clientId: directClient.id,
+      userId: ownerId,
+      activityType: "statement_extraction",
+      provider: "openai",
+      model: "metered-direct",
+      inputTokens: 2_000,
+      outputTokens: 250,
+      estimatedCostUsd: "0.02000000",
+      billingSource: "provider_direct",
+      status: "completed",
+    },
+    {
+      clientId: foreignClient.id,
+      userId: foreignUserId,
+      activityType: "copilot_chat",
+      provider: "managed_openai",
+      model: "foreign-managed",
+      inputTokens: 100,
+      outputTokens: 100,
+      estimatedCostUsd: "99.00000000",
+      billingSource: "replit_credits",
+      status: "completed",
+    },
+  ]);
+
+  const usage = await request<{
+    aiActivity: { used: number };
+    aiCost: {
+      completedActivities: number;
+      activitiesWithEstimate: number;
+      activitiesWithoutEstimate: number;
+      replitPricedActivities: number;
+      providerDirectPricedActivities: number;
+      inputTokens: number;
+      outputTokens: number;
+      estimatedReplitCreditsUsd: number;
+      estimatedProviderDirectUsd: number;
+      estimatedTotalProviderCostUsd: number;
+    };
+    clientAiCosts: Array<{
+      clientId: number;
+      clientName: string;
+      usage: { estimatedReplitCreditsUsd: number; estimatedProviderDirectUsd: number; models: Array<{ provider: string; model: string }> };
+    }>;
+  }>("/ledgerflow/usage", ownerId);
+
+  assert.equal(usage.response.status, 200);
+  assert.equal(usage.body.aiActivity.used, 3);
+  assert.equal(usage.body.aiCost.completedActivities, 3);
+  assert.equal(usage.body.aiCost.activitiesWithEstimate, 2);
+  assert.equal(usage.body.aiCost.activitiesWithoutEstimate, 1);
+  assert.equal(usage.body.aiCost.replitPricedActivities, 1);
+  assert.equal(usage.body.aiCost.providerDirectPricedActivities, 1);
+  assert.equal(usage.body.aiCost.inputTokens, 3_000);
+  assert.equal(usage.body.aiCost.outputTokens, 750);
+  assert.equal(usage.body.aiCost.estimatedReplitCreditsUsd, 0.005);
+  assert.equal(usage.body.aiCost.estimatedProviderDirectUsd, 0.02);
+  assert.equal(usage.body.aiCost.estimatedTotalProviderCostUsd, 0.025);
+  const managedUsage = usage.body.clientAiCosts.find((item) => item.clientId === managedClient.id);
+  const directUsage = usage.body.clientAiCosts.find((item) => item.clientId === directClient.id);
+  assert.equal(managedUsage?.clientName, "Managed AI client");
+  assert.equal(managedUsage?.usage.estimatedReplitCreditsUsd, 0.005);
+  assert.equal(managedUsage?.usage.estimatedProviderDirectUsd, 0);
+  assert.equal(directUsage?.usage.estimatedReplitCreditsUsd, 0);
+  assert.equal(directUsage?.usage.estimatedProviderDirectUsd, 0.02);
+  assert.equal(usage.body.clientAiCosts.some((item) => item.clientId === foreignClient.id), false);
+  assert.deepEqual(
+    managedUsage?.usage.models.map((model) => `${model.provider}:${model.model}`).sort(),
+    ["managed_openai:metered-managed", "managed_openai:unpriced-managed"],
+  );
 });
 
 test("moves only an untouched legacy demo workspace to a clean private workspace", async () => {

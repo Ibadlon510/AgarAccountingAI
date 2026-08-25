@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AICostSummary } from './aICostSummary';
+import type { ClientAICostUsage } from './clientAICostUsage';
 import type { EvidenceUsage } from './evidenceUsage';
 import type { UsageMetric } from './usageMetric';
 import type { WorkspaceUsageBillingPeriod } from './workspaceUsageBillingPeriod';
@@ -17,6 +19,8 @@ export interface WorkspaceUsage {
   statementImports: UsageMetric;
   storedEvidence: EvidenceUsage;
   aiActivity: UsageMetric;
+  aiCost: AICostSummary;
+  clientAiCosts: ClientAICostUsage[];
   clientWorkspaces: UsageMetric;
   retention: WorkspaceUsageRetention;
 }

@@ -211,6 +211,33 @@ export type WorkspaceUsageRetention = {
   ledgerDataDescription: string;
 };
 
+export interface AICostModelUsage {
+  provider: string;
+  model: string;
+  activityCount: number;
+  estimatedCostUsd: number;
+}
+
+export interface AICostSummary {
+  completedActivities: number;
+  activitiesWithEstimate: number;
+  activitiesWithoutEstimate: number;
+  replitPricedActivities: number;
+  providerDirectPricedActivities: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedReplitCreditsUsd: number;
+  estimatedProviderDirectUsd: number;
+  estimatedTotalProviderCostUsd: number;
+  models: AICostModelUsage[];
+}
+
+export interface ClientAICostUsage {
+  clientId: number;
+  clientName: string;
+  usage: AICostSummary;
+}
+
 export interface WorkspaceUsage {
   plan: string;
   asOf: string;
@@ -218,6 +245,8 @@ export interface WorkspaceUsage {
   statementImports: UsageMetric;
   storedEvidence: EvidenceUsage;
   aiActivity: UsageMetric;
+  aiCost: AICostSummary;
+  clientAiCosts: ClientAICostUsage[];
   clientWorkspaces: UsageMetric;
   retention: WorkspaceUsageRetention;
 }

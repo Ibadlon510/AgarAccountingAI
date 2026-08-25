@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import OpenAI from "openai";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { aiModelCatalogTable, aiProviderConfigsTable, db } from "@workspace/db";
 
 export const AI_PROVIDERS = ["managed_openai", "openai", "anthropic"] as const;
@@ -10,19 +10,21 @@ export const AI_MODEL_STATUSES = ["active", "retired"] as const;
 export type AIModelStatus = typeof AI_MODEL_STATUSES[number];
 
 const DEFAULT_AI_MODEL_CATALOG = [
-  { provider: "managed_openai", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" },
-  { provider: "openai", model: "gpt-4o-mini", displayName: "GPT-4o mini" },
-  { provider: "openai", model: "gpt-4o", displayName: "GPT-4o" },
-  { provider: "openai", model: "gpt-4.1-mini", displayName: "GPT-4.1 mini" },
-  { provider: "anthropic", model: "claude-3-5-sonnet-latest", displayName: "Claude 3.5 Sonnet" },
-  { provider: "anthropic", model: "claude-3-7-sonnet-latest", displayName: "Claude 3.7 Sonnet" },
-  { provider: "anthropic", model: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4" },
+  { provider: "managed_openai", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", inputCostPerMillionUsd: null, outputCostPerMillionUsd: null },
+  { provider: "openai", model: "gpt-4o-mini", displayName: "GPT-4o mini", inputCostPerMillionUsd: 0.15, outputCostPerMillionUsd: 0.6 },
+  { provider: "openai", model: "gpt-4o", displayName: "GPT-4o", inputCostPerMillionUsd: 2.5, outputCostPerMillionUsd: 10 },
+  { provider: "openai", model: "gpt-4.1-mini", displayName: "GPT-4.1 mini", inputCostPerMillionUsd: 0.4, outputCostPerMillionUsd: 1.6 },
+  { provider: "anthropic", model: "claude-3-5-sonnet-latest", displayName: "Claude 3.5 Sonnet", inputCostPerMillionUsd: 3, outputCostPerMillionUsd: 15 },
+  { provider: "anthropic", model: "claude-3-7-sonnet-latest", displayName: "Claude 3.7 Sonnet", inputCostPerMillionUsd: 3, outputCostPerMillionUsd: 15 },
+  { provider: "anthropic", model: "claude-sonnet-4-20250514", displayName: "Claude Sonnet 4", inputCostPerMillionUsd: 3, outputCostPerMillionUsd: 15 },
 ] as const;
 
 export type AIModelOption = {
   provider: AIProvider;
   model: string;
   displayName: string;
+  inputCostPerMillionUsd: number | null;
+  outputCostPerMillionUsd: number | null;
   status: AIModelStatus;
   retiredAt: Date | null;
 };
@@ -42,6 +44,8 @@ function modelCatalogResponse(record: typeof aiModelCatalogTable.$inferSelect): 
     provider: isAIProvider(record.provider) ? record.provider : "managed_openai",
     model: record.model,
     displayName: record.displayName,
+    inputCostPerMillionUsd: record.inputCostPerMillionUsd == null ? null : Number(record.inputCostPerMillionUsd),
+    outputCostPerMillionUsd: record.outputCostPerMillionUsd == null ? null : Number(record.outputCostPerMillionUsd),
     status: record.status === "active" ? "active" : "retired",
     retiredAt: record.retiredAt,
   };
@@ -51,9 +55,21 @@ async function seedDefaultAIModelCatalog() {
   await db.insert(aiModelCatalogTable).values(DEFAULT_AI_MODEL_CATALOG.map((model) => ({
     ...model,
     provider: model.provider as AIProvider,
+    inputCostPerMillionUsd: model.inputCostPerMillionUsd?.toFixed(6) ?? null,
+    outputCostPerMillionUsd: model.outputCostPerMillionUsd?.toFixed(6) ?? null,
   }))).onConflictDoNothing({
     target: [aiModelCatalogTable.provider, aiModelCatalogTable.model],
   });
+  for (const model of DEFAULT_AI_MODEL_CATALOG) {
+    if (model.inputCostPerMillionUsd == null || model.outputCostPerMillionUsd == null) continue;
+    await db.update(aiModelCatalogTable).set({
+      inputCostPerMillionUsd: sql`coalesce(${aiModelCatalogTable.inputCostPerMillionUsd}, ${model.inputCostPerMillionUsd})`,
+      outputCostPerMillionUsd: sql`coalesce(${aiModelCatalogTable.outputCostPerMillionUsd}, ${model.outputCostPerMillionUsd})`,
+    }).where(and(
+      eq(aiModelCatalogTable.provider, model.provider),
+      eq(aiModelCatalogTable.model, model.model),
+    ));
+  }
 }
 
 export async function getAIModelCatalog() {
@@ -75,6 +91,16 @@ export function isAIModel(
 }
 
 export type AIMessage = { role: "system" | "user" | "assistant"; content: string };
+export type AIBillingSource = "replit_credits" | "provider_direct";
+export type AICompletion = {
+  content: string;
+  provider: AIProvider;
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  estimatedCostUsd: number | null;
+  billingSource: AIBillingSource;
+};
 
 export class AIProviderError extends Error {
   constructor(
@@ -260,6 +286,24 @@ function providerError(error: unknown) {
   return new AIProviderError("unavailable", "The selected AI provider is temporarily unavailable. Try again shortly.");
 }
 
+function tokenCount(value: unknown) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function estimatedCostUsd(model: AIModelOption, inputTokens: number | null, outputTokens: number | null) {
+  if (
+    inputTokens == null
+    || outputTokens == null
+    || model.inputCostPerMillionUsd == null
+    || model.outputCostPerMillionUsd == null
+  ) {
+    return null;
+  }
+  return Number((
+    (inputTokens * model.inputCostPerMillionUsd + outputTokens * model.outputCostPerMillionUsd) / 1_000_000
+  ).toFixed(8));
+}
+
 async function completeOpenAI(config: AIProviderConfig, messages: AIMessage[], json: boolean, maxTokens: number) {
   const key = await configCredential(config);
   if (!providerBaseUrl(config.provider)) {
@@ -273,7 +317,11 @@ async function completeOpenAI(config: AIProviderConfig, messages: AIMessage[], j
       ...(json ? { response_format: { type: "json_object" as const } } : {}),
       messages,
     });
-    return response.choices[0]?.message?.content ?? "";
+    return {
+      content: response.choices[0]?.message?.content ?? "",
+      inputTokens: tokenCount(response.usage?.prompt_tokens),
+      outputTokens: tokenCount(response.usage?.completion_tokens),
+    };
   } catch (error) {
     throw providerError(error);
   }
@@ -299,8 +347,15 @@ async function completeAnthropic(config: AIProviderConfig, messages: AIMessage[]
       }
       throw new AIProviderError("unavailable", "The selected AI provider is temporarily unavailable. Try again shortly.");
     }
-    const body = await response.json() as { content?: Array<{ type?: string; text?: string }> };
-    return body.content?.find((item) => item.type === "text")?.text ?? "";
+    const body = await response.json() as {
+      content?: Array<{ type?: string; text?: string }>;
+      usage?: { input_tokens?: unknown; output_tokens?: unknown };
+    };
+    return {
+      content: body.content?.find((item) => item.type === "text")?.text ?? "",
+      inputTokens: tokenCount(body.usage?.input_tokens),
+      outputTokens: tokenCount(body.usage?.output_tokens),
+    };
   } catch (error) {
     if (error instanceof AIProviderError) throw error;
     throw new AIProviderError("unavailable", "The selected AI provider is temporarily unavailable. Try again shortly.");
@@ -310,15 +365,24 @@ async function completeAnthropic(config: AIProviderConfig, messages: AIMessage[]
 export async function completeAI(clientId: number, messages: AIMessage[], options?: { json?: boolean; maxTokens?: number }) {
   const config = await getAIProviderConfig(clientId);
   const catalog = await getAIModelCatalog();
-  if (!isAIModel(catalog, config.provider, config.model)) {
+  const model = catalog.find((option) => option.provider === config.provider && option.model === config.model && option.status === "active");
+  if (!model || !isAIModel(catalog, config.provider, config.model)) {
     throw new AIProviderError("unavailable", "The selected AI model is no longer available. Choose an active model in AI settings.");
   }
   try {
-    const content = config.provider === "anthropic"
+    const completion = config.provider === "anthropic"
       ? await completeAnthropic(config, messages, options?.maxTokens ?? 8192)
       : await completeOpenAI(config, messages, options?.json ?? false, options?.maxTokens ?? 8192);
-    if (!content) throw new AIProviderError("unavailable", "The selected AI provider returned an empty response. Try again shortly.");
-    return content;
+    if (!completion.content) throw new AIProviderError("unavailable", "The selected AI provider returned an empty response. Try again shortly.");
+    return {
+      content: completion.content,
+      provider: config.provider,
+      model: config.model,
+      inputTokens: completion.inputTokens,
+      outputTokens: completion.outputTokens,
+      estimatedCostUsd: estimatedCostUsd(model, completion.inputTokens, completion.outputTokens),
+      billingSource: config.provider === "managed_openai" ? "replit_credits" : "provider_direct",
+    } satisfies AICompletion;
   } catch (error) {
     if (error instanceof AIProviderError && config.provider !== "managed_openai") {
       await db.update(aiProviderConfigsTable).set({
@@ -331,10 +395,13 @@ export async function completeAI(clientId: number, messages: AIMessage[], option
 
 export async function testAIProvider(clientId: number) {
   const config = await getAIProviderConfig(clientId);
-  await completeAI(clientId, [{ role: "user", content: "Respond with the single word OK." }], { maxTokens: 8 });
+  const completion = await completeAI(clientId, [{ role: "user", content: "Respond with the single word OK." }], { maxTokens: 8 });
   const [record] = await db.update(aiProviderConfigsTable).set({
     credentialStatus: config.provider === "managed_openai" ? "not_configured" : "configured",
     lastTestedAt: new Date(),
   }).where(eq(aiProviderConfigsTable.clientId, clientId)).returning();
-  return record ? recordToConfig(record) : { ...config, lastTestedAt: new Date() };
+  return {
+    config: record ? recordToConfig(record) : { ...config, lastTestedAt: new Date() },
+    completion,
+  };
 }

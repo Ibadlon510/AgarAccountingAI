@@ -447,6 +447,93 @@ function usageMetric(used: number, limit: number) {
   };
 }
 
+type UsageAICostActivity = {
+  clientId: number;
+  clientName: string;
+  provider: string;
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  estimatedCostUsd: string | null;
+  billingSource: string;
+};
+
+function completedAIActivityValues(completion: Awaited<ReturnType<typeof completeAI>>) {
+  return {
+    status: "completed",
+    provider: completion.provider,
+    model: completion.model,
+    inputTokens: completion.inputTokens,
+    outputTokens: completion.outputTokens,
+    estimatedCostUsd: completion.estimatedCostUsd == null ? null : completion.estimatedCostUsd.toFixed(8),
+    billingSource: completion.billingSource,
+  } as const;
+}
+
+function roundedUsd(value: number) {
+  return Math.round(value * 100_000_000) / 100_000_000;
+}
+
+function aiCostSummary(activity: UsageAICostActivity[]) {
+  const models = new Map<string, {
+    provider: string;
+    model: string;
+    activityCount: number;
+    estimatedCostUsd: number;
+  }>();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let activitiesWithEstimate = 0;
+  let replitPricedActivities = 0;
+  let providerDirectPricedActivities = 0;
+  let estimatedReplitCreditsUsd = 0;
+  let estimatedProviderDirectUsd = 0;
+
+  for (const item of activity) {
+    inputTokens += item.inputTokens ?? 0;
+    outputTokens += item.outputTokens ?? 0;
+    const modelKey = `${item.provider}:${item.model}`;
+    const model = models.get(modelKey) ?? {
+      provider: item.provider,
+      model: item.model,
+      activityCount: 0,
+      estimatedCostUsd: 0,
+    };
+    model.activityCount += 1;
+
+    const estimatedCost = item.estimatedCostUsd == null ? null : Number(item.estimatedCostUsd);
+    if (estimatedCost != null && Number.isFinite(estimatedCost)) {
+      activitiesWithEstimate += 1;
+      model.estimatedCostUsd += estimatedCost;
+      if (item.billingSource === "replit_credits") {
+        estimatedReplitCreditsUsd += estimatedCost;
+        replitPricedActivities += 1;
+      }
+      if (item.billingSource === "provider_direct") {
+        estimatedProviderDirectUsd += estimatedCost;
+        providerDirectPricedActivities += 1;
+      }
+    }
+    models.set(modelKey, model);
+  }
+
+  return {
+    completedActivities: activity.length,
+    activitiesWithEstimate,
+    activitiesWithoutEstimate: activity.length - activitiesWithEstimate,
+    replitPricedActivities,
+    providerDirectPricedActivities,
+    inputTokens,
+    outputTokens,
+    estimatedReplitCreditsUsd: roundedUsd(estimatedReplitCreditsUsd),
+    estimatedProviderDirectUsd: roundedUsd(estimatedProviderDirectUsd),
+    estimatedTotalProviderCostUsd: roundedUsd(estimatedReplitCreditsUsd + estimatedProviderDirectUsd),
+    models: [...models.values()]
+      .map((model) => ({ ...model, estimatedCostUsd: roundedUsd(model.estimatedCostUsd) }))
+      .sort((left, right) => left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model)),
+  };
+}
+
 async function getUserClientIds(userId: string) {
   const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
@@ -1515,6 +1602,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
   let uploadedFileSize = 0;
   let fileHash: string | undefined;
   let aiActivityId: number | undefined;
+  let aiCompletionRecorded = false;
   try {
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
@@ -1608,15 +1696,21 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       clientId: scopedClientId,
       userId: currentUserId(req),
       activityType: "statement_extraction",
+      provider: aiConfig.provider,
       model: aiConfig.model,
+      billingSource: aiConfig.provider === "managed_openai" ? "replit_credits" : "provider_direct",
       status: "started",
     }).returning({ id: aiActivityTable.id });
     aiActivityId = aiActivity?.id;
-    const content = await completeAI(scopedClientId, [
+    const completion = await completeAI(scopedClientId, [
         { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
         { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
       ], { json: true, maxTokens: 8192 });
-    const candidate = JSON.parse(content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
+      aiCompletionRecorded = true;
+    }
+    const candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
     const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
@@ -1802,9 +1896,6 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
       return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount };
     });
-    if (aiActivityId !== undefined) {
-      await db.update(aiActivityTable).set({ status: "completed" }).where(eq(aiActivityTable.id, aiActivityId));
-    }
     if (importResult.kind === "duplicate_file") {
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
@@ -1850,7 +1941,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
       });
     }
-    if (aiActivityId !== undefined) {
+    if (aiActivityId !== undefined && !aiCompletionRecorded) {
       await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
     }
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
@@ -1947,12 +2038,15 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     clientId: client.id,
     userId: currentUserId(req),
     activityType: "copilot_chat",
+    provider: aiConfig.provider,
     model: aiConfig.model,
+    billingSource: aiConfig.provider === "managed_openai" ? "replit_credits" : "provider_direct",
     status: "started",
   }).returning({ id: aiActivityTable.id });
   const aiActivityId = aiActivity?.id;
+  let aiCompletionRecorded = false;
   try {
-    const content = await completeAI(client.id, [
+    const completion = await completeAI(client.id, [
         {
           role: "system",
           content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
@@ -1971,7 +2065,11 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
           }),
         },
       ], { json: true, maxTokens: 1200 });
-    const raw = JSON.parse(content ?? "{}") as { answer?: unknown; recommendations?: unknown };
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
+      aiCompletionRecorded = true;
+    }
+    const raw = JSON.parse(completion.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
       const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
       const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
         .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
@@ -1980,12 +2078,9 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
       }
       const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId, lineSuggestions);
     const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
-    if (aiActivityId !== undefined) {
-      await db.update(aiActivityTable).set({ status: "completed" }).where(eq(aiActivityTable.id, aiActivityId));
-    }
     res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
   } catch (error) {
-    if (aiActivityId !== undefined) {
+    if (aiActivityId !== undefined && !aiCompletionRecorded) {
       await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
     }
     req.log.error({ err: error }, "AI workspace chat failed");
@@ -2048,11 +2143,29 @@ router.post("/ledgerflow/ai-settings/test", async (req, res) => {
   if (!membership) return;
   const client = await getOwnedClient(req, body.clientId);
   if (!client) return;
+  let aiActivityId: number | undefined;
   try {
-    const config = await testAIProvider(client.id);
+    const aiConfig = await getAIProviderConfig(client.id);
+    const [aiActivity] = await db.insert(aiActivityTable).values({
+      clientId: client.id,
+      userId: currentUserId(req),
+      activityType: "provider_test",
+      provider: aiConfig.provider,
+      model: aiConfig.model,
+      billingSource: aiConfig.provider === "managed_openai" ? "replit_credits" : "provider_direct",
+      status: "started",
+    }).returning({ id: aiActivityTable.id });
+    aiActivityId = aiActivity?.id;
+    const { config, completion } = await testAIProvider(client.id);
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
+    }
     const availableModels = await getAIModelCatalog();
     return res.json(TestLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
   } catch (error) {
+    if (aiActivityId !== undefined) {
+      await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
+    }
     if (error instanceof AIProviderError) {
       return res.status(error.status).json({ error: error.message });
     }
@@ -2288,12 +2401,11 @@ router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
   await purgeExpiredWorkspaceEvidence(clientIds);
   if (clientIds.length) {
     await db.delete(aiActivityTable).where(and(
-      eq(aiActivityTable.userId, userId),
       inArray(aiActivityTable.clientId, clientIds),
       lte(aiActivityTable.createdAt, aiRetentionStart),
     ));
   }
-  const [imports, aiActivity] = clientIds.length
+  const [imports, aiActivity, workspaceClients] = clientIds.length
     ? await Promise.all([
       db.select({
         outcome: statementImportsTable.outcome,
@@ -2303,18 +2415,48 @@ router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
         createdAt: statementImportsTable.createdAt,
       }).from(statementImportsTable).where(inArray(statementImportsTable.clientId, clientIds)),
       db.select({
+        clientId: aiActivityTable.clientId,
+        clientName: clientsTable.name,
         createdAt: aiActivityTable.createdAt,
         status: aiActivityTable.status,
-      }).from(aiActivityTable).where(and(
-        eq(aiActivityTable.userId, userId),
-        inArray(aiActivityTable.clientId, clientIds),
-      )),
+        provider: aiActivityTable.provider,
+        model: aiActivityTable.model,
+        inputTokens: aiActivityTable.inputTokens,
+        outputTokens: aiActivityTable.outputTokens,
+        estimatedCostUsd: aiActivityTable.estimatedCostUsd,
+        billingSource: aiActivityTable.billingSource,
+      }).from(aiActivityTable)
+        .innerJoin(clientsTable, eq(clientsTable.id, aiActivityTable.clientId))
+        .where(inArray(aiActivityTable.clientId, clientIds)),
+      db.select({
+        id: clientsTable.id,
+        name: clientsTable.name,
+      }).from(clientsTable).where(inArray(clientsTable.id, clientIds)),
     ])
-    : [[], []];
+    : [[], [], []];
   const completedImports = imports.filter((item) => item.outcome === "completed");
   const retainedEvidence = completedImports.filter((item) => item.objectPath && item.evidenceExpiresAt && item.evidenceExpiresAt > now);
   const importsThisPeriod = completedImports.filter((item) => item.createdAt >= periodStart).length;
   const aiActivityThisPeriod = aiActivity.filter((item) => item.status === "completed" && item.createdAt >= periodStart).length;
+  const completedAICostActivity = aiActivity
+    .filter((item) => item.status === "completed" && item.createdAt >= periodStart)
+    .map((item) => ({
+      clientId: item.clientId,
+      clientName: item.clientName,
+      provider: item.provider,
+      model: item.model,
+      inputTokens: item.inputTokens,
+      outputTokens: item.outputTokens,
+      estimatedCostUsd: item.estimatedCostUsd,
+      billingSource: item.billingSource,
+    }));
+  const clientAiCosts = workspaceClients
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((client) => ({
+      clientId: client.id,
+      clientName: client.name,
+      usage: aiCostSummary(completedAICostActivity.filter((activity) => activity.clientId === client.id)),
+    }));
   const evidenceBytes = retainedEvidence.reduce((total, item) => total + (item.fileSize ?? 0), 0);
   const evidenceMetric = usageMetric(evidenceBytes, USAGE_PLAN.storedEvidenceBytes);
 
@@ -2334,6 +2476,8 @@ router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
       status: evidenceMetric.status,
     },
     aiActivity: usageMetric(aiActivityThisPeriod, USAGE_PLAN.aiActivityPerMonth),
+    aiCost: aiCostSummary(completedAICostActivity),
+    clientAiCosts,
     clientWorkspaces: usageMetric(clientIds.length, USAGE_PLAN.clientWorkspaces),
     retention: RETENTION_POLICY,
   }));
