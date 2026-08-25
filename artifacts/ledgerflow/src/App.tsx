@@ -46,6 +46,7 @@ const classificationAccounts = [
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
 const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
+const FIRM_RATE_PAGE_SIZE = 25;
 const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -360,6 +361,7 @@ function FirmSettingsPage() {
   const [rateImportError, setRateImportError] = useState('');
   const [rateImportNotice, setRateImportNotice] = useState('');
   const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
+  const [ratePage, setRatePage] = useState(1);
   useEffect(() => {
     if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName });
   }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName]);
@@ -368,10 +370,21 @@ function FirmSettingsPage() {
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
   };
+  const firmRates = ratesQuery.data ?? [];
+  const firmRatePageCount = Math.max(1, Math.ceil(firmRates.length / FIRM_RATE_PAGE_SIZE));
+  const currentFirmRatePage = Math.min(ratePage, firmRatePageCount);
+  const visibleFirmRates = firmRates.slice(
+    (currentFirmRatePage - 1) * FIRM_RATE_PAGE_SIZE,
+    currentFirmRatePage * FIRM_RATE_PAGE_SIZE,
+  );
+  useEffect(() => {
+    if (ratePage > firmRatePageCount) setRatePage(firmRatePageCount);
+  }, [ratePage, firmRatePageCount]);
   const importParsedRates = async (rates: ExchangeRateInput[], source: 'csv' | 'ai') => {
     try {
       const result = await importRates.mutateAsync({ data: { rates } });
       refreshRates();
+      setRatePage(1);
       setRatePreview(null);
       setRateImportNotice(`${result.importedCount + result.updatedCount} rate${result.importedCount + result.updatedCount === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`);
     } catch (error) {
@@ -451,7 +464,7 @@ function FirmSettingsPage() {
             />
           </label>
         </div>
-        <form onSubmit={(event) => { event.preventDefault(); createRate.mutate({ data: { ...rate, sourceCurrency: rate.sourceCurrency.toUpperCase(), functionalCurrency: rate.functionalCurrency.toUpperCase(), rate: Number(rate.rate), source: 'Manual', note: null } }, { onSuccess: () => { refreshRates(); setRate({ ...rate, rate: '' }); } }); }} className="mt-5 grid gap-3 sm:grid-cols-5">
+        <form onSubmit={(event) => { event.preventDefault(); createRate.mutate({ data: { ...rate, sourceCurrency: rate.sourceCurrency.toUpperCase(), functionalCurrency: rate.functionalCurrency.toUpperCase(), rate: Number(rate.rate), source: 'Manual', note: null } }, { onSuccess: () => { refreshRates(); setRate({ ...rate, rate: '' }); setRatePage(1); } }); }} className="mt-5 grid gap-3 sm:grid-cols-5">
           <input aria-label="Source currency" value={rate.sourceCurrency} maxLength={3} onChange={(event) => setRate({ ...rate, sourceCurrency: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
           <input aria-label="Functional currency" value={rate.functionalCurrency} maxLength={3} onChange={(event) => setRate({ ...rate, functionalCurrency: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
           <input aria-label="Effective date" type="date" value={rate.effectiveDate} onChange={(event) => setRate({ ...rate, effectiveDate: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
@@ -475,7 +488,15 @@ function FirmSettingsPage() {
           {ratePreview.rates.length > 10 && <p className="mt-2 text-[10px] text-muted-foreground">Showing 10 of {ratePreview.rates.length} detected rates.</p>}
           <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" data-testid="button-discard-firm-exchange-rate-preview" onClick={() => setRatePreview(null)} disabled={importRates.isPending} className="rounded border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground">Discard</button><button type="button" data-testid="button-confirm-firm-exchange-rate-import" onClick={() => void importParsedRates(ratePreview.rates, 'ai')} disabled={importRates.isPending} className="rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{importRates.isPending ? 'Importing…' : `Confirm & import ${ratePreview.rates.length} rate${ratePreview.rates.length === 1 ? '' : 's'}`}</button></div>
         </div>}
-        <div className="mt-5 divide-y rounded-md border border-border">{ratesQuery.isLoading ? <p className="p-3 text-xs text-muted-foreground">Loading firm schedule…</p> : ratesQuery.data?.length ? ratesQuery.data.map((item) => <div key={item.id} data-testid={`row-firm-exchange-rate-${item.id}`} className="flex items-center justify-between gap-3 p-3 text-xs"><span><strong>{item.sourceCurrency} → {item.functionalCurrency}</strong> · {item.rate} · {shortDate(item.effectiveDate)}</span><button onClick={() => deleteRate.mutate({ id: item.id }, { onSuccess: refreshRates })} className="text-destructive">Remove</button></div>) : <p className="p-3 text-xs text-muted-foreground">No shared rates yet.</p>}</div>
+        <div className="mt-5 divide-y rounded-md border border-border">{ratesQuery.isLoading ? <p className="p-3 text-xs text-muted-foreground">Loading firm schedule…</p> : firmRates.length ? visibleFirmRates.map((item) => <div key={item.id} data-testid={`row-firm-exchange-rate-${item.id}`} className="flex items-center justify-between gap-3 p-3 text-xs"><span><strong>{item.sourceCurrency} → {item.functionalCurrency}</strong> · {item.rate} · {shortDate(item.effectiveDate)}</span><button onClick={() => deleteRate.mutate({ id: item.id }, { onSuccess: refreshRates })} className="text-destructive">Remove</button></div>) : <p className="p-3 text-xs text-muted-foreground">No shared rates yet.</p>}</div>
+        {firmRates.length > FIRM_RATE_PAGE_SIZE && <div data-testid="pagination-firm-exchange-rates" className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span>Showing {(currentFirmRatePage - 1) * FIRM_RATE_PAGE_SIZE + 1}–{Math.min(currentFirmRatePage * FIRM_RATE_PAGE_SIZE, firmRates.length)} of {firmRates.length} rates</span>
+          <div className="flex items-center gap-2">
+            <button type="button" aria-label="Previous exchange-rate page" onClick={() => setRatePage((page) => Math.max(1, page - 1))} disabled={currentFirmRatePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button>
+            <span className="font-mono">Page {currentFirmRatePage} of {firmRatePageCount}</span>
+            <button type="button" aria-label="Next exchange-rate page" onClick={() => setRatePage((page) => Math.min(firmRatePageCount, page + 1))} disabled={currentFirmRatePage === firmRatePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button>
+          </div>
+        </div>}
       </section>
       <WorkspaceUsageSection />
       <section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><TeamAccessSection /></section>
@@ -1469,8 +1490,16 @@ function WorkspaceUsageSection() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
-  const estimatedUsd = (amount: number, meteredActivities: number) => {
-    return meteredActivities > 0 ? money(amount, 'USD') : 'Pricing unavailable';
+  const providerActivityCount = (models: Array<{ provider: string; activityCount: number }>, provider: string) => {
+    return models.filter((model) => model.provider === provider).reduce((total, model) => total + model.activityCount, 0);
+  };
+  const estimatedUsd = (amount: number, meteredActivities: number, categoryActivities: number, pendingLabel: string) => {
+    if (meteredActivities > 0) return money(amount, 'USD');
+    return categoryActivities === 0 ? 'No activity' : pendingLabel;
+  };
+  const totalEstimatedUsd = (summary: { estimatedTotalProviderCostUsd: number; activitiesWithEstimate: number; completedActivities: number }) => {
+    if (summary.activitiesWithEstimate > 0) return money(summary.estimatedTotalProviderCostUsd, 'USD');
+    return summary.completedActivities === 0 ? 'No activity' : 'Needs usage data';
   };
   const providerLabel = (provider: string) => {
     if (provider === 'managed_openai') return 'Replit-managed OpenAI';
@@ -1478,6 +1507,10 @@ function WorkspaceUsageSection() {
     if (provider === 'anthropic') return 'Workspace-owned Anthropic';
     return provider.replaceAll('_', ' ');
   };
+  const managedActivityCount = usageQuery.data ? providerActivityCount(usageQuery.data.aiCost.models, 'managed_openai') : 0;
+  const directProviderActivityCount = usageQuery.data
+    ? providerActivityCount(usageQuery.data.aiCost.models, 'openai') + providerActivityCount(usageQuery.data.aiCost.models, 'anthropic')
+    : 0;
 
   if (usageQuery.isError) {
     return (
@@ -1569,7 +1602,7 @@ function WorkspaceUsageSection() {
                </div>
                <div className="rounded-md border border-primary/20 bg-card px-4 py-3 text-right">
                  <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Estimated Replit credits</div>
-                <div data-testid="text-estimated-replit-ai-cost" className="mt-1 text-lg font-semibold text-primary">{estimatedUsd(usageQuery.data.aiCost.estimatedReplitCreditsUsd, usageQuery.data.aiCost.replitPricedActivities)}</div>
+                 <div data-testid="text-estimated-replit-ai-cost" className="mt-1 text-lg font-semibold text-primary">{estimatedUsd(usageQuery.data.aiCost.estimatedReplitCreditsUsd, usageQuery.data.aiCost.replitPricedActivities, managedActivityCount, 'See Replit usage')}</div>
                  <div className="mt-1 text-[10px] text-muted-foreground">{usageQuery.data.aiCost.completedActivities.toLocaleString()} successful activities</div>
                </div>
              </div>
@@ -1577,13 +1610,13 @@ function WorkspaceUsageSection() {
              <div className="mt-5 grid gap-3 sm:grid-cols-3">
                <div className="rounded-md border border-border bg-card p-3">
                  <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Replit-managed AI</div>
-                 <div className="mt-1 text-sm font-semibold">{estimatedUsd(usageQuery.data.aiCost.estimatedReplitCreditsUsd, usageQuery.data.aiCost.replitPricedActivities)}</div>
-                 <div className="mt-1 text-[10px] leading-4 text-muted-foreground">Estimated deduction from Replit credits.</div>
+                  <div data-testid="text-managed-ai-cost" className="mt-1 text-sm font-semibold">{estimatedUsd(usageQuery.data.aiCost.estimatedReplitCreditsUsd, usageQuery.data.aiCost.replitPricedActivities, managedActivityCount, 'See Replit usage')}</div>
+                  <div className="mt-1 text-[10px] leading-4 text-muted-foreground">{managedActivityCount > 0 && usageQuery.data.aiCost.replitPricedActivities === 0 ? 'This model has no local pricing estimate; review the authoritative charge in Replit usage.' : 'Estimated deduction from Replit credits.'}</div>
                </div>
                <div className="rounded-md border border-border bg-card p-3">
                  <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Workspace-owned keys</div>
-                 <div className="mt-1 text-sm font-semibold">{estimatedUsd(usageQuery.data.aiCost.estimatedProviderDirectUsd, usageQuery.data.aiCost.providerDirectPricedActivities)}</div>
-                 <div className="mt-1 text-[10px] leading-4 text-muted-foreground">Billed directly by OpenAI or Anthropic, not by Replit.</div>
+                  <div data-testid="text-direct-ai-cost" className="mt-1 text-sm font-semibold">{estimatedUsd(usageQuery.data.aiCost.estimatedProviderDirectUsd, usageQuery.data.aiCost.providerDirectPricedActivities, directProviderActivityCount, 'Needs usage data')}</div>
+                  <div className="mt-1 text-[10px] leading-4 text-muted-foreground">{directProviderActivityCount > 0 && usageQuery.data.aiCost.providerDirectPricedActivities === 0 ? 'The provider did not supply enough usage or price data to estimate this cost.' : 'Billed directly by OpenAI or Anthropic, not by Replit.'}</div>
                </div>
                <div className="rounded-md border border-border bg-card p-3">
                  <div className="text-[10px] font-semibold uppercase tracking-[.1em] text-muted-foreground">Usage captured</div>
@@ -1614,7 +1647,7 @@ function WorkspaceUsageSection() {
                        {clientCost.usage.activitiesWithoutEstimate > 0 && <div className="mt-1 text-[10px] text-muted-foreground">{clientCost.usage.activitiesWithoutEstimate} activity{clientCost.usage.activitiesWithoutEstimate === 1 ? '' : 'ies'} without token or price metadata.</div>}
                      </div>
                      <div className="text-right">
-                       <div className="text-xs font-semibold">{estimatedUsd(clientCost.usage.estimatedReplitCreditsUsd, clientCost.usage.replitPricedActivities)}</div>
+                        <div className="text-xs font-semibold">{totalEstimatedUsd(clientCost.usage)}</div>
                        {clientCost.usage.providerDirectPricedActivities > 0 && <div className="mt-1 text-[10px] text-muted-foreground">+ {money(clientCost.usage.estimatedProviderDirectUsd, 'USD')} direct provider</div>}
                      </div>
                    </div>

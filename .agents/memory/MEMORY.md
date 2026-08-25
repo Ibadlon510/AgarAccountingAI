@@ -19,3 +19,4 @@
 - [AI import continuity and safety](ai-import-continuity.md) — retain imports across navigation with exact upload identity; only parse bank-provenanced fallback documents.
 - [PDF bank statement extraction](pdf-bank-statement-extraction.md) — recognize bank-provenanced multiline PDF tables deterministically and never let AI replace their complete transaction set.
 - [Firm exchange-rate schedules](firm-exchange-rate-schedules.md) — exchange-rate schedules are firm-owned and shared across that firm’s clients.
+- [Managed AI cost estimates](managed-ai-cost-estimates.md) — never invent a local Replit-managed model price; distinguish no activity, missing metadata, and Replit-tracked billing.
