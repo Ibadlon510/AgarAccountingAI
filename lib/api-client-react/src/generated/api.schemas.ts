@@ -340,7 +340,12 @@ export interface ExchangeRateParseInput {
      * @minLength 1
      * @maxLength 120000
      */
-  content: string;
+  content?: string;
+  /**
+     * @minLength 1
+     * @maxLength 20000000
+     */
+  fileBase64?: string;
   fileName?: string;
 }
 

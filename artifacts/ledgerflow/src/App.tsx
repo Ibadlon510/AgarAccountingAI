@@ -124,6 +124,17 @@ function deterministicExchangeRates(content: string): ExchangeRateInput[] {
     && Number.isFinite(rate.rate)
     && rate.rate > 0);
 }
+
+async function fileAsBase64(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunkSize = 0x6000;
+  let base64 = '';
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    base64 += btoa(String.fromCharCode(...bytes.subarray(index, index + chunkSize)));
+  }
+  return base64;
+}
+
 function openInvitationEmail(invitation: Pick<WorkspaceInvitation, 'email' | 'emailSubject' | 'emailBody'>) {
   if (!invitation.emailSubject || !invitation.emailBody) return;
   const mailto = `mailto:${encodeURIComponent(invitation.email)}?subject=${encodeURIComponent(invitation.emailSubject)}&body=${encodeURIComponent(invitation.emailBody)}`;
@@ -221,6 +232,17 @@ function WorkspaceSettingsPage() {
       setRateImportError('');
       setRateImportNotice('');
       setRatePreview(null);
+      const isWorkbook = file.name.toLowerCase().endsWith('.xlsx')
+        || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      if (isWorkbook) {
+        if (file.size > 15 * 1024 * 1024) throw new Error('This Excel workbook is too large. Choose a file smaller than 15 MB.');
+        const preview = await parseRates.mutateAsync({
+          data: { clientId: activeClient.id, fileBase64: await fileAsBase64(file), fileName: file.name },
+        });
+        if (!preview.rates.length) throw new Error('No safe exchange-rate rows were found. Add clear date, currency, and rate values, then try again.');
+        setRatePreview(preview);
+        return;
+      }
       const content = await file.text();
       const rates = deterministicExchangeRates(content);
       if (rates.length) {
@@ -277,7 +299,7 @@ function WorkspaceSettingsPage() {
           </form>
         </section>
         <section id="exchange-rates" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate. CSV layouts without standard headers are prepared for your review with AI.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {parseRates.isPending ? 'Detecting layout…' : importRates.isPending ? 'Importing…' : 'Import CSV'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,text/csv" disabled={parseRates.isPending || importRates.isPending} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; void importRateFile(file); }} /></label></div>
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate. CSV and Excel layouts without standard headers are prepared for your review with AI.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {parseRates.isPending ? 'Detecting layout…' : importRates.isPending ? 'Importing…' : 'Import file'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={parseRates.isPending || importRates.isPending} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; void importRateFile(file); }} /></label></div>
           <form onSubmit={saveRate} className="mt-5 grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 md:grid-cols-6">
             <label className="text-[10px] font-medium">Source<input data-testid="input-page-rate-source-currency" required maxLength={3} value={rateForm.sourceCurrency} onChange={(event) => setRateForm({ ...rateForm, sourceCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
             <label className="text-[10px] font-medium">Functional<input data-testid="input-page-rate-functional-currency" required maxLength={3} value={rateForm.functionalCurrency} onChange={(event) => setRateForm({ ...rateForm, functionalCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>

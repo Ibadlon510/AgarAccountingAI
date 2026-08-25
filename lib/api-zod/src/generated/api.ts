@@ -595,15 +595,18 @@ export const ImportExchangeRatesResponse = zod.object({
 
 
 /**
- * @summary Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+ * @summary Prepare an exchange-rate import preview from CSV or Excel data
  */
 export const parseExchangeRatesBodyContentMax = 120000;
+
+export const parseExchangeRatesBodyFileBase64Max = 20000000;
 
 
 
 export const ParseExchangeRatesBody = zod.object({
   "clientId": zod.number(),
-  "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax),
+  "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
+  "fileBase64": zod.string().min(1).max(parseExchangeRatesBodyFileBase64Max).optional(),
   "fileName": zod.string().optional()
 })
 

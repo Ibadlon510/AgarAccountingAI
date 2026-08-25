@@ -338,6 +338,98 @@ function ratesFromExchangeRateMapping(
   }).filter((rate) => rate.effectiveDate && rate.sourceCurrency && rate.functionalCurrency && Number.isFinite(rate.rate) && rate.rate > 0);
 }
 
+const EXCHANGE_RATE_WORKBOOK_MAX_BYTES = 15 * 1024 * 1024;
+type ExchangeRatePreviewMapping = {
+  effectiveDate: string | null;
+  sourceCurrency: string | null;
+  functionalCurrency: string | null;
+  rate: string | null;
+  source: string | null;
+  note: string | null;
+};
+
+function exchangeRateWorkbookPreview(buffer: Buffer, functionalCurrency: string) {
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  const rates: Array<ReturnType<typeof normalizeRateInput>> = [];
+  const warnings: string[] = [];
+  const uniqueKeys = new Set<string>();
+  let mapping: ExchangeRatePreviewMapping = {
+    effectiveDate: null,
+    sourceCurrency: null,
+    functionalCurrency: null,
+    rate: null,
+    source: null,
+    note: null,
+  };
+  for (const sheetName of workbook.SheetNames.slice(0, 20)) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true });
+    if (!rows.length) continue;
+    const keys = Object.keys(rows[0] ?? {});
+    const column = (names: string[]) => keys.find((key) => names.includes(exchangeRateCsvKey(key)));
+    const dateColumn = column(["date", "effectivedate", "ratedate", "asof", "valuedate", "transactiondate", "validfrom", "dateeffective", "fxdate"]);
+    const currencyColumn = column(["currency", "sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom", "currencycode", "ccy", "iso", "iso4217"]);
+    const rateColumn = column(["rate", "exchangerate", "exchangeratevalue", "fxrate", "conversionrate", "conversionvalue", "closingrate", "midrate", "spotrate", "ratevalue", "value"]);
+    const inverseColumn = column(["exchangerateisinverse", "isinverse", "inverse", "inverserate"]);
+    if (!dateColumn || !currencyColumn || !rateColumn) continue;
+    mapping = {
+      effectiveDate: dateColumn,
+      sourceCurrency: currencyColumn,
+      functionalCurrency: null,
+      rate: rateColumn,
+      source: null,
+      note: null,
+    };
+    let inverseRows = 0;
+    for (const row of rows) {
+      const inverseValue = inverseColumn ? row[inverseColumn] : false;
+      const isInverse = inverseValue === true || /^true$/i.test(String(inverseValue));
+      if (isInverse) {
+        inverseRows += 1;
+        continue;
+      }
+      const dateValue = row[dateColumn];
+      const effectiveDate = dateValue instanceof Date
+        ? calendarDate(dateValue)
+        : typeof dateValue === "string"
+          ? exchangeRateCsvDate(dateValue)
+          : null;
+      try {
+        const normalized = normalizeRateInput({
+          effectiveDate: effectiveDate ?? "",
+          sourceCurrency: String(row[currencyColumn] ?? ""),
+          functionalCurrency,
+          rate: typeof row[rateColumn] === "number" ? row[rateColumn] : exchangeRateCsvNumber(String(row[rateColumn] ?? "")),
+          source: `Imported workbook · ${sheetName}`,
+          note: null,
+        });
+        const key = `${normalized.sourceCurrency}|${normalized.functionalCurrency}|${normalized.effectiveDate}`;
+        if (!uniqueKeys.has(key)) {
+          rates.push(normalized);
+          uniqueKeys.add(key);
+        }
+      } catch {
+        // Invalid workbook rows are omitted; the preview only exposes rates that passed the same import validation.
+      }
+    }
+    if (inverseRows) warnings.push(`${inverseRows} inverse-rate row${inverseRows === 1 ? "" : "s"} on "${sheetName}" were skipped because their direction needs review.`);
+  }
+  if (rates.length) {
+    warnings.unshift(`Recognized ${rates.length} valid rate${rates.length === 1 ? "" : "s"} directly from the Excel workbook.`);
+    if (!mapping.functionalCurrency) warnings.push(`The workbook omits a target currency, so ${functionalCurrency} from the workspace settings was used.`);
+  }
+  return { rates, warnings, mapping };
+}
+
+function exchangeRateWorkbookCsv(buffer: Buffer) {
+  const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
+  return workbook.SheetNames.slice(0, 20)
+    .map((name) => `Sheet: ${name}\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`)
+    .join("\n\n")
+    .slice(0, 120_000);
+}
+
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
@@ -3443,9 +3535,36 @@ router.post("/ledgerflow/exchange-rates/parse", async (req, res) => {
   const admin = await requireWorkspaceAdmin(req, res);
   if (!admin) return;
   const parsed = ParseExchangeRatesBody.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Choose a CSV file no larger than 120 KB to prepare an exchange-rate preview." });
+  if (!parsed.success || (!parsed.data.content && !parsed.data.fileBase64)) {
+    return res.status(400).json({ error: "Choose a CSV or Excel file to prepare an exchange-rate preview." });
+  }
   const client = await requireOwnedClient(req, res, parsed.data.clientId);
   if (!client) return;
+  let content = parsed.data.content ?? "";
+  if (parsed.data.fileBase64) {
+    const buffer = Buffer.from(parsed.data.fileBase64, "base64");
+    if (!buffer.length || buffer.length > EXCHANGE_RATE_WORKBOOK_MAX_BYTES) {
+      return res.status(400).json({ error: "Choose an Excel workbook smaller than 15 MB." });
+    }
+    const archiveError = validateXlsxArchive(buffer);
+    if (archiveError) return res.status(422).json({ error: archiveError });
+    try {
+      const workbookPreview = exchangeRateWorkbookPreview(buffer, client.functionalCurrency);
+      if (workbookPreview.rates.length) {
+        return res.json({
+          mapping: workbookPreview.mapping,
+          rates: workbookPreview.rates.map((rate) => ({ ...rate, rate: number(rate.rate) })),
+          warnings: workbookPreview.warnings,
+          unmappedColumns: [],
+          confidence: 1,
+        });
+      }
+      content = exchangeRateWorkbookCsv(buffer);
+    } catch {
+      return res.status(422).json({ error: "This Excel workbook could not be read. Use a workbook with dated currency and rate columns." });
+    }
+  }
+  if (!content) return res.status(422).json({ error: "No exchange-rate rows were found in this file." });
 
   const aiConfig = await getAIProviderConfig(client.id);
   const [activity] = await db.insert(aiActivityTable).values({
@@ -3466,7 +3585,7 @@ router.post("/ledgerflow/exchange-rates/parse", async (req, res) => {
       },
       {
         role: "user",
-        content: `File name: ${parsed.data.fileName ?? "exchange-rates.csv"}\nRequested functional currency: ${client.functionalCurrency}\n\n<csv-data>\n${parsed.data.content}\n</csv-data>`,
+        content: `File name: ${parsed.data.fileName ?? "exchange-rates.csv"}\nRequested functional currency: ${client.functionalCurrency}\n\n<csv-data>\n${content}\n</csv-data>`,
       },
     ], { json: true, maxTokens: 6_000 });
     await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, activity.id));
@@ -3484,7 +3603,7 @@ router.post("/ledgerflow/exchange-rates/parse", async (req, res) => {
 
     const warnings = [...preview.data.warnings];
     const rates: Array<ReturnType<typeof normalizeRateInput>> = [];
-    const mappedRates = ratesFromExchangeRateMapping(parsed.data.content, preview.data.mapping, client.functionalCurrency);
+    const mappedRates = ratesFromExchangeRateMapping(content, preview.data.mapping, client.functionalCurrency);
     if (mappedRates.length) {
       warnings.push("Rows were re-read from the detected CSV columns and normalized on the server before review.");
     }

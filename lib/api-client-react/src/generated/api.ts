@@ -1817,7 +1817,7 @@ export const getParseExchangeRatesUrl = () => {
 }
 
 /**
- * @summary Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+ * @summary Prepare an exchange-rate import preview from CSV or Excel data
  */
 export const parseExchangeRates = async (exchangeRateParseInput: ExchangeRateParseInput, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRateParseResult> => {
 
@@ -1866,7 +1866,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ParseExchangeRatesMutationError = ErrorType<unknown>
 
     /**
- * @summary Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+ * @summary Prepare an exchange-rate import preview from CSV or Excel data
  */
 export const useParseExchangeRates = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof parseExchangeRates>>, TError,{data: BodyType<ExchangeRateParseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
 import { inArray } from "drizzle-orm";
+import * as XLSX from "xlsx";
 
 type ImportResult = {
   fileName: string;
@@ -866,4 +867,45 @@ test("prepares unfamiliar exchange-rate CSV data without importing it", async ()
   }]);
   assert.equal(preview.body.confidence, 0.91);
   assert.match(preview.body.warnings[0] ?? "", /workspace setting/i);
+});
+
+test("prepares recognizable Excel exchange-rate rows without calling AI or importing them", async () => {
+  const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+  const workbook = XLSX.utils.book_new();
+  const rows = [
+    ["Value Date", "CCY", "FX Rate", "Inverse Rate"],
+    [new Date("2025-01-02T00:00:00.000Z"), "EUR", 3.787254, false],
+    [new Date("2025-01-03T00:00:00.000Z"), "EUR", 3.779459, false],
+  ];
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows, { cellDates: true }), "2025");
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows, { cellDates: true }), "Duplicate 2025");
+  const preview = await request<{
+    mapping: { effectiveDate: string | null; sourceCurrency: string | null; rate: string | null };
+    rates: Array<{ effectiveDate: string; sourceCurrency: string; functionalCurrency: string; rate: number; source: string; note: string | null }>;
+    warnings: string[];
+    confidence: number;
+  }>("/ledgerflow/exchange-rates/parse", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      fileName: "2025_Consolidated_EUR_Rates.xlsx",
+      fileBase64: XLSX.write(workbook, { type: "base64", bookType: "xlsx", cellDates: true }),
+    }),
+  });
+
+  assert.equal(preview.response.status, 200);
+  assert.deepEqual(preview.body.mapping, {
+    effectiveDate: "Value Date",
+    sourceCurrency: "CCY",
+    functionalCurrency: null,
+    rate: "FX Rate",
+    source: null,
+    note: null,
+  });
+  assert.deepEqual(preview.body.rates, [
+    { effectiveDate: "2025-01-02", sourceCurrency: "EUR", functionalCurrency: "AED", rate: 3.787254, source: "Imported workbook · 2025", note: null },
+    { effectiveDate: "2025-01-03", sourceCurrency: "EUR", functionalCurrency: "AED", rate: 3.779459, source: "Imported workbook · 2025", note: null },
+  ]);
+  assert.equal(preview.body.confidence, 1);
+  assert.match(preview.body.warnings[0] ?? "", /recognized 2 valid rates directly from the excel workbook/i);
 });

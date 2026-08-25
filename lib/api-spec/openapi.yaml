@@ -377,7 +377,7 @@ paths:
     post:
       operationId: parseExchangeRates
       tags: [ledgerflow]
-      summary: Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+      summary: Prepare an exchange-rate import preview from CSV or Excel data
       requestBody:
         required: true
         content:
@@ -1262,10 +1262,11 @@ components:
             $ref: "#/components/schemas/ExchangeRate"
     ExchangeRateParseInput:
       type: object
-      required: [clientId, content]
+      required: [clientId]
       properties:
         clientId: { type: number }
         content: { type: string, minLength: 1, maxLength: 120000 }
+        fileBase64: { type: string, minLength: 1, maxLength: 20000000 }
         fileName: { type: string }
     ExchangeRateParseMapping:
       type: object
