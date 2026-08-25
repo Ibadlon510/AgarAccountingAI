@@ -250,6 +250,35 @@ function AddClientDialog({ onClose }: { onClose: () => void }) {
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="add-client-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace setup</div><h2 id="add-client-title" className="mt-2 text-lg font-semibold">Add client</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Create a separate IFRS / AED workspace for a new client.</p></div><button data-testid="button-close-add-client" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 space-y-4"><label className="block text-xs font-medium">Client name<input data-testid="input-client-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Northstar Advisory" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-client-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} placeholder="e.g. Northstar Advisory FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive">This client could not be created. Check the details and try again.</p>}<button data-testid="button-submit-client" disabled={mutation.isPending} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Creating workspace…' : <><Plus size={14} /> Create client workspace</>}</button></form></div></div>;
 }
 
+function TeamAccessSection() {
+  const team = useGetWorkspaceMembers({ query: { queryKey: getGetWorkspaceMembersQueryKey() } });
+  const invite = useCreateWorkspaceInvitation();
+  const updateMember = useUpdateWorkspaceMember();
+  const removeMember = useRemoveWorkspaceMember();
+  const revoke = useRevokeWorkspaceInvitation();
+  const [form, setForm] = useState({ email: '', role: 'bookkeeper' as 'admin' | 'bookkeeper', clientIds: [] as number[] });
+  const [link, setLink] = useState('');
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getGetWorkspaceMembersQueryKey() });
+  const toggle = (id: number) => setForm((current) => ({ ...current, clientIds: current.clientIds.includes(id) ? current.clientIds.filter((item) => item !== id) : [...current.clientIds, id] }));
+  const toggleMemberClient = (member: WorkspaceMember, clientId: number) => {
+    const clientIds = member.clients.some((client) => client.id === clientId)
+      ? member.clients.filter((client) => client.id !== clientId).map((client) => client.id)
+      : [...member.clients.map((client) => client.id), clientId];
+    updateMember.mutate({ userId: member.userId, data: { role: member.role, clientIds } }, { onSuccess: refresh });
+  };
+  const data = team.data;
+  return <section data-testid="card-settings-users" className="mt-8 border-t border-border pt-6">
+    <div className="flex items-start gap-3"><Users className="text-primary" size={18} /><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Users & permissions</div><h3 className="mt-1 text-sm font-semibold">Teammate access</h3><p className="mt-1 text-[11px] text-muted-foreground">Roles and client access are enforced for this workspace.</p></div></div>
+    {team.isLoading ? <p className="mt-4 text-xs text-muted-foreground">Loading team access…</p> : team.isError ? <p className="mt-4 text-xs text-destructive">Team access could not be loaded.</p> : <>
+      <div className="mt-4 divide-y rounded border border-border">{data?.members.map((member: WorkspaceMember) => <div key={member.userId} data-testid={`row-workspace-member-${member.userId}`} className="flex flex-wrap items-center justify-between gap-3 p-3 text-xs">
+        <div><strong>{member.name}</strong> · {member.role}<div className="mt-2 flex flex-wrap gap-3 text-[11px]">{data?.canManage && !member.isCurrentUser ? data.clients.map((client) => <label key={client.id}><input data-testid={`checkbox-member-client-${member.userId}-${client.id}`} type="checkbox" checked={member.clients.some((assigned) => assigned.id === client.id)} disabled={updateMember.isPending} onChange={() => toggleMemberClient(member, client.id)} /> {client.name}</label>) : member.clients.map((client) => <span key={client.id}>{client.name}</span>)}</div></div>
+        {data?.canManage && !member.isCurrentUser && <span className="flex gap-2"><select value={member.role} disabled={updateMember.isPending} onChange={(event) => updateMember.mutate({ userId: member.userId, data: { role: event.target.value as 'admin' | 'bookkeeper', clientIds: member.clients.map((client) => client.id) } }, { onSuccess: refresh })} className="rounded border border-input bg-card px-1 text-[11px]"><option value="admin">Admin</option><option value="bookkeeper">Bookkeeper</option></select><button data-testid={`button-remove-member-${member.userId}`} onClick={() => removeMember.mutate({ userId: member.userId }, { onSuccess: refresh })} className="text-destructive"><Trash2 size={14} /></button></span>}
+      </div>)}</div>
+      {data?.canManage && <form onSubmit={(event) => { event.preventDefault(); invite.mutate({ data: form }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); setForm((current) => ({ ...current, email: '' })); refresh(); } }); }} className="mt-4 rounded border border-primary/20 bg-primary/5 p-3"><div className="flex items-center gap-2 text-xs font-semibold"><UserPlus size={14} /> Invite teammate</div><div className="mt-3 flex flex-wrap gap-2"><input data-testid="input-invite-email" required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="teammate@firm.com" className="h-8 flex-1 rounded border border-input bg-card px-2 text-xs" /><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'bookkeeper' })} className="h-8 rounded border border-input bg-card px-2 text-xs"><option value="bookkeeper">Bookkeeper</option><option value="admin">Admin</option></select></div><div className="mt-3 flex flex-wrap gap-3">{data.clients.map((client) => <label key={client.id} className="text-[11px]"><input data-testid={`checkbox-invite-client-${client.id}`} type="checkbox" checked={form.clientIds.includes(client.id)} onChange={() => toggle(client.id)} /> {client.name}</label>)}</div><button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground">Create invitation link</button>{link && <input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" />}</form>}
+      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} className="mt-2 flex justify-between rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.status}</span>{invitation.status === 'pending' && <button onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: refresh })} className="text-destructive">Revoke</button>}</div>)}
+    </>}
+  </section>;
+}
 function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose: () => void }) {
   const mutation = useUpdateClient();
   const [form, setForm] = useState({
@@ -308,7 +337,8 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
        <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-4 rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>IFRS / AED</span><span>{activeClient?.period ?? '—'}</span></div></div><button data-testid="button-settings" onClick={() => setSettingsOpen(true)} className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-[12px] text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Settings2 size={16} /><span className={collapsed ? 'md:hidden' : ''}>Workspace settings</span></button></div>
     </aside>
      <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8"><div className="flex items-center gap-3"><button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="hidden h-5 w-px bg-border md:block" /><div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div></div><div className="flex items-center gap-2 md:gap-3"><select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="hidden h-9 max-w-[180px] rounded-md border border-input bg-card px-2 text-xs font-semibold md:block">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button data-testid="button-add-client" onClick={() => setCreateClientOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} /><span className="hidden sm:inline">Add client</span></button><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div><button data-testid="button-help" onClick={() => setHelpOpen(true)} aria-label="Open help" className="grid size-8 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"><CircleHelp size={16} /></button><button data-testid="button-logout" onClick={onLogout} aria-label={`Sign out ${displayName}`} className="group flex items-center gap-2 rounded-full border border-border bg-card pl-1 pr-2.5 py-1 text-left hover:border-primary/40"><span className="grid size-7 place-items-center rounded-full bg-primary font-mono text-[10px] font-medium text-primary-foreground">{initials}</span><span className="hidden max-w-[120px] truncate text-[11px] font-semibold sm:inline">{displayName}</span><LogOut size={13} className="text-muted-foreground transition-colors group-hover:text-foreground" /></button></div></header><main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>{createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}{settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}{helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}</div>
-    <AssistantFAB />
+     {settingsOpen && <div className="fixed inset-0 z-[60] overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm"><div className="mx-auto my-5 w-full max-w-3xl rounded-lg border border-card-border bg-card p-6 shadow-2xl"><div className="flex justify-end"><button data-testid="button-close-team-settings" onClick={() => setSettingsOpen(false)} className="text-xs text-muted-foreground">Close</button></div><TeamAccessSection /></div></div>}
+     <AssistantFAB />
   </div>;
 }
 
@@ -740,6 +770,7 @@ function AuthBoundary() {
   const { user } = useUser();
   const { signOut } = useClerk();
   const [location] = useLocation();
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
   const currentUserId = user ? user.externalId ?? user.id : null;
   const [cacheReadyForUserId, setCacheReadyForUserId] = useState<string | null>(null);
 
@@ -753,13 +784,35 @@ function AuthBoundary() {
   if (!isLoaded) return <AuthLoadingState />;
   if (!isSignedIn || !user) return <AccessScreen />;
   if (cacheReadyForUserId !== currentUserId) return <AuthLoadingState label="Preparing your secure workspace" />;
-  if (location === "/") return <Redirect to="/user-portal" />;
+  if (location === "/" && !inviteToken) return <Redirect to="/user-portal" />;
 
   const handleLogout = () => {
     clearUserScopedState(queryClient, currentUserId, window.localStorage);
     void signOut({ redirectUrl: basePath || "/" });
   };
-  return <LedgerFlowApp key={currentUserId} user={user} onLogout={handleLogout} />;
+  return <InviteAcceptanceGate><LedgerFlowApp key={currentUserId} user={user} onLogout={handleLogout} /></InviteAcceptanceGate>;
+}
+
+function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
+  const [location, setLocation] = useLocation();
+  const token = useMemo(() => new URLSearchParams(window.location.search).get("invite"), [location]);
+  const accept = useAcceptWorkspaceInvitation();
+  const [message, setMessage] = useState("");
+  const clearToken = () => setLocation("/user-portal", { replace: true });
+  useEffect(() => {
+    if (!token) return;
+    accept.mutate({ token }, {
+      onSuccess: () => {
+        clearToken();
+        queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+      },
+      onError: (error) => setMessage(error instanceof Error ? error.message : "This invitation could not be accepted."),
+    });
+  }, [token]);
+  if (!token) return <>{children}</>;
+  if (accept.isPending) return <AuthLoadingState label="Joining your invited workspace" />;
+  if (!message) return <AuthLoadingState label="Joining your invited workspace" />;
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm"><CircleAlert className="mx-auto text-destructive" size={20} /><h1 className="mt-3 text-base font-semibold">We couldn’t join that workspace</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">{message}</p><div className="mt-5 flex justify-center gap-2"><button type="button" onClick={() => { setMessage(""); accept.reset(); accept.mutate({ token }, { onSuccess: () => { clearToken(); queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() }); }, onError: (error) => setMessage(error instanceof Error ? error.message : "This invitation could not be accepted.") }); }} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Try again</button><button type="button" onClick={clearToken} className="rounded-md border border-border px-3 py-2 text-xs font-semibold">Continue without invite</button></div></div></main>;
 }
 function App() {
   return <WouterRouter base={basePath}><ClerkProviderWithRoutes /></WouterRouter>;

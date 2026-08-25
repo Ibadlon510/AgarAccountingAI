@@ -148,6 +148,147 @@ export const UpdateClientResponse = zod.object({
 
 
 /**
+ * @summary Review workspace members and invitations
+ */
+export const GetWorkspaceMembersResponse = zod.object({
+  "currentRole": zod.enum(['admin', 'bookkeeper']),
+  "canManage": zod.boolean(),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "members": zod.array(zod.object({
+  "userId": zod.string(),
+  "email": zod.string(),
+  "name": zod.string(),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "status": zod.enum(['active']),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "isCurrentUser": zod.boolean()
+})),
+  "invitations": zod.array(zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "invitedBy": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Update a member role and client access
+ */
+export const UpdateWorkspaceMemberParams = zod.object({
+  "userId": zod.coerce.string()
+})
+
+
+
+
+export const UpdateWorkspaceMemberBody = zod.object({
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "clientIds": zod.array(zod.number()).min(1)
+})
+
+export const UpdateWorkspaceMemberResponse = zod.object({
+  "userId": zod.string(),
+  "email": zod.string(),
+  "name": zod.string(),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "status": zod.enum(['active']),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "isCurrentUser": zod.boolean()
+})
+
+
+/**
+ * @summary Remove a workspace member
+ */
+export const RemoveWorkspaceMemberParams = zod.object({
+  "userId": zod.coerce.string()
+})
+
+export const RemoveWorkspaceMemberResponse = zod.void()
+
+
+/**
+ * @summary Invite a teammate to the workspace
+ */
+export const createWorkspaceInvitationBodyEmailMin = 3;
+
+
+export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+
+
+export const CreateWorkspaceInvitationBody = zod.object({
+  "email": zod.string().min(createWorkspaceInvitationBodyEmailMin).regex(createWorkspaceInvitationBodyEmailRegExp),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "clientIds": zod.array(zod.number()).min(1)
+})
+
+export const CreateWorkspaceInvitationResponse = zod.object({
+  "id": zod.number(),
+  "email": zod.string(),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "invitedBy": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+})
+
+
+/**
+ * @summary Revoke a pending workspace invitation
+ */
+export const RevokeWorkspaceInvitationParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RevokeWorkspaceInvitationResponse = zod.void()
+
+
+/**
+ * @summary Accept a workspace invitation
+ */
+export const AcceptWorkspaceInvitationParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const AcceptWorkspaceInvitationResponse = zod.object({
+  "userId": zod.string(),
+  "email": zod.string(),
+  "name": zod.string(),
+  "role": zod.enum(['admin', 'bookkeeper']),
+  "status": zod.enum(['active']),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string()
+})),
+  "isCurrentUser": zod.boolean()
+})
+
+
+/**
  * @summary Get server-measured workspace usage and plan limits
  */
 export const GetLedgerflowUsageResponse = zod.object({

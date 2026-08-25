@@ -38,10 +38,13 @@ export const clientWorkspacesTable = pgTable(
   {
     clientId: integer("client_id").notNull(),
     userId: varchar("user_id").notNull(),
+    role: text("role").notNull().default("admin"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
     uniqueIndex("ledgerflow_client_workspaces_client_user_idx").on(table.clientId, table.userId),
+    index("ledgerflow_client_workspaces_user_role_idx").on(table.userId, table.role),
+    check("ledgerflow_client_workspaces_role_check", sql`role in ('admin', 'bookkeeper')`),
     foreignKey({
       columns: [table.clientId],
       foreignColumns: [clientsTable.id],
@@ -55,6 +58,37 @@ export const clientWorkspacesTable = pgTable(
   ],
 );
 
+export const workspaceInvitationsTable = pgTable(
+  "ledgerflow_workspace_invitations",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    email: varchar("email").notNull(),
+    role: text("role").notNull().default("bookkeeper"),
+    clientIds: integer("client_ids").array().notNull(),
+    invitedByUserId: varchar("invited_by_user_id").notNull(),
+    tokenHash: varchar("token_hash").notNull().unique(),
+    status: text("status").notNull().default("pending"),
+    acceptedUserId: varchar("accepted_user_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("ledgerflow_workspace_invitations_email_status_idx").on(table.email, table.status),
+    index("ledgerflow_workspace_invitations_inviter_idx").on(table.invitedByUserId),
+    check("ledgerflow_workspace_invitations_role_check", sql`role in ('admin', 'bookkeeper')`),
+    check("ledgerflow_workspace_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
+    foreignKey({
+      columns: [table.invitedByUserId],
+      foreignColumns: [usersTable.id],
+      name: "ledgerflow_workspace_invitations_inviter_fk",
+    }),
+    foreignKey({
+      columns: [table.acceptedUserId],
+      foreignColumns: [usersTable.id],
+      name: "ledgerflow_workspace_invitations_accepted_user_fk",
+    }),
+  ],
+);
 export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: varchar("user_id").notNull(),

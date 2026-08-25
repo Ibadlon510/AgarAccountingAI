@@ -1,4 +1,4 @@
-import { getAuth } from "@clerk/express";
+import { clerkClient, getAuth } from "@clerk/express";
 import { db, usersTable, type User as DbUser } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { type NextFunction, type Request, type Response } from "express";
@@ -12,7 +12,13 @@ declare global {
   }
 }
 
-async function provisionLocalUser(userId: string): Promise<DbUser> {
+type ClerkIdentity = {
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+};
+
+async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Promise<DbUser> {
   let [dbUser] = await db
     .select()
     .from(usersTable)
@@ -22,9 +28,12 @@ async function provisionLocalUser(userId: string): Promise<DbUser> {
   if (!dbUser) {
     const [inserted] = await db
       .insert(usersTable)
-      // Clerk owns identity fields. The local row keeps the legacy ID bridge
-      // and app-specific state; nullable identity columns remain untouched.
-      .values({ id: userId })
+      .values({
+        id: userId,
+        email: identity?.email ?? null,
+        firstName: identity?.firstName ?? null,
+        lastName: identity?.lastName ?? null,
+      })
       .onConflictDoNothing()
       .returning();
     dbUser = inserted;
@@ -40,6 +49,13 @@ async function provisionLocalUser(userId: string): Promise<DbUser> {
 
   if (!dbUser) {
     throw new Error("Could not provision the local user record.");
+  }
+  if (identity && (dbUser.email !== identity.email || dbUser.firstName !== identity.firstName || dbUser.lastName !== identity.lastName)) {
+    const [updated] = await db.update(usersTable)
+      .set(identity)
+      .where(eq(usersTable.id, userId))
+      .returning();
+    dbUser = updated ?? dbUser;
   }
 
   await ensureUserWorkspace(dbUser.id);
@@ -59,10 +75,14 @@ type RequestAuth = {
   userId?: unknown;
   sessionClaims?: unknown;
 };
+type ClerkIdentityReader = (clerkUserId: string) => Promise<ClerkIdentity>;
 
 export const requireAuth = createRequireAuth();
 
-export function createRequireAuth(readAuth?: (request: Request) => RequestAuth) {
+export function createRequireAuth(
+  readAuth?: (request: Request) => RequestAuth,
+  readClerkIdentity?: ClerkIdentityReader,
+) {
   return async function requireAuth(req: Request, res: Response, next: NextFunction) {
     let auth: RequestAuth;
     try {
@@ -91,7 +111,32 @@ export function createRequireAuth(readAuth?: (request: Request) => RequestAuth) 
     }
 
     try {
-      req.dbUser = await provisionLocalUser(userId);
+      let identity: ClerkIdentity | undefined;
+      if (!readAuth || readClerkIdentity) {
+        const clerkUserId = typeof auth.userId === "string"
+          ? auth.userId
+          : typeof sessionClaims?.sub === "string"
+            ? sessionClaims.sub
+            : null;
+        if (!clerkUserId) {
+          res.status(401).json({ error: "Authentication required" });
+          return;
+        }
+        if (readClerkIdentity) {
+          identity = await readClerkIdentity(clerkUserId);
+        } else {
+          const clerkUser = await clerkClient.users.getUser(clerkUserId);
+          const primaryEmail = clerkUser.emailAddresses.find((email) =>
+            email.id === clerkUser.primaryEmailAddressId && email.verification?.status === "verified",
+          )?.emailAddress;
+          identity = {
+            email: primaryEmail?.toLowerCase() ?? null,
+            firstName: clerkUser.firstName ?? null,
+            lastName: clerkUser.lastName ?? null,
+          };
+        }
+      }
+      req.dbUser = await provisionLocalUser(userId, identity);
       next();
     } catch (error) {
       req.log?.error({ err: error }, "Local user provisioning failed");

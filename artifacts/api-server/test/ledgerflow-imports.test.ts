@@ -147,9 +147,25 @@ before(async () => {
   const { createRequireAuth } = await import("../src/middlewares/authMiddleware");
   app = createApp({
     clerkAuthMiddleware: (_req, _res, next) => next(),
-    requireAuthMiddleware: createRequireAuth((req) => ({
-      sessionClaims: { userId: req.headers["x-test-user-id"] },
-    })),
+    requireAuthMiddleware: createRequireAuth(
+      (req) => {
+        const legacyUserId = req.headers["x-test-user-id"];
+        return {
+          // Migrated users retain their former local subject for memberships,
+          // while Clerk's API must receive the distinct native Clerk ID.
+          userId: typeof legacyUserId === "string" ? `clerk-${legacyUserId}` : undefined,
+          sessionClaims: { userId: legacyUserId },
+        };
+      },
+      async (clerkUserId) => {
+        const legacyUserId = clerkUserId.replace(/^clerk-/, "");
+        return {
+          email: `${legacyUserId}@example.test`,
+          firstName: legacyUserId === primaryUserId ? "Primary" : "Secondary",
+          lastName: "Test",
+        };
+      },
+    ),
   });
   database = await import("@workspace/db");
   primaryUserId = `ledgerflow-import-primary-${randomUUID()}`;
@@ -159,6 +175,15 @@ before(async () => {
     { id: secondaryUserId, email: `${secondaryUserId}@example.test`, firstName: "Secondary", lastName: "Test" },
   ]);
   createdUserIds.push(primaryUserId, secondaryUserId);
+  const workspaces = await database.db.insert(database.clientsTable).values([
+    { name: `Primary test workspace ${primaryUserId}`, legalName: "Primary Test LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+    { name: `Secondary test workspace ${secondaryUserId}`, legalName: "Secondary Test LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+  ]).returning();
+  createdClientIds.push(...workspaces.map((workspace) => workspace.id));
+  await database.db.insert(database.clientWorkspacesTable).values([
+    { clientId: workspaces[0].id, userId: primaryUserId, role: "admin" },
+    { clientId: workspaces[1].id, userId: secondaryUserId, role: "admin" },
+  ]);
   server = (await import("node:http")).createServer(app);
   const port = await listen(server);
   baseUrl = `http://127.0.0.1:${port}/api`;
@@ -172,8 +197,6 @@ after(async () => {
     if (activeDatabase && createdClientIds.length) {
       await activeDatabase.db.delete(activeDatabase.aiProviderConfigsTable)
         .where(inArray(activeDatabase.aiProviderConfigsTable.clientId, createdClientIds));
-      await activeDatabase.db.delete(activeDatabase.aiActivityTable)
-        .where(inArray(activeDatabase.aiActivityTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
         .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.statementLinesTable)
@@ -188,6 +211,8 @@ after(async () => {
         .where(inArray(activeDatabase.clientsTable.id, createdClientIds));
     }
     if (activeDatabase && createdUserIds.length) {
+      await activeDatabase.db.delete(activeDatabase.workspaceInvitationsTable)
+        .where(inArray(activeDatabase.workspaceInvitationsTable.invitedByUserId, createdUserIds));
       await activeDatabase.db.delete(activeDatabase.usersTable)
         .where(inArray(activeDatabase.usersTable.id, createdUserIds));
     }
@@ -261,17 +286,17 @@ test("reports an exact file re-upload without adding review lines", async () => 
   assert.equal(first.response.status, 201);
   assert.equal(first.body.importedCount, 1);
 
-  const imported = first;
   const duplicate = await importStatement(clientId, "changed-original.csv", "changed-key");
-  assert.ok(duplicate);
+  assert.equal(first.body.importStatus, "imported");
+  assert.equal(duplicate.response.status, 201);
   assert.equal(duplicate.body.importStatus, "duplicates_found");
   assert.equal(duplicate.body.duplicateCount, 1);
   assert.equal(duplicate.body.duplicateLines[0]?.reason, "already_imported");
-  assert.equal(duplicate.body.duplicateLines[0]?.existingLineId, imported.body.lines[0]?.id);
+  assert.equal(duplicate.body.duplicateLines[0]?.existingLineId, first.body.lines[0]?.id);
   assert.equal((await statementLines(clientId)).length, 1);
 });
 
-test("does not merge bank accounts that share last four digits", async () => {
+test("handles concurrent duplicate statement imports once", async () => {
   const clientId = await createClient(`Bank identity ${randomUUID()}`);
   const results = await Promise.all([
     importStatement(clientId, "concurrent-a.csv", "concurrent", " A"),
@@ -428,4 +453,56 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   const managedImport = await importStatement(primaryClientId, "managed-provider.csv", "managed-provider");
   assert.equal(managedImport.response.status, 201);
   assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "ledgerflow-test-openai-key"));
+});
+
+test("invites a bookkeeper with explicit client access and prevents settings administration", async () => {
+  const suffix = randomUUID();
+  const client = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: `Team scope ${suffix}`, legalName: `Team scope ${suffix} LLC` }),
+  });
+  assert.equal(client.response.status, 201);
+  createdClientIds.push(client.body.id);
+
+  const invitedUserId = `ledgerflow-invited-bookkeeper-${suffix}`;
+  const invitedEmail = `${invitedUserId}@example.test`;
+  assert.ok(database);
+  await database.db.insert(database.usersTable).values({
+    id: invitedUserId,
+    email: invitedEmail,
+    firstName: "Invited",
+    lastName: "Bookkeeper",
+  });
+  createdUserIds.push(invitedUserId);
+
+  const invitation = await request<{ email: string; role: string; inviteLink: string }>("/workspace/invitations", {
+    method: "POST",
+    body: JSON.stringify({
+      email: invitedEmail,
+      role: "bookkeeper",
+      clientIds: [client.body.id],
+    }),
+  });
+  assert.equal(invitation.response.status, 201);
+  assert.equal(invitation.body.role, "bookkeeper");
+  const token = new URL(invitation.body.inviteLink).searchParams.get("invite");
+  assert.ok(token);
+  const accepted = await request<{ role: string; clients: Array<{ id: number }> }>(`/workspace/invitations/${token}/accept`, {
+    method: "POST",
+  }, invitedUserId);
+  assert.equal(accepted.response.status, 200);
+  assert.equal(accepted.body.role, "bookkeeper");
+  assert.deepEqual(accepted.body.clients.map((workspace) => workspace.id), [client.body.id]);
+
+  const memberView = await request<{ canManage: boolean; members: Array<{ role: string; clients: Array<{ id: number }> }> }>("/workspace/members", undefined, invitedUserId);
+  assert.equal(memberView.response.status, 200);
+  assert.equal(memberView.body.canManage, false);
+  assert.equal(memberView.body.members[0].role, "bookkeeper");
+  assert.deepEqual(memberView.body.members[0].clients.map((workspace) => workspace.id), [client.body.id]);
+
+  const blockedClient = await request<{ error: string }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({ name: `Blocked ${suffix}`, legalName: `Blocked ${suffix} LLC` }),
+  }, invitedUserId);
+  assert.equal(blockedClient.response.status, 403);
 });

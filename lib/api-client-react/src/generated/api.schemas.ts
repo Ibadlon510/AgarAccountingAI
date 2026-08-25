@@ -88,6 +88,83 @@ export interface ClientUpdateInput {
   period: string;
 }
 
+export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
+
+
+export const WorkspaceRole = {
+  admin: 'admin',
+  bookkeeper: 'bookkeeper',
+} as const;
+
+export interface WorkspaceMembershipClient {
+  id: number;
+  name: string;
+}
+
+export type WorkspaceMemberStatus = typeof WorkspaceMemberStatus[keyof typeof WorkspaceMemberStatus];
+
+
+export const WorkspaceMemberStatus = {
+  active: 'active',
+} as const;
+
+export interface WorkspaceMember {
+  userId: string;
+  email: string;
+  name: string;
+  role: WorkspaceRole;
+  status: WorkspaceMemberStatus;
+  clients: WorkspaceMembershipClient[];
+  isCurrentUser: boolean;
+}
+
+export type WorkspaceInvitationStatus = typeof WorkspaceInvitationStatus[keyof typeof WorkspaceInvitationStatus];
+
+
+export const WorkspaceInvitationStatus = {
+  pending: 'pending',
+  accepted: 'accepted',
+  revoked: 'revoked',
+  expired: 'expired',
+} as const;
+
+export interface WorkspaceInvitation {
+  id: number;
+  email: string;
+  role: WorkspaceRole;
+  status: WorkspaceInvitationStatus;
+  clients: WorkspaceMembershipClient[];
+  invitedBy: string;
+  expiresAt: string;
+  createdAt: string;
+  inviteLink?: string;
+}
+
+export interface WorkspaceMembers {
+  currentRole: WorkspaceRole;
+  canManage: boolean;
+  clients: WorkspaceMembershipClient[];
+  members: WorkspaceMember[];
+  invitations: WorkspaceInvitation[];
+}
+
+export interface WorkspaceInvitationInput {
+  /**
+     * @minLength 3
+     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+     */
+  email: string;
+  role: WorkspaceRole;
+  /** @minItems 1 */
+  clientIds: number[];
+}
+
+export interface WorkspaceMemberUpdate {
+  role: WorkspaceRole;
+  /** @minItems 1 */
+  clientIds: number[];
+}
+
 export type UsageMetricStatus = typeof UsageMetricStatus[keyof typeof UsageMetricStatus];
 
 

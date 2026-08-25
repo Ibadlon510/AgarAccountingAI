@@ -147,6 +147,101 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Client"
+  /workspace/members:
+    get:
+      operationId: getWorkspaceMembers
+      tags: [ledgerflow]
+      summary: Review workspace members and invitations
+      responses:
+        "200":
+          description: Workspace membership and client access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMembers"
+  /workspace/members/{userId}:
+    patch:
+      operationId: updateWorkspaceMember
+      tags: [ledgerflow]
+      summary: Update a member role and client access
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceMemberUpdate"
+      responses:
+        "200":
+          description: Updated workspace member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMember"
+    delete:
+      operationId: removeWorkspaceMember
+      tags: [ledgerflow]
+      summary: Remove a workspace member
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Member removed
+  /workspace/invitations:
+    post:
+      operationId: createWorkspaceInvitation
+      tags: [ledgerflow]
+      summary: Invite a teammate to the workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceInvitationInput"
+      responses:
+        "201":
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceInvitation"
+  /workspace/invitations/{id}:
+    delete:
+      operationId: revokeWorkspaceInvitation
+      tags: [ledgerflow]
+      summary: Revoke a pending workspace invitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Invitation revoked
+  /workspace/invitations/{token}/accept:
+    post:
+      operationId: acceptWorkspaceInvitation
+      tags: [ledgerflow]
+      summary: Accept a workspace invitation
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceMember"
   /ledgerflow/usage:
     get:
       operationId: getLedgerflowUsage
@@ -884,6 +979,82 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+    WorkspaceRole:
+      type: string
+      enum: [admin, bookkeeper]
+    WorkspaceMembershipClient:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: number }
+        name: { type: string }
+    WorkspaceMember:
+      type: object
+      required: [userId, email, name, role, status, clients, isCurrentUser]
+      properties:
+        userId: { type: string }
+        email: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        status: { type: string, enum: [active] }
+        clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceMembershipClient"
+        isCurrentUser: { type: boolean }
+    WorkspaceInvitation:
+      type: object
+      required: [id, email, role, status, clients, invitedBy, expiresAt, createdAt]
+      properties:
+        id: { type: number }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        status: { type: string, enum: [pending, accepted, revoked, expired] }
+        clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceMembershipClient"
+        invitedBy: { type: string }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        inviteLink: { type: string }
+    WorkspaceMembers:
+      type: object
+      required: [currentRole, canManage, clients, members, invitations]
+      properties:
+        currentRole: { $ref: "#/components/schemas/WorkspaceRole" }
+        canManage: { type: boolean }
+        clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceMembershipClient"
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceMember"
+        invitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkspaceInvitation"
+    WorkspaceInvitationInput:
+      type: object
+      required: [email, role, clientIds]
+      properties:
+        email: { type: string, minLength: 3, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        clientIds:
+          type: array
+          minItems: 1
+          items: { type: number }
+    WorkspaceMemberUpdate:
+      type: object
+      required: [role, clientIds]
+      properties:
+        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        clientIds:
+          type: array
+          minItems: 1
+          items: { type: number }
     UsageMetric:
       type: object
       required: [used, limit, percentage, status]

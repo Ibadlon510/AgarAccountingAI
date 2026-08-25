@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, desc, eq, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
-import { createHash } from "node:crypto";
+import { and, asc, desc, eq, gt, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { createHash, randomBytes } from "node:crypto";
 import * as XLSX from "xlsx";
 import {
   ApproveJournalEntryParams,
@@ -10,6 +10,10 @@ import {
   AskLedgerflowAIResponse,
   ConfirmAICopilotActionBody,
   ConfirmAICopilotActionResponse,
+  AcceptWorkspaceInvitationParams,
+  AcceptWorkspaceInvitationResponse,
+  CreateWorkspaceInvitationBody,
+  CreateWorkspaceInvitationResponse,
   CreateBankAccountBody,
   CreateBankAccountResponse,
   CreateExchangeRateBody,
@@ -57,6 +61,12 @@ import {
   UpdateReportPackBody,
   UpdateReportPackParams,
   UpdateReportPackResponse,
+  GetWorkspaceMembersResponse,
+  RemoveWorkspaceMemberParams,
+  RevokeWorkspaceInvitationParams,
+  UpdateWorkspaceMemberBody,
+  UpdateWorkspaceMemberParams,
+  UpdateWorkspaceMemberResponse,
 } from "@workspace/api-zod";
 import {
   accountClassificationsTable,
@@ -74,6 +84,7 @@ import {
   statementImportsTable,
   statementLinesTable,
   usersTable,
+  workspaceInvitationsTable,
 } from "@workspace/db";
 import {
   AIProviderError,
@@ -493,6 +504,123 @@ async function requireOwnedClient(req: Request, res: Response, requestedClientId
   return client;
 }
 
+type WorkspaceRole = "admin" | "bookkeeper";
+
+function clientSummary(client: typeof clientsTable.$inferSelect) {
+  return { id: client.id, name: client.name };
+}
+
+function displayName(user: Pick<typeof usersTable.$inferSelect, "email" | "firstName" | "lastName">) {
+  return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "Team member";
+}
+
+async function getWorkspaceClientIds(userId: string) {
+  const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
+    .from(clientWorkspacesTable)
+    .where(eq(clientWorkspacesTable.userId, userId));
+  return [...new Set(memberships.map((membership) => membership.clientId))];
+}
+
+async function getManageableWorkspaceClientIds(userId: string) {
+  const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
+    .from(clientWorkspacesTable)
+    .where(and(eq(clientWorkspacesTable.userId, userId), eq(clientWorkspacesTable.role, "admin")));
+  return [...new Set(memberships.map((membership) => membership.clientId))];
+}
+
+async function getWorkspaceRole(userId: string): Promise<WorkspaceRole | null> {
+  const memberships = await db.select({ role: clientWorkspacesTable.role })
+    .from(clientWorkspacesTable)
+    .where(eq(clientWorkspacesTable.userId, userId));
+  if (!memberships.length) return null;
+  return memberships.some((membership) => membership.role === "admin") ? "admin" : "bookkeeper";
+}
+
+async function requireWorkspaceAdmin(req: Request, res: Response) {
+  const role = await getWorkspaceRole(currentUserId(req));
+  if (role !== "admin") {
+    res.status(403).json({ error: "Only workspace admins can manage settings and team access." });
+    return null;
+  }
+  return role;
+}
+
+async function requireClientAdmin(req: Request, res: Response, clientId: number) {
+  const [membership] = await db.select({ role: clientWorkspacesTable.role })
+    .from(clientWorkspacesTable)
+    .where(and(eq(clientWorkspacesTable.clientId, clientId), eq(clientWorkspacesTable.userId, currentUserId(req))))
+    .limit(1);
+  if (!membership) {
+    res.status(403).json({ error: "You do not have access to this client workspace." });
+    return null;
+  }
+  if (membership.role !== "admin") {
+    res.status(403).json({ error: "Only workspace admins can manage client settings." });
+    return null;
+  }
+  return membership;
+}
+
+async function preserveClientAdminCoverage(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  targetUserId: string,
+  clientIds: number[],
+) {
+  if (!clientIds.length) return true;
+  const lockedMemberships = await tx.select({
+    clientId: clientWorkspacesTable.clientId,
+    userId: clientWorkspacesTable.userId,
+    role: clientWorkspacesTable.role,
+  }).from(clientWorkspacesTable)
+    .where(inArray(clientWorkspacesTable.clientId, clientIds))
+    .for("update");
+  return clientIds.every((clientId) => lockedMemberships.some((membership) =>
+    membership.clientId === clientId
+    && membership.userId !== targetUserId
+    && membership.role === "admin",
+  ));
+}
+
+function invitationResponse(
+  invitation: typeof workspaceInvitationsTable.$inferSelect,
+  clientsById: Map<number, typeof clientsTable.$inferSelect>,
+  invitedBy: string,
+  inviteLink?: string,
+) {
+  return {
+    id: invitation.id,
+    email: invitation.email,
+    role: invitation.role as WorkspaceRole,
+    status: invitation.status as "pending" | "accepted" | "revoked" | "expired",
+    clients: invitation.clientIds.map((id) => clientsById.get(id)).filter((client): client is typeof clientsTable.$inferSelect => Boolean(client)).map(clientSummary),
+    invitedBy,
+    expiresAt: invitation.expiresAt,
+    createdAt: invitation.createdAt,
+    ...(inviteLink ? { inviteLink } : {}),
+  };
+}
+
+async function workspaceMemberResponse(userId: string, clientIds: number[], currentUserId: string) {
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user) throw new Error("Workspace member account was not found.");
+  const memberships = await db.select({
+    clientId: clientWorkspacesTable.clientId,
+    role: clientWorkspacesTable.role,
+    client: clientsTable,
+  }).from(clientWorkspacesTable)
+    .innerJoin(clientsTable, eq(clientsTable.id, clientWorkspacesTable.clientId))
+    .where(and(eq(clientWorkspacesTable.userId, userId), inArray(clientWorkspacesTable.clientId, clientIds)));
+  return {
+    userId,
+    email: user.email ?? "",
+    name: displayName(user),
+    role: (memberships.some((membership) => membership.role === "admin") ? "admin" : "bookkeeper") as WorkspaceRole,
+    status: "active" as const,
+    clients: memberships.map((membership) => clientSummary(membership.client)),
+    isCurrentUser: userId === currentUserId,
+  };
+}
+
 export async function ensureUserWorkspace(userId: string) {
   await db.transaction(async (tx) => {
     const [user] = await tx.select({
@@ -522,6 +650,16 @@ export async function ensureUserWorkspace(userId: string) {
           .where(eq(usersTable.id, userId));
       }
       return;
+    }
+    if (user.email) {
+      const [pendingInvitation] = await tx.select({ id: workspaceInvitationsTable.id })
+        .from(workspaceInvitationsTable)
+        .where(and(
+          eq(workspaceInvitationsTable.email, user.email.toLowerCase()),
+          eq(workspaceInvitationsTable.status, "pending"),
+        ))
+        .limit(1);
+      if (pendingInvitation) return;
     }
     const accountName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
       || user.email?.split("@")[0]?.trim()
@@ -1797,7 +1935,9 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
 
 router.get("/ledgerflow/ai-settings", async (req, res) => {
   const { clientId } = GetLedgerflowAISettingsQueryParams.parse(req.query);
-  const client = await requireOwnedClient(req, res, clientId);
+  const membership = await requireClientAdmin(req, res, clientId);
+  if (!membership) return;
+  const client = await getOwnedClient(req, clientId);
   if (!client) return;
   try {
     const config = await getAIProviderConfig(client.id);
@@ -1814,7 +1954,9 @@ router.get("/ledgerflow/ai-settings", async (req, res) => {
 
 router.put("/ledgerflow/ai-settings", async (req, res) => {
   const body = UpdateLedgerflowAISettingsBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, body.clientId);
+  const membership = await requireClientAdmin(req, res, body.clientId);
+  if (!membership) return;
+  const client = await getOwnedClient(req, body.clientId);
   if (!client) return;
   const availableModels = await getAIModelCatalog();
   if (!isAIProvider(body.provider) || !isAIModel(availableModels, body.provider, body.model)) {
@@ -1838,7 +1980,9 @@ router.put("/ledgerflow/ai-settings", async (req, res) => {
 
 router.post("/ledgerflow/ai-settings/test", async (req, res) => {
   const body = TestLedgerflowAISettingsBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, body.clientId);
+  const membership = await requireClientAdmin(req, res, body.clientId);
+  if (!membership) return;
+  const client = await getOwnedClient(req, body.clientId);
   if (!client) return;
   try {
     const config = await testAIProvider(client.id);
@@ -1854,7 +1998,9 @@ router.post("/ledgerflow/ai-settings/test", async (req, res) => {
 
 router.delete("/ledgerflow/ai-settings/credential", async (req, res) => {
   const body = RemoveLedgerflowAICredentialBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, body.clientId);
+  const membership = await requireClientAdmin(req, res, body.clientId);
+  if (!membership) return;
+  const client = await getOwnedClient(req, body.clientId);
   if (!client) return;
   try {
     const config = await removeAIProviderCredential(client.id);
@@ -2149,6 +2295,8 @@ router.get("/clients", async (req, res) => {
 });
 
 router.post("/clients", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
   const body = req.body as {
     name?: string;
     legalName?: string;
@@ -2168,7 +2316,7 @@ router.post("/clients", async (req, res) => {
         period: body.period || "August 2026",
       })
       .returning();
-    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: currentUserId(req) });
+    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: currentUserId(req), role: "admin" });
     return created;
   });
   return res.status(201).json(clientResponse(client));
@@ -2176,8 +2324,8 @@ router.post("/clients", async (req, res) => {
 
 router.patch("/clients/:id", async (req, res) => {
   const { id } = UpdateClientParams.parse(req.params);
-  const ownedClient = await requireOwnedClient(req, res, id);
-  if (!ownedClient) return;
+  const membership = await requireClientAdmin(req, res, id);
+  if (!membership) return;
   const parsed = UpdateClientBody.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
@@ -2194,12 +2342,280 @@ router.patch("/clients/:id", async (req, res) => {
   }
   const [client] = await db.update(clientsTable)
     .set(body)
-    .where(eq(clientsTable.id, ownedClient.id))
+    .where(eq(clientsTable.id, id))
     .returning();
   if (!client) {
     return res.status(404).json({ error: "Client workspace not found" });
   }
   return res.json(UpdateClientResponse.parse(clientResponse(client)));
+});
+
+router.get("/workspace/members", async (req, res) => {
+  const actorUserId = currentUserId(req);
+  const currentRole = await getWorkspaceRole(actorUserId);
+  const clientIds = currentRole === "admin"
+    ? await getManageableWorkspaceClientIds(actorUserId)
+    : await getWorkspaceClientIds(actorUserId);
+  if (!currentRole || !clientIds.length) {
+    res.status(403).json({ error: "You do not have access to a workspace." });
+    return;
+  }
+  const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)).orderBy(asc(clientsTable.name));
+  if (currentRole !== "admin") {
+    const currentMember = await workspaceMemberResponse(actorUserId, clientIds, actorUserId);
+    res.json(GetWorkspaceMembersResponse.parse({
+      currentRole,
+      canManage: false,
+      clients: clients.map(clientSummary),
+      members: [currentMember],
+      invitations: [],
+    }));
+    return;
+  }
+
+  await db.update(workspaceInvitationsTable)
+    .set({ status: "expired" })
+    .where(and(eq(workspaceInvitationsTable.status, "pending"), lte(workspaceInvitationsTable.expiresAt, new Date())));
+
+  const memberships = await db.select({ userId: clientWorkspacesTable.userId })
+    .from(clientWorkspacesTable)
+    .where(inArray(clientWorkspacesTable.clientId, clientIds));
+  const memberIds = [...new Set(memberships.map((membership) => membership.userId))];
+  const members = await Promise.all(memberIds.map((userId) => workspaceMemberResponse(userId, clientIds, actorUserId)));
+  const invitations = (await db.select().from(workspaceInvitationsTable))
+    .filter((invitation) => invitation.clientIds.every((clientId) => clientIds.includes(clientId)));
+  const inviterIds = [...new Set(invitations.map((invitation) => invitation.invitedByUserId))];
+  const inviters = inviterIds.length
+    ? await db.select().from(usersTable).where(inArray(usersTable.id, inviterIds))
+    : [];
+  const inviterNames = new Map(inviters.map((user) => [user.id, displayName(user)]));
+  const clientsById = new Map(clients.map((client) => [client.id, client]));
+  res.json(GetWorkspaceMembersResponse.parse({
+    currentRole,
+    canManage: true,
+    clients: clients.map(clientSummary),
+    members,
+    invitations: invitations.map((invitation) => invitationResponse(
+      invitation,
+      clientsById,
+      inviterNames.get(invitation.invitedByUserId) ?? "Workspace admin",
+    )),
+  }));
+});
+
+router.post("/workspace/invitations", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
+  const body = CreateWorkspaceInvitationBody.parse(req.body);
+  const actorUserId = currentUserId(req);
+  const clientIds = await getManageableWorkspaceClientIds(actorUserId);
+  const selectedClientIds = [...new Set(body.clientIds)];
+  if (!selectedClientIds.every((clientId) => clientIds.includes(clientId))) {
+    res.status(400).json({ error: "Client access must be limited to workspaces you can manage." });
+    return;
+  }
+  const email = body.email.trim().toLowerCase();
+  const [existingUser] = await db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1);
+  if (existingUser) {
+    const [existingMembership] = await db.select({ userId: clientWorkspacesTable.userId })
+      .from(clientWorkspacesTable)
+      .where(and(eq(clientWorkspacesTable.userId, existingUser.id), inArray(clientWorkspacesTable.clientId, selectedClientIds)))
+      .limit(1);
+    if (existingMembership) {
+      res.status(409).json({ error: "This teammate already has access. Update their role or client access instead." });
+      return;
+    }
+  }
+  const pendingInvitations = await db.select().from(workspaceInvitationsTable)
+    .where(and(eq(workspaceInvitationsTable.email, email), eq(workspaceInvitationsTable.status, "pending")));
+  if (pendingInvitations.some((invitation) => invitation.clientIds.some((clientId) => clientIds.includes(clientId)))) {
+    res.status(409).json({ error: "This teammate already has a pending invitation. Revoke it before sending a new one." });
+    return;
+  }
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const [invitation] = await db.insert(workspaceInvitationsTable).values({
+    email,
+    role: body.role,
+    clientIds: selectedClientIds,
+    invitedByUserId: actorUserId,
+    tokenHash,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  }).returning();
+  const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, selectedClientIds));
+  const [actor] = await db.select().from(usersTable).where(eq(usersTable.id, actorUserId)).limit(1);
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = typeof forwardedProto === "string" ? forwardedProto : req.protocol;
+  const host = req.headers["x-forwarded-host"] ?? req.get("host");
+  const inviteLink = `${protocol}://${host}/?invite=${encodeURIComponent(token)}`;
+  res.status(201).json(CreateWorkspaceInvitationResponse.parse(invitationResponse(
+    invitation,
+    new Map(clients.map((client) => [client.id, client])),
+    actor ? displayName(actor) : "Workspace admin",
+    inviteLink,
+  )));
+});
+
+router.patch("/workspace/members/:userId", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
+  const { userId } = UpdateWorkspaceMemberParams.parse(req.params);
+  const body = UpdateWorkspaceMemberBody.parse(req.body);
+  const actorUserId = currentUserId(req);
+  if (userId === actorUserId) {
+    res.status(400).json({ error: "Use another workspace admin to change your own access." });
+    return;
+  }
+  const workspaceClientIds = await getManageableWorkspaceClientIds(actorUserId);
+  const selectedClientIds = [...new Set(body.clientIds)];
+  if (!selectedClientIds.every((clientId) => workspaceClientIds.includes(clientId))) {
+    res.status(400).json({ error: "Client access must be limited to workspaces you can manage." });
+    return;
+  }
+  const targetMemberships = await db.select()
+    .from(clientWorkspacesTable)
+    .where(and(eq(clientWorkspacesTable.userId, userId), inArray(clientWorkspacesTable.clientId, workspaceClientIds)));
+  if (!targetMemberships.length) {
+    res.status(404).json({ error: "Workspace member not found." });
+    return;
+  }
+  const adminMembershipsRemoved = targetMemberships.filter((membership) =>
+    membership.role === "admin" && (body.role !== "admin" || !selectedClientIds.includes(membership.clientId)),
+  );
+  const updated = await db.transaction(async (tx) => {
+    if (!await preserveClientAdminCoverage(tx, userId, adminMembershipsRemoved.map((membership) => membership.clientId))) {
+      return false;
+    }
+    await tx.delete(clientWorkspacesTable).where(and(
+      eq(clientWorkspacesTable.userId, userId),
+      inArray(clientWorkspacesTable.clientId, workspaceClientIds),
+    ));
+    await tx.insert(clientWorkspacesTable).values(selectedClientIds.map((clientId) => ({
+      clientId,
+      userId,
+      role: body.role,
+    })));
+    return true;
+  });
+  if (!updated) {
+    res.status(400).json({ error: "Keep at least one admin for each affected client workspace." });
+    return;
+  }
+  res.json(UpdateWorkspaceMemberResponse.parse(await workspaceMemberResponse(userId, workspaceClientIds, actorUserId)));
+});
+
+router.delete("/workspace/members/:userId", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
+  const { userId } = RemoveWorkspaceMemberParams.parse(req.params);
+  const actorUserId = currentUserId(req);
+  if (userId === actorUserId) {
+    res.status(400).json({ error: "You cannot remove yourself from the workspace." });
+    return;
+  }
+  const workspaceClientIds = await getManageableWorkspaceClientIds(actorUserId);
+  const targetMemberships = await db.select()
+    .from(clientWorkspacesTable)
+    .where(and(eq(clientWorkspacesTable.userId, userId), inArray(clientWorkspacesTable.clientId, workspaceClientIds)));
+  if (!targetMemberships.length) {
+    res.status(404).json({ error: "Workspace member not found." });
+    return;
+  }
+  const removed = await db.transaction(async (tx) => {
+    const adminMemberships = targetMemberships.filter((membership) => membership.role === "admin");
+    if (!await preserveClientAdminCoverage(tx, userId, adminMemberships.map((membership) => membership.clientId))) {
+      return false;
+    }
+    await tx.delete(clientWorkspacesTable).where(and(
+      eq(clientWorkspacesTable.userId, userId),
+      inArray(clientWorkspacesTable.clientId, workspaceClientIds),
+    ));
+    return true;
+  });
+  if (!removed) {
+    res.status(400).json({ error: "Keep at least one admin for each affected client workspace." });
+    return;
+  }
+  res.sendStatus(204);
+});
+
+router.delete("/workspace/invitations/:id", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
+  const { id } = RevokeWorkspaceInvitationParams.parse(req.params);
+  const clientIds = await getManageableWorkspaceClientIds(currentUserId(req));
+  const [invitation] = await db.select().from(workspaceInvitationsTable).where(eq(workspaceInvitationsTable.id, id)).limit(1);
+  if (!invitation || !invitation.clientIds.every((clientId) => clientIds.includes(clientId))) {
+    res.status(404).json({ error: "Workspace invitation not found." });
+    return;
+  }
+  const [revoked] = await db.update(workspaceInvitationsTable)
+    .set({ status: "revoked" })
+    .where(and(eq(workspaceInvitationsTable.id, id), eq(workspaceInvitationsTable.status, "pending")))
+    .returning({ id: workspaceInvitationsTable.id });
+  if (!revoked) {
+    res.status(409).json({ error: "Only pending invitations can be revoked." });
+    return;
+  }
+  res.sendStatus(204);
+});
+
+router.post("/workspace/invitations/:token/accept", async (req, res) => {
+  const { token } = AcceptWorkspaceInvitationParams.parse(req.params);
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const [invitation] = await db.select().from(workspaceInvitationsTable)
+    .where(eq(workspaceInvitationsTable.tokenHash, tokenHash))
+    .limit(1);
+  if (!invitation || invitation.status !== "pending") {
+    res.status(404).json({ error: "This invitation is no longer available." });
+    return;
+  }
+  if (invitation.expiresAt <= new Date()) {
+    await db.update(workspaceInvitationsTable).set({ status: "expired" }).where(eq(workspaceInvitationsTable.id, invitation.id));
+    res.status(410).json({ error: "This invitation has expired. Ask a workspace admin for a new one." });
+    return;
+  }
+  const userId = currentUserId(req);
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+  if (!user?.email || user.email.toLowerCase() !== invitation.email.toLowerCase()) {
+    res.status(403).json({ error: "Sign in with the email address that received this invitation." });
+    return;
+  }
+  const clients = await db.select({ id: clientsTable.id })
+    .from(clientsTable)
+    .where(inArray(clientsTable.id, invitation.clientIds));
+  if (clients.length !== invitation.clientIds.length) {
+    res.status(409).json({ error: "One or more invited client workspaces are no longer available." });
+    return;
+  }
+  const accepted = await db.transaction(async (tx) => {
+    const [claimedInvitation] = await tx.update(workspaceInvitationsTable)
+      .set({ status: "accepted", acceptedUserId: userId })
+      .where(and(
+        eq(workspaceInvitationsTable.id, invitation.id),
+        eq(workspaceInvitationsTable.status, "pending"),
+        gt(workspaceInvitationsTable.expiresAt, new Date()),
+      ))
+      .returning({ id: workspaceInvitationsTable.id });
+    if (!claimedInvitation) return false;
+    await tx.insert(clientWorkspacesTable).values(invitation.clientIds.map((clientId) => ({
+      clientId,
+      userId,
+      role: invitation.role,
+    }))).onConflictDoUpdate({
+      target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId],
+      set: { role: invitation.role },
+    });
+    await tx.update(usersTable).set({ starterClientId: invitation.clientIds[0] }).where(eq(usersTable.id, userId));
+    return true;
+  });
+  if (!accepted) {
+    res.status(409).json({ error: "This invitation was revoked or has expired." });
+    return;
+  }
+  res.json(AcceptWorkspaceInvitationResponse.parse(
+    await workspaceMemberResponse(userId, invitation.clientIds, userId),
+  ));
 });
 
 router.get("/ledgerflow/exchange-rates", async (req, res) => {
@@ -2211,6 +2627,8 @@ router.get("/ledgerflow/exchange-rates", async (req, res) => {
 });
 
 router.post("/ledgerflow/exchange-rates", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
   const parsed = CreateExchangeRateBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A valid dated exchange rate is required." });
   let body: ReturnType<typeof normalizeRateInput>;
@@ -2232,6 +2650,8 @@ router.post("/ledgerflow/exchange-rates", async (req, res) => {
 });
 
 router.patch("/ledgerflow/exchange-rates/:id", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
   const params = UpdateExchangeRateParams.safeParse(req.params);
   const parsed = UpdateExchangeRateBody.safeParse(req.body);
   if (!params.success || !parsed.success) return res.status(400).json({ error: "A valid dated exchange rate is required." });
@@ -2258,6 +2678,8 @@ router.patch("/ledgerflow/exchange-rates/:id", async (req, res) => {
 });
 
 router.delete("/ledgerflow/exchange-rates/:id", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
   const params = DeleteExchangeRateParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: "Invalid exchange rate." });
   const [deleted] = await db.delete(exchangeRatesTable).where(and(
@@ -2270,6 +2692,8 @@ router.delete("/ledgerflow/exchange-rates/:id", async (req, res) => {
 });
 
 router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
   const parsed = ImportExchangeRatesBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "At least one valid exchange rate is required." });
   let rates: Array<ReturnType<typeof normalizeRateInput>>;
