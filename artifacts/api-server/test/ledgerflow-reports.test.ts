@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -35,6 +35,30 @@ async function request<T>(path: string, init?: RequestInit, userId = primaryUser
     response,
     body: await response.json() as T,
   };
+}
+
+type TrialBalanceRow = {
+  account: string;
+  debit: number;
+  credit: number;
+  balance: number;
+};
+
+type StatementSection = {
+  label: string;
+  amount: number;
+};
+
+type FinancialStatements = {
+  incomeStatement: StatementSection[];
+  balanceSheet: StatementSection[];
+  cashFlow: StatementSection[];
+};
+
+function sectionAmount(sections: StatementSection[], label: string) {
+  const section = sections.find((item) => item.label === label);
+  assert.ok(section, `Expected statement section "${label}"`);
+  return section.amount;
 }
 
 before(async () => {
@@ -80,6 +104,8 @@ after(async () => {
       .where(eq(database.clientsTable.id, clientId));
   }
   if (database) {
+    await database.db.delete(database.classificationPatternsTable)
+      .where(inArray(database.classificationPatternsTable.userId, [primaryUserId, secondaryUserId]));
     await database.db.delete(database.usersTable)
       .where(eq(database.usersTable.id, primaryUserId));
     await database.db.delete(database.usersTable)
@@ -88,7 +114,7 @@ after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
 });
 
-test("serves client-scoped reports through Clerk session claims", async () => {
+test("posting a journal entry updates client-scoped reports", async () => {
   const client = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
@@ -104,7 +130,7 @@ test("serves client-scoped reports through Clerk session claims", async () => {
     body: JSON.stringify({
       clientId,
       date: "2026-08-24",
-      description: "Scoped report transaction",
+      description: "Scoped software subscription",
       currency: "AED",
       amount: 125,
       direction: "outflow",
@@ -112,14 +138,79 @@ test("serves client-scoped reports through Clerk session claims", async () => {
   });
   assert.equal(line.response.status, 201);
 
-  const [trialBalance, financialStatements, forbidden] = await Promise.all([
-    request<unknown[]>(`/ledgerflow/trial-balance?clientId=${clientId}`),
-    request<{ incomeStatement: unknown[] }>(`/ledgerflow/financial-statements?clientId=${clientId}`),
+  const entries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
+    `/ledgerflow/journal-entries?clientId=${clientId}`,
+  );
+  assert.equal(entries.response.status, 200);
+  const entry = entries.body.find((item) => item.statementLineId === line.body.id);
+  assert.ok(entry, "Expected a journal entry for the new statement line");
+  assert.equal(entry.status, "suggested");
+
+  const [beforeTrialBalance, beforeStatements, forbiddenReport] = await Promise.all([
+    request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`),
+    request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`),
     request<{ error: string }>(`/ledgerflow/trial-balance?clientId=${clientId}`, undefined, secondaryUserId),
   ]);
-  assert.equal(trialBalance.response.status, 200);
-  assert.equal(financialStatements.response.status, 200);
-  assert.equal(forbidden.response.status, 403);
+  assert.equal(beforeTrialBalance.response.status, 200);
+  assert.equal(beforeStatements.response.status, 200);
+  assert.equal(forbiddenReport.response.status, 403);
+
+  const forbiddenApproval = await request<{ error: string }>(`/ledgerflow/journal-entries/${entry.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  }, secondaryUserId);
+  assert.equal(forbiddenApproval.response.status, 403);
+
+  const approval = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(approval.response.status, 200);
+  assert.equal(approval.body.status, "approved");
+
+  const [approvedTrialBalance, approvedStatements, forbiddenPost] = await Promise.all([
+    request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`),
+    request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`),
+    request<{ error: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    }, secondaryUserId),
+  ]);
+  assert.deepEqual(approvedTrialBalance.body, beforeTrialBalance.body);
+  assert.deepEqual(approvedStatements.body, beforeStatements.body);
+  assert.equal(forbiddenPost.response.status, 403);
+
+  const posting = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(posting.response.status, 200);
+  assert.equal(posting.body.status, "posted");
+
+  const [postedTrialBalance, postedStatements] = await Promise.all([
+    request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`),
+    request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`),
+  ]);
+  assert.equal(postedTrialBalance.response.status, 200);
+  assert.equal(postedStatements.response.status, 200);
+
+  const amount = 125;
+  const beforeSoftware = beforeTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit ?? 0;
+  const beforeCash = beforeTrialBalance.body.find((row) => row.account === "Bank / cash")?.credit ?? 0;
+  const postedSoftware = postedTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit ?? 0;
+  const postedCash = postedTrialBalance.body.find((row) => row.account === "Bank / cash")?.credit ?? 0;
+  assert.equal(postedSoftware - beforeSoftware, amount);
+  assert.equal(postedCash - beforeCash, amount);
+
+  const beforeExpenses = sectionAmount(beforeStatements.body.incomeStatement, "Operating expenses");
+  const beforeNetIncome = sectionAmount(beforeStatements.body.incomeStatement, "Net income");
+  const beforeCashFlow = sectionAmount(beforeStatements.body.cashFlow, "Net cash from operating activities");
+  const postedExpenses = sectionAmount(postedStatements.body.incomeStatement, "Operating expenses");
+  const postedNetIncome = sectionAmount(postedStatements.body.incomeStatement, "Net income");
+  const postedCashFlow = sectionAmount(postedStatements.body.cashFlow, "Net cash from operating activities");
+  assert.equal(postedExpenses - beforeExpenses, -amount);
+  assert.equal(postedNetIncome - beforeNetIncome, -amount);
+  assert.equal(postedCashFlow - beforeCashFlow, -amount);
 });
 
 type WorkspaceUsageSummary = {
