@@ -5,6 +5,8 @@ import {
   useAskLedgerflowAI, 
   useImportStatement, 
   useConfirmAICopilotAction,
+  useGetStatementImports,
+  getGetStatementImportsQueryKey,
   getGetStatementLinesQueryKey, 
   getGetBulkTransitionAuditsQueryKey,
   getGetLedgerOverviewQueryKey,
@@ -34,6 +36,62 @@ type Message = {
 };
 
 const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
+const ASSISTANT_STATE_STORAGE_KEY = 'ledgerflow-ai-assistant-state';
+
+type PendingImport = {
+  clientId: number;
+  fileName: string;
+  objectPath: string;
+  startedAt: number;
+  progressMessageId: string;
+};
+
+type AssistantState = {
+  messagesByClient: Record<string, Message[]>;
+  pendingImports: Record<string, PendingImport>;
+};
+
+const initialAssistantMessage = (clientName?: string): Message => ({
+  id: `workspace-${clientName ?? 'none'}`,
+  role: 'assistant',
+  type: 'text',
+  content: clientName
+    ? `You are working in ${clientName}. Ask about its review queue, posted entries, or upload a statement.`
+    : 'Select a workspace to ask questions or import a statement.',
+});
+
+function readAssistantState(): AssistantState {
+  try {
+    const stored = window.localStorage.getItem(ASSISTANT_STATE_STORAGE_KEY);
+    if (!stored) return { messagesByClient: {}, pendingImports: {} };
+    const parsed = JSON.parse(stored) as Partial<AssistantState>;
+    return {
+      messagesByClient: parsed.messagesByClient ?? {},
+      pendingImports: parsed.pendingImports ?? {},
+    };
+  } catch {
+    return { messagesByClient: {}, pendingImports: {} };
+  }
+}
+
+function importErrorMessage(error: unknown) {
+  let message: string | null = null;
+  if (typeof error === 'object' && error !== null) {
+    if ('data' in error) {
+      const data = (error as { data?: unknown }).data;
+      if (typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error?: unknown }).error === 'string') {
+        message = (data as { error: string }).error;
+      } else if (typeof data === 'string') {
+        message = data;
+      }
+    }
+    if (!message && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+      message = (error as { message: string }).message;
+    }
+  }
+  if (!message && typeof error === 'string') message = error;
+  return (message ?? 'Unknown error').replace(/^HTTP\s+\d+\s*:\s*/i, '');
+}
 
 function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: AICopilotRecommendation; activeClientId: number; onClose: () => void; onApplied?: () => void }) {
   const confirmMutation = useConfirmAICopilotAction();
@@ -158,48 +216,117 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
 
 export function AssistantFAB() {
   const [isOpen, setIsOpen] = useState(false);
-  const { activeClient } = useClientWorkspace();
+  const { activeClient, clients } = useClientWorkspace();
   const queryClient = useQueryClient();
   const chatMutation = useAskLedgerflowAI();
   const importMutation = useImportStatement();
   const { uploadFile, isUploading } = useUpload();
-  
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', role: 'assistant', type: 'text', content: 'Hello. I can answer questions about this workspace or extract transactions from a bank statement.' }
-  ]);
+  const [assistantState, setAssistantState] = useState<AssistantState>(readAssistantState);
   const [input, setInput] = useState('');
+  const [activeChatClientId, setActiveChatClientId] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeClientKey = activeClient ? String(activeClient.id) : 'none';
+  const pendingImport = activeClient ? assistantState.pendingImports[activeClientKey] : undefined;
+  const messages = activeClient
+    ? assistantState.messagesByClient[activeClientKey] ?? [initialAssistantMessage(activeClient.name)]
+    : [initialAssistantMessage()];
+  const importTrail = useGetStatementImports(
+    { clientId: activeClient?.id ?? 0 },
+    {
+      query: {
+        queryKey: getGetStatementImportsQueryKey({ clientId: activeClient?.id ?? 0 }),
+        enabled: Boolean(activeClient && pendingImport),
+        refetchInterval: pendingImport ? 2_500 : false,
+      },
+    },
+  );
+  const updateMessages = (clientId: number, transform: (current: Message[]) => Message[]) => {
+    setAssistantState((current) => {
+      const key = String(clientId);
+      const existing = current.messagesByClient[key] ?? [initialAssistantMessage(clients.find((client) => client.id === clientId)?.name)];
+      return {
+        ...current,
+        messagesByClient: { ...current.messagesByClient, [key]: transform(existing) },
+      };
+    });
+  };
+  const clearPendingImport = (clientId: number) => {
+    setAssistantState((current) => {
+      const pendingImports = { ...current.pendingImports };
+      delete pendingImports[String(clientId)];
+      return { ...current, pendingImports };
+    });
+  };
+
+  useEffect(() => {
+    window.localStorage.setItem(ASSISTANT_STATE_STORAGE_KEY, JSON.stringify(assistantState));
+  }, [assistantState]);
+
+  useEffect(() => {
+    if (!activeClient) return;
+    setAssistantState((current) => {
+      const key = String(activeClient.id);
+      if (current.messagesByClient[key]) return current;
+      return {
+        ...current,
+        messagesByClient: {
+          ...current.messagesByClient,
+          [key]: [initialAssistantMessage(activeClient.name)],
+        },
+      };
+    });
+    setInput('');
+  }, [activeClient?.id]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen, chatMutation.isPending]);
+  }, [messages, isOpen, activeChatClientId, pendingImport]);
 
   useEffect(() => {
-    setMessages([{
-      id: `workspace-${activeClient?.id ?? 'none'}`,
-      role: 'assistant',
-      type: 'text',
-      content: activeClient
-        ? `You are working in ${activeClient.name}. Ask about its review queue, posted entries, or upload a statement.`
-        : 'Select a workspace to ask questions or import a statement.',
-    }]);
-    setInput('');
-  }, [activeClient?.id]);
+    if (!activeClient || !pendingImport) return;
+    const matchingImport = importTrail.data?.find((item) => item.objectPath === pendingImport.objectPath);
+    if (!matchingImport) return;
+    const settledMessage: Message = matchingImport.outcome === 'failed'
+      ? {
+          id: pendingImport.progressMessageId,
+          role: 'assistant',
+          type: 'text',
+          content: `Import failed: ${matchingImport.errorMessage ?? 'The statement could not be processed.'}`,
+        }
+      : {
+          id: pendingImport.progressMessageId,
+          role: 'assistant',
+          type: 'import-result',
+          content: matchingImport.outcome === 'duplicate'
+            ? 'This statement was already imported.'
+            : 'Import completed.',
+          importData: { importedCount: matchingImport.importedLineCount },
+        };
+    updateMessages(activeClient.id, (current) =>
+      current.some((message) => message.id === pendingImport.progressMessageId)
+        ? current.map((message) => message.id === pendingImport.progressMessageId ? settledMessage : message)
+        : [...current, settledMessage],
+    );
+    clearPendingImport(activeClient.id);
+    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
+    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+  }, [activeClient?.id, importTrail.data, pendingImport]);
 
   const handleSend = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() || !activeClient) return;
-
+    const client = activeClient;
     const userMsg: Message = { id: Date.now().toString(), role: 'user', type: 'text', content: input.trim() };
-    setMessages(prev => [...prev, userMsg]);
+    updateMessages(client.id, (current) => [...current, userMsg]);
     setInput('');
 
-    chatMutation.mutate({ data: { clientId: activeClient.id, message: userMsg.content } }, {
+    setActiveChatClientId(client.id);
+    chatMutation.mutate({ data: { clientId: client.id, message: userMsg.content } }, {
       onSuccess: (res) => {
-        setMessages(prev => [...prev, {
+        updateMessages(client.id, (current) => [...current, {
           id: Date.now().toString(),
           role: 'assistant',
           type: res.recommendations && res.recommendations.length > 0 ? 'recommendations' : 'text',
@@ -207,14 +334,16 @@ export function AssistantFAB() {
           context: res.context,
           recommendations: res.recommendations
         }]);
+        setActiveChatClientId(null);
       },
       onError: () => {
-        setMessages(prev => [...prev, {
+        updateMessages(client.id, (current) => [...current, {
           id: Date.now().toString(),
           role: 'assistant',
           type: 'text',
           content: 'I encountered an error processing your request.'
         }]);
+        setActiveChatClientId(null);
       }
     });
   };
@@ -222,40 +351,54 @@ export function AssistantFAB() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeClient) return;
-    
+    const client = activeClient;
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     const progressId = Date.now().toString();
 
     if (file.size > MAX_IMPORT_FILE_SIZE) {
-      setMessages(prev => [...prev,
+      updateMessages(client.id, (current) => [...current,
         { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
         { id: progressId, role: 'assistant', type: 'text', content: 'Statement file is too large. Choose a file no larger than 50 MB.' },
       ]);
       return;
     }
     
-    setMessages(prev => [
-      ...prev,
+    updateMessages(client.id, (current) => [
+      ...current,
       { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
       { id: progressId, role: 'assistant', type: 'import-progress', content: 'Uploading the original file to private storage...' }
     ]);
 
     try {
-      const uploaded = await uploadFile(file, { clientId: activeClient.id });
+      const uploaded = await uploadFile(file, { clientId: client.id });
       if (!uploaded) throw new Error('The private statement upload did not complete. Please try again.');
-      setMessages(prev => prev.map(m => m.id === progressId ? { ...m, content: 'Upload complete. Extracting data...' } : m));
+      const pending: PendingImport = {
+        clientId: client.id,
+        fileName: file.name,
+        objectPath: uploaded.objectPath,
+        startedAt: Date.now(),
+        progressMessageId: progressId,
+      };
+      setAssistantState((current) => ({
+        ...current,
+        pendingImports: { ...current.pendingImports, [String(client.id)]: pending },
+      }));
+      updateMessages(client.id, (current) => current.map((message) =>
+        message.id === progressId ? { ...message, content: 'Upload complete. Extracting data in the background...' } : message,
+      ));
       const data = await importMutation.mutateAsync({
         data: {
-          clientId: activeClient.id,
+          clientId: client.id,
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           objectPath: uploaded.objectPath,
-          currency: activeClient.functionalCurrency || 'AED'
+          currency: client.functionalCurrency || 'AED'
         }
       });
-      setMessages(prev => prev.map(m => m.id === progressId ? {
-        ...m,
+      clearPendingImport(client.id);
+      updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
+        ...message,
         type: 'import-result',
         content: 'Import completed.',
         importData: {
@@ -263,17 +406,34 @@ export function AssistantFAB() {
           bankAccountName: data.bankAccount?.name,
           accountNumberLast4: data.bankAccount?.accountNumberLast4,
         }
-      } : m));
-      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
-      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+      } : message));
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: client.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: client.id }) });
     } catch (error) {
-      setMessages(prev => prev.map(m => m.id === progressId ? {
-        ...m,
-        type: 'text',
-        content: `Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      } : m));
+      const status = typeof error === 'object' && error !== null && 'status' in error
+        ? Number((error as { status?: unknown }).status)
+        : null;
+      if (status !== null && status >= 400 && status < 500) {
+        clearPendingImport(client.id);
+        updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
+          ...message,
+          type: 'text',
+          content: `Import failed: ${importErrorMessage(error)}`
+        } : message));
+      } else {
+        updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
+          ...message,
+          type: 'import-progress',
+          content: 'Connection interrupted. LedgerFlow will keep checking this client’s import trail.'
+        } : message));
+      }
     }
   };
+  const isChatWorkingForActiveClient = chatMutation.isPending && activeChatClientId === activeClient?.id;
+  const backgroundImportClients = Object.values(assistantState.pendingImports)
+    .filter((pending) => pending.clientId !== activeClient?.id)
+    .map((pending) => clients.find((client) => client.id === pending.clientId)?.name ?? 'another client');
+  const backgroundWorkCount = backgroundImportClients.length + (chatMutation.isPending && activeChatClientId !== activeClient?.id ? 1 : 0);
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
@@ -286,9 +446,10 @@ export function AssistantFAB() {
               </div>
               <div>
                 <h3 className="text-[13px] font-semibold leading-none text-foreground">LedgerFlow AI</h3>
-                <p className="mt-1 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">
-                  {activeClient ? activeClient.name : 'Select a workspace'}
-                </p>
+                  <p className="mt-1 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">
+                   {activeClient ? activeClient.name : 'Select a workspace'}
+                 </p>
+                 {backgroundWorkCount > 0 && <p data-testid="text-ai-background-work" className="mt-1 text-[10px] text-primary">Still working in {backgroundImportClients[0] ?? 'another client'}{backgroundWorkCount > 1 ? ` and ${backgroundWorkCount - 1} more` : ''}.</p>}
               </div>
             </div>
             <button 
@@ -337,7 +498,7 @@ export function AssistantFAB() {
                                 onApplied={() => {
                                   if (rec.type !== 'bulk_post_entries' || !msg.context) return;
                                   const movedLines = rec.lineCount ?? rec.statementLineIds?.length ?? 0;
-                                  setMessages((current) => current.map((item) => item.id === msg.id && item.context
+                                  updateMessages(activeClient.id, (current) => current.map((item) => item.id === msg.id && item.context
                                     ? {
                                       ...item,
                                       context: {
@@ -369,7 +530,7 @@ export function AssistantFAB() {
                 )}
               </div>
             ))}
-            {chatMutation.isPending && (
+            {isChatWorkingForActiveClient && (
               <div className="flex w-full justify-start">
                 <div className="max-w-[85%] rounded-lg border border-card-border bg-card px-4 py-3.5 text-[13px] shadow-sm">
                   <div className="flex gap-1.5">
@@ -396,7 +557,7 @@ export function AssistantFAB() {
                 type="button"
                 title="Import statement"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={!activeClient || importMutation.isPending || isUploading}
+                disabled={!activeClient || importMutation.isPending || isUploading || Boolean(pendingImport)}
                 className="grid size-9 shrink-0 place-items-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 transition-colors"
               >
                 <Paperclip size={17} />
@@ -428,7 +589,7 @@ export function AssistantFAB() {
         onClick={() => setIsOpen(!isOpen)}
         className={`flex size-[52px] items-center justify-center rounded-full shadow-lg transition-transform hover:-translate-y-0.5 ${isOpen ? 'bg-secondary text-foreground hover:bg-secondary/80' : 'bg-primary text-primary-foreground'}`}
       >
-        {isOpen ? <X size={22} /> : <Sparkles size={22} />}
+        {isOpen ? <X size={22} /> : isUploading || importMutation.isPending || backgroundWorkCount > 0 ? <Loader2 size={22} className="animate-spin" /> : <Sparkles size={22} />}
       </button>
     </div>
   );

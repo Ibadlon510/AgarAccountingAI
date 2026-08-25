@@ -789,6 +789,7 @@ export const GetStatementImportsResponseItem = zod.object({
   "id": zod.number(),
   "fileName": zod.string(),
   "mimeType": zod.string(),
+  "objectPath": zod.string().nullable(),
   "outcome": zod.enum(['completed', 'duplicate', 'failed']),
   "errorMessage": zod.string().nullish(),
   "importedLineCount": zod.number(),

@@ -1297,11 +1297,12 @@ components:
             - type: "null"
     StatementImport:
       type: object
-      required: [id, fileName, mimeType, outcome, importedLineCount, createdAt]
+      required: [id, fileName, mimeType, objectPath, outcome, importedLineCount, createdAt]
       properties:
         id: { type: number }
         fileName: { type: string }
         mimeType: { type: string }
+        objectPath: { type: ["string", "null"] }
         outcome: { type: string, enum: [completed, duplicate, failed] }
         errorMessage: { type: ["string", "null"] }
         importedLineCount: { type: number }

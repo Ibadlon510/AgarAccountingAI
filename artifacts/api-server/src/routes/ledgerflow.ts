@@ -1574,22 +1574,85 @@ function prepareBulkActionRecommendation(
   };
 }
 
+type StatementColumns = {
+  headerRowIndex: number;
+  date: number;
+  description: number;
+  amount: number;
+  debit: number;
+  credit: number;
+  balance: number;
+};
+
+function statementColumns(text: string): StatementColumns | null {
+  const rows = text.split(/\r?\n/);
+  for (let headerRowIndex = 0; headerRowIndex < Math.min(rows.length, 20); headerRowIndex += 1) {
+    const headers = rows[headerRowIndex].split(/,|\t|;/).map((cell) => cell.trim().toLowerCase());
+    const date = headers.findIndex((header) => /\b(date|transaction date|value date)\b/.test(header));
+    const description = headers.findIndex((header) => /\b(description|narration|narrative|details|transaction|memo|reference|remarks|particulars)\b/.test(header));
+    const debit = headers.findIndex((header) => /\b(debit|withdrawal|paid out)\b/.test(header));
+    const credit = headers.findIndex((header) => /\b(credit|deposit|paid in)\b/.test(header));
+    const amount = headers.findIndex((header) => /\b(amount|transaction amount|value)\b/.test(header));
+    const balance = headers.findIndex((header) => /\bbalance\b/.test(header));
+    if (date >= 0 && description >= 0 && (amount >= 0 || debit >= 0 || credit >= 0)) {
+      return { headerRowIndex, date, description, amount, debit, credit, balance };
+    }
+  }
+  return null;
+}
+
+function numericCell(value: string) {
+  const numeric = Number(value.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
 function normalizeRows(text: string, currency: string): ParsedBankLine[] {
-  return text.split(/\r?\n/).slice(1).map((row) => {
+  const columns = statementColumns(text);
+  if (!columns) return [];
+  const rows = text.split(/\r?\n/).slice(columns.headerRowIndex + 1);
+  const parsedRows: Array<ParsedBankLine | null> = rows.map((row): ParsedBankLine | null => {
     const cells = row.split(/,|\t|;/).map((cell) => cell.trim().replace(/^"|"$/g, ""));
-    const amountCell = cells.find((cell) => /-?\d[\d,]*(\.\d+)?/.test(cell)) ?? "0";
-    const amount = Number(amountCell.replace(/[^0-9.-]/g, ""));
-    const description = cells.slice(1, Math.max(2, cells.length - 1)).join(" ") || "Imported bank activity";
+    const date = cells[columns.date] ?? "";
+    if (!isIsoDate(date)) return null;
+    const description = cells[columns.description]?.trim() || "Imported bank activity";
+    const debit = columns.debit >= 0 ? Math.abs(numericCell(cells[columns.debit] ?? "")) : 0;
+    const credit = columns.credit >= 0 ? Math.abs(numericCell(cells[columns.credit] ?? "")) : 0;
+    const amountValue = columns.amount >= 0 ? numericCell(cells[columns.amount] ?? "") : 0;
+    const hasDebitCreditColumns = columns.debit >= 0 || columns.credit >= 0;
+    if (hasDebitCreditColumns && debit > 0 && credit > 0) return null;
+    const amount = hasDebitCreditColumns ? debit || credit : Math.abs(amountValue);
+    if (amount <= 0) return null;
+    const direction = hasDebitCreditColumns
+      ? (debit > 0 ? "outflow" : "inflow")
+      : (/^-/.test(cells[columns.amount] ?? "") || /^\(.*\)$/.test(cells[columns.amount] ?? "") ? "outflow" : "inflow");
     return {
-      date: cells[0] ?? "",
+      date,
       description,
-      amount: Math.abs(amount),
-      direction: (amount < 0 ? "outflow" : "inflow") as "outflow" | "inflow",
+      amount,
+      direction,
       currency,
-      accountSuggestion: suggestAccount(description, amount < 0 ? "outflow" : "inflow"),
+      accountSuggestion: suggestAccount(description, direction),
       confidence: 0.75,
     };
-  }).filter((line) => line.date && line.amount > 0);
+  });
+  return parsedRows.filter((line): line is ParsedBankLine => line !== null);
+}
+
+function hasBankStatementStructure(text: string, parsedRows: ParsedBankLine[], hasSelectedBankAccount: boolean) {
+  const columns = statementColumns(text);
+  if (!columns) return false;
+  const hasExplicitTransactionColumns = columns.debit >= 0 || columns.credit >= 0 || columns.balance >= 0;
+  const hasMixedTransactionDirections = parsedRows.length >= 2
+    && new Set(parsedRows.map((line) => line.direction)).size > 1;
+  const accountSummary = text
+    .split(/\r?\n/)
+    .slice(0, columns.headerRowIndex + 1)
+    .join(" ");
+  const hasBankStatementTitle = /\bbank statement\b/i.test(accountSummary);
+  const hasBankAccountIdentifier = /\b(iban|swift|bic|routing number|sort code)\b[\s:#-]*[a-z0-9]/i.test(accountSummary);
+  const hasBankProvenance = hasBankStatementTitle || hasBankAccountIdentifier;
+  return (hasExplicitTransactionColumns || hasMixedTransactionDirections)
+    && (hasBankProvenance || hasSelectedBankAccount);
 }
 
 router.post("/ledgerflow/import-statement", async (req, res) => {
@@ -1691,6 +1754,21 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       extractedText = buffer.toString("utf8");
     }
     const fallback = normalizeRows(extractedText, currency);
+    if (!hasBankStatementStructure(extractedText, fallback, bankAccountId != null)) {
+      await recordFailedStatementImport({
+        clientId: scopedClientId,
+        bankAccountId: null,
+        fileName,
+        mimeType,
+        objectPath,
+        fileSize: uploadedFileSize,
+        fileHash: scopedFileHash,
+        errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+      });
+      return res.status(422).json({
+        error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+      });
+    }
     const aiConfig = await getAIProviderConfig(scopedClientId);
     const [aiActivity] = await db.insert(aiActivityTable).values({
       clientId: scopedClientId,
@@ -1702,16 +1780,51 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       status: "started",
     }).returning({ id: aiActivityTable.id });
     aiActivityId = aiActivity?.id;
-    const completion = await completeAI(scopedClientId, [
-        { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
-        { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
-      ], { json: true, maxTokens: 8192 });
-    if (aiActivityId !== undefined) {
-      await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
-      aiCompletionRecorded = true;
+    let candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+    let usingDeterministicFallback = false;
+    try {
+      const completion = await completeAI(scopedClientId, [
+          { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
+          { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
+        ], { json: true, maxTokens: 8192 });
+      if (aiActivityId !== undefined) {
+        await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
+        aiCompletionRecorded = true;
+      }
+      candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+    } catch (error) {
+      if (aiActivityId !== undefined && !aiCompletionRecorded) {
+        await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
+      }
+      if (error instanceof AIProviderError) {
+        req.log.warn({ err: error, clientId: scopedClientId }, "AI extraction unavailable; using deterministic statement fallback");
+        candidate = { lines: fallback, bankAccount: null };
+        usingDeterministicFallback = true;
+      } else {
+        throw error;
+      }
     }
-    const candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
-    const lines = (candidate.lines?.length ? candidate.lines : fallback).filter((line) => line.date && line.description && Number.isFinite(Number(line.amount)) && Number(line.amount) > 0);
+    const lines = (candidate.lines?.length ? candidate.lines : usingDeterministicFallback ? fallback : []).filter((line) =>
+      isIsoDate(line.date)
+      && line.description
+      && Number.isFinite(Number(line.amount))
+      && Number(line.amount) > 0,
+    );
+    if (!lines.length) {
+      await recordFailedStatementImport({
+        clientId: scopedClientId,
+        bankAccountId: null,
+        fileName,
+        mimeType,
+        objectPath,
+        fileSize: uploadedFileSize,
+        fileHash: scopedFileHash,
+        errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+      });
+      return res.status(422).json({
+        error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+      });
+    }
     const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
       eq(bankAccountsTable.id, Number(bankAccountId)),
@@ -1959,6 +2072,7 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
     id: statementImport.id,
     fileName: statementImport.fileName,
     mimeType: statementImport.mimeType,
+     objectPath: statementImport.objectPath,
     outcome: statementImport.outcome,
     errorMessage: statementImport.errorMessage,
     importedLineCount: statementImport.importedLineCount,

@@ -11,6 +11,8 @@ export interface StatementImport {
   id: number;
   fileName: string;
   mimeType: string;
+  /** @nullable */
+  objectPath: string | null;
   outcome: StatementImportOutcome;
   /** @nullable */
   errorMessage?: string | null;
