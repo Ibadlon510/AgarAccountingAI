@@ -5,9 +5,10 @@ LedgerFlow is an AI-assisted bookkeeping workspace that takes multi-currency ban
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec, then rebuild library declarations
+- `pnpm --filter @workspace/api-server run typecheck` — rebuild library declarations, then typecheck the API server and its tests
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string; Clerk keys are provisioned as environment secrets.
 
