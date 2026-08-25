@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -43,6 +43,7 @@ type TrialBalanceRow = {
   debit: number;
   credit: number;
   balance: number;
+  missingRateCount?: number;
 };
 
 type StatementSection = {
@@ -92,6 +93,8 @@ before(async () => {
 
 after(async () => {
   if (database && clientId) {
+    await database.db.delete(database.reportPacksTable)
+      .where(eq(database.reportPacksTable.clientId, clientId));
     await database.db.delete(database.journalEntriesTable)
       .where(eq(database.journalEntriesTable.clientId, clientId));
     await database.db.delete(database.statementImportsTable)
@@ -106,6 +109,8 @@ after(async () => {
       .where(eq(database.clientsTable.id, clientId));
   }
   if (database) {
+    await database.db.delete(database.exchangeRatesTable)
+      .where(inArray(database.exchangeRatesTable.userId, [primaryUserId, secondaryUserId]));
     await database.db.delete(database.classificationPatternsTable)
       .where(inArray(database.classificationPatternsTable.userId, [primaryUserId, secondaryUserId]));
     await database.db.delete(database.usersTable)
@@ -114,6 +119,7 @@ after(async () => {
       .where(eq(database.usersTable.id, secondaryUserId));
   }
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
+  await database?.pool.end();
 });
 
 test("posting a journal entry updates client-scoped reports", async () => {
@@ -207,12 +213,12 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(postedTrialBalance.response.status, 200);
   assert.equal(postedStatements.response.status, 200);
 
-  const amount = 125;
-  const beforeSoftware = beforeTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit ?? 0;
+  const amount = 75;
+  const beforeTransfer = beforeTrialBalance.body.find((row) => row.account === "Inter-account transfer")?.debit ?? 0;
   const beforeCash = beforeTrialBalance.body.find((row) => row.account === "Bank / cash")?.credit ?? 0;
-  const postedSoftware = postedTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit ?? 0;
+  const postedTransfer = postedTrialBalance.body.find((row) => row.account === "Inter-account transfer")?.debit ?? 0;
   const postedCash = postedTrialBalance.body.find((row) => row.account === "Bank / cash")?.credit ?? 0;
-  assert.equal(postedSoftware - beforeSoftware, amount);
+  assert.equal(postedTransfer - beforeTransfer, amount);
   assert.equal(postedCash - beforeCash, amount);
 
   const beforeExpenses = sectionAmount(beforeStatements.body.incomeStatement, "Operating expenses");
@@ -223,9 +229,9 @@ test("posting a journal entry updates client-scoped reports", async () => {
   const postedCashFlow = sectionAmount(postedStatements.body.cashFlow, "Net cash from operating activities");
 
   const before = await request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`);
-  assert.equal(postedExpenses - beforeExpenses, -amount);
-  assert.equal(postedNetIncome - beforeNetIncome, -amount);
-  assert.equal(postedCashFlow - beforeCashFlow, -amount);
+  assert.equal(postedExpenses - beforeExpenses, 0);
+  assert.equal(postedNetIncome - beforeNetIncome, 0);
+  assert.equal(postedCashFlow - beforeCashFlow, 0);
 
   const transferLine = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {
     method: "POST",
@@ -260,8 +266,8 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.ok(transferAccount);
   assert.equal(transferAccount.category, "Assets");
   const assets = afterTransferStatements.body.balanceSheet.find((section) => section.label === "Assets");
-  assert.equal(assets?.children?.find((section) => section.label === "Bank / cash")?.amount, -200);
-  assert.equal(assets?.children?.find((section) => section.label === "Inter-account transfer")?.amount, 75);
+  assert.equal(assets?.children?.find((section) => section.label === "Bank / cash")?.amount, -150);
+  assert.equal(assets?.children?.find((section) => section.label === "Inter-account transfer")?.amount, 150);
   assert.equal(
     sectionAmount(afterTransferStatements.body.incomeStatement, "Net income"),
     postedNetIncome,
@@ -270,6 +276,195 @@ test("posting a journal entry updates client-scoped reports", async () => {
     sectionAmount(afterTransferStatements.body.cashFlow, "Net cash from operating activities"),
     postedCashFlow,
   );
+});
+
+test("posting can be reversed without rewriting reports or accountability evidence", async () => {
+  assert.ok(database);
+  const lifecycleClient = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Reversible lifecycle ${randomUUID()}`,
+      legalName: "Reversible lifecycle LLC",
+      functionalCurrency: "AED",
+    }),
+  });
+  assert.equal(lifecycleClient.response.status, 201);
+  const lifecycleClientId = lifecycleClient.body.id;
+
+  try {
+    const line = await request<{ id: number }>("/ledgerflow/statement-lines", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: lifecycleClientId,
+        date: "2026-08-25",
+        description: "Cloud software subscription",
+        currency: "AED",
+        amount: 55,
+        direction: "outflow",
+      }),
+    });
+    assert.equal(line.response.status, 201);
+    const entries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
+      `/ledgerflow/journal-entries?clientId=${lifecycleClientId}`,
+    );
+    const entry = entries.body.find((candidate) => candidate.statementLineId === line.body.id);
+    assert.ok(entry);
+    assert.equal((await request(`/ledgerflow/journal-entries/${entry.id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    })).response.status, 200);
+
+    const [beforeTrialBalance, beforeStatements, firstPost, repeatedPost] = await Promise.all([
+      request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`),
+      request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${lifecycleClientId}`),
+      request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
+        method: "POST",
+        body: JSON.stringify({ clientId: lifecycleClientId }),
+      }),
+      request<{ error: string }>(`/ledgerflow/journal-entries/${entry.id}/post`, {
+        method: "POST",
+        body: JSON.stringify({ clientId: lifecycleClientId }),
+      }),
+    ]);
+    assert.equal(beforeTrialBalance.response.status, 200);
+    assert.equal(beforeStatements.response.status, 200);
+    assert.deepEqual([firstPost.response.status, repeatedPost.response.status].sort(), [200, 409]);
+
+    const [postedTrialBalance, postedStatements, postedLine, audits] = await Promise.all([
+      request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`),
+      request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${lifecycleClientId}`),
+      request<Array<{ id: number; status: string }>>(`/ledgerflow/statement-lines?clientId=${lifecycleClientId}`),
+      request<Array<{ transition: string; fromStatus: string; toStatus: string; actor: { id: string }; entryIds: number[]; statementLineIds: number[]; confirmedAt: string }>>(`/ledgerflow/bulk-transition-audits?clientId=${lifecycleClientId}`),
+    ]);
+    assert.equal(postedTrialBalance.body.find((row) => row.account === "Software & subscriptions")?.debit, 55);
+    assert.equal(sectionAmount(postedStatements.body.incomeStatement, "Operating expenses"), -55);
+    assert.equal(postedLine.body.find((candidate) => candidate.id === line.body.id)?.status, "posted");
+    const postAudit = audits.body.find((audit) => audit.transition === "post_entry");
+    assert.ok(postAudit);
+    assert.deepEqual(postAudit.entryIds, [entry.id]);
+    assert.deepEqual(postAudit.statementLineIds, [line.body.id]);
+    assert.equal(postAudit.fromStatus, "approved");
+    assert.equal(postAudit.toStatus, "posted");
+    assert.equal(postAudit.actor.id, primaryUserId);
+    assert.ok(Date.parse(postAudit.confirmedAt));
+    const [persistedPostAudit] = await database.db.select()
+      .from(database.bulkTransitionAuditsTable)
+      .where(and(
+        eq(database.bulkTransitionAuditsTable.clientId, lifecycleClientId),
+        eq(database.bulkTransitionAuditsTable.transition, "post_entry"),
+      ));
+    assert.ok(persistedPostAudit);
+    await assert.rejects(
+      database.db.delete(database.bulkTransitionAuditsTable)
+        .where(eq(database.bulkTransitionAuditsTable.id, persistedPostAudit.id)),
+    );
+
+    const draft = await request<{ id: number; snapshot: { traceability: { postedEntryCount: number } } }>("/ledgerflow/report-packs", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: lifecycleClientId,
+        periodEnd: "2026-12-31",
+        reportingBasis: "IFRS",
+        presentationProfile: "IAS 1",
+        presentationCurrency: "AED",
+      }),
+    });
+    assert.equal(draft.response.status, 201);
+    assert.equal(draft.body.snapshot.traceability.postedEntryCount, 1);
+
+    const forbiddenUnpost = await request<{ error: string }>(`/ledgerflow/journal-entries/${entry.id}/unpost`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    }, secondaryUserId);
+    assert.equal(forbiddenUnpost.response.status, 403);
+    const unpost = await request<{ status: string }>(`/ledgerflow/journal-entries/${entry.id}/unpost`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    });
+    assert.equal(unpost.response.status, 200);
+    assert.equal(unpost.body.status, "approved");
+    const repeatedUnpost = await request<{ error: string }>(`/ledgerflow/journal-entries/${entry.id}/unpost`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    });
+    assert.equal(repeatedUnpost.response.status, 409);
+
+    const [unpostedTrialBalance, unpostedStatements, unpostedLine, unpostedAudits] = await Promise.all([
+      request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`),
+      request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${lifecycleClientId}`),
+      request<Array<{ id: number; status: string }>>(`/ledgerflow/statement-lines?clientId=${lifecycleClientId}`),
+      request<Array<{ transition: string; fromStatus: string; toStatus: string; actor: { id: string }; entryIds: number[]; statementLineIds: number[] }>>(`/ledgerflow/bulk-transition-audits?clientId=${lifecycleClientId}`),
+    ]);
+    assert.deepEqual(unpostedTrialBalance.body, beforeTrialBalance.body);
+    assert.deepEqual(unpostedStatements.body.incomeStatement, beforeStatements.body.incomeStatement);
+    assert.equal(unpostedLine.body.find((candidate) => candidate.id === line.body.id)?.status, "needs_review");
+    const unpostAudit = unpostedAudits.body.find((audit) => audit.transition === "unpost_entry");
+    assert.ok(unpostAudit);
+    assert.deepEqual(unpostAudit.entryIds, [entry.id]);
+    assert.deepEqual(unpostAudit.statementLineIds, [line.body.id]);
+    assert.equal(unpostAudit.fromStatus, "posted");
+    assert.equal(unpostAudit.toStatus, "approved");
+    assert.equal(unpostAudit.actor.id, primaryUserId);
+
+    const refreshedDraft = await request<{ snapshot: { traceability: { postedEntryCount: number } } }>("/ledgerflow/report-packs", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: lifecycleClientId,
+        periodEnd: "2026-12-31",
+        reportingBasis: "IFRS",
+        presentationProfile: "IAS 1",
+        presentationCurrency: "AED",
+      }),
+    });
+    assert.equal(refreshedDraft.response.status, 201);
+    assert.equal(refreshedDraft.body.snapshot.traceability.postedEntryCount, 0);
+
+    const foreignLine = await request<{ id: number }>("/ledgerflow/statement-lines", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: lifecycleClientId,
+        date: "2026-09-01",
+        description: "Foreign software subscription",
+        currency: "USD",
+        amount: 10,
+        direction: "outflow",
+      }),
+    });
+    const foreignEntries = await request<Array<{ id: number; statementLineId: number }>>(`/ledgerflow/journal-entries?clientId=${lifecycleClientId}`);
+    const foreignEntry = foreignEntries.body.find((candidate) => candidate.statementLineId === foreignLine.body.id);
+    assert.ok(foreignEntry);
+    assert.equal((await request(`/ledgerflow/journal-entries/${foreignEntry.id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    })).response.status, 200);
+    assert.equal((await request(`/ledgerflow/journal-entries/${foreignEntry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    })).response.status, 200);
+    const missingRate = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`);
+    assert.equal(missingRate.body.find((row) => row.account === "Rate coverage required")?.missingRateCount, 1);
+
+    const addedRate = await request("/ledgerflow/exchange-rates", {
+      method: "POST",
+      body: JSON.stringify({
+        sourceCurrency: "USD",
+        functionalCurrency: "AED",
+        effectiveDate: "2026-09-01",
+        rate: 3.67,
+      }),
+    });
+    assert.equal(addedRate.response.status, 201);
+    const recoveredRate = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`);
+    assert.equal(recoveredRate.body.some((row) => row.account === "Rate coverage required"), false);
+    assert.equal(recoveredRate.body.find((row) => row.account === "Software & subscriptions")?.debit, 36.7);
+  } finally {
+    await database.db.delete(database.reportPacksTable).where(eq(database.reportPacksTable.clientId, lifecycleClientId));
+    await database.db.delete(database.accountClassificationsTable).where(eq(database.accountClassificationsTable.clientId, lifecycleClientId));
+    await database.db.delete(database.journalEntriesTable).where(eq(database.journalEntriesTable.clientId, lifecycleClientId));
+    await database.db.delete(database.statementLinesTable).where(eq(database.statementLinesTable.clientId, lifecycleClientId));
+    await database.db.delete(database.clientWorkspacesTable).where(eq(database.clientWorkspacesTable.clientId, lifecycleClientId));
+    await database.db.delete(database.clientsTable).where(eq(database.clientsTable.id, lifecycleClientId));
+  }
 });
 
 type WorkspaceUsageSummary = {

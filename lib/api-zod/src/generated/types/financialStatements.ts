@@ -12,6 +12,9 @@ export interface FinancialStatements {
   functionalCurrency: string;
   missingRateCount: number;
   missingRateCurrencies: string[];
+  includedPostedEntryCount: number;
+  excludedUnpostedCount: number;
+  outsideReportingPeriodCount: number;
   incomeStatement: StatementSection[];
   balanceSheet: StatementSection[];
   cashFlow: StatementSection[];

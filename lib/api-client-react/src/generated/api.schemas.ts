@@ -600,6 +600,10 @@ export interface ApproveJournalEntryInput {
   clientId: number;
 }
 
+export interface UnpostJournalEntryInput {
+  clientId: number;
+}
+
 export interface AIChatInput {
   clientId: number;
   message: string;
@@ -810,6 +814,8 @@ export type BulkTransitionAuditTransition = typeof BulkTransitionAuditTransition
 export const BulkTransitionAuditTransition = {
   bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
+  post_entry: 'post_entry',
+  unpost_entry: 'unpost_entry',
 } as const;
 
 export interface BulkTransitionAuditActor {
@@ -853,6 +859,9 @@ export interface FinancialStatements {
   functionalCurrency: string;
   missingRateCount: number;
   missingRateCurrencies: string[];
+  includedPostedEntryCount: number;
+  excludedUnpostedCount: number;
+  outsideReportingPeriodCount: number;
   incomeStatement: StatementSection[];
   balanceSheet: StatementSection[];
   cashFlow: StatementSection[];
@@ -1121,4 +1130,3 @@ period?: string;
 export type GetReportPacksParams = {
 clientId: number;
 };
-

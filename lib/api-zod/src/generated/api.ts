@@ -1154,7 +1154,7 @@ export const ConfirmAICopilotActionResponse = zod.object({
 
 
 /**
- * @summary List confirmed bulk ledger transitions
+ * @summary List immutable ledger transition history
  */
 export const GetBulkTransitionAuditsQueryParams = zod.object({
   "clientId": zod.coerce.number().optional()
@@ -1168,7 +1168,7 @@ export const GetBulkTransitionAuditsResponseItem = zod.object({
   "name": zod.string(),
   "email": zod.string().nullable()
 }),
-  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries']),
+  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries', 'post_entry', 'unpost_entry']),
   "fromStatus": zod.string(),
   "toStatus": zod.string(),
   "entryIds": zod.array(zod.number()),
@@ -1272,6 +1272,38 @@ export const PostJournalEntryResponse = zod.object({
 
 
 /**
+ * @summary Return a posted journal entry to approved and remove it from live reports
+ */
+export const UnpostJournalEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UnpostJournalEntryBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const UnpostJournalEntryResponse = zod.object({
+  "id": zod.number(),
+  "statementLineId": zod.number(),
+  "date": zod.string(),
+  "memo": zod.string(),
+  "currency": zod.string(),
+  "status": zod.string(),
+  "confidence": zod.number(),
+  "lines": zod.array(zod.object({
+  "account": zod.string(),
+  "debit": zod.number(),
+  "credit": zod.number()
+})),
+  "functionalCurrency": zod.string().nullish(),
+  "functionalAmount": zod.number().nullish(),
+  "exchangeRate": zod.number().nullish(),
+  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
+  "exchangeRateStatus": zod.string().optional()
+})
+
+
+/**
  * @summary Get trial balance
  */
 export const GetTrialBalanceQueryParams = zod.object({
@@ -1304,6 +1336,9 @@ export const GetFinancialStatementsResponse = zod.object({
   "functionalCurrency": zod.string(),
   "missingRateCount": zod.number(),
   "missingRateCurrencies": zod.array(zod.string()),
+  "includedPostedEntryCount": zod.number(),
+  "excludedUnpostedCount": zod.number(),
+  "outsideReportingPeriodCount": zod.number(),
   "incomeStatement": zod.array(zod.object({
   "label": zod.string(),
   "amount": zod.number(),
@@ -1781,5 +1816,3 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
-
-

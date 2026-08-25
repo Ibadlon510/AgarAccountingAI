@@ -226,8 +226,6 @@ after(async () => {
     if (activeDatabase && createdClientIds.length) {
       await activeDatabase.db.delete(activeDatabase.aiProviderConfigsTable)
         .where(inArray(activeDatabase.aiProviderConfigsTable.clientId, createdClientIds));
-      await activeDatabase.db.delete(activeDatabase.bulkTransitionAuditsTable)
-        .where(inArray(activeDatabase.bulkTransitionAuditsTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.aiActivityTable)
         .where(inArray(activeDatabase.aiActivityTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)

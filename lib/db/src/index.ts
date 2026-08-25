@@ -23,7 +23,7 @@ export async function ensureLedgerflowAuditImmutability() {
       LANGUAGE plpgsql
       AS $$
       BEGIN
-        RAISE EXCEPTION 'Bulk transition audit records are append-only.';
+        RAISE EXCEPTION 'Ledger transition audit records are append-only.';
       END;
       $$;
 

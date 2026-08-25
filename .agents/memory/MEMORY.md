@@ -10,6 +10,7 @@
 - [Exchange-rate remediation](exchange-rate-remediation.md) — schedule changes re-resolve workspace conversions so a newly added rate restores reporting coverage.
 - [AI-assisted exchange-rate previews](ai-exchange-rate-csv-previews.md) — unfamiliar CSVs and Excel files are bounded, server-validated previews; users must confirm before any rate is persisted.
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
+- [Journal transition evidence](journal-transition-evidence.md) — manual and bulk posting transitions share one append-only client-scoped audit history.
 - [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.
 - [Clerk onboarding profile resilience](clerk-onboarding-profile-resilience.md) — save required LedgerFlow owner identity locally; a production Clerk profile update can reject otherwise valid onboarding.
 - [Legacy demo workspace remediation](legacy-demo-workspace-remediation.md) — only a full untouched historical signature may be rerouted; record successful remediation instead of inferring it later.

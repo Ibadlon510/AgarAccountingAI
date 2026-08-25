@@ -2,7 +2,6 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import { logger } from "./lib/logger";
 import { SessionServiceError } from "./middlewares/authMiddleware";
-import { ensureLedgerflowAuditImmutability } from "@workspace/db";
 import express, { type Express, type RequestHandler } from "express";
 import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";

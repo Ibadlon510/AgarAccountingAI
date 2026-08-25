@@ -726,7 +726,7 @@ paths:
     get:
       operationId: getBulkTransitionAudits
       tags: [ledgerflow]
-      summary: List confirmed bulk ledger transitions
+      summary: List immutable ledger transition history
       parameters:
         - name: clientId
           in: query
@@ -810,6 +810,32 @@ paths:
                 $ref: "#/components/schemas/JournalEntry"
         "409":
           description: Journal entry must be approved before posting
+  /ledgerflow/journal-entries/{id}/unpost:
+    post:
+      operationId: unpostJournalEntry
+      tags: [ledgerflow]
+      summary: Return a posted journal entry to approved and remove it from live reports
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnpostJournalEntryInput"
+      responses:
+        "200":
+          description: Approved journal entry removed from live reports
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+        "409":
+          description: Journal entry must be posted before it can be unposted
   /ledgerflow/trial-balance:
     get:
       operationId: getTrialBalance
@@ -1521,6 +1547,11 @@ components:
       required: [clientId]
       properties:
         clientId: { type: number }
+    UnpostJournalEntryInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
     AIChatInput:
       type: object
       required: [clientId, message]
@@ -1692,7 +1723,7 @@ components:
         clientId: { type: number }
         actor:
           $ref: "#/components/schemas/BulkTransitionAuditActor"
-        transition: { type: string, enum: [bulk_approve_entries, bulk_post_entries] }
+        transition: { type: string, enum: [bulk_approve_entries, bulk_post_entries, post_entry, unpost_entry] }
         fromStatus: { type: string }
         toStatus: { type: string }
         entryIds:
@@ -1760,7 +1791,7 @@ components:
           items: { $ref: "#/components/schemas/StatementSection" }
     FinancialStatements:
       type: object
-      required: [period, incomeStatement, balanceSheet, cashFlow, functionalCurrency, missingRateCount, missingRateCurrencies]
+      required: [period, incomeStatement, balanceSheet, cashFlow, functionalCurrency, missingRateCount, missingRateCurrencies, includedPostedEntryCount, excludedUnpostedCount, outsideReportingPeriodCount]
       properties:
         period: { type: string }
         functionalCurrency: { type: string }
@@ -1768,6 +1799,9 @@ components:
         missingRateCurrencies:
           type: array
           items: { type: string }
+        includedPostedEntryCount: { type: number }
+        excludedUnpostedCount: { type: number }
+        outsideReportingPeriodCount: { type: number }
         incomeStatement:
           type: array
           items: { $ref: "#/components/schemas/StatementSection" }

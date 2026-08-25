@@ -76,6 +76,7 @@ import type {
   StatementLine,
   StatementLineInput,
   TrialBalanceRow,
+  UnpostJournalEntryInput,
   UploadUrlRequest,
   UploadUrlResponse,
   UploadedFile,
@@ -3274,7 +3275,7 @@ export const getGetBulkTransitionAuditsUrl = (params?: GetBulkTransitionAuditsPa
 }
 
 /**
- * @summary List confirmed bulk ledger transitions
+ * @summary List immutable ledger transition history
  */
 export const getBulkTransitionAudits = async (params?: GetBulkTransitionAuditsParams, options?: Parameters<typeof customFetch>[1]): Promise<BulkTransitionAudit[]> => {
 
@@ -3321,7 +3322,7 @@ export type GetBulkTransitionAuditsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List confirmed bulk ledger transitions
+ * @summary List immutable ledger transition history
  */
 
 export function useGetBulkTransitionAudits<TData = Awaited<ReturnType<typeof getBulkTransitionAudits>>, TError = ErrorType<unknown>>(
@@ -3568,6 +3569,78 @@ export const usePostJournalEntry = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getPostJournalEntryMutationOptions(options));
+    }
+
+export const getUnpostJournalEntryUrl = (id: number,) => {
+
+
+
+
+  return `/api/ledgerflow/journal-entries/${id}/unpost`
+}
+
+/**
+ * @summary Return a posted journal entry to approved and remove it from live reports
+ */
+export const unpostJournalEntry = async (id: number,
+    unpostJournalEntryInput: UnpostJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
+
+  return customFetch<JournalEntry>(getUnpostJournalEntryUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(unpostJournalEntryInput)
+  }
+);}
+
+
+
+
+
+export const getUnpostJournalEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unpostJournalEntry>>, TError,{id: number;data: BodyType<UnpostJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof unpostJournalEntry>>, TError,{id: number;data: BodyType<UnpostJournalEntryInput>}, TContext> => {
+
+const mutationKey = ['unpostJournalEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof unpostJournalEntry>>, {id: number;data: BodyType<UnpostJournalEntryInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  unpostJournalEntry(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UnpostJournalEntryMutationResult = NonNullable<Awaited<ReturnType<typeof unpostJournalEntry>>>
+    export type UnpostJournalEntryMutationBody = BodyType<UnpostJournalEntryInput>
+    export type UnpostJournalEntryMutationError = ErrorType<void>
+
+    /**
+ * @summary Return a posted journal entry to approved and remove it from live reports
+ */
+export const useUnpostJournalEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unpostJournalEntry>>, TError,{id: number;data: BodyType<UnpostJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof unpostJournalEntry>>,
+        TError,
+        {id: number;data: BodyType<UnpostJournalEntryInput>},
+        TContext
+      > => {
+      return useMutation(getUnpostJournalEntryMutationOptions(options));
     }
 
 export const getGetTrialBalanceUrl = (params?: GetTrialBalanceParams,) => {
@@ -4260,10 +4333,3 @@ export function useGetStorageObject<TData = Awaited<ReturnType<typeof getStorage
 
   return withQueryKey(query, queryOptions.queryKey);
 }
-
-
-
-
-
-
-

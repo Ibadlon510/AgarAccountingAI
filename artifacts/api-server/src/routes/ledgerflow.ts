@@ -6,6 +6,9 @@ import * as XLSX from "xlsx";
 import {
   ApproveJournalEntryParams,
   ApproveJournalEntryBody,
+  UnpostJournalEntryParams,
+  UnpostJournalEntryBody,
+  UnpostJournalEntryResponse,
   AskLedgerflowAIBody,
   AskLedgerflowAIResponse,
   ConfirmAICopilotActionBody,
@@ -553,9 +556,62 @@ async function refreshFirmRateConversions(firmId: number) {
 }
 
 function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functionalCurrency: string) {
-  if (entry.functionalAmount != null && entry.functionalCurrency === functionalCurrency) return number(entry.functionalAmount);
+  if (entry.functionalAmount != null && normalizeCurrency(entry.functionalCurrency ?? "") === functionalCurrency) return number(entry.functionalAmount);
   if (normalizeCurrency(entry.currency) === functionalCurrency) return number(entry.amount);
   return null;
+}
+
+function reportingEligibility(
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  functionalCurrency: string,
+  reportingPeriodEnd?: string,
+) {
+  const postedEntries = entries.filter((entry) => entry.status === "posted");
+  const periodEntries = reportingPeriodEnd
+    ? postedEntries.filter((entry) => calendarDate(entry.date) !== null && calendarDate(entry.date)! <= reportingPeriodEnd)
+    : postedEntries;
+  const eligibleEntries = periodEntries.filter((entry) => reportingAmount(entry, functionalCurrency) != null);
+  const missingRateEntries = periodEntries.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
+  return {
+    eligibleEntries,
+    missingRateEntries,
+    excludedUnpostedCount: entries.length - postedEntries.length,
+    outsideReportingPeriodCount: reportingPeriodEnd
+      ? postedEntries.filter((entry) => (calendarDate(entry.date) ?? "") > reportingPeriodEnd).length
+      : 0,
+  };
+}
+
+function reportingPeriodEnd(period?: string) {
+  if (!period) return undefined;
+  if (isIsoDate(period)) return period;
+  if (/^\d{4}$/.test(period)) return `${period}-12-31`;
+  return undefined;
+}
+
+async function recordJournalTransitionAudit(
+  tx: LedgerflowTransaction,
+  req: Request,
+  input: {
+    clientId: number;
+    transition: "post_entry" | "unpost_entry";
+    fromStatus: string;
+    toStatus: string;
+    entryId: number;
+    statementLineId: number;
+  },
+) {
+  await tx.insert(bulkTransitionAuditsTable).values({
+    clientId: input.clientId,
+    actorUserId: currentUserId(req),
+    actorName: displayName(req.dbUser!),
+    actorEmail: req.dbUser!.email,
+    transition: input.transition,
+    fromStatus: input.fromStatus,
+    toStatus: input.toStatus,
+    entryIds: [input.entryId],
+    statementLineIds: [input.statementLineId],
+  });
 }
 
 function reportPackResponse(pack: typeof reportPacksTable.$inferSelect) {
@@ -4048,23 +4104,38 @@ router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
     const [entry] = await tx.select().from(journalEntriesTable).where(and(
       eq(journalEntriesTable.id, id),
       eq(journalEntriesTable.clientId, client.id),
-    ));
+    )).for("update");
     if (!entry) return { kind: "not_found" as const };
     if (entry.status !== "approved") return { kind: "not_approved" as const };
 
     const [line] = await tx.select().from(statementLinesTable).where(and(
       eq(statementLinesTable.id, entry.statementLineId),
       eq(statementLinesTable.clientId, client.id),
-    ));
+    )).for("update");
     if (!line) return { kind: "not_found" as const };
+    if (line.status === "posted") return { kind: "line_conflict" as const };
 
     const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
       eq(journalEntriesTable.id, entry.id),
+      eq(journalEntriesTable.clientId, client.id),
       eq(journalEntriesTable.status, "approved"),
     )).returning();
     if (!postedEntry) return { kind: "not_approved" as const };
 
-    await tx.update(statementLinesTable).set({ status: "posted" }).where(eq(statementLinesTable.id, line.id));
+    const [postedLine] = await tx.update(statementLinesTable).set({ status: "posted" }).where(and(
+      eq(statementLinesTable.id, line.id),
+      eq(statementLinesTable.clientId, client.id),
+      ne(statementLinesTable.status, "posted"),
+    )).returning();
+    if (!postedLine) throw new Error("The linked statement line could not be posted.");
+    await recordJournalTransitionAudit(tx, req, {
+      clientId: client.id,
+      transition: "post_entry",
+      fromStatus: "approved",
+      toStatus: "posted",
+      entryId: postedEntry.id,
+      statementLineId: postedLine.id,
+    });
     return { kind: "posted" as const, entry: postedEntry };
   });
   if (result.kind === "not_found") {
@@ -4075,24 +4146,83 @@ router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
     res.status(409).json({ error: "Journal entry must be approved before posting" });
     return;
   }
+  if (result.kind === "line_conflict") {
+    res.status(409).json({ error: "The linked statement line is already posted and must be reconciled before this entry can be posted." });
+    return;
+  }
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
+});
+
+router.post("/ledgerflow/journal-entries/:id/unpost", async (req, res) => {
+  const { id } = UnpostJournalEntryParams.parse({ id: Number(req.params.id) });
+  const { clientId } = UnpostJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+
+  const result = await db.transaction(async (tx) => {
+    const [entry] = await tx.select().from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.id, id),
+      eq(journalEntriesTable.clientId, client.id),
+    )).for("update");
+    if (!entry) return { kind: "not_found" as const };
+    if (entry.status !== "posted") return { kind: "not_posted" as const };
+
+    const [line] = await tx.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.id, entry.statementLineId),
+      eq(statementLinesTable.clientId, client.id),
+    )).for("update");
+    if (!line) return { kind: "not_found" as const };
+    if (line.status !== "posted") return { kind: "line_conflict" as const };
+
+    const [approvedEntry] = await tx.update(journalEntriesTable).set({ status: "approved" }).where(and(
+      eq(journalEntriesTable.id, entry.id),
+      eq(journalEntriesTable.clientId, client.id),
+      eq(journalEntriesTable.status, "posted"),
+    )).returning();
+    if (!approvedEntry) return { kind: "not_posted" as const };
+
+    const [approvedLine] = await tx.update(statementLinesTable).set({ status: "needs_review" }).where(and(
+      eq(statementLinesTable.id, line.id),
+      eq(statementLinesTable.clientId, client.id),
+      eq(statementLinesTable.status, "posted"),
+    )).returning();
+    if (!approvedLine) throw new Error("The linked statement line could not be returned to review.");
+    await recordJournalTransitionAudit(tx, req, {
+      clientId: client.id,
+      transition: "unpost_entry",
+      fromStatus: "posted",
+      toStatus: "approved",
+      entryId: approvedEntry.id,
+      statementLineId: approvedLine.id,
+    });
+    return { kind: "unposted" as const, entry: approvedEntry };
+  });
+  if (result.kind === "not_found") {
+    res.status(404).json({ error: "Journal entry not found for this client" });
+    return;
+  }
+  if (result.kind === "not_posted") {
+    res.status(409).json({ error: "Journal entry must be posted before it can be unposted" });
+    return;
+  }
+  if (result.kind === "line_conflict") {
+    res.status(409).json({ error: "The linked statement line is no longer posted, so this entry cannot be unposted safely." });
+    return;
+  }
+  return res.json(UnpostJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
 router.get("/ledgerflow/trial-balance", async (req, res) => {
   const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
-  const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, client.id),
-    eq(journalEntriesTable.status, "posted"),
-  ));
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
   const accounts = new Map<string, { debit: number; credit: number; category: string }>();
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
-  const missingEntries = entries.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
-  const missingRateCurrencies = [...new Set(missingEntries.map((entry) => entry.currency))];
-  for (const entry of entries) {
-    const amount = reportingAmount(entry, functionalCurrency);
-    if (amount == null) continue;
+  const eligibility = reportingEligibility(entries, functionalCurrency);
+  const missingRateCurrencies = [...new Set(eligibility.missingRateEntries.map((entry) => entry.currency))];
+  for (const entry of eligibility.eligibleEntries) {
+    const amount = reportingAmount(entry, functionalCurrency)!;
     const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: ledgerAccountCategory(entry.debitAccount, "debit") };
     debit.debit += amount;
     accounts.set(entry.debitAccount, debit);
@@ -4103,10 +4233,10 @@ router.get("/ledgerflow/trial-balance", async (req, res) => {
   const rows = [...accounts.entries()].map(([account, values]) => ({
     account, category: values.category, debit: values.debit, credit: values.credit, balance: values.debit - values.credit,
     functionalCurrency,
-    missingRateCount: missingEntries.length,
+    missingRateCount: eligibility.missingRateEntries.length,
     missingRateCurrencies,
   }));
-  if (missingEntries.length) {
+  if (eligibility.missingRateEntries.length) {
     rows.push({
       account: "Rate coverage required",
       category: "Unconverted transactions",
@@ -4114,7 +4244,7 @@ router.get("/ledgerflow/trial-balance", async (req, res) => {
       credit: 0,
       balance: 0,
       functionalCurrency,
-      missingRateCount: missingEntries.length,
+      missingRateCount: eligibility.missingRateEntries.length,
       missingRateCurrencies,
     });
   }
@@ -4125,21 +4255,17 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   const { period } = GetFinancialStatementsQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, req.query.clientId === undefined ? undefined : Number(req.query.clientId));
   if (!client) return;
-  const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, client.id),
-    eq(journalEntriesTable.status, "posted"),
-  ));
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
   const expenseAccounts = new Map<string, number>();
   const revenueAccounts = new Map<string, number>();
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
-  const missingEntries = entries.filter((entry) => reportingAmount(entry, functionalCurrency) == null);
-  const missingRateCurrencies = [...new Set(missingEntries.map((entry) => entry.currency))];
+  const eligibility = reportingEligibility(entries, functionalCurrency, reportingPeriodEnd(period));
+  const missingRateCurrencies = [...new Set(eligibility.missingRateEntries.map((entry) => entry.currency))];
   let cash = 0;
   let transferClearing = 0;
   let operatingCash = 0;
-  for (const entry of entries) {
-    const amount = reportingAmount(entry, functionalCurrency);
-    if (amount == null) continue;
+  for (const entry of eligibility.eligibleEntries) {
+    const amount = reportingAmount(entry, functionalCurrency)!;
     if (entry.debitAccount === "Bank / cash") cash += amount;
     if (entry.creditAccount === "Bank / cash") cash -= amount;
     if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
@@ -4156,8 +4282,11 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   const report = {
     period: period ?? client.period,
     functionalCurrency,
-    missingRateCount: missingEntries.length,
+    missingRateCount: eligibility.missingRateEntries.length,
     missingRateCurrencies,
+    includedPostedEntryCount: eligibility.eligibleEntries.length,
+    excludedUnpostedCount: eligibility.excludedUnpostedCount,
+    outsideReportingPeriodCount: eligibility.outsideReportingPeriodCount,
     incomeStatement: [
       { label: "Revenue", amount: totalRevenue, children: [...revenueAccounts.entries()].map(([label, amount]) => ({ label, amount })) },
       { label: "Operating expenses", amount: -totalExpenses, children: [...expenseAccounts.entries()].map(([label, amount]) => ({ label, amount: -amount })) },
@@ -4205,13 +4334,10 @@ router.post("/ledgerflow/report-packs", async (req, res) => {
     return res.status(422).json({ error: "This release presents only in the client's functional currency. Update the functional currency or add a future presentation-currency conversion workflow." });
   }
 
-  const entries = await db.select().from(journalEntriesTable).where(and(
-    eq(journalEntriesTable.clientId, client.id),
-    eq(journalEntriesTable.status, "posted"),
-    lte(journalEntriesTable.date, periodEnd),
-  ));
-  const missingRateEntries = entries.filter((entry) => reportingAmount(entry, presentationCurrency) == null);
-  const convertedEntries = entries.filter((entry) => reportingAmount(entry, presentationCurrency) != null);
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const eligibility = reportingEligibility(entries, presentationCurrency, periodEnd);
+  const missingRateEntries = eligibility.missingRateEntries;
+  const convertedEntries = eligibility.eligibleEntries;
   const classifications = await db.select().from(accountClassificationsTable).where(eq(accountClassificationsTable.clientId, client.id));
   const inferred = inferredClassifications(convertedEntries, classifications);
   if (inferred.length) {

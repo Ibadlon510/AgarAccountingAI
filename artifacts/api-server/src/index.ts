@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { ensureLedgerflowAuditImmutability } from "@workspace/db";
 
 const rawPort = process.env["PORT"];
 
@@ -16,6 +17,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function start() {
+  await ensureLedgerflowAuditImmutability();
   app.listen(port, (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
@@ -26,4 +28,7 @@ async function start() {
   });
 }
 
-void start();
+void start().catch((err) => {
+  logger.error({ err }, "Could not install LedgerFlow integrity protections");
+  process.exit(1);
+});

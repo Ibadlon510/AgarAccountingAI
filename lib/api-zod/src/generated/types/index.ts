@@ -106,6 +106,7 @@ export * from './statementLine';
 export * from './statementLineInput';
 export * from './statementSection';
 export * from './trialBalanceRow';
+export * from './unpostJournalEntryInput';
 export * from './uploadedFile';
 export * from './uploadedFileOutcome';
 export * from './uploadedFileSourceStatus';
