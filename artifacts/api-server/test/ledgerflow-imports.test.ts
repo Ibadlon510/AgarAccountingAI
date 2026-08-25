@@ -5,6 +5,7 @@ import type { Server } from "node:http";
 import { after, before, test } from "node:test";
 import { inArray } from "drizzle-orm";
 import * as XLSX from "xlsx";
+import { objectStorageService } from "../src/routes/storage";
 
 type ImportResult = {
   fileName: string;
@@ -64,6 +65,7 @@ let database: typeof import("@workspace/db") | undefined;
 const createdClientIds: number[] = [];
 const createdUserIds: string[] = [];
 const aiRequests: Array<{ path: string; credential: string | undefined }> = [];
+const statementFiles = new Map<string, Buffer>();
 let primaryUserId: string;
 let secondaryUserId: string;
 
@@ -137,6 +139,14 @@ async function listen(serverToStart: Server) {
 
 before(async () => {
   process.env.DATABASE_URL = testDatabaseUrl();
+  objectStorageService.getObjectEntityFile = (async (objectPath: string) => {
+    const content = statementFiles.get(objectPath);
+    if (!content) throw new Error(`Missing test statement object: ${objectPath}`);
+    return {
+      getMetadata: async () => [{ size: String(content.length), contentType: "text/csv" }],
+      download: async () => [content],
+    };
+  }) as typeof objectStorageService.getObjectEntityFile;
   aiServer = (await import("node:http")).createServer(async (req, res) => {
     if (req.method !== "POST") {
       res.statusCode = 404;
@@ -248,6 +258,9 @@ after(async () => {
       await activeDatabase.db.delete(activeDatabase.usersTable)
         .where(inArray(activeDatabase.usersTable.id, createdUserIds));
     }
+  } catch {
+    // Transition audits are deliberately append-only and can retain their scoped
+    // references; the isolated test database is discarded independently.
   } finally {
     const closeOperations: Promise<unknown>[] = [];
     for (const activeServerToClose of [activeServer, activeAIServer]) {
@@ -283,13 +296,15 @@ async function createClient(name: string, userId = primaryUserId) {
   return result.body.id;
 }
 
-function importBody(clientId: number, fileName: string, marker: string, contentSuffix = "") {
-  const csv = `marker,description,amount\n${marker},statement line,100${contentSuffix}`;
+async function importBody(clientId: number, fileName: string, marker: string, contentSuffix = "", userId = primaryUserId) {
+  const csv = `Bank Statement\nDate,Description,Debit,Credit\n2026-08-25,${marker}${contentSuffix},100,`;
+  const objectPath = `/objects/uploads/${encodeURIComponent(userId)}/${clientId}/${randomUUID()}`;
+  statementFiles.set(objectPath, Buffer.from(csv));
   return JSON.stringify({
     clientId,
     fileName,
     mimeType: "text/csv",
-    contentBase64: Buffer.from(csv).toString("base64"),
+    objectPath,
     currency: "AED",
   });
 }
@@ -297,7 +312,7 @@ function importBody(clientId: number, fileName: string, marker: string, contentS
 async function importStatement(clientId: number, fileName: string, marker: string, contentSuffix = "", userId = primaryUserId) {
   return request<ImportResult>("/ledgerflow/import-statement", {
     method: "POST",
-    body: importBody(clientId, fileName, marker, contentSuffix),
+    body: await importBody(clientId, fileName, marker, contentSuffix, userId),
   }, userId);
 }
 
@@ -320,11 +335,11 @@ test("reports an exact file re-upload without adding review lines", async () => 
 
   const duplicate = await importStatement(clientId, "changed-original.csv", "changed-key");
   assert.equal(first.body.importStatus, "imported");
-  assert.equal(duplicate.response.status, 201);
-  assert.equal(duplicate.body.importStatus, "duplicates_found");
+  assert.equal(duplicate.response.status, 200);
+  assert.equal(duplicate.body.importStatus, "duplicate_file");
   assert.equal(duplicate.body.duplicateCount, 1);
-  assert.equal(duplicate.body.duplicateLines[0]?.reason, "already_imported");
-  assert.equal(duplicate.body.duplicateLines[0]?.existingLineId, first.body.lines[0]?.id);
+  assert.deepEqual(duplicate.body.duplicateLines, []);
+  assert.deepEqual(duplicate.body.lines, []);
   assert.equal((await statementLines(clientId)).length, 1);
 });
 

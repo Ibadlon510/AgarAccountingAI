@@ -20,3 +20,4 @@
 - [PDF bank statement extraction](pdf-bank-statement-extraction.md) — recognize bank-provenanced multiline PDF tables deterministically and never let AI replace their complete transaction set.
 - [Firm exchange-rate schedules](firm-exchange-rate-schedules.md) — exchange-rate schedules are firm-owned and shared across that firm’s clients.
 - [Managed AI cost estimates](managed-ai-cost-estimates.md) — never invent a local Replit-managed model price; distinguish no activity, missing metadata, and Replit-tracked billing.
+- [Release test isolation](release-test-isolation.md) — reset the dedicated test schema per run and close local HTTP connections so append-only evidence cannot contaminate or stall CI.

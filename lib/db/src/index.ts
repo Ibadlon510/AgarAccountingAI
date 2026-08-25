@@ -13,6 +13,10 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 export const db = drizzle(pool, { schema });
 
+export function createDatabasePool(connectionString: string) {
+  return new Pool({ connectionString });
+}
+
 export async function ensureLedgerflowAuditImmutability() {
   const client = await pool.connect();
   try {

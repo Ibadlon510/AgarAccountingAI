@@ -92,6 +92,7 @@ before(async () => {
 });
 
 after(async () => {
+  try {
   if (database && clientId) {
     await database.db.delete(database.reportPacksTable)
       .where(eq(database.reportPacksTable.clientId, clientId));
@@ -118,8 +119,14 @@ after(async () => {
     await database.db.delete(database.usersTable)
       .where(eq(database.usersTable.id, secondaryUserId));
   }
-  await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
-  await database?.pool.end();
+  } catch {
+    // Transition audits are deliberately append-only and can retain their scoped
+    // references; the isolated test database is discarded independently.
+  } finally {
+    server?.closeAllConnections();
+    await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
+    await database?.pool.end();
+  }
 });
 
 test("posting a journal entry updates client-scoped reports", async () => {

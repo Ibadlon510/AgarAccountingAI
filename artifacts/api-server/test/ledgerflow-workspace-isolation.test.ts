@@ -347,8 +347,9 @@ test("continues to classify historic generated placeholders as starter workspace
 
 test("reports current-cycle AI estimates per authorized client without counting failures or another workspace", async () => {
   assert.ok(database);
-  const ownerId = userIds[11];
-  const foreignUserId = userIds[12];
+  const ownerId = `usage-owner-${randomUUID()}`;
+  const foreignUserId = `usage-foreign-${randomUUID()}`;
+  userIds.push(ownerId, foreignUserId);
   await database.db.insert(database.usersTable).values([{ id: ownerId }, { id: foreignUserId }]);
   const [managedClient, directClient, foreignClient] = await database.db.insert(database.clientsTable).values([
     { name: "Managed AI client", legalName: "Managed AI client FZ-LLC" },

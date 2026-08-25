@@ -1,4 +1,4 @@
-import { pool } from "@workspace/db";
+import { createDatabasePool, pool } from "@workspace/db";
 
 const testDatabaseNamePattern = /(^|[_-])test(?:[_-]|$)/i;
 
@@ -33,6 +33,13 @@ try {
     if (existing.rowCount === 0) {
       await pool.query(`create database ${quotedIdentifier(target.testDatabaseName)}`);
     }
+  }
+  const testPool = createDatabasePool(target.testDatabaseUrl);
+  try {
+    await testPool.query("drop schema public cascade");
+    await testPool.query("create schema public");
+  } finally {
+    await testPool.end();
   }
   process.stdout.write(target.testDatabaseUrl);
 } finally {
