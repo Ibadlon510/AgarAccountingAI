@@ -4,6 +4,7 @@ import { QueryClient } from '@tanstack/react-query';
 import {
   getGetClientsQueryKey,
   getGetJournalEntriesQueryKey,
+  getGetUploadedFilesQueryKey,
 } from '@workspace/api-client-react';
 import {
   clearUserScopedState,
@@ -110,6 +111,26 @@ test('keeps missing, failed, and ready workspace states distinct', () => {
   assert.equal(getWorkspaceLoadState(false, true, undefined), 'failed');
   assert.equal(getWorkspaceLoadState(false, false, []), 'missing');
   assert.equal(getWorkspaceLoadState(false, false, [{ id: 1 }]), 'ready');
+});
+
+test('keeps uploaded-file history isolated by the active client query key', () => {
+  const queryClient = new QueryClient();
+  const firstClientId = 101;
+  const secondClientId = 202;
+  const firstFiles = [{ id: 1, fileName: 'first-client.csv' }];
+  const secondFiles = [{ id: 2, fileName: 'second-client.pdf' }];
+
+  const firstKey = getGetUploadedFilesQueryKey({ clientId: firstClientId });
+  const secondKey = getGetUploadedFilesQueryKey({ clientId: secondClientId });
+  assert.notDeepEqual(firstKey, secondKey);
+
+  queryClient.setQueryData(firstKey, firstFiles);
+  assert.deepEqual(queryClient.getQueryData(firstKey), firstFiles);
+  assert.equal(queryClient.getQueryData(secondKey), undefined);
+
+  queryClient.setQueryData(secondKey, secondFiles);
+  assert.deepEqual(queryClient.getQueryData(firstKey), firstFiles);
+  assert.deepEqual(queryClient.getQueryData(secondKey), secondFiles);
 });
 
 test('requires setup only when no configured or preserved workspace is available', () => {

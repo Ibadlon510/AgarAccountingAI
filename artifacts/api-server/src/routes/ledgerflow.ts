@@ -55,6 +55,7 @@ import {
   GetLedgerOverviewResponse,
   GetStatementLinesQueryParams,
   GetStatementLinesResponse,
+  GetUploadedFilesResponse,
   GetTrialBalanceResponse,
   PostJournalEntryBody,
   ImportStatementBody,
@@ -2108,6 +2109,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         mimeType,
         objectPath,
         fileSize: uploadedFileSize,
+        evidenceExpiresAt: retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays),
         fileHash: scopedFileHash,
         outcome: "duplicate",
         importedLineCount: previousImport.importedLineCount,
@@ -2292,6 +2294,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           mimeType,
           objectPath,
           fileSize: uploadedFileSize,
+          evidenceExpiresAt: retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays),
           fileHash: scopedFileHash,
           outcome: "duplicate",
           importedLineCount: completedImport?.importedLineCount ?? 0,
@@ -2495,6 +2498,45 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
   })));
 });
 
+router.get("/ledgerflow/uploaded-files", async (req, res) => {
+  const requestedClientId = Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
+  const now = new Date();
+  const imports = await db.select().from(statementImportsTable)
+    .where(and(
+      eq(statementImportsTable.clientId, client.id),
+      inArray(statementImportsTable.outcome, ["completed", "duplicate"]),
+    ))
+    .orderBy(desc(statementImportsTable.createdAt));
+  const files = await Promise.all(imports.map(async (statementImport) => {
+    let sourceStatus: "available" | "expired" | "unavailable" = "unavailable";
+    if (statementImport.evidenceExpiresAt && statementImport.evidenceExpiresAt <= now) {
+      sourceStatus = "expired";
+    } else if (statementImport.objectPath && statementObjectPathForClient(client.id, statementImport.objectPath)) {
+      try {
+        await objectStorageService.getObjectEntityFile(statementImport.objectPath);
+        sourceStatus = "available";
+      } catch (error) {
+        if (!(error instanceof ObjectNotFoundError)) {
+          req.log.warn({ err: error, importId: statementImport.id }, "Could not verify uploaded statement evidence");
+        }
+      }
+    }
+    return {
+      id: statementImport.id,
+      fileName: statementImport.fileName,
+      mimeType: statementImport.mimeType,
+      outcome: statementImport.outcome as "completed" | "duplicate",
+      importedLineCount: statementImport.importedLineCount,
+      processedAt: statementImport.createdAt.toISOString(),
+      sourceStatus,
+      sourceUrl: sourceStatus === "available" ? statementSourceUrl(statementImport.id) : null,
+    };
+  }));
+  return res.json(GetUploadedFilesResponse.parse(files));
+});
+
 router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
   const importId = Number(req.params.id);
   if (!Number.isInteger(importId) || importId <= 0) {
@@ -2510,6 +2552,14 @@ router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
   }
   const client = await requireOwnedClient(req, res, statementImport.clientId);
   if (!client) return;
+  if (!["completed", "duplicate"].includes(statementImport.outcome)) {
+    res.status(404).json({ error: "Source document not found" });
+    return;
+  }
+  if (statementImport.evidenceExpiresAt && statementImport.evidenceExpiresAt <= new Date()) {
+    res.status(404).json({ error: "Source document not found" });
+    return;
+  }
   if (!statementImport.objectPath || !statementObjectPathForClient(client.id, statementImport.objectPath)) {
     res.status(403).json({ error: "You do not have access to this source document." });
     return;

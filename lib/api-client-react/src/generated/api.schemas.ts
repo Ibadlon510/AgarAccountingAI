@@ -530,6 +530,35 @@ export interface StatementImport {
   sourceUrl?: string | null;
 }
 
+export type UploadedFileOutcome = typeof UploadedFileOutcome[keyof typeof UploadedFileOutcome];
+
+
+export const UploadedFileOutcome = {
+  completed: 'completed',
+  duplicate: 'duplicate',
+} as const;
+
+export type UploadedFileSourceStatus = typeof UploadedFileSourceStatus[keyof typeof UploadedFileSourceStatus];
+
+
+export const UploadedFileSourceStatus = {
+  available: 'available',
+  expired: 'expired',
+  unavailable: 'unavailable',
+} as const;
+
+export interface UploadedFile {
+  id: number;
+  fileName: string;
+  mimeType: string;
+  outcome: UploadedFileOutcome;
+  importedLineCount: number;
+  processedAt: string;
+  sourceStatus: UploadedFileSourceStatus;
+  /** @nullable */
+  sourceUrl: string | null;
+}
+
 export interface UploadUrlRequest {
   clientId: number;
   name: string;
@@ -1061,6 +1090,10 @@ status?: string;
 };
 
 export type GetStatementImportsParams = {
+clientId: number;
+};
+
+export type GetUploadedFilesParams = {
 clientId: number;
 };
 

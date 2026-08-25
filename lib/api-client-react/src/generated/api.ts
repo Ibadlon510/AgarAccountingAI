@@ -58,6 +58,7 @@ import type {
   GetStatementImportsParams,
   GetStatementLinesParams,
   GetTrialBalanceParams,
+  GetUploadedFilesParams,
   HealthStatus,
   JournalEntry,
   LedgerOverview,
@@ -77,6 +78,7 @@ import type {
   TrialBalanceRow,
   UploadUrlRequest,
   UploadUrlResponse,
+  UploadedFile,
   WorkspaceInvitation,
   WorkspaceInvitationInput,
   WorkspaceMember,
@@ -2644,6 +2646,90 @@ export function useGetStatementImports<TData = Awaited<ReturnType<typeof getStat
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetStatementImportsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetUploadedFilesUrl = (params: GetUploadedFilesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/uploaded-files?${stringifiedParams}` : `/api/ledgerflow/uploaded-files`
+}
+
+/**
+ * @summary List successful uploaded statement files
+ */
+export const getUploadedFiles = async (params: GetUploadedFilesParams, options?: Parameters<typeof customFetch>[1]): Promise<UploadedFile[]> => {
+
+  return customFetch<UploadedFile[]>(getGetUploadedFilesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetUploadedFilesQueryKey = (params?: GetUploadedFilesParams,) => {
+    return [
+    `/api/ledgerflow/uploaded-files`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetUploadedFilesQueryOptions = <TData = Awaited<ReturnType<typeof getUploadedFiles>>, TError = ErrorType<unknown>>(params: GetUploadedFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUploadedFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetUploadedFilesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUploadedFiles>>> = ({ signal }) => getUploadedFiles(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUploadedFiles>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetUploadedFilesQueryResult = NonNullable<Awaited<ReturnType<typeof getUploadedFiles>>>
+export type GetUploadedFilesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List successful uploaded statement files
+ */
+
+export function useGetUploadedFiles<TData = Awaited<ReturnType<typeof getUploadedFiles>>, TError = ErrorType<unknown>>(
+ params: GetUploadedFilesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUploadedFiles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetUploadedFilesQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

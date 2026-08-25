@@ -387,6 +387,113 @@ test("scopes duplicate detection to the importing client", async () => {
   assert.equal((await statementLines(secondaryClientId, secondaryUserId)).length, 1);
 });
 
+test("lists only successful uploaded files in newest-first order and keeps expired evidence unavailable", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Uploaded file history ${randomUUID()}`);
+  const now = Date.now();
+  const [completed, duplicate, expired] = await database.db.insert(database.statementImportsTable).values([
+    {
+      clientId,
+      fileName: "completed-statement.csv",
+      mimeType: "text/csv",
+      objectPath: "/objects/completed-statement.csv",
+      fileHash: randomUUID(),
+      outcome: "completed",
+      importedLineCount: 4,
+      evidenceExpiresAt: new Date(now + 60_000),
+      createdAt: new Date(now - 3_000),
+    },
+    {
+      clientId,
+      fileName: "duplicate-statement.csv",
+      mimeType: "text/csv",
+      objectPath: "/objects/duplicate-statement.csv",
+      fileHash: randomUUID(),
+      outcome: "duplicate",
+      importedLineCount: 4,
+      evidenceExpiresAt: new Date(now + 60_000),
+      createdAt: new Date(now - 2_000),
+    },
+    {
+      clientId,
+      fileName: "expired-statement.pdf",
+      mimeType: "application/pdf",
+      objectPath: "/objects/expired-statement.pdf",
+      fileHash: randomUUID(),
+      outcome: "completed",
+      importedLineCount: 2,
+      evidenceExpiresAt: new Date(now - 1_000),
+      createdAt: new Date(now - 1_000),
+    },
+    {
+      clientId,
+      fileName: "failed-statement.csv",
+      mimeType: "text/csv",
+      objectPath: "/objects/failed-statement.csv",
+      fileHash: randomUUID(),
+      outcome: "failed",
+      errorMessage: "Hidden parsing failure",
+      importedLineCount: 0,
+      createdAt: new Date(now),
+    },
+  ]).returning();
+
+  const files = await request<Array<{
+    id: number;
+    fileName: string;
+    outcome: "completed" | "duplicate";
+    importedLineCount: number;
+    processedAt: string;
+    sourceStatus: "available" | "expired" | "unavailable";
+    sourceUrl: string | null;
+  }>>(`/ledgerflow/uploaded-files?clientId=${clientId}`);
+  assert.equal(files.response.status, 200);
+  assert.deepEqual(files.body.map((file) => file.fileName), [
+    "expired-statement.pdf",
+    "duplicate-statement.csv",
+    "completed-statement.csv",
+  ]);
+  assert.deepEqual(files.body.map((file) => file.outcome), ["completed", "duplicate", "completed"]);
+  assert.equal(files.body[0]?.sourceStatus, "expired");
+  assert.equal(files.body[0]?.sourceUrl, null);
+  assert.equal(files.body[1]?.sourceStatus, "unavailable");
+  assert.equal(files.body[1]?.sourceUrl, null);
+  assert.equal(files.body[2]?.importedLineCount, 4);
+  assert.match(files.body[2]?.processedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+
+  const foreignList = await request<{ error: string }>(
+    `/ledgerflow/uploaded-files?clientId=${clientId}`,
+    undefined,
+    secondaryUserId,
+  );
+  assert.equal(foreignList.response.status, 403);
+
+  const foreignSource = await request<{ error: string }>(
+    `/ledgerflow/statement-imports/${completed.id}/source`,
+    undefined,
+    secondaryUserId,
+  );
+  assert.equal(foreignSource.response.status, 403);
+
+  const expiredSource = await request<{ error: string }>(
+    `/ledgerflow/statement-imports/${expired.id}/source`,
+  );
+  assert.equal(expiredSource.response.status, 404);
+
+  await database.db.insert(database.clientWorkspacesTable).values({
+    clientId,
+    userId: secondaryUserId,
+    role: "bookkeeper",
+  });
+  const teamMemberFiles = await request<Array<{ id: number }>>(
+    `/ledgerflow/uploaded-files?clientId=${clientId}`,
+    undefined,
+    secondaryUserId,
+  );
+  assert.equal(teamMemberFiles.response.status, 200);
+  assert.deepEqual(teamMemberFiles.body.map((file) => file.id), files.body.map((file) => file.id));
+});
+
 test("stages deterministic description recodes before separately confirmed approval and posting", async () => {
   const clientId = await createClient(`AI action scope ${randomUUID()}`);
   const createdLine = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {

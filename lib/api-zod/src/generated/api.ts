@@ -900,6 +900,26 @@ export const GetStatementImportsResponse = zod.array(GetStatementImportsResponse
 
 
 /**
+ * @summary List successful uploaded statement files
+ */
+export const GetUploadedFilesQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetUploadedFilesResponseItem = zod.object({
+  "id": zod.number(),
+  "fileName": zod.string(),
+  "mimeType": zod.string(),
+  "outcome": zod.enum(['completed', 'duplicate']),
+  "importedLineCount": zod.number(),
+  "processedAt": zod.coerce.date(),
+  "sourceStatus": zod.enum(['available', 'expired', 'unavailable']),
+  "sourceUrl": zod.string().nullable()
+})
+export const GetUploadedFilesResponse = zod.array(GetUploadedFilesResponseItem)
+
+
+/**
  * @summary Download an imported statement source document
  */
 export const GetStatementImportSourceParams = zod.object({

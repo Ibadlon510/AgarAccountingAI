@@ -575,6 +575,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StatementImport"
+  /ledgerflow/uploaded-files:
+    get:
+      operationId: getUploadedFiles
+      tags: [ledgerflow]
+      summary: List successful uploaded statement files
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Successful statement files available to the authorized client member
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UploadedFile"
   /ledgerflow/statement-imports/{id}/source:
     get:
       operationId: getStatementImportSource
@@ -1433,6 +1452,18 @@ components:
         errorMessage: { type: ["string", "null"] }
         importedLineCount: { type: number }
         createdAt: { type: string }
+        sourceUrl: { type: ["string", "null"] }
+    UploadedFile:
+      type: object
+      required: [id, fileName, mimeType, outcome, importedLineCount, processedAt, sourceStatus, sourceUrl]
+      properties:
+        id: { type: number }
+        fileName: { type: string }
+        mimeType: { type: string }
+        outcome: { type: string, enum: [completed, duplicate] }
+        importedLineCount: { type: number }
+        processedAt: { type: string, format: date-time }
+        sourceStatus: { type: string, enum: [available, expired, unavailable] }
         sourceUrl: { type: ["string", "null"] }
     UploadUrlRequest:
       type: object
