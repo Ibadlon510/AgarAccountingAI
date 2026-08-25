@@ -36,7 +36,6 @@ const nav = [
   { href: '/trial-balance', label: 'Trial balance', icon: BarChart3 },
   { href: '/financial-statements', label: 'Financial statements', icon: FileSpreadsheet },
   { href: '/client-settings', label: 'Client settings', icon: Settings2 },
-  { href: '/firm-settings', label: 'Firm settings', icon: Users },
 ];
 
 const classificationAccounts = [
