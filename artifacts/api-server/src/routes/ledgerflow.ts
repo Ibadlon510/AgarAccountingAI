@@ -1557,6 +1557,20 @@ async function recordFailedStatementImport(details: {
   }
 }
 
+type DatabaseError = { code?: string; constraint?: string; cause?: unknown };
+
+function databaseError(error: unknown): DatabaseError | null {
+  let candidate = error;
+  for (let depth = 0; depth < 4 && candidate && typeof candidate === "object"; depth += 1) {
+    const databaseCandidate = candidate as DatabaseError;
+    if (typeof databaseCandidate.code === "string" && /^[0-9A-Z]{5}$/.test(databaseCandidate.code)) {
+      return databaseCandidate;
+    }
+    candidate = databaseCandidate.cause;
+  }
+  return null;
+}
+
 type ParsedBankLine = {
   date: string;
   description: string;
@@ -2645,6 +2659,18 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     }));
   } catch (error) {
     req.log.error({ err: error }, "Statement import failed");
+    const databaseFailure = databaseError(error);
+    if (databaseFailure?.code === "23505"
+      && databaseFailure.constraint === "ledgerflow_statement_imports_client_file_hash_idx") {
+      return res.status(503).json({
+        error: "Statement import is temporarily unavailable because the database is not ready for import history. Please try again after the release completes.",
+      });
+    }
+    if (databaseFailure) {
+      return res.status(503).json({
+        error: "Statement import is temporarily unavailable. Please try again.",
+      });
+    }
     if (activeClientId !== undefined && fileHash) {
       await recordFailedStatementImport({
         clientId: activeClientId,
