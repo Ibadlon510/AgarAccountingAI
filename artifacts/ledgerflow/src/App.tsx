@@ -346,13 +346,19 @@ function ClientSettingsPage() {
 
 function FirmSettingsPage() {
   const firmQuery = useGetFirmProfile({ query: { queryKey: getGetFirmProfileQueryKey() } });
+  const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   const saveFirm = useUpdateFirmProfile();
   const ratesQuery = useGetExchangeRates({ query: { queryKey: getGetExchangeRatesQueryKey() } });
   const createRate = useCreateExchangeRate();
   const deleteRate = useDeleteExchangeRate();
+  const importRates = useImportExchangeRates();
+  const parseRates = useParseExchangeRates();
   const { user } = useUser();
   const [form, setForm] = useState({ name: '', legalName: '' });
   const [rate, setRate] = useState({ sourceCurrency: 'USD', functionalCurrency: 'AED', effectiveDate: new Date().toISOString().slice(0, 10), rate: '' });
+  const [rateImportError, setRateImportError] = useState('');
+  const [rateImportNotice, setRateImportNotice] = useState('');
+  const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
   useEffect(() => {
     if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName });
   }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName]);
@@ -360,6 +366,51 @@ function FirmSettingsPage() {
     queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+  };
+  const importParsedRates = async (rates: ExchangeRateInput[], source: 'csv' | 'ai') => {
+    try {
+      const result = await importRates.mutateAsync({ data: { rates } });
+      refreshRates();
+      setRatePreview(null);
+      setRateImportNotice(`${result.importedCount + result.updatedCount} rate${result.importedCount + result.updatedCount === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`);
+    } catch (error) {
+      setRateImportError(error instanceof Error ? error.message : 'The detected rates could not be imported. Check the preview and try again.');
+    }
+  };
+  const importRateFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setRateImportError('');
+      setRateImportNotice('');
+      setRatePreview(null);
+      const isWorkbook = file.name.toLowerCase().endsWith('.xlsx')
+        || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      if (isWorkbook) {
+        if (file.size > 15 * 1024 * 1024) throw new Error('This Excel workbook is too large. Choose a file smaller than 15 MB.');
+        const clientId = clientsQuery.data?.[0]?.id;
+        if (!clientId) throw new Error('Add at least one client workspace before importing an Excel schedule.');
+        const preview = await parseRates.mutateAsync({
+          data: { clientId, fileBase64: await fileAsBase64(file), fileName: file.name },
+        });
+        if (!preview.rates.length) throw new Error('No safe exchange-rate rows were found. Add clear date, currency, and rate values, then try again.');
+        setRatePreview(preview);
+        return;
+      }
+      const content = await file.text();
+      const rates = deterministicExchangeRates(content);
+      if (rates.length) {
+        await importParsedRates(rates, 'csv');
+        return;
+      }
+      if (content.length > 120000) throw new Error('This CSV is too large for AI-assisted detection. Reduce it to 120 KB or use the standard template.');
+      const clientId = clientsQuery.data?.[0]?.id;
+      if (!clientId) throw new Error('Add at least one client workspace before importing an unstructured CSV.');
+      const preview = await parseRates.mutateAsync({ data: { clientId, content, fileName: file.name } });
+      if (!preview.rates.length) throw new Error('No safe exchange-rate rows were found. Add clear date, currency, and rate values, then try again.');
+      setRatePreview(preview);
+    } catch (error) {
+      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read or mapped safely.');
+    }
   };
   return <div>
     <PageHeading eyebrow="Bookkeeping firm administration" title="Firm settings" description="These controls belong to your bookkeeping firm and stay the same when you switch clients." action={<Link href="/client-settings" className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2.5 text-xs font-semibold text-muted-foreground"><Settings2 size={14} /> Client settings</Link>} />
@@ -376,9 +427,29 @@ function FirmSettingsPage() {
         </form>
       </section>
       <section className="rounded-lg border border-card-border bg-card p-5 md:p-6">
-        <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div>
-        <h2 className="mt-2 text-base font-semibold">Firm exchange-rate schedule</h2>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">One schedule is reused by all of this firm’s clients. Add a rate once; reporting conversions refresh across the firm.</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div>
+            <h2 className="mt-2 text-base font-semibold">Firm exchange-rate schedule</h2>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">One schedule is reused by all of this firm’s clients. Add a rate once; reporting conversions refresh across the firm.</p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted">
+            <UploadCloud size={14} />
+            {parseRates.isPending ? 'Detecting layout…' : importRates.isPending ? 'Importing…' : 'Import CSV or Excel'}
+            <input
+              data-testid="input-firm-exchange-rate-import"
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              disabled={parseRates.isPending || importRates.isPending}
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = '';
+                void importRateFile(file);
+              }}
+            />
+          </label>
+        </div>
         <form onSubmit={(event) => { event.preventDefault(); createRate.mutate({ data: { ...rate, sourceCurrency: rate.sourceCurrency.toUpperCase(), functionalCurrency: rate.functionalCurrency.toUpperCase(), rate: Number(rate.rate), source: 'Manual', note: null } }, { onSuccess: () => { refreshRates(); setRate({ ...rate, rate: '' }); } }); }} className="mt-5 grid gap-3 sm:grid-cols-5">
           <input aria-label="Source currency" value={rate.sourceCurrency} maxLength={3} onChange={(event) => setRate({ ...rate, sourceCurrency: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
           <input aria-label="Functional currency" value={rate.functionalCurrency} maxLength={3} onChange={(event) => setRate({ ...rate, functionalCurrency: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
@@ -386,6 +457,23 @@ function FirmSettingsPage() {
           <input aria-label="Exchange rate" required type="number" min="0.00000001" step="any" value={rate.rate} onChange={(event) => setRate({ ...rate, rate: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
           <button data-testid="button-add-firm-exchange-rate" disabled={createRate.isPending} className="rounded bg-primary px-3 text-xs font-semibold text-primary-foreground">Add rate</button>
         </form>
+        {(createRate.isError || importRates.isError || rateImportError) && <p data-testid="status-firm-exchange-rate-error" className="mt-3 text-xs text-destructive">{rateImportError || 'The rate could not be saved. Use three-letter currency codes, a valid date, and a rate greater than zero.'}</p>}
+        {rateImportNotice && <p data-testid="status-firm-exchange-rate-success" className="mt-3 text-xs text-primary">{rateImportNotice}</p>}
+        {ratePreview && <div data-testid="card-firm-exchange-rate-import-preview" className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="font-mono text-[9px] uppercase tracking-[.14em] text-primary">Import review</div>
+              <h3 className="mt-1 text-sm font-semibold">Confirm the detected rate mapping</h3>
+              <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Nothing has been imported yet. Review the direction and sample rows before confirming.</p>
+            </div>
+            <span className="rounded-full bg-card px-2 py-1 font-mono text-[10px] text-primary">{Math.round(ratePreview.confidence * 100)}% confidence</span>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{[['Date', ratePreview.mapping.effectiveDate], ['Source currency', ratePreview.mapping.sourceCurrency], ['Functional currency', ratePreview.mapping.functionalCurrency], ['Rate', ratePreview.mapping.rate], ['Source note', ratePreview.mapping.source]].map(([label, value]) => <div key={label} className="rounded border border-primary/15 bg-card px-3 py-2"><div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground">{label}</div><div className="mt-1 truncate text-[11px] font-semibold">{value || 'Not detected'}</div></div>)}</div>
+          {ratePreview.warnings.length > 0 && <ul data-testid="list-firm-exchange-rate-preview-warnings" className="mt-3 space-y-1 rounded border border-accent/25 bg-accent/10 p-3 text-[11px] text-accent-foreground">{ratePreview.warnings.map((warning, index) => <li key={`${warning}-${index}`}>• {warning}</li>)}</ul>}
+          <div className="mt-4 overflow-x-auto rounded border border-primary/15 bg-card"><table className="w-full min-w-[560px] text-left text-[11px]"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source</th></tr></thead><tbody className="divide-y divide-border">{ratePreview.rates.slice(0, 10).map((previewRate, index) => <tr key={`${previewRate.effectiveDate}-${previewRate.sourceCurrency}-${previewRate.functionalCurrency}-${index}`}><td className="px-3 py-2 font-mono">{shortDate(previewRate.effectiveDate)}</td><td className="px-3 py-2 font-semibold">{previewRate.sourceCurrency} → {previewRate.functionalCurrency}</td><td className="px-3 py-2 text-right font-mono">{previewRate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-2 text-muted-foreground">{previewRate.source || 'AI-assisted CSV'}</td></tr>)}</tbody></table></div>
+          {ratePreview.rates.length > 10 && <p className="mt-2 text-[10px] text-muted-foreground">Showing 10 of {ratePreview.rates.length} detected rates.</p>}
+          <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" data-testid="button-discard-firm-exchange-rate-preview" onClick={() => setRatePreview(null)} disabled={importRates.isPending} className="rounded border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground">Discard</button><button type="button" data-testid="button-confirm-firm-exchange-rate-import" onClick={() => void importParsedRates(ratePreview.rates, 'ai')} disabled={importRates.isPending} className="rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{importRates.isPending ? 'Importing…' : `Confirm & import ${ratePreview.rates.length} rate${ratePreview.rates.length === 1 ? '' : 's'}`}</button></div>
+        </div>}
         <div className="mt-5 divide-y rounded-md border border-border">{ratesQuery.isLoading ? <p className="p-3 text-xs text-muted-foreground">Loading firm schedule…</p> : ratesQuery.data?.length ? ratesQuery.data.map((item) => <div key={item.id} data-testid={`row-firm-exchange-rate-${item.id}`} className="flex items-center justify-between gap-3 p-3 text-xs"><span><strong>{item.sourceCurrency} → {item.functionalCurrency}</strong> · {item.rate} · {shortDate(item.effectiveDate)}</span><button onClick={() => deleteRate.mutate({ id: item.id }, { onSuccess: refreshRates })} className="text-destructive">Remove</button></div>) : <p className="p-3 text-xs text-muted-foreground">No shared rates yet.</p>}</div>
       </section>
       <WorkspaceUsageSection />
