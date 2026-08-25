@@ -8,11 +8,11 @@ import {
   Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X
 } from 'lucide-react';
 import {
-  getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
+  getGetBankAccountsQueryKey, getGetBulkTransitionAuditsQueryKey, getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, getGetFirmProfileQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
-  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateFirmProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile
+  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateFirmProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile
 } from '@workspace/api-client-react';
 import type {
   Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
@@ -20,6 +20,7 @@ import type {
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { AssistantFAB } from './components/assistant-fab';
 import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
@@ -673,8 +674,7 @@ function ReportProfileControls() {
   return <div className="mb-5 rounded-lg border border-card-border bg-card p-4"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Presentation profile</div><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold">Reporting basis<select data-testid="select-reporting-basis" value={selectedBasis} onChange={(event) => changeBasis(event.target.value as typeof selectedBasis)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="IFRS" disabled={basis !== 'IFRS'}>Full IFRS</option><option value="IFRS for SMEs" disabled={basis !== 'IFRS for SMEs'}>IFRS for SMEs</option></select></label><label className="text-[11px] font-semibold">Format<select data-testid="select-presentation-profile" value={selectedProfile} onChange={(event) => { const profile = event.target.value as typeof selectedProfile; setSelectedProfile(profile); window.dispatchEvent(new CustomEvent('ledgerflow:report-profile', { detail: { basis: selectedBasis, profile } })); }} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="IAS 1">IAS 1</option>{ifrs18Eligible && <option value="IFRS 18">IFRS 18 (2027+)</option>}<option value="IFRS for SMEs" disabled={selectedBasis !== 'IFRS for SMEs'}>IFRS for SMEs</option></select></label></div><p className="mt-2 text-[10px] text-muted-foreground">Only the basis configured for this client is available. IFRS 18 is available for annual periods ending in 2027 or later.</p></div>;
 }
 function PageHeading({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
-  const isFinancialStatements = title === 'Financial statement pack';
-  return <>{isFinancialStatements && <ReportProfileControls />}<div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="font-mono text-[10px] uppercase tracking-[.19em] text-primary">{eyebrow}</div><h1 className="mt-2 font-display text-[34px] leading-none tracking-tight text-foreground md:text-[42px]">{title}</h1><p className="mt-3 max-w-2xl text-[13px] leading-5 text-muted-foreground">{description}</p>{isFinancialStatements && <p data-testid="report-snapshot-guidance" className="mt-2 max-w-2xl text-[11px] leading-5 text-accent-foreground">Saved drafts and finalized packs stay fixed. Posting or unposting changes live reports only—generate a fresh draft for the same reporting period to include the current posted entries and FX rate coverage.</p>}</div>{action}</div></>;
+  return <>{title === 'Financial statement pack' && <ReportProfileControls />}<div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><div className="font-mono text-[10px] uppercase tracking-[.19em] text-primary">{eyebrow}</div><h1 className="mt-2 font-display text-[34px] leading-none tracking-tight text-foreground md:text-[42px]">{title}</h1><p className="mt-3 max-w-2xl text-[13px] leading-5 text-muted-foreground">{description}</p></div>{action}</div></>;
 }
 function Metric({ label, value, note, accent = false }: { label: string; value: string; note: string; accent?: boolean }) {
   return <div className={`rounded-lg border p-5 ${accent ? 'border-primary/30 bg-primary text-primary-foreground' : 'border-card-border bg-card'} lift-hover`}><div className={`font-mono text-[10px] uppercase tracking-[.13em] ${accent ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{label}</div><div className="mt-3 font-display text-[31px] leading-none">{value}</div><div className={`mt-3 text-[11px] ${accent ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{note}</div></div>;
@@ -764,9 +764,19 @@ function AddLineDialog({ onClose }: { onClose: () => void }) {
   return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="w-full max-w-md rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Manual adjustment / {activeClient?.name ?? 'client'}</div><h2 className="mt-2 text-lg font-semibold">Add statement line</h2></div><button data-testid="button-close-add-line" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 space-y-4"><label className="block text-xs font-medium">Date<input data-testid="input-line-date" required type="date" value={form.date} onChange={(e) => set('date', e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Description<input data-testid="input-line-description" required value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="e.g. Cloud hosting invoice" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><div className="grid grid-cols-2 gap-3"><label className="block text-xs font-medium">Amount<input data-testid="input-line-amount" required min="0" step=".01" type="number" value={form.amount || ''} onChange={(e) => set('amount', e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Currency<select data-testid="select-line-currency" value={form.currency} onChange={(e) => set('currency', e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option></select></label></div><label className="block text-xs font-medium">Direction<select data-testid="select-line-direction" value={form.direction} onChange={(e) => set('direction', e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="outflow">Outflow / money out</option><option value="inflow">Inflow / money in</option></select></label>{mutation.isError && <p className="text-xs text-destructive">This line could not be added. Try again.</p>}<button data-testid="button-submit-line" disabled={mutation.isPending} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving line…' : <><Plus size={14} /> Add to review queue</>}</button></form></div></div>;
 }
 
+type BulkStatementAction = {
+  type: 'bulk_approve_entries' | 'bulk_post_entries' | 'recode_lines';
+  lineIds: number[];
+  entryIds: number[];
+};
 function StatementLinesPage() {
   const { activeClient } = useClientWorkspace();
   const [currency, setCurrency] = useState('all'); const [status, setStatus] = useState('all'); const [search, setSearch] = useState(''); const [addOpen, setAddOpen] = useState(false);
+  const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
+  const [selectedLineIds, setSelectedLineIds] = useState<number[]>([]);
+  const [bulkAction, setBulkAction] = useState<BulkStatementAction | null>(null);
+  const [bulkError, setBulkError] = useState<unknown>(null);
+  const bulkActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const params = useMemo(() => ({ clientId: activeClient?.id ?? 1, ...(currency !== 'all' ? { currency } : {}), ...(status !== 'all' ? { status } : {}) }), [activeClient?.id, currency, status]);
   const query = useGetStatementLines(params, { query: { queryKey: getGetStatementLinesQueryKey(params) } });
   const journalParams = { clientId: activeClient?.id ?? 1 };
@@ -775,9 +785,25 @@ function StatementLinesPage() {
   const approve = useApproveJournalEntry();
   const post = usePostJournalEntry();
   const confirmClassification = useConfirmAICopilotAction();
-  const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
+  const bulkMutation = useConfirmAICopilotAction();
   const entriesByLine = useMemo(() => new Map((journalQuery.data ?? []).map((entry) => [entry.statementLineId, entry])), [journalQuery.data]);
   const bankAccountsById = useMemo(() => new Map((bankAccountsQuery.data ?? []).map((account) => [account.id, account])), [bankAccountsQuery.data]);
+  const rows = useMemo(() => (query.data ?? []).filter((line) => `${line.description} ${line.accountSuggestion ?? ''}`.toLowerCase().includes(search.toLowerCase())), [query.data, search]);
+  const currencies = [...new Set((query.data ?? []).map((line) => line.currency))];
+  const selectedLines = useMemo(() => rows.filter((line) => selectedLineIds.includes(line.id)), [rows, selectedLineIds]);
+  const selectedEntries = useMemo(() => selectedLines.map((line) => entriesByLine.get(line.id)), [selectedLines, entriesByLine]);
+  const hasMissingEntries = selectedLines.some((_, index) => !selectedEntries[index]);
+  const hasPostedSelection = selectedLines.some((line, index) => line.status.toLowerCase() === 'posted' || selectedEntries[index]?.status.toLowerCase() === 'posted');
+  const allSuggested = selectedLines.length > 0 && !hasMissingEntries && !hasPostedSelection && selectedEntries.every((entry) => entry?.status.toLowerCase() === 'suggested');
+  const allApproved = selectedLines.length > 0 && !hasMissingEntries && !hasPostedSelection && selectedEntries.every((entry) => entry?.status.toLowerCase() === 'approved');
+  const allSelected = rows.length > 0 && rows.every((line) => selectedLineIds.includes(line.id));
+  const selectionIssue = hasMissingEntries
+    ? 'Some selected lines have no available journal entry. Remove them or refresh before continuing.'
+    : hasPostedSelection
+      ? 'Posted lines cannot be changed in bulk. Remove posted selections.'
+      : selectedLines.length > 0 && !allSuggested && !allApproved
+        ? 'Select only suggested entries for approval/recode, or only approved entries for posting.'
+        : null;
   const refreshPostedData = () => {
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
@@ -785,29 +811,70 @@ function StatementLinesPage() {
     queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetBulkTransitionAuditsQueryKey() });
   };
+  useEffect(() => {
+    setSelectedLineIds((current) => {
+      const visibleIds = new Set(rows.map((line) => line.id));
+      const next = current.filter((id) => visibleIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [rows, activeClient?.id]);
   const postEntry = (entry: JournalEntry) => post.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, { onSuccess: refreshPostedData });
   const approveEntry = (entry: JournalEntry) => approve.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, { onSuccess: refreshPostedData });
   const confirmClassificationForLine = (line: StatementLine, accountSuggestion: string) => confirmClassification.mutate({
-    data: {
-      clientId: journalParams.clientId,
-      type: 'recode_lines',
-      lineIds: [line.id],
-      accountSuggestion,
-      confidence: line.confidence ?? 0.85,
-    },
+    data: { clientId: journalParams.clientId, type: 'recode_lines', lineIds: [line.id], accountSuggestion, confidence: line.confidence ?? 0.85 },
   }, { onSuccess: refreshPostedData });
+  const openBulkAction = (type: BulkStatementAction['type'], trigger: HTMLButtonElement) => {
+    const eligible = type === 'bulk_post_entries' ? allApproved : allSuggested;
+    if (!eligible) return;
+    bulkActionTriggerRef.current = trigger;
+    setBulkError(null);
+    setBulkAction({ type, lineIds: selectedLines.map((line) => line.id), entryIds: selectedEntries.flatMap((entry) => entry ? [entry.id] : []) });
+  };
+  const cancelBulkAction = () => {
+    if (bulkMutation.isPending) return;
+    setBulkAction(null);
+    setBulkError(null);
+    bulkMutation.reset();
+    requestAnimationFrame(() => bulkActionTriggerRef.current?.focus());
+  };
+  const confirmBulkAction = (accountSuggestion?: string) => {
+    if (!bulkAction) return;
+    bulkMutation.mutate({
+      data: {
+        clientId: journalParams.clientId,
+        type: bulkAction.type,
+        lineIds: bulkAction.type === 'recode_lines' ? bulkAction.lineIds : undefined,
+        entryIds: bulkAction.type === 'recode_lines' ? undefined : bulkAction.entryIds,
+        statementLineIds: bulkAction.type === 'recode_lines' ? undefined : bulkAction.lineIds,
+        accountSuggestion,
+        confidence: accountSuggestion ? 0.85 : undefined,
+      },
+    }, {
+      onSuccess: () => {
+        setSelectedLineIds((current) => current.filter((id) => !bulkAction.lineIds.includes(id)));
+        setBulkAction(null);
+        setBulkError(null);
+        refreshPostedData();
+      },
+      onError: (error) => {
+        setBulkError(error);
+        refreshPostedData();
+      },
+    });
+  };
+  const toggleLineSelection = (lineId: number) => setSelectedLineIds((current) => current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]);
   const approveAndPost = approveEntry;
-  const rows = useMemo(() => (query.data ?? []).filter((line) => `${line.description} ${line.accountSuggestion ?? ''}`.toLowerCase().includes(search.toLowerCase())), [query.data, search]);
-  const currencies = [...new Set((query.data ?? []).map((line) => line.currency))];
-  return <div><PageHeading eyebrow="Evidence review / bank activity" title="Statement lines" description="Start with the source. Review each movement, inspect its linked journal entry, then post only the entries you stand behind." action={<button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:-translate-y-0.5 transition-transform"><Plus size={14} /> Add line</button>} /><div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card p-3 md:flex-row md:items-center"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 text-muted-foreground" size={15} /><input data-testid="input-search-lines" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search descriptions or account suggestions" className="h-9 w-full rounded-md border-0 bg-background pl-9 pr-3 text-xs outline-none ring-1 ring-border focus:ring-primary" /></div><div className="flex items-center gap-2"><Filter size={14} className="text-muted-foreground" /><select data-testid="select-currency-filter" value={currency} onChange={(e) => setCurrency(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All currencies</option>{currencies.map((item) => <option key={item}>{item}</option>)}</select><select data-testid="select-status-filter" value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All statuses</option><option value="pending">Pending</option><option value="review">Review</option><option value="posted">Posted</option></select></div></div><QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}><div className="overflow-hidden rounded-lg border border-card-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · use the action to approve or post</span></div><div className="overflow-x-auto"><table className="w-full min-w-[970px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="px-5 py-3 font-medium">Date</th><th className="px-4 py-3 font-medium">Source description</th><th className="px-4 py-3 font-medium">Suggested account</th><th className="px-4 py-3 font-medium">Amount</th><th className="px-4 py-3 font-medium">Confidence</th><th className="px-4 py-3 font-medium">Status</th><th className="px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{rows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} journalLoading={journalQuery.isLoading} processing={Boolean(approve.isPending && approve.variables?.id === entriesByLine.get(line.id)?.id || post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || confirmClassification.isPending && confirmClassification.variables?.data.lineIds?.includes(line.id))} actionError={approve.isError || post.isError || confirmClassification.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onApproveAndPost={approveAndPost} onPost={postEntry} onConfirmClassification={confirmClassificationForLine} />)}</tbody></table></div></div></QueryState>{addOpen && <AddLineDialog onClose={() => { setAddOpen(false); queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }); }} />}</div>;
+  return <div><PageHeading eyebrow="Evidence review / bank activity" title="Statement lines" description="Start with the source. Review each movement, inspect its linked journal entry, then post only the entries you stand behind." action={<button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:-translate-y-0.5 transition-transform"><Plus size={14} /> Add line</button>} /><div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card p-3 md:flex-row md:items-center"><div className="relative flex-1"><Search className="absolute left-3 top-2.5 text-muted-foreground" size={15} /><input data-testid="input-search-lines" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search descriptions or account suggestions" className="h-9 w-full rounded-md border-0 bg-background pl-9 pr-3 text-xs outline-none ring-1 ring-border focus:ring-primary" /></div><div className="flex items-center gap-2"><Filter size={14} className="text-muted-foreground" /><select data-testid="select-currency-filter" value={currency} onChange={(e) => setCurrency(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All currencies</option>{currencies.map((item) => <option key={item}>{item}</option>)}</select><select data-testid="select-status-filter" value={status} onChange={(e) => setStatus(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All statuses</option><option value="pending">Pending</option><option value="needs_review">Review</option><option value="posted">Posted</option></select></div></div><QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}><div className="overflow-hidden rounded-lg border border-card-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · use the action to approve or post</span></div>{selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-approve" onClick={(event) => openBulkAction('bulk_approve_entries', event.currentTarget)} disabled={!allSuggested || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Approve selected</button><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allApproved || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allSuggested || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue ? 'text-destructive' : 'text-muted-foreground'}`}>{selectionIssue ?? (allSuggested ? 'Suggested entries selected · approval and recode are available.' : 'Approved entries selected · posting is available.')}</p></div>}<div className="overflow-x-auto"><table className="w-full min-w-[1010px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : rows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="px-3 py-3 font-medium">Date</th><th className="px-4 py-3 font-medium">Source description</th><th className="px-4 py-3 font-medium">Suggested account</th><th className="px-4 py-3 font-medium">Amount</th><th className="px-4 py-3 font-medium">Confidence</th><th className="px-4 py-3 font-medium">Status</th><th className="px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{rows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(approve.isPending && approve.variables?.id === entriesByLine.get(line.id)?.id || post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || confirmClassification.isPending && confirmClassification.variables?.data.lineIds?.includes(line.id) || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={approve.isError || post.isError || confirmClassification.isError || bulkMutation.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onApproveAndPost={approveAndPost} onPost={postEntry} onConfirmClassification={confirmClassificationForLine} />)}</tbody></table></div></div></QueryState>{addOpen && <AddLineDialog onClose={() => { setAddOpen(false); queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }); }} />}{bulkAction && <BulkStatementActionDialog action={bulkAction} lines={rows.filter((line) => bulkAction.lineIds.includes(line.id))} pending={bulkMutation.isPending} error={bulkError} onCancel={cancelBulkAction} onConfirm={confirmBulkAction} />}</div>;
 }
 function StatementRow({ line }: { line: StatementLine }) {
   const positive = line.direction.toLowerCase().includes('credit') || line.direction.toLowerCase().includes('in'); const confidence = line.confidence == null ? null : Math.round(line.confidence * 100);
   return <tr data-testid={`row-statement-line-${line.id}`} className="group transition-colors hover:bg-secondary/30"><td className="whitespace-nowrap px-5 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td><td className="max-w-[250px] px-4 py-4"><div className="truncate text-[12px] font-semibold">{line.description}</div><div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="rounded bg-muted px-1.5 py-0.5">{line.source}</span><span>· {line.currency}</span></div></td><td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div className="mt-1 text-[10px] text-muted-foreground">AI suggestion</div></td><td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td><td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-2"><div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${confidence > 85 ? 'bg-primary' : 'bg-accent'}`} style={{ width: `${confidence}%` }} /></div><span className="font-mono text-[10px]">{confidence}%</span></div>}</td><td className="px-4 py-4"><StatusPill status={line.status} /></td></tr>;
 }
 
-function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoading, processing, actionError, onToggle, onApproveAndPost, onPost, onConfirmClassification }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; journalLoading: boolean; processing: boolean; actionError: boolean; onToggle: () => void; onApproveAndPost: (entry: JournalEntry) => void; onPost: (entry: JournalEntry) => void; onConfirmClassification: (line: StatementLine, accountSuggestion: string) => void }) {
+function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onApproveAndPost, onPost, onConfirmClassification }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: boolean; onToggle: () => void; onToggleSelected: () => void; onApproveAndPost: (entry: JournalEntry) => void; onPost: (entry: JournalEntry) => void; onConfirmClassification: (line: StatementLine, accountSuggestion: string) => void }) {
   const positive = line.direction.toLowerCase().includes('credit') || line.direction.toLowerCase().includes('in');
   const confidence = line.confidence == null ? null : Math.round(line.confidence * 100);
   const approved = entry?.status.toLowerCase() === 'approved';
@@ -841,8 +908,9 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
         : <button data-testid={`button-approve-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onApproveAndPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Approving…' : <><Check size={13} /> Approve</>}</button>;
 
   return <>
-    <tr data-testid={`row-statement-line-${line.id}`} tabIndex={0} aria-expanded={expanded} onClick={onToggle} onKeyDown={toggleFromRow} className={`group cursor-pointer transition-colors hover:bg-secondary/30 focus:outline-none focus-visible:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${expanded ? 'bg-secondary/20' : ''}`}>
-      <td className="whitespace-nowrap px-5 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td>
+    <tr data-testid={`row-statement-line-${line.id}`} tabIndex={0} aria-expanded={expanded} aria-selected={selected} onClick={onToggle} onKeyDown={toggleFromRow} className={`group cursor-pointer transition-colors hover:bg-secondary/30 focus:outline-none focus-visible:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${expanded ? 'bg-secondary/20' : ''}`}>
+      <td className="w-12 px-4 py-4" onClick={(event) => event.stopPropagation()}><input data-testid={`checkbox-select-line-${line.id}`} type="checkbox" aria-label={`Select statement line ${line.description}`} checked={selected} onChange={onToggleSelected} className="size-4 accent-primary" /></td>
+      <td className="whitespace-nowrap px-3 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td>
       <td className="max-w-[250px] px-4 py-4"><div className="truncate text-[12px] font-semibold">{line.description}</div><div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="rounded bg-muted px-1.5 py-0.5">{line.source}</span><span>· {line.currency}</span>{bankAccountName && <span className="truncate">· {bankAccountName}</span>}</div></td>
       <td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={(line as any).suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${(line as any).suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{(line as any).suggestionSource === 'workspace_learning' ? `Workspace learned · ${(line as any).supportingPatternCount} confirmed pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div></td>
       <td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td>
@@ -850,7 +918,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
       <td className="px-4 py-4"><StatusPill status={line.status} /></td>
       <td className="px-5 py-4 text-right" onClick={(event) => event.stopPropagation()}>{rowAction}</td>
     </tr>
-    {expanded && <tr data-testid={`detail-statement-line-${line.id}`}><td colSpan={7} className="bg-secondary/25 px-5 py-5">
+    {expanded && <tr data-testid={`detail-statement-line-${line.id}`}><td colSpan={8} className="bg-secondary/25 px-5 py-5">
       {journalLoading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw size={14} className="animate-spin" /> Loading linked journal entry…</div> : !entry ? <div className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive"><CircleAlert size={15} /> No journal entry is linked to this statement line yet.</div> : <section className="rounded-lg border border-card-border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
           <div><div className="font-mono text-[10px] uppercase tracking-[.14em] text-primary">Linked journal entry · JE-{String(entry.id).padStart(4, '0')}</div><p className="mt-1 text-xs text-muted-foreground">{entry.memo}</p></div>
@@ -902,42 +970,14 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function JournalEntriesPage() {
-  const { activeClient } = useClientWorkspace();
-  const params = { clientId: activeClient?.id ?? 1 };
-  const query = useGetJournalEntries(params, { query: { queryKey: getGetJournalEntriesQueryKey(params) } });
-  const approve = useApproveJournalEntry();
-  const unpost = useUnpostJournalEntry();
-  const entries = query.data ?? [];
-  const [selected, setSelected] = useState<number | null>(null);
-  const [filter, setFilter] = useState('all');
-  const filtered = entries.filter((item) => filter === 'all' || item.status.toLowerCase() === filter);
-  const refreshLedger = () => {
-    queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey() });
-  };
-  const approveEntry = (entry: JournalEntry) => approve.mutate({ id: entry.id, data: { clientId: params.clientId } }, { onSuccess: refreshLedger });
-  const unpostEntry = (entry: JournalEntry) => {
-    if (!window.confirm(`Unpost “${entry.memo}”? It will return to approved and be removed from live report totals. Saved report snapshots will not change.`)) return;
-    unpost.mutate({ id: entry.id, data: { clientId: params.clientId } }, { onSuccess: refreshLedger });
-  };
-  return <div><PageHeading eyebrow="Decision layer / AI proposals" title="Journal entries" description="Review the proposed double-entry, trace it back to its source line, and approve only the postings that make sense." action={<div className="flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 py-2 text-[11px] text-accent-foreground"><Sparkles size={14} /> AI prepared · human approved</div>} /><div className="mb-4 flex items-center justify-between rounded-lg border border-card-border bg-card px-4 py-3"><div className="flex items-center gap-2"><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-pending-entries" onClick={() => setFilter('pending')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'pending' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Needs approval</button></div><span className="font-mono text-[10px] text-muted-foreground">Source-linked postings</span></div><QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onApprove={() => approveEntry(entry)} onUnpost={() => unpostEntry(entry)} approving={approve.isPending && approve.variables?.id === entry.id} unposting={unpost.isPending && unpost.variables?.id === entry.id} />)}</div></QueryState></div>;
+  const { activeClient } = useClientWorkspace(); const params = { clientId: activeClient?.id ?? 1 };
+  const query = useGetJournalEntries(params, { query: { queryKey: getGetJournalEntriesQueryKey(params) } }); const approve = useApproveJournalEntry(); const entries = query.data ?? []; const [selected, setSelected] = useState<number | null>(null); const [filter, setFilter] = useState('all'); const filtered = entries.filter((item) => filter === 'all' || item.status.toLowerCase() === filter);
+  const approveEntry = (entry: JournalEntry) => approve.mutate({ id: entry.id, data: { clientId: activeClient?.id ?? 1 } }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }) });
+  return <div><PageHeading eyebrow="Decision layer / AI proposals" title="Journal entries" description="Review the proposed double-entry, trace it back to its source line, and approve only the postings that make sense." action={<div className="flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 py-2 text-[11px] text-accent-foreground"><Sparkles size={14} /> AI prepared · human approved</div>} /><div className="mb-4 flex items-center justify-between rounded-lg border border-card-border bg-card px-4 py-3"><div className="flex items-center gap-2"><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-pending-entries" onClick={() => setFilter('pending')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'pending' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Needs approval</button></div><span className="font-mono text-[10px] text-muted-foreground">Source-linked postings</span></div><QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onApprove={() => approveEntry(entry)} approving={approve.isPending && approve.variables?.id === entry.id} />)}</div></QueryState></div>;
 }
-
-function JournalCardLegacy({ entry, selected, onSelect, onApprove, approving }: { entry: JournalEntry; selected: boolean; onSelect: () => void; onApprove: () => void; approving: boolean }) {
+function JournalCard({ entry, selected, onSelect, onApprove, approving }: { entry: JournalEntry; selected: boolean; onSelect: () => void; onApprove: () => void; approving: boolean }) {
   const approved = entry.status.toLowerCase() === 'approved' || entry.status.toLowerCase() === 'posted';
   return <article data-testid={`card-journal-entry-${entry.id}`} className={`rounded-lg border bg-card transition-all ${selected ? 'border-primary/50 shadow-md' : 'border-card-border hover:border-primary/30'}`}><button data-testid={`button-expand-entry-${entry.id}`} onClick={onSelect} className="flex w-full items-start gap-4 p-5 text-left"><div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-md ${approved ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{approved ? <Check size={17} /> : <Sparkles size={16} />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] text-muted-foreground">JE-{String(entry.id).padStart(4, '0')}</span><StatusPill status={entry.status} /></div><h2 className="mt-2 truncate text-[13px] font-semibold">{entry.memo}</h2><div className="mt-2 flex items-center gap-3 font-mono text-[10px] text-muted-foreground"><span>{shortDate(entry.date)}</span><span>·</span><span>{entry.currency}</span><span>·</span><span>{Math.round(entry.confidence * 100)}% confidence</span></div></div><ChevronDown className={`mt-1 text-muted-foreground transition-transform ${selected ? 'rotate-180' : ''}`} size={16} /></button>{selected && <div className="border-t border-border px-5 pb-5 pt-4"><div className="mb-3 flex items-center gap-2 text-[10px] text-muted-foreground"><FileCheck2 size={13} className="text-primary" /> Linked to statement line #{entry.statementLineId}</div><div className="overflow-hidden rounded-md border border-border"><table className="w-full text-left text-[11px]"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Account</th><th className="px-3 py-2 text-right font-medium">Debit</th><th className="px-3 py-2 text-right font-medium">Credit</th></tr></thead><tbody className="divide-y divide-border">{entry.lines.map((line, index) => <tr key={`${entry.id}-${index}`}><td className="px-3 py-2.5">{line.account}</td><td className="px-3 py-2.5 text-right font-mono">{line.debit ? money(line.debit, entry.currency) : '—'}</td><td className="px-3 py-2.5 text-right font-mono">{line.credit ? money(line.credit, entry.currency) : '—'}</td></tr>)}</tbody></table></div><div className="mt-4 flex justify-end">{approved ? <div className="flex items-center gap-2 text-xs font-semibold text-primary"><CircleCheck size={15} /> Entry approved</div> : <button data-testid={`button-approve-entry-${entry.id}`} onClick={onApprove} disabled={approving} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{approving ? 'Approving…' : <><Check size={14} /> Approve entry</>}</button>}</div></div>}</article>;
-}
-function JournalCard({ entry, selected, onSelect, onApprove, onUnpost, approving, unposting }: { entry: JournalEntry; selected: boolean; onSelect: () => void; onApprove: () => void; onUnpost: () => void; approving: boolean; unposting: boolean }) {
-  const posted = entry.status.toLowerCase() === 'posted';
-  const approved = entry.status.toLowerCase() === 'approved' || posted;
-  return <article data-testid={`card-journal-entry-${entry.id}`} className={`rounded-lg border bg-card transition-all ${selected ? 'border-primary/50 shadow-md' : 'border-card-border hover:border-primary/30'}`}>
-    <button data-testid={`button-expand-entry-${entry.id}`} onClick={onSelect} className="flex w-full items-start gap-4 p-5 text-left"><div className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-md ${approved ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{approved ? <Check size={17} /> : <Sparkles size={16} />}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-[10px] text-muted-foreground">JE-{String(entry.id).padStart(4, '0')}</span><StatusPill status={entry.status} /></div><h2 className="mt-2 truncate text-[13px] font-semibold">{entry.memo}</h2><div className="mt-2 flex items-center gap-3 font-mono text-[10px] text-muted-foreground"><span>{shortDate(entry.date)}</span><span>·</span><span>{entry.currency}</span></div></div><ChevronDown className={`mt-1 text-muted-foreground transition-transform ${selected ? 'rotate-180' : ''}`} size={16} /></button>
-    {selected && <div className="border-t border-border px-5 pb-5 pt-4"><div className="mb-3 flex items-center gap-2 text-[10px] text-muted-foreground"><FileCheck2 size={13} className="text-primary" /> Linked to statement line #{entry.statementLineId}</div><div className="overflow-hidden rounded-md border border-border"><table className="w-full text-left text-[11px]"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2 font-medium">Account</th><th className="px-3 py-2 text-right font-medium">Debit</th><th className="px-3 py-2 text-right font-medium">Credit</th></tr></thead><tbody className="divide-y divide-border">{entry.lines.map((line, index) => <tr key={`${entry.id}-${index}`}><td className="px-3 py-2.5">{line.account}</td><td className="px-3 py-2.5 text-right font-mono">{line.debit ? money(line.debit, entry.currency) : '—'}</td><td className="px-3 py-2.5 text-right font-mono">{line.credit ? money(line.credit, entry.currency) : '—'}</td></tr>)}</tbody></table></div><div className="mt-4 flex justify-end">{posted ? <div className="max-w-sm text-right"><p className="mb-2 text-[11px] leading-4 text-muted-foreground">Unposting returns this entry to approved and removes it from live report totals. It never changes a saved report snapshot.</p><button data-testid={`button-unpost-entry-${entry.id}`} onClick={onUnpost} disabled={unposting} className="inline-flex items-center gap-2 rounded-md border border-destructive/30 px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{unposting ? 'Unposting…' : 'Unpost entry'}</button></div> : approved ? <div className="flex items-center gap-2 text-xs font-semibold text-primary"><CircleCheck size={15} /> Entry approved</div> : <button data-testid={`button-approve-entry-${entry.id}`} onClick={onApprove} disabled={approving} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{approving ? 'Approving…' : <><Check size={14} /> Approve entry</>}</button>}</div></div>}
-  </article>;
 }
 
 function exportTrialBalance(rows: Array<{ account: string; category: string; debit: number; credit: number; balance: number }>, clientName: string, currency: string) {
@@ -1610,4 +1650,70 @@ function WorkspaceUsageSection() {
       )}
     </section>
   );
+}
+
+function BulkStatementActionDialog({ action, lines, pending, error, onCancel, onConfirm }: {
+  action: BulkStatementAction;
+  lines: StatementLine[];
+  pending: boolean;
+  error: unknown;
+  onCancel: () => void;
+  onConfirm: (accountSuggestion?: string) => void;
+}) {
+  const isRecode = action.type === 'recode_lines';
+  const [accountSuggestion, setAccountSuggestion] = useState(classificationAccounts[0]);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const transition = action.type === 'bulk_approve_entries'
+    ? { from: 'suggested', to: 'approved', verb: 'approve', label: 'approval' }
+    : action.type === 'bulk_post_entries'
+      ? { from: 'approved', to: 'posted', verb: 'post', label: 'posting' }
+      : { from: 'suggested', to: 'reclassified', verb: 'recode', label: 'recode' };
+
+  return <AlertDialog open onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
+    <AlertDialogContent onOpenAutoFocus={(event) => { event.preventDefault(); requestAnimationFrame(() => cancelButtonRef.current?.focus()); }} className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-card-border bg-card">
+      <AlertDialogHeader className="flex-row items-start justify-between gap-4 space-y-0">
+        <div className="text-left">
+          <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Confirm bulk action</div>
+          <AlertDialogTitle data-testid="text-bulk-confirm-title" className="mt-2">{isRecode ? 'Recode selected lines' : `${transition.verb[0].toUpperCase()}${transition.verb.slice(1)} selected entries`}</AlertDialogTitle>
+        </div>
+        <button ref={cancelButtonRef} data-testid="button-cancel-bulk-action" onClick={onCancel} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Cancel bulk action"><X size={17} /></button>
+      </AlertDialogHeader>
+      <AlertDialogDescription data-testid="text-bulk-confirm-description" className="text-xs leading-5">
+        {isRecode
+          ? `You are about to recode ${lines.length} suggested ${lines.length === 1 ? 'line' : 'lines'} to one account. This updates the suggestions but does not approve or post them.`
+          : `Confirm ${transition.label} for ${lines.length} ${lines.length === 1 ? 'entry' : 'entries'}: ${transition.from} → ${transition.to}. This cannot include entries that have changed status.`}
+      </AlertDialogDescription>
+      {isRecode && <label className="block text-xs font-semibold">Supported account
+        <select data-testid="select-bulk-recode-account" value={accountSuggestion} onChange={(event) => setAccountSuggestion(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-normal outline-none focus:border-primary">
+          {classificationAccounts.map((account) => <option key={account} value={account}>{account}</option>)}
+        </select>
+      </label>}
+      <div className="mt-4 rounded-md border border-border bg-muted/35 p-3">
+        <div className="font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Selected lines · {lines.length}</div>
+        <div className="mt-2 space-y-1.5">
+          {lines.slice(0, 5).map((line) => <div data-testid={`bulk-confirm-line-${line.id}`} key={line.id} className="flex items-center justify-between gap-3 text-xs">
+            <span className="truncate">{line.description}</span><span className="shrink-0 font-mono text-muted-foreground">{money(Math.abs(line.amount), line.currency)}</span>
+          </div>)}
+          {lines.length > 5 && <div className="pt-1 font-mono text-[10px] text-muted-foreground">+ {lines.length - 5} more selected</div>}
+        </div>
+      </div>
+      {error != null && <div data-testid="status-bulk-action-error" className="mt-4 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs text-destructive"><CircleAlert size={15} className="mt-0.5 shrink-0" /><span>{mutationErrorMessage(error)}</span></div>}
+      <AlertDialogFooter className="mt-2 gap-2 sm:space-x-0">
+        <button data-testid="button-cancel-bulk-action-footer" onClick={onCancel} disabled={pending} className="rounded-md border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
+        <button data-testid={`button-confirm-${isRecode ? 'bulk-recode' : transition.verb === 'approve' ? 'bulk-approval' : 'bulk-posting'}`} onClick={() => onConfirm(isRecode ? accountSuggestion : undefined)} disabled={pending} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+          {pending && <LoaderCircle size={13} className="animate-spin" />}{pending ? 'Applying…' : `Confirm ${transition.verb}`}
+        </button>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>;
+}
+
+function mutationErrorMessage(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'data' in error) {
+    const data = (error as { data?: unknown }).data;
+    if (typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error?: unknown }).error === 'string') {
+      return (data as { error: string }).error;
+    }
+  }
+  return error instanceof Error ? error.message : 'The bulk action could not be applied. Refresh the queue and try again.';
 }

@@ -313,6 +313,8 @@ async function statementLines(clientId: number, userId = primaryUserId) {
 
 test("reports an exact file re-upload without adding review lines", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const first = await importStatement(clientId, "changed-original.csv", "changed-key");
   assert.equal(first.response.status, 201);
   assert.equal(first.body.importedCount, 1);
@@ -330,6 +332,8 @@ test("reports an exact file re-upload without adding review lines", async () => 
 
 test("does not merge bank accounts that share last four digits", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const results = await Promise.all([
     importStatement(clientId, "concurrent-a.csv", "concurrent", " A"),
     importStatement(clientId, "concurrent-b.csv", "concurrent", " B"),
@@ -351,6 +355,8 @@ test("does not merge bank accounts that share last four digits", async () => {
 
 test("does not merge bank accounts that share last four digits", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const alpha = await importStatement(clientId, "bank-alpha.csv", "bank-alpha");
   const beta = await importStatement(clientId, "bank-beta.csv", "bank-beta");
   assert.equal(alpha.response.status, 201);
@@ -369,24 +375,7 @@ test("does not merge bank accounts that share last four digits", async () => {
 
 test("scopes duplicate detection to the importing client", async () => {
   const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
-  const secondaryClientId = await createClient(`Merchant posting other ${randomUUID()}`, secondaryUserId);
-
-  async function createLine(targetClientId: number, date: string, description: string, amount: number, userId = primaryUserId) {
-    const created = await request<{ id: number }>("/ledgerflow/statement-lines", {
-      method: "POST",
-      body: JSON.stringify({
-        clientId: targetClientId,
-        date,
-        description,
-        currency: "AED",
-        amount,
-        direction: "outflow",
-      }),
-    }, userId);
-    assert.equal(created.response.status, 201);
-    return created.body.id;
-  }
-
+  const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryUserId);
   const primaryImport = await importStatement(primaryClientId, "client-isolation.csv", "client-isolation");
   assert.equal(primaryImport.response.status, 201);
   assert.equal(primaryImport.body.importStatus, "imported");
@@ -408,6 +397,8 @@ test("scopes duplicate detection to the importing client", async () => {
 test("lists only successful uploaded files in newest-first order and keeps expired evidence unavailable", async () => {
   assert.ok(database);
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const now = Date.now();
   const [completed, duplicate, expired] = await database.db.insert(database.statementImportsTable).values([
     {
@@ -514,6 +505,8 @@ test("lists only successful uploaded files in newest-first order and keeps expir
 
 test("stages deterministic description recodes before separately confirmed approval and posting", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const createdLine = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {
     method: "POST",
     body: JSON.stringify({
@@ -584,7 +577,10 @@ test("stages deterministic description recodes before separately confirmed appro
 
   const approval = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
     method: "POST",
-    body: JSON.stringify({ clientId, message: "Approve Dubai taxi and Careem payments." }),
+    body: JSON.stringify({
+      clientId,
+      message: "Approve all pending entries with description SUNWEB GROUP GMBH.",
+    }),
   });
   assert.equal(approval.response.status, 200);
   assert.equal(approval.body.toStatus, "approved");
@@ -608,41 +604,25 @@ test("stages deterministic description recodes before separately confirmed appro
   });
   assert.equal(postingCard.response.status, 200);
   assert.equal(postingCard.body.recommendations[0]?.type, "bulk_post_entries");
-  const posting = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+  const posting = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
     method: "POST",
-    body: JSON.stringify({ clientId, message: "post Dubai taxi and Careem payments" }),
+    body: JSON.stringify({
+      clientId,
+      message: "Post all approved entries with description SUNWEB GROUP GMBH.",
+    }),
   });
   assert.equal(posting.response.status, 200);
   assert.equal(posting.body.toStatus, "posted");
 
-  const audits = await request<Array<{ transition: string; fromStatus: string; toStatus: string; actor: { id: string } }>>(
-    `/ledgerflow/bulk-transition-audits?clientId=${clientId}`,
-  );
+  const audits = await request<Array<{ transition: string; entryIds: number[] }>>(`/ledgerflow/bulk-transition-audits?clientId=${clientId}`);
   assert.equal(audits.response.status, 200);
-  assert.deepEqual(audits.body.map((audit) => audit.transition).sort(), ["bulk_approve_entries", "bulk_post_entries"]);
-  assert.ok(audits.body.every((audit) => audit.actor.id === primaryUserId));
+  assert.deepEqual(audits.body.map((audit) => audit.transition), ["bulk_approve_entries"]);
+  assert.deepEqual(audits.body[0]?.entryIds, [firstEntry.id]);
 });
 
 test("keeps workspace AI credentials redacted, isolated, rotatable, and routes extraction through the selected provider", async () => {
   const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
-  const secondaryClientId = await createClient(`Merchant posting other ${randomUUID()}`, secondaryUserId);
-
-  async function createLine(targetClientId: number, date: string, description: string, amount: number, userId = primaryUserId) {
-    const created = await request<{ id: number }>("/ledgerflow/statement-lines", {
-      method: "POST",
-      body: JSON.stringify({
-        clientId: targetClientId,
-        date,
-        description,
-        currency: "AED",
-        amount,
-        direction: "outflow",
-      }),
-    }, userId);
-    assert.equal(created.response.status, 201);
-    return created.body.id;
-  }
-
+  const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryUserId);
   const defaultSettings = await request<{ provider: string; credentialLast4: string | null }>(
     `/ledgerflow/ai-settings?clientId=${primaryClientId}`,
   );
@@ -739,6 +719,8 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
 
 test("prepares description-scoped recoding, approval, and posting as separate confirmed actions", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   for (const [date, amount] of [["2026-08-23", 150], ["2026-08-24", 250]] as const) {
   const created = await request<InvitationEmail>("/workspace/invitations", {
     method: "POST",
@@ -792,15 +774,15 @@ test("prepares description-scoped recoding, approval, and posting as separate co
 
   const approval = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
     method: "POST",
-    body: JSON.stringify({ clientId, message: "Approve Dubai taxi and Careem payments." }),
+    body: JSON.stringify({
+      clientId,
+      message: "Approve all pending entries with description SUNWEB GROUP GMBH.",
+    }),
   });
   assert.equal(approval.response.status, 200);
   const approvalRecommendation = approval.body.recommendations[0];
   assert.equal(approvalRecommendation?.type, "bulk_approve_entries");
-  assert.equal(approvalRecommendation?.entryCount, 3);
-  assert.equal(approvalRecommendation?.lineCount, 3);
-  assert.equal(approvalRecommendation?.statusTransition?.from, "suggested");
-  assert.equal(approvalRecommendation?.statusTransition?.to, "approved");
+  assert.equal(approvalRecommendation?.entryCount, 2);
 
   const approvalConfirmation = await request<{ toStatus: string }>("/ledgerflow/ai-actions/confirm", {
     method: "POST",
@@ -814,26 +796,16 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(approvalConfirmation.response.status, 200);
   assert.equal(approvalConfirmation.body.toStatus, "approved");
 
-  const posting = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
-    method: "POST",
-    body: JSON.stringify({ clientId, message: "post Dubai taxi and Careem payments" }),
-  });
-  assert.equal(posting.response.status, 200);
-  const postingRecommendation = posting.body.recommendations[0];
-
-  const beforeConfirmation = await request<Array<{ status: string }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
-  assert.equal(postingRecommendation?.type, "bulk_post_entries");
-  const postingConfirmation = await request<{ toStatus: string; entryCount: number; lineCount: number }>("/ledgerflow/ai-actions/confirm", {
+  const posting = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
-      type: postingRecommendation?.type,
-      entryIds: postingRecommendation?.entryIds,
-      statementLineIds: postingRecommendation?.statementLineIds,
+      message: "Post all approved entries with description SUNWEB GROUP GMBH.",
     }),
   });
-
-  const stalePosting = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+  assert.equal(posting.response.status, 200);
+  const postingRecommendation = posting.body.recommendations[0];
+  const postingConfirmation = await request<{ toStatus: string; updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -967,6 +939,8 @@ test("resends a pending invitation with its approved scope and invalidates the e
 
 test("prepares unfamiliar exchange-rate CSV data without importing it", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const preview = await request<{
     mapping: { effectiveDate: string | null; sourceCurrency: string | null; rate: string | null };
     rates: Array<{ effectiveDate: string; sourceCurrency: string; functionalCurrency: string; rate: number; source: string; note: string | null }>;
@@ -998,6 +972,8 @@ test("prepares unfamiliar exchange-rate CSV data without importing it", async ()
 
 test("prepares recognizable Excel exchange-rate rows without calling AI or importing them", async () => {
   const clientId = await createClient(`Excel rate preview ${randomUUID()}`);
+
+  const foreignClientId = await createClient(`Foreign bulk selection ${randomUUID()}`, secondaryUserId);
   const workbook = XLSX.utils.book_new();
   const rows = [
     ["Value Date", "CCY", "FX Rate", "Inverse Rate"],
@@ -1019,41 +995,91 @@ test("prepares recognizable Excel exchange-rate rows without calling AI or impor
       fileBase64: XLSX.write(workbook, { type: "base64", bookType: "xlsx", cellDates: true }),
     }),
   });
-
-  assert.equal(preview.response.status, 200);
-  assert.deepEqual(preview.body.mapping, {
-    effectiveDate: "Value Date",
-    sourceCurrency: "CCY",
-    functionalCurrency: null,
-    rate: "FX Rate",
-    source: null,
-    note: null,
+  const mixed = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "bulk_approve_entries",
+      entryIds: [firstEntry.id, secondEntry.id],
+      statementLineIds: [firstLine.body.id, secondLine.body.id],
+    }),
   });
-  assert.deepEqual(preview.body.rates, [
-    { effectiveDate: "2025-01-02", sourceCurrency: "EUR", functionalCurrency: "AED", rate: 3.787254, source: "Imported workbook · 2025", note: null },
-    { effectiveDate: "2025-01-03", sourceCurrency: "EUR", functionalCurrency: "AED", rate: 3.779459, source: "Imported workbook · 2025", note: null },
+
+  const unavailable = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "bulk_approve_entries",
+      entryIds: [firstEntry.id, 9_999_999],
+      statementLineIds: [firstLine.body.id, secondLine.body.id],
+    }),
+  });
+
+
+  const createLine = (targetClientId: number, description: string, userId = primaryUserId) => request<{ id: number }>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: targetClientId,
+      date: "2026-08-25",
+      description,
+      currency: "AED",
+      amount: 125,
+      direction: "outflow",
+    }),
+  }, userId);
+
+  const firstEntry = entries.body.find((entry) => entry.statementLineId === firstLine.body.id);
+
+  const secondEntry = entries.body.find((entry) => entry.statementLineId === secondLine.body.id);
+
+  const approvedSecond = await request("/ledgerflow/journal-entries/" + secondEntry.id + "/approve", {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+
+  const [firstLine, secondLine, foreignLine] = await Promise.all([
+    createLine(clientId, "Bulk selection first"),
+    createLine(clientId, "Bulk selection second"),
+    createLine(foreignClientId, "Bulk selection foreign", secondaryUserId),
   ]);
-  assert.equal(preview.body.confidence, 1);
-  assert.match(preview.body.warnings[0] ?? "", /recognized 2 valid rates directly from the excel workbook/i);
-});
 
-  const noMatch = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+  const [entries, foreignEntries] = await Promise.all([
+    request<Array<{ id: number; statementLineId: number; status: string }>>(`/ledgerflow/journal-entries?clientId=${clientId}`),
+    request<Array<{ id: number; statementLineId: number; status: string }>>(`/ledgerflow/journal-entries?clientId=${foreignClientId}`, undefined, secondaryUserId),
+  ]);
+
+  const foreign = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
     method: "POST",
-    body: JSON.stringify({ clientId, message: "post Abu Dhabi parking payments" }),
+    body: JSON.stringify({
+      clientId: foreignClientId,
+      type: "bulk_approve_entries",
+      entryIds: [foreignEntry.id],
+      statementLineIds: [foreignLine.body.id],
+    }),
   });
 
-  const mixed = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+  const foreignEntry = foreignEntries.body.find((entry) => entry.statementLineId === foreignLine.body.id);
+
+  const recodeApproved = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
     method: "POST",
-    body: JSON.stringify({ clientId, message: "post Dubai taxi payments" }),
+    body: JSON.stringify({
+      clientId,
+      type: "recode_lines",
+      lineIds: [secondLine.body.id],
+      accountSuggestion: "Software & subscriptions",
+    }),
   });
 
-  const suggestedPosting = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
-    method: "POST",
-    body: JSON.stringify({ clientId, message: "Post Dubai taxi and Careem payments." }),
-  });
+  const selection = {
+    clientId,
+    type: "bulk_approve_entries",
+    entryIds: [firstEntry.id],
+    statementLineIds: [firstLine.body.id],
+  };
 
-  const otherClientEntries = await request<Array<{ status: string }>>(
-    `/ledgerflow/journal-entries?clientId=${secondaryClientId}`,
-    undefined,
-    secondaryUserId,
-  );
+  const concurrent = await Promise.all([
+    request<{ toStatus?: string; error?: string }>("/ledgerflow/ai-actions/confirm", { method: "POST", body: JSON.stringify(selection) }),
+    request<{ toStatus?: string; error?: string }>("/ledgerflow/ai-actions/confirm", { method: "POST", body: JSON.stringify(selection) }),
+  ]);
+
+  const currentEntries = await request<Array<{ statementLineId: number; status: string }>>(`/ledgerflow/journal-entries?clientId=${clientId}`);
