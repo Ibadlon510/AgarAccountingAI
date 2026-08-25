@@ -8,9 +8,10 @@ import {
 import {
   clearUserScopedState,
   getActiveWorkspaceStorageKey,
+  getWorkspaceLoadState,
+  requiresWorkspaceOnboarding,
   selectWorkspaceForSession,
 } from '../src/lib/user-state';
-
 class MemoryStorage {
   private readonly values = new Map<string, string>();
 
@@ -99,8 +100,27 @@ test('defaults a remediated account away from saved demo data but allows an expl
     { id: 10, legacyDemo: true },
     { id: 20, legacyDemo: false },
   ];
-
   assert.equal(selectWorkspaceForSession(workspaces, 10, false)?.id, 20);
   assert.equal(selectWorkspaceForSession(workspaces, 10, true)?.id, 10);
   assert.equal(selectWorkspaceForSession(workspaces, 20, false)?.id, 20);
+});
+
+test('keeps missing, failed, and ready workspace states distinct', () => {
+  assert.equal(getWorkspaceLoadState(true, false, undefined), 'loading');
+  assert.equal(getWorkspaceLoadState(false, true, undefined), 'failed');
+  assert.equal(getWorkspaceLoadState(false, false, []), 'missing');
+  assert.equal(getWorkspaceLoadState(false, false, [{ id: 1 }]), 'ready');
+});
+
+test('requires setup only when no configured or preserved workspace is available', () => {
+  assert.equal(requiresWorkspaceOnboarding([
+    { id: 1, legacyDemo: false, workspaceState: 'starter' },
+  ]), true);
+  assert.equal(requiresWorkspaceOnboarding([
+    { id: 1, legacyDemo: false, workspaceState: 'configured' },
+  ]), false);
+  assert.equal(requiresWorkspaceOnboarding([
+    { id: 1, legacyDemo: true, workspaceState: 'legacy_demo' },
+    { id: 2, legacyDemo: false, workspaceState: 'starter' },
+  ]), false);
 });

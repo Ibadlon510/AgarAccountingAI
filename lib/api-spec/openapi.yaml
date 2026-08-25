@@ -851,7 +851,7 @@ components:
         - status
     Client:
       type: object
-      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo]
+      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState]
       properties:
         id: { type: number }
         name: { type: string }
@@ -862,12 +862,19 @@ components:
         legacyDemo:
           type: boolean
           description: True only for an untouched legacy demo workspace retained for reference.
+        workspaceState:
+          type: string
+          enum: [starter, configured, legacy_demo]
+          description: Configuration state for this workspace. Missing memberships are represented by an empty response.
     ClientInput:
       type: object
       required: [name, legalName]
       properties:
         name: { type: string }
         legalName: { type: string }
+        functionalCurrency: { type: string }
+        basis: { type: string }
+        period: { type: string }
     ClientUpdateInput:
       type: object
       required: [name, legalName, functionalCurrency, basis, period]

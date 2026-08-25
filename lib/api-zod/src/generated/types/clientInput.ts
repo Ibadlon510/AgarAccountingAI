@@ -9,4 +9,7 @@
 export interface ClientInput {
   name: string;
   legalName: string;
+  functionalCurrency?: string;
+  basis?: string;
+  period?: string;
 }

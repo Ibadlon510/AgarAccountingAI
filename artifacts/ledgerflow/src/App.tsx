@@ -9,22 +9,22 @@ import {
 } from 'lucide-react';
 import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
-  getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, useApproveJournalEntry,
+  getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
-  useConfirmAICopilotAction, useGetBankAccounts, useGetLedgerflowAISettings, useGetStatementLines, useGetTrialBalance,
-  usePostJournalEntry, useRemoveLedgerflowAICredential, useTestLedgerflowAISettings, useUpdateClient, useUpdateLedgerflowAISettings, useUpdateReportPack
+  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance,
+  useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateReportPack
 } from '@workspace/api-client-react';
 import type {
-  Client, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection
+  Client, ClientUpdateInput, ExchangeRate, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AssistantFAB } from './components/assistant-fab';
-import { clearUserScopedState, getActiveWorkspaceStorageKey, selectWorkspaceForSession } from './lib/user-state';
 import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
+import { clearUserScopedState, getActiveWorkspaceStorageKey, getWorkspaceLoadState, requiresWorkspaceOnboarding, selectWorkspaceForSession } from './lib/user-state';
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const nav = [
@@ -640,15 +640,69 @@ function NotFound() {
 function WorkspaceRecoveryState({ onRetry }: { onRetry: () => void }) {
   return <div className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm" role="alert"><div className="mx-auto grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive"><CircleAlert size={19} /></div><h1 className="mt-4 text-base font-semibold">We couldn’t load your workspaces</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">LedgerFlow could not retrieve the client workspaces available to this account. Your bookkeeping data has not been opened.</p><button data-testid="button-retry-workspaces" onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground"><RefreshCw size={14} /> Try again</button></div></div>;
 }
+
+function WorkspaceOnboarding({ starterWorkspace, onComplete, onLogout }: { starterWorkspace?: Client; onComplete: (workspace: Client) => Promise<void> | void; onLogout: () => void }) {
+  const create = useCreateClient();
+  const update = useUpdateClient();
+  const [form, setForm] = useState<ClientUpdateInput>(() => ({
+    name: starterWorkspace?.name ?? '',
+    legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
+    functionalCurrency: starterWorkspace?.functionalCurrency ?? 'AED',
+    basis: starterWorkspace?.basis ?? 'IFRS',
+    period: starterWorkspace?.period === 'August 2026' ? '' : starterWorkspace?.period ?? '',
+  }));
+  const [validationMessage, setValidationMessage] = useState('');
+  const pending = create.isPending || update.isPending;
+  const error = create.error || update.error;
+
+  useEffect(() => {
+    setForm({
+      name: starterWorkspace?.name ?? '',
+      legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
+      functionalCurrency: starterWorkspace?.functionalCurrency ?? 'AED',
+      basis: starterWorkspace?.basis ?? 'IFRS',
+      period: starterWorkspace?.period === 'August 2026' ? '' : starterWorkspace?.period ?? '',
+    });
+  }, [starterWorkspace?.id]);
+
+  const set = (field: keyof ClientUpdateInput, value: string) => {
+    setValidationMessage('');
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const data = {
+      ...form,
+      name: form.name.trim(),
+      legalName: form.legalName.trim(),
+      period: form.period.trim(),
+    };
+    if (!data.name || !data.legalName || !data.period) {
+      setValidationMessage('Add the client name, legal name, and close period to continue.');
+      return;
+    }
+    setValidationMessage('');
+    const onSuccess = (workspace: Client) => void onComplete(workspace);
+    if (starterWorkspace) {
+      update.mutate({ id: starterWorkspace.id, data }, { onSuccess });
+    } else {
+      create.mutate({ data }, { onSuccess });
+    }
+  };
+
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="workspace-onboarding"><div className="w-full max-w-2xl"><div className="mb-6 flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Private bookkeeping workspace</div></div></div><button data-testid="button-onboarding-logout" onClick={onLogout} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Sign out</button></div><section className="rounded-lg border border-card-border bg-card p-6 shadow-md sm:p-9"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">First-run setup</div><h1 className="mt-3 font-display text-[38px] leading-[.98] tracking-tight">Set up your private bookkeeping workspace.</h1><p className="mt-4 max-w-xl text-[13px] leading-6 text-muted-foreground">Before you open the close desk, tell LedgerFlow which client and reporting settings belong to this account. This creates a private workspace for your books—no demo transactions are added.</p><form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2"><label className="block text-xs font-medium">Client name<input data-testid="input-onboarding-client-name" required minLength={1} value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="e.g. Northstar Advisory" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-onboarding-legal-name" required minLength={1} value={form.legalName} onChange={(event) => set('legalName', event.target.value)} placeholder="e.g. Northstar Advisory FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-onboarding-currency" value={form.functionalCurrency} onChange={(event) => set('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-onboarding-basis" value={form.basis} onChange={(event) => set('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-onboarding-period" required minLength={1} value={form.period} onChange={(event) => set('period', event.target.value)} placeholder="e.g. August 2026" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{(validationMessage || error) && <div data-testid="onboarding-error" className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive"><CircleAlert className="mt-0.5 shrink-0" size={14} /><span>{validationMessage || 'Workspace setup could not be saved. Check the details and try again.'}</span></div>}<div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] leading-5 text-muted-foreground">You can change these settings later from Workspace settings.</p><button data-testid="button-submit-onboarding" disabled={pending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">{pending ? <><LoaderCircle size={14} className="animate-spin" /> Saving workspace…</> : <><Check size={14} /> Save and open close overview</>}</button></div></form></section></div></main>;
+}
 function LedgerFlowApp({ user, onLogout }: { user: LedgerFlowUser; onLogout: () => void }) {
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   const clients = clientsQuery.data ?? [];
+  const workspaceLoadState = getWorkspaceLoadState(clientsQuery.isLoading, clientsQuery.isError, clientsQuery.data);
   const storageKey = getActiveWorkspaceStorageKey(user.externalId ?? user.id);
   const [activeClientId, setActiveClientId] = useState<number | null>(() => {
     const saved = Number(window.localStorage.getItem(storageKey));
     return Number.isFinite(saved) && saved > 0 ? saved : null;
   });
   const [allowLegacyDemoSelection, setAllowLegacyDemoSelection] = useState(false);
+  const [, setLocation] = useLocation();
   const selectedClient = selectWorkspaceForSession(clients, activeClientId, allowLegacyDemoSelection);
   useEffect(() => {
     if (!clients.length) return;
@@ -665,9 +719,19 @@ function LedgerFlowApp({ user, onLogout }: { user: LedgerFlowUser; onLogout: () 
       setActiveClientId(client.id);
     }
   };
-  if (clientsQuery.isLoading) return <AuthLoadingState label="Loading your workspaces" />;
-  if (clientsQuery.isError) return <WorkspaceRecoveryState onRetry={() => clientsQuery.refetch()} />;
-  if (!clients.length) return <WorkspaceRecoveryState onRetry={() => clientsQuery.refetch()} />;
+  if (workspaceLoadState === 'loading') return <AuthLoadingState label="Loading your workspaces" />;
+  if (workspaceLoadState === 'failed') return <WorkspaceRecoveryState onRetry={() => clientsQuery.refetch()} />;
+  const starterWorkspace = clients.find((client) => client.workspaceState === 'starter');
+  if (workspaceLoadState === 'missing' || requiresWorkspaceOnboarding(clients)) {
+    const completeOnboarding = async (workspace: Client) => {
+      await queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+      setAllowLegacyDemoSelection(false);
+      setActiveClientId(workspace.id);
+      window.localStorage.setItem(storageKey, String(workspace.id));
+      setLocation('/user-portal');
+    };
+    return <WorkspaceOnboarding starterWorkspace={starterWorkspace} onComplete={completeOnboarding} onLogout={onLogout} />;
+  }
   return <TooltipProvider><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider><Toaster /></TooltipProvider>;
 }
 

@@ -18,6 +18,8 @@ const userIds = [
   `edited-demo-owner-${randomUUID()}`,
   `converted-demo-owner-${randomUUID()}`,
   `configured-demo-owner-${randomUUID()}`,
+  `historic-starter-owner-${randomUUID()}`,
+  `historic-starter-new-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -82,6 +84,23 @@ async function seedLegacyDemoWorkspace(ownerId: string, memberIds = [ownerId]) {
   return client;
 }
 
+async function seedPlaceholderStarterWorkspace(ownerId: string, name: string) {
+  assert.ok(database);
+  const [client] = await database.db.insert(database.clientsTable).values({
+    name,
+    legalName: "Legal entity to be configured",
+    functionalCurrency: "AED",
+    basis: "IFRS",
+    period: "August 2026",
+  }).returning();
+  clientIds.push(client.id);
+  await database.db.insert(database.clientWorkspacesTable).values({ clientId: client.id, userId: ownerId });
+  await database.db.update(database.usersTable)
+    .set({ starterClientId: client.id })
+    .where(eq(database.usersTable.id, ownerId));
+  return client;
+}
+
 before(async () => {
   process.env.DATABASE_URL = testDatabaseUrl();
   const { createApp } = await import("../src/app");
@@ -119,10 +138,10 @@ after(async () => {
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
 });
 
-test("provisions distinct empty workspaces and enforces client boundaries", async () => {
+test("provisions isolated starter workspaces and configures only the owner's workspace", async () => {
   const [first, second] = await Promise.all([
-    request<Array<{ id: number; name: string }>>("/clients", userIds[0]),
-    request<Array<{ id: number; name: string }>>("/clients", userIds[1]),
+    request<Array<{ id: number; name: string; legalName: string; workspaceState: string }>>("/clients", userIds[0]),
+    request<Array<{ id: number; name: string; legalName: string; workspaceState: string }>>("/clients", userIds[1]),
   ]);
 
   assert.equal(first.response.status, 200);
@@ -132,11 +151,51 @@ test("provisions distinct empty workspaces and enforces client boundaries", asyn
   assert.notEqual(first.body[0].id, second.body[0].id);
   assert.doesNotMatch(first.body[0].name, /northstar/i);
   assert.doesNotMatch(second.body[0].name, /northstar/i);
+  assert.equal(first.body[0].workspaceState, "starter");
+  assert.equal(second.body[0].workspaceState, "starter");
+  assert.equal(first.body[0].legalName, "Legal entity to be configured");
+  assert.equal(second.body[0].legalName, "Legal entity to be configured");
   clientIds.push(first.body[0].id, second.body[0].id);
 
-  const firstAgain = await request<Array<{ id: number }>>("/clients", userIds[0]);
+  const failedSetup = await request<{ error: string }>(`/clients/${first.body[0].id}`, userIds[0], {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: "First client",
+      legalName: "",
+      functionalCurrency: "USD",
+      basis: "IFRS for SMEs",
+      period: "December 2026",
+    }),
+  });
+  assert.equal(failedSetup.response.status, 400);
+  assert.match(failedSetup.body.error, /complete.*settings/i);
+
+  const afterFailedSetup = await request<Array<{ workspaceState: string }>>("/clients", userIds[0]);
+  assert.equal(afterFailedSetup.response.status, 200);
+  assert.equal(afterFailedSetup.body[0].workspaceState, "starter");
+
+  const configured = await request<{ id: number; workspaceState: string; legalName: string; functionalCurrency: string; basis: string; period: string }>(`/clients/${first.body[0].id}`, userIds[0], {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: "First client",
+      legalName: "First Client FZ-LLC",
+      functionalCurrency: "USD",
+      basis: "IFRS for SMEs",
+      period: "December 2026",
+    }),
+  });
+  assert.equal(configured.response.status, 200);
+  assert.equal(configured.body.workspaceState, "configured");
+  assert.equal(configured.body.legalName, "First Client FZ-LLC");
+  assert.equal(configured.body.functionalCurrency, "USD");
+  assert.equal(configured.body.basis, "IFRS for SMEs");
+  assert.equal(configured.body.period, "December 2026");
+
+  const firstAgain = await request<Array<{ id: number; workspaceState: string; legalName: string }>>("/clients", userIds[0]);
   assert.equal(firstAgain.response.status, 200);
   assert.deepEqual(firstAgain.body.map((client) => client.id), [first.body[0].id]);
+  assert.equal(firstAgain.body[0].workspaceState, "configured");
+  assert.equal(firstAgain.body[0].legalName, "First Client FZ-LLC");
 
   const [firstLines, firstEntries, secondLines, secondEntries] = await Promise.all([
     request<unknown[]>(`/ledgerflow/statement-lines?clientId=${first.body[0].id}`, userIds[0]),
@@ -183,6 +242,24 @@ test("provisions distinct empty workspaces and enforces client boundaries", asyn
   assert.equal(secondWorkspace.userId, userIds[1]);
 });
 
+test("continues to classify historic generated placeholders as starter workspaces", async () => {
+  assert.ok(database);
+  const historicStarters = [
+    { userId: userIds[9], name: "Amina's workspace" },
+    { userId: userIds[10], name: "New LedgerFlow workspace" },
+  ];
+  for (const starter of historicStarters) {
+    await database.db.insert(database.usersTable).values({ id: starter.userId });
+    const client = await seedPlaceholderStarterWorkspace(starter.userId, starter.name);
+
+    const response = await request<Array<{ id: number; workspaceState: string }>>("/clients", starter.userId);
+    assert.equal(response.response.status, 200);
+    assert.equal(response.body.length, 1);
+    assert.equal(response.body[0].id, client.id);
+    assert.equal(response.body[0].workspaceState, "starter");
+  }
+});
+
 test("moves only an untouched legacy demo workspace to a clean private workspace", async () => {
   assert.ok(database);
   const legacyUserId = userIds[2];
@@ -192,14 +269,16 @@ test("moves only an untouched legacy demo workspace to a clean private workspace
     .set({ starterClientId: legacyClient.id })
     .where(eq(database.usersTable.id, legacyUserId));
 
-  const firstVisit = await request<Array<{ id: number; name: string; legacyDemo: boolean }>>("/clients", legacyUserId);
+  const firstVisit = await request<Array<{ id: number; name: string; legacyDemo: boolean; workspaceState: string }>>("/clients", legacyUserId);
   assert.equal(firstVisit.response.status, 200);
   assert.equal(firstVisit.body.length, 2);
   const preservedWorkspace = firstVisit.body.find((client) => client.id === legacyClient.id);
   const cleanWorkspace = firstVisit.body.find((client) => !client.legacyDemo);
   assert.equal(preservedWorkspace?.legacyDemo, true);
+  assert.equal(preservedWorkspace?.workspaceState, "legacy_demo");
   assert.ok(cleanWorkspace);
   assert.match(cleanWorkspace.name, /private workspace/i);
+  assert.equal(cleanWorkspace.workspaceState, "starter");
   clientIds.push(cleanWorkspace.id);
 
   const [starter] = await database.db.select({
@@ -242,6 +321,7 @@ test("does not remediate an exact demo-shaped workspace that is intentionally sh
     basis: "IFRS",
     period: "August 2026",
     legacyDemo: false,
+    workspaceState: "configured",
   }]);
   const [owner] = await database.db.select({ starterClientId: database.usersTable.starterClientId })
     .from(database.usersTable)

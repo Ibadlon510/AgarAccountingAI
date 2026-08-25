@@ -47,6 +47,18 @@ export interface HealthStatus {
   status: string;
 }
 
+/**
+ * Configuration state for this workspace. Missing memberships are represented by an empty response.
+ */
+export type ClientWorkspaceState = typeof ClientWorkspaceState[keyof typeof ClientWorkspaceState];
+
+
+export const ClientWorkspaceState = {
+  starter: 'starter',
+  configured: 'configured',
+  legacy_demo: 'legacy_demo',
+} as const;
+
 export interface Client {
   id: number;
   name: string;
@@ -56,11 +68,16 @@ export interface Client {
   period: string;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
+  /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
+  workspaceState: ClientWorkspaceState;
 }
 
 export interface ClientInput {
   name: string;
   legalName: string;
+  functionalCurrency?: string;
+  basis?: string;
+  period?: string;
 }
 
 export interface ClientUpdateInput {
@@ -72,6 +89,60 @@ export interface ClientUpdateInput {
 }
 
 export type UsageMetricStatus = typeof UsageMetricStatus[keyof typeof UsageMetricStatus];
+
+
+export const UsageMetricStatus = {
+  healthy: 'healthy',
+  approaching: 'approaching',
+  at_limit: 'at_limit',
+} as const;
+
+export interface UsageMetric {
+  used: number;
+  limit: number;
+  percentage: number;
+  status: UsageMetricStatus;
+}
+
+export type EvidenceUsageStatus = typeof EvidenceUsageStatus[keyof typeof EvidenceUsageStatus];
+
+
+export const EvidenceUsageStatus = {
+  healthy: 'healthy',
+  approaching: 'approaching',
+  at_limit: 'at_limit',
+} as const;
+
+export interface EvidenceUsage {
+  documents: number;
+  bytes: number;
+  limitBytes: number;
+  percentage: number;
+  status: EvidenceUsageStatus;
+}
+
+export type WorkspaceUsageBillingPeriod = {
+  label: string;
+  startsAt: string;
+};
+
+export type WorkspaceUsageRetention = {
+  statementEvidenceDays: number;
+  aiActivityDays: number;
+  ledgerDataDescription: string;
+};
+
+export interface WorkspaceUsage {
+  plan: string;
+  asOf: string;
+  billingPeriod: WorkspaceUsageBillingPeriod;
+  statementImports: UsageMetric;
+  storedEvidence: EvidenceUsage;
+  aiActivity: UsageMetric;
+  clientWorkspaces: UsageMetric;
+  retention: WorkspaceUsageRetention;
+}
+
 export interface ExchangeRate {
   id: number;
   /**
@@ -839,54 +910,3 @@ export type GetReportPacksParams = {
 clientId: number;
 };
 
-
-export interface UsageMetric {
-  used: number;
-  limit: number;
-  percentage: number;
-  status: UsageMetricStatus;
-}
-
-export type EvidenceUsageStatus = typeof EvidenceUsageStatus[keyof typeof EvidenceUsageStatus];
-
-export type WorkspaceUsageRetention = {
-  statementEvidenceDays: number;
-  aiActivityDays: number;
-  ledgerDataDescription: string;
-};
-
-export type WorkspaceUsageBillingPeriod = {
-  label: string;
-  startsAt: string;
-};
-
-export interface WorkspaceUsage {
-  plan: string;
-  asOf: string;
-  billingPeriod: WorkspaceUsageBillingPeriod;
-  statementImports: UsageMetric;
-  storedEvidence: EvidenceUsage;
-  aiActivity: UsageMetric;
-  clientWorkspaces: UsageMetric;
-  retention: WorkspaceUsageRetention;
-}
-
-export const EvidenceUsageStatus = {
-  healthy: 'healthy',
-  approaching: 'approaching',
-  at_limit: 'at_limit',
-} as const;
-
-export interface EvidenceUsage {
-  documents: number;
-  bytes: number;
-  limitBytes: number;
-  percentage: number;
-  status: EvidenceUsageStatus;
-}
-
-export const UsageMetricStatus = {
-  healthy: 'healthy',
-  approaching: 'approaching',
-  at_limit: 'at_limit',
-} as const;

@@ -55,6 +55,11 @@ export const LogoutBrowserSessionResponse = zod.void()
  */
 
 
+
+
+
+
+
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -86,7 +91,8 @@ export const GetClientsResponseItem = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
+  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
 export const GetClientsResponse = zod.array(GetClientsResponseItem)
 
@@ -96,7 +102,10 @@ export const GetClientsResponse = zod.array(GetClientsResponseItem)
  */
 export const CreateClientBody = zod.object({
   "name": zod.string(),
-  "legalName": zod.string()
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string().optional(),
+  "basis": zod.string().optional(),
+  "period": zod.string().optional()
 })
 
 export const CreateClientResponse = zod.object({
@@ -106,7 +115,8 @@ export const CreateClientResponse = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
+  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
 
 
@@ -132,8 +142,10 @@ export const UpdateClientResponse = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.')
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
+  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
+
 
 /**
  * @summary Get server-measured workspace usage and plan limits
@@ -176,6 +188,8 @@ export const GetLedgerflowUsageResponse = zod.object({
   "ledgerDataDescription": zod.string()
 })
 })
+
+
 /**
  * @summary List the authenticated workspace exchange-rate schedule
  */
@@ -186,6 +200,7 @@ export const getExchangeRatesResponseFunctionalCurrencyMin = 3;
 export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 
 export const getExchangeRatesResponseRateExclusiveMin = 0;
+
 
 
 export const GetExchangeRatesResponseItem = zod.object({
@@ -212,6 +227,7 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const CreateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
@@ -228,6 +244,7 @@ export const createExchangeRateResponseFunctionalCurrencyMin = 3;
 export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const CreateExchangeRateResponse = zod.object({
@@ -257,6 +274,7 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const UpdateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
@@ -273,6 +291,7 @@ export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
 export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const UpdateExchangeRateResponse = zod.object({
@@ -308,6 +327,8 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
 
+
+
 export const ImportExchangeRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
@@ -326,6 +347,7 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
+
 
 
 export const ImportExchangeRatesResponse = zod.object({
@@ -398,6 +420,7 @@ export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
 export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
+
 
 
 export const CreateBankAccountBody = zod.object({
@@ -653,6 +676,7 @@ export const GetLedgerflowAISettingsResponse = zod.object({
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
+
 
 
 export const UpdateLedgerflowAISettingsBody = zod.object({
@@ -994,6 +1018,7 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
  */
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
+
 
 
 export const CreateReportPackBody = zod.object({
@@ -1425,3 +1450,5 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
+
+

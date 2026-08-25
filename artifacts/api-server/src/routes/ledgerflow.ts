@@ -146,7 +146,25 @@ const legacyDemoRows = [
   { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "needs_review", accountSuggestion: "Communication expenses", confidence: "0.84" },
 ] as const;
 
-function clientResponse(client: typeof clientsTable.$inferSelect, legacyDemo = false) {
+type WorkspaceState = "starter" | "configured" | "legacy_demo";
+
+function isPlaceholderStarterWorkspace(client: typeof clientsTable.$inferSelect) {
+  return client.legalName === "Legal entity to be configured"
+    && client.functionalCurrency === "AED"
+    && client.basis === "IFRS"
+    && client.period === "August 2026"
+    && (
+      /private workspace$/i.test(client.name)
+      || /ledgerflow workspace$/i.test(client.name)
+      || /(?:'s|’s) workspace$/i.test(client.name)
+    );
+}
+
+function clientResponse(
+  client: typeof clientsTable.$inferSelect,
+  legacyDemo = false,
+  workspaceState?: WorkspaceState,
+) {
   return {
     id: client.id,
     name: client.name,
@@ -155,9 +173,9 @@ function clientResponse(client: typeof clientsTable.$inferSelect, legacyDemo = f
     basis: client.basis,
     period: client.period,
     legacyDemo,
+    workspaceState: workspaceState ?? (legacyDemo ? "legacy_demo" : isPlaceholderStarterWorkspace(client) ? "starter" : "configured"),
   };
 }
-
 function aiSettingsResponse(
   config: Awaited<ReturnType<typeof getAIProviderConfig>>,
   availableModels: Awaited<ReturnType<typeof getAIModelCatalog>>,
@@ -2124,16 +2142,31 @@ router.get("/clients", async (req, res) => {
   const legacyDemoClientIds = new Set(
     user?.remediatedLegacyClientId != null ? [user.remediatedLegacyClientId] : [],
   );
-  res.json(clients.map((client) => clientResponse(client, legacyDemoClientIds.has(client.id))));
+  res.json(clients.map((client) => {
+    const legacyDemo = legacyDemoClientIds.has(client.id);
+    return clientResponse(client, legacyDemo, legacyDemo ? "legacy_demo" : undefined);
+  }));
 });
 
 router.post("/clients", async (req, res) => {
-  const body = req.body as { name?: string; legalName?: string };
+  const body = req.body as {
+    name?: string;
+    legalName?: string;
+    functionalCurrency?: string;
+    basis?: string;
+    period?: string;
+  };
   if (!body.name || !body.legalName) return res.status(400).json({ error: "Client name and legal name are required" });
   const { name, legalName } = body;
   const client = await db.transaction(async (tx) => {
     const [created] = await tx.insert(clientsTable)
-      .values({ name, legalName, functionalCurrency: "AED", basis: "IFRS", period: "August 2026" })
+      .values({
+        name,
+        legalName,
+        functionalCurrency: body.functionalCurrency || "AED",
+        basis: body.basis || "IFRS",
+        period: body.period || "August 2026",
+      })
       .returning();
     await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: currentUserId(req) });
     return created;
@@ -2145,7 +2178,20 @@ router.patch("/clients/:id", async (req, res) => {
   const { id } = UpdateClientParams.parse(req.params);
   const ownedClient = await requireOwnedClient(req, res, id);
   if (!ownedClient) return;
-  const body = UpdateClientBody.parse(req.body);
+  const parsed = UpdateClientBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
+  }
+  const body = {
+    name: parsed.data.name.trim(),
+    legalName: parsed.data.legalName.trim(),
+    functionalCurrency: parsed.data.functionalCurrency.trim(),
+    basis: parsed.data.basis.trim(),
+    period: parsed.data.period.trim(),
+  };
+  if (Object.values(body).some((value) => !value)) {
+    return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
+  }
   const [client] = await db.update(clientsTable)
     .set(body)
     .where(eq(clientsTable.id, ownedClient.id))

@@ -35,6 +35,7 @@ export * from './bulkTransitionAuditTransition';
 export * from './client';
 export * from './clientInput';
 export * from './clientUpdateInput';
+export * from './clientWorkspaceState';
 export * from './evidenceUsage';
 export * from './evidenceUsageStatus';
 export * from './exchangeRate';

@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientWorkspaceState } from './clientWorkspaceState';
 
 export interface Client {
   id: number;
@@ -15,4 +16,6 @@ export interface Client {
   period: string;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
+  /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
+  workspaceState: ClientWorkspaceState;
 }
