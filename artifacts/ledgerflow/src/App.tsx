@@ -736,6 +736,100 @@ function ImportStatementPage() {
   const importMutation = useImportStatement();
   const { uploadFile, isUploading } = useUpload();
   const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<{ fileName: string; mimeType: string; objectPath: string; result: StatementImportResult } | null>(null);
+  const [selectedCurrency, setSelectedCurrency] = useState('');
+  const [completed, setCompleted] = useState<StatementImportResult | null>(null);
+  const [message, setMessage] = useState('');
+
+  const previewStatement = async () => {
+    if (!file || !activeClient) return;
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+      setMessage('Statement file is too large. Please choose a file no larger than 50 MB.');
+      return;
+    }
+    setMessage('');
+    setCompleted(null);
+    try {
+      const uploaded = await uploadFile(file, { clientId: activeClient.id });
+      if (!uploaded) throw new Error('The private statement upload did not complete. Please try again.');
+      const result = await importMutation.mutateAsync({
+        data: {
+          clientId: activeClient.id,
+          fileName: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          objectPath: uploaded.objectPath,
+          confirmed: false,
+        },
+      });
+      if (result.importStatus !== 'preview') {
+        setCompleted(result);
+        setMessage(result.message ?? 'This statement was not loaded again.');
+        return;
+      }
+      setSelectedCurrency(result.detectedCurrency ?? activeClient.functionalCurrency);
+      setPreview({ fileName: file.name, mimeType: file.type || 'application/octet-stream', objectPath: uploaded.objectPath, result });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Statement preview failed.');
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!preview || !activeClient || !selectedCurrency) return;
+    setMessage('');
+    try {
+      const result = await importMutation.mutateAsync({
+        data: {
+          clientId: activeClient.id,
+          fileName: preview.fileName,
+          mimeType: preview.mimeType,
+          objectPath: preview.objectPath,
+          currency: selectedCurrency,
+          confirmed: true,
+        },
+      });
+      setPreview(null);
+      setCompleted(result);
+      setMessage(result.message ?? `${result.importedCount} statement lines are ready for review.`);
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Statement import failed.');
+    }
+  };
+
+  if (preview) {
+    const isCurrencyUncertain = !preview.result.detectedCurrency;
+    return <div>
+      <PageHeading eyebrow="Client intake / review before load" title="Review parsed statement" description={`LedgerFlow has not loaded any rows for ${activeClient?.name ?? 'this client'} yet. Confirm the interpreted currency and transactions before they enter the review queue.`} />
+      <section className="rounded-lg border border-card-border bg-card p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI extraction preview</div><h2 className="mt-2 text-lg font-semibold">{preview.fileName}</h2><p className="mt-1 text-xs text-muted-foreground">{preview.result.lines.length} proposed transaction{preview.result.lines.length === 1 ? '' : 's'} · nothing has been saved</p></div>
+          <button type="button" onClick={() => { setPreview(null); setMessage(''); }} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Choose another file</button>
+        </div>
+        <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
+          <div className="text-xs font-semibold">{isCurrencyUncertain ? 'Currency needs your confirmation' : `AI understood the statement currency as ${preview.result.detectedCurrency}`}</div>
+          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{isCurrencyUncertain ? 'The source did not state one clear currency. Select the currency that applies to every row before loading.' : 'Check this against the original statement. You can correct it before the rows are loaded.'}</p>
+          <label className="mt-3 block max-w-xs text-xs font-medium">Currency to load<select data-testid="select-confirm-statement-currency" value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option><option value="SAR">SAR — Saudi riyal</option><option value="QAR">QAR — Qatari riyal</option></select></label>
+        </div>
+        <div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[660px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Suggested account</th></tr></thead><tbody className="divide-y divide-border">{preview.result.lines.slice(0, 25).map((line) => <tr key={line.id}><td className="px-3 py-2.5 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2.5 font-medium">{line.description}</td><td className="px-3 py-2.5 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2.5 text-right font-mono">{money(line.amount, selectedCurrency || line.currency)}</td><td className="px-3 py-2.5 text-muted-foreground">{line.accountSuggestion ?? 'Review needed'}</td></tr>)}</tbody></table></div>
+        {preview.result.lines.length > 25 && <p className="mt-3 text-[11px] text-muted-foreground">Showing the first 25 of {preview.result.lines.length} parsed transactions. All rows will be loaded only after you confirm.</p>}
+        {message && <p className="mt-4 text-xs text-destructive">{message}</p>}
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => { setPreview(null); setMessage(''); }} className="h-10 rounded-md border border-border px-4 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={!selectedCurrency || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to review</>}</button></div>
+      </section>
+    </div>;
+  }
+
+  return <div>
+    <PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. LedgerFlow detects the currency and shows every parsed row for approval before it loads anything into review.`} />
+    <section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—LedgerFlow will infer the source currency from the document and prepare a review preview.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to analyze` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setMessage(''); setCompleted(null); }} /></label><div className="mt-5 flex justify-end"><button data-testid="button-parse-statement" type="button" onClick={previewStatement} disabled={!file || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{isUploading || importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Analyzing statement…</> : <><Sparkles size={14} /> Analyze with AI</>}</button></div>{message && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${completed?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary'}`}>{message}{completed?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}</section>
+  </div>;
+}
+
+function LegacyImportStatementPage() {
+  const { activeClient } = useClientWorkspace();
+  const importMutation = useImportStatement();
+  const { uploadFile, isUploading } = useUpload();
+  const [file, setFile] = useState<File | null>(null);
   const [currency, setCurrency] = useState('AED');
   const [state, setState] = useState<'idle' | 'reading' | 'done' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -762,6 +856,7 @@ function ImportStatementPage() {
           mimeType: file.type || 'application/octet-stream',
           objectPath: uploaded.objectPath,
           currency,
+          confirmed: true,
         },
       });
       setState('done');

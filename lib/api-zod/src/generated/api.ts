@@ -827,15 +827,18 @@ export const ImportStatementBody = zod.object({
   "fileName": zod.string(),
   "mimeType": zod.string(),
   "objectPath": zod.string(),
-  "currency": zod.string()
+  "currency": zod.string().optional(),
+  "confirmed": zod.boolean().describe('False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue.')
 })
 
 export const ImportStatementResponse = zod.object({
   "fileName": zod.string(),
   "importId": zod.number(),
-  "importStatus": zod.enum(['imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
+  "importStatus": zod.enum(['preview', 'imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
   "message": zod.string().optional(),
   "sourceUrl": zod.string().optional(),
+  "detectedCurrency": zod.string().nullish(),
+  "currencyRequiresConfirmation": zod.boolean().optional(),
   "importedCount": zod.number(),
   "duplicateCount": zod.number(),
   "duplicateLines": zod.array(zod.object({
@@ -1816,3 +1819,5 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
+
+

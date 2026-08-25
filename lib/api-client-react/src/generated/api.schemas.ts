@@ -450,13 +450,16 @@ export interface StatementImportInput {
   fileName: string;
   mimeType: string;
   objectPath: string;
-  currency: string;
+  currency?: string;
+  /** False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue. */
+  confirmed: boolean;
 }
 
 export type StatementImportResultImportStatus = typeof StatementImportResultImportStatus[keyof typeof StatementImportResultImportStatus];
 
 
 export const StatementImportResultImportStatus = {
+  preview: 'preview',
   imported: 'imported',
   imported_with_duplicates: 'imported_with_duplicates',
   duplicates_found: 'duplicates_found',
@@ -499,6 +502,9 @@ export interface StatementImportResult {
   importStatus: StatementImportResultImportStatus;
   message?: string;
   sourceUrl?: string;
+  /** @nullable */
+  detectedCurrency?: string | null;
+  currencyRequiresConfirmation?: boolean;
   importedCount: number;
   duplicateCount: number;
   duplicateLines: StatementImportDuplicate[];
@@ -1130,3 +1136,4 @@ period?: string;
 export type GetReportPacksParams = {
 clientId: number;
 };
+

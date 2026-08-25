@@ -94,6 +94,7 @@ async function importPrivatePdf(clientId: number, fileName: string, buffer: Buff
     mimeType: "application/pdf",
     objectPath,
     currency: "EUR",
+    confirmed: true,
   }, userId);
 }
 

@@ -231,6 +231,7 @@ test("provisions isolated starter workspaces and configures only the owner's wor
         mimeType: "text/csv",
         objectPath: `uploads/${userIds[1]}/${foreignClientId}/statement.csv`,
         currency: "AED",
+        confirmed: true,
       }),
     }),
   ]);

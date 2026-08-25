@@ -1435,7 +1435,7 @@ components:
         direction: { type: string }
     StatementImportInput:
       type: object
-      required: [clientId, fileName, mimeType, objectPath, currency]
+      required: [clientId, fileName, mimeType, objectPath, confirmed]
       properties:
         clientId: { type: number }
         bankAccountId: { type: ["number", "null"] }
@@ -1443,15 +1443,20 @@ components:
         mimeType: { type: string }
         objectPath: { type: string }
         currency: { type: string }
+        confirmed:
+          type: boolean
+          description: False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue.
     StatementImportResult:
       type: object
       required: [fileName, importId, importStatus, importedCount, duplicateCount, duplicateLines, lines]
       properties:
         fileName: { type: string }
         importId: { type: number }
-        importStatus: { type: string, enum: [imported, imported_with_duplicates, duplicates_found, duplicate_file] }
+        importStatus: { type: string, enum: [preview, imported, imported_with_duplicates, duplicates_found, duplicate_file] }
         message: { type: string }
         sourceUrl: { type: string }
+        detectedCurrency: { type: ["string", "null"] }
+        currencyRequiresConfirmation: { type: boolean }
         importedCount: { type: number }
         duplicateCount: { type: number }
         duplicateLines:

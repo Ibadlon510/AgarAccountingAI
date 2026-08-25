@@ -13,5 +13,7 @@ export interface StatementImportInput {
   fileName: string;
   mimeType: string;
   objectPath: string;
-  currency: string;
+  currency?: string;
+  /** False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue. */
+  confirmed: boolean;
 }

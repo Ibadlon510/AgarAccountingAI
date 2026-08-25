@@ -393,7 +393,8 @@ export function AssistantFAB() {
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           objectPath: uploaded.objectPath,
-          currency: client.functionalCurrency || 'AED'
+          currency: client.functionalCurrency || 'AED',
+          confirmed: true,
         }
       });
       clearPendingImport(client.id);

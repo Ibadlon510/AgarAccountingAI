@@ -9,8 +9,9 @@ import { objectStorageService } from "../src/routes/storage";
 
 type ImportResult = {
   fileName: string;
-  importStatus: "imported" | "imported_with_duplicates" | "duplicates_found" | "duplicate_file";
+  importStatus: "preview" | "imported" | "imported_with_duplicates" | "duplicates_found" | "duplicate_file";
   message?: string;
+  detectedCurrency?: string | null;
   importedCount: number;
   duplicateCount: number;
   duplicateLines: Array<{
@@ -306,6 +307,7 @@ async function importBody(clientId: number, fileName: string, marker: string, co
     mimeType: "text/csv",
     objectPath,
     currency: "AED",
+    confirmed: true,
   });
 }
 
@@ -341,6 +343,36 @@ test("reports an exact file re-upload without adding review lines", async () => 
   assert.deepEqual(duplicate.body.duplicateLines, []);
   assert.deepEqual(duplicate.body.lines, []);
   assert.equal((await statementLines(clientId)).length, 1);
+});
+
+test("returns a currency-aware statement preview without creating lines or import history", async () => {
+  const clientId = await createClient(`Preview only ${randomUUID()}`);
+  const fileName = "preview-only.csv";
+  const marker = "preview-currency";
+  const objectPath = `/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/${randomUUID()}`;
+  statementFiles.set(objectPath, Buffer.from(`Bank Statement\nCurrency: AED\nDate,Description,Debit,Credit\n2026-08-25,${marker},100,`));
+
+  const preview = await request<ImportResult>("/ledgerflow/import-statement", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      fileName,
+      mimeType: "text/csv",
+      objectPath,
+      confirmed: false,
+    }),
+  }, primaryUserId);
+
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.importStatus, "preview");
+  assert.equal(preview.body.detectedCurrency, "AED");
+  assert.equal(preview.body.importedCount, 0);
+  assert.equal(preview.body.lines.length, 1);
+  assert.ok(preview.body.lines[0].id < 0);
+  assert.equal((await statementLines(clientId)).length, 0);
+  const history = await request<Array<{ id: number }>>(`/ledgerflow/statement-imports?clientId=${clientId}`, undefined, primaryUserId);
+  assert.equal(history.response.status, 200);
+  assert.equal(history.body.length, 0);
 });
 
 test("handles concurrent duplicate statement imports once", async () => {

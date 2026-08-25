@@ -2231,6 +2231,35 @@ function normalizeRows(text: string, currency: string): ParsedBankLine[] {
   return parsedRows.filter((line): line is ParsedBankLine => line !== null);
 }
 
+const supportedStatementCurrencies = new Set(["AED", "USD", "EUR", "GBP", "CAD", "AUD", "CHF", "JPY", "SAR", "QAR", "KWD", "BHD", "OMR"]);
+
+function statementCurrencyFromText(text: string) {
+  const labeledCurrency = [...text.matchAll(/\b(?:currency|currency code|ccy|iso\s*code)\s*[:\-]?\s*([A-Z]{3})\b/gi)]
+    .map((match) => match[1]?.toUpperCase())
+    .find((currency): currency is string => Boolean(currency && supportedStatementCurrencies.has(currency)));
+  if (labeledCurrency) return labeledCurrency;
+
+  const explicitCurrencies = new Set(
+    [...text.matchAll(/\b(AED|USD|EUR|GBP|CAD|AUD|CHF|JPY|SAR|QAR|KWD|BHD|OMR)\b/gi)]
+      .map((match) => match[1].toUpperCase()),
+  );
+  return explicitCurrencies.size === 1 ? [...explicitCurrencies][0] : null;
+}
+
+function detectedStatementCurrency(
+  text: string,
+  candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null },
+) {
+  const statedCurrency = statementCurrencyFromText(text);
+  if (statedCurrency) return statedCurrency;
+
+  const extractedCurrencies = new Set([
+    ...(candidate.bankAccount?.currency ? [candidate.bankAccount.currency] : []),
+    ...(candidate.lines ?? []).map((line) => line.currency),
+  ].map((currency) => currency.trim().toUpperCase()).filter((currency) => supportedStatementCurrencies.has(currency)));
+  return extractedCurrencies.size === 1 ? [...extractedCurrencies][0] : null;
+}
+
 function hasBankStatementStructure(text: string, parsedRows: ParsedBankLine[], hasSelectedBankAccount: boolean) {
   const columns = statementColumns(text);
   if (!columns) return false;
@@ -2251,7 +2280,7 @@ function hasBankStatementStructure(text: string, parsedRows: ParsedBankLine[], h
 router.post("/ledgerflow/import-statement", async (req, res) => {
   const parsed = ImportStatementBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
-  const { clientId, bankAccountId, fileName, mimeType, objectPath, currency = "AED" } = parsed.data as typeof parsed.data & { objectPath?: string };
+  const { clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed } = parsed.data as typeof parsed.data & { objectPath?: string };
   if (!objectPath) return res.status(400).json({ error: "A verified statement upload is required." });
   let activeClientId: number | undefined;
   let failedBankAccountId: number | null = null;
@@ -2296,6 +2325,22 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       eq(statementImportsTable.outcome, "completed"),
     )))[0];
     if (previousImport) {
+      if (!confirmed) {
+        return res.json(ImportStatementResponse.parse({
+          fileName,
+          importId: previousImport.id,
+          importStatus: "duplicate_file",
+          message: "This statement was already imported for this client. No new lines will be loaded.",
+          detectedCurrency: null,
+          currencyRequiresConfirmation: false,
+          importedCount: 0,
+          duplicateCount: previousImport.importedLineCount,
+          duplicateLines: [],
+          lines: [],
+          bankAccount: null,
+          sourceUrl: statementSourceUrl(previousImport.id),
+        }));
+      }
       const previousBankAccount = previousImport.bankAccountId == null
         ? null
         : (await db.select().from(bankAccountsTable).where(and(
@@ -2319,6 +2364,8 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         importId: duplicateImport.id,
         importStatus: "duplicate_file",
         message: `This statement was already imported for this client. No new lines were added.`,
+        detectedCurrency: null,
+        currencyRequiresConfirmation: false,
         importedCount: 0,
         duplicateCount: previousImport.importedLineCount,
         duplicateLines: [],
@@ -2348,9 +2395,11 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       extractedText = buffer.toString("utf8");
     }
     const isPdfStatement = mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
-    const delimitedFallback = normalizeRows(extractedText, currency);
+    const textCurrency = statementCurrencyFromText(extractedText);
+    const fallbackCurrency = normalizeCurrency(currency ?? textCurrency ?? client.functionalCurrency);
+    const delimitedFallback = normalizeRows(extractedText, fallbackCurrency);
     const pdfFallback = isPdfStatement
-      ? parsePdfBankStatementRows(extractedText, currency).map((line) => ({
+      ? parsePdfBankStatementRows(extractedText, fallbackCurrency).map((line) => ({
         ...line,
         accountSuggestion: suggestAccount(line.description, line.direction),
         confidence: 0.75,
@@ -2361,16 +2410,18 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       && hasPdfBankStatementTable(extractedText)
       && pdfFallback.length > 0;
     if (!hasRecognizedPdfTable && !hasBankStatementStructure(extractedText, fallback, bankAccountId != null)) {
-      await recordFailedStatementImport({
-        clientId: scopedClientId,
-        bankAccountId: null,
-        fileName,
-        mimeType,
-        objectPath,
-        fileSize: uploadedFileSize,
-        fileHash: scopedFileHash,
-        errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
-      });
+      if (confirmed) {
+        await recordFailedStatementImport({
+          clientId: scopedClientId,
+          bankAccountId: null,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          fileHash: scopedFileHash,
+          errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+        });
+      }
       return res.status(422).json({
         error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
       });
@@ -2391,7 +2442,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     try {
       const completion = await completeAI(scopedClientId, [
           { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
-          { role: "user", content: `File: ${fileName}\nDefault currency: ${currency}\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
+          { role: "user", content: `File: ${fileName}\nInfer the statement currency from the document rather than assuming one.\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
         ], { json: true, maxTokens: 8192 });
       if (aiActivityId !== undefined) {
         await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
@@ -2422,17 +2473,20 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       && Number.isFinite(Number(line.amount))
       && Number(line.amount) > 0,
     );
+    const detectedCurrency = detectedStatementCurrency(extractedText, candidate);
     if (!lines.length) {
-      await recordFailedStatementImport({
-        clientId: scopedClientId,
-        bankAccountId: null,
-        fileName,
-        mimeType,
-        objectPath,
-        fileSize: uploadedFileSize,
-        fileHash: scopedFileHash,
-        errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
-      });
+      if (confirmed) {
+        await recordFailedStatementImport({
+          clientId: scopedClientId,
+          bankAccountId: null,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          fileHash: scopedFileHash,
+          errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+        });
+      }
       return res.status(422).json({
         error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
       });
@@ -2451,7 +2505,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       : (await db.select().from(firmProfilesTable).where(eq(firmProfilesTable.id, client.firmId)).limit(1))[0]
         ?? await getOrCreateFirmProfile(currentUserId(req));
     const resolvedLines = await Promise.all(lines.map(async (line) => {
-      const currencyValue = normalizeCurrency(line.currency || currency);
+      const currencyValue = normalizeCurrency(currency ?? line.currency ?? detectedCurrency ?? fallbackCurrency);
       return {
         line,
         currencyValue,
@@ -2464,6 +2518,43 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         ),
       };
     }));
+    if (!confirmed) {
+      return res.json(ImportStatementResponse.parse({
+        fileName,
+        importId: 0,
+        importStatus: "preview",
+        message: `${resolvedLines.length} transaction${resolvedLines.length === 1 ? "" : "s"} parsed. Review the currency and rows before loading them into the review queue.`,
+        detectedCurrency,
+        currencyRequiresConfirmation: !detectedCurrency,
+        importedCount: 0,
+        duplicateCount: 0,
+        duplicateLines: [],
+        lines: resolvedLines.map(({ line, currencyValue, conversion }, index) => ({
+          id: -(index + 1),
+          clientId: scopedClientId,
+          bankAccountId: selectedBankAccount?.id ?? null,
+          date: line.date,
+          description: line.description.trim(),
+          currency: currencyValue,
+          amount: Math.abs(Number(line.amount)),
+          direction: line.direction,
+          status: "needs_review",
+          source: `Preview: ${fileName}`,
+          accountSuggestion: line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction),
+          confidence: Number(line.confidence ?? 0.75),
+          suggestionSource: null,
+          supportingPatternCount: 0,
+          functionalCurrency: conversion.functionalCurrency,
+          functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
+          exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
+          exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateStatus: conversion.exchangeRateStatus,
+          importDedupeKey: null,
+          createdAt: new Date(),
+        })),
+        bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+      }));
+    }
     const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
     const importResult = await db.transaction(async (tx) => {
       const [createdImport] = await tx.insert(statementImportsTable).values({
@@ -2503,7 +2594,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       }
 
       let detectedBankAccount = selectedBankAccount;
-      const cleanBankAccount = cleanBankAccountDraft(candidate.bankAccount, currency);
+      const cleanBankAccount = cleanBankAccountDraft(candidate.bankAccount, currency ?? detectedCurrency ?? fallbackCurrency);
       if (!detectedBankAccount && cleanBankAccount) {
         const identityKey = bankAccountIdentityKey(scopedClientId, cleanBankAccount);
         const accounts = await tx.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, scopedClientId));
@@ -2632,6 +2723,8 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         importId: importResult.duplicateImport.id,
         importStatus: "duplicate_file",
         message: "This statement was already imported for this client. No new lines were added.",
+        detectedCurrency,
+        currencyRequiresConfirmation: false,
         importedCount: 0,
         duplicateCount: lines.length,
         duplicateLines: [],
@@ -2651,6 +2744,8 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       importStatus,
       message,
       sourceUrl: statementSourceUrl(importId),
+      detectedCurrency,
+      currencyRequiresConfirmation: false,
       importedCount: inserted.length,
       duplicateCount: duplicateLines.length,
       duplicateLines,

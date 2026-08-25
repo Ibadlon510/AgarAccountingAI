@@ -16,6 +16,9 @@ export interface StatementImportResult {
   importStatus: StatementImportResultImportStatus;
   message?: string;
   sourceUrl?: string;
+  /** @nullable */
+  detectedCurrency?: string | null;
+  currencyRequiresConfirmation?: boolean;
   importedCount: number;
   duplicateCount: number;
   duplicateLines: StatementImportDuplicate[];
