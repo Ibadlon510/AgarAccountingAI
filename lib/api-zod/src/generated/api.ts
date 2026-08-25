@@ -595,6 +595,55 @@ export const ImportExchangeRatesResponse = zod.object({
 
 
 /**
+ * @summary Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+ */
+export const parseExchangeRatesBodyContentMax = 120000;
+
+
+
+export const ParseExchangeRatesBody = zod.object({
+  "clientId": zod.number(),
+  "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax),
+  "fileName": zod.string().optional()
+})
+
+export const parseExchangeRatesResponseRatesItemSourceCurrencyMin = 3;
+export const parseExchangeRatesResponseRatesItemSourceCurrencyMax = 3;
+
+export const parseExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
+export const parseExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
+
+export const parseExchangeRatesResponseRatesItemRateExclusiveMin = 0;
+
+export const parseExchangeRatesResponseConfidenceMin = 0;
+export const parseExchangeRatesResponseConfidenceMax = 1;
+
+
+
+export const ParseExchangeRatesResponse = zod.object({
+  "mapping": zod.object({
+  "effectiveDate": zod.string().nullable(),
+  "sourceCurrency": zod.string().nullable(),
+  "functionalCurrency": zod.string().nullable(),
+  "rate": zod.string().nullable(),
+  "source": zod.string().nullable(),
+  "note": zod.string().nullable()
+}),
+  "rates": zod.array(zod.object({
+  "sourceCurrency": zod.string().min(parseExchangeRatesResponseRatesItemSourceCurrencyMin).max(parseExchangeRatesResponseRatesItemSourceCurrencyMax),
+  "functionalCurrency": zod.string().min(parseExchangeRatesResponseRatesItemFunctionalCurrencyMin).max(parseExchangeRatesResponseRatesItemFunctionalCurrencyMax),
+  "effectiveDate": zod.coerce.date(),
+  "rate": zod.number().gt(parseExchangeRatesResponseRatesItemRateExclusiveMin),
+  "source": zod.string().optional(),
+  "note": zod.string().nullish()
+})),
+  "warnings": zod.array(zod.string()),
+  "unmappedColumns": zod.array(zod.string()),
+  "confidence": zod.number().min(parseExchangeRatesResponseConfidenceMin).max(parseExchangeRatesResponseConfidenceMax)
+})
+
+
+/**
  * Returns server health status
  * @summary Health check
  */

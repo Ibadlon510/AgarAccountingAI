@@ -8,6 +8,7 @@
 - [Workspace classification learning](workspace-classification-learning.md) — classification memory is user-scoped aggregate evidence, never source-client transaction data.
 - [PostgreSQL lock-wait observability](postgres-lock-wait-observability.md) — activity state may be disabled here; use wait events and blocking PIDs to synchronize race tests.
 - [Exchange-rate remediation](exchange-rate-remediation.md) — schedule changes re-resolve workspace conversions so a newly added rate restores reporting coverage.
+- [AI-assisted exchange-rate CSV previews](ai-exchange-rate-csv-previews.md) — unfamiliar CSVs are bounded, server-validated previews; users must confirm before any rate is persisted.
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
 - [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.
 - [Clerk onboarding profile resilience](clerk-onboarding-profile-resilience.md) — save required LedgerFlow owner identity locally; a production Clerk profile update can reject otherwise valid onboarding.

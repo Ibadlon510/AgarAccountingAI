@@ -373,6 +373,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExchangeRateImportResult"
+  /ledgerflow/exchange-rates/parse:
+    post:
+      operationId: parseExchangeRates
+      tags: [ledgerflow]
+      summary: Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExchangeRateParseInput"
+      responses:
+        "200":
+          description: Detected exchange-rate mapping and parsed preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeRateParseResult"
   /healthz:
     get:
       operationId: healthCheck
@@ -1242,6 +1260,40 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExchangeRate"
+    ExchangeRateParseInput:
+      type: object
+      required: [clientId, content]
+      properties:
+        clientId: { type: number }
+        content: { type: string, minLength: 1, maxLength: 120000 }
+        fileName: { type: string }
+    ExchangeRateParseMapping:
+      type: object
+      required: [effectiveDate, sourceCurrency, functionalCurrency, rate, source, note]
+      properties:
+        effectiveDate: { type: ["string", "null"] }
+        sourceCurrency: { type: ["string", "null"] }
+        functionalCurrency: { type: ["string", "null"] }
+        rate: { type: ["string", "null"] }
+        source: { type: ["string", "null"] }
+        note: { type: ["string", "null"] }
+    ExchangeRateParseResult:
+      type: object
+      required: [mapping, rates, warnings, unmappedColumns, confidence]
+      properties:
+        mapping:
+          $ref: "#/components/schemas/ExchangeRateParseMapping"
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExchangeRateInput"
+        warnings:
+          type: array
+          items: { type: string }
+        unmappedColumns:
+          type: array
+          items: { type: string }
+        confidence: { type: number, minimum: 0, maximum: 1 }
     LedgerOverview:
       type: object
       required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies]

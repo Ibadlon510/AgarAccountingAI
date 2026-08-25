@@ -75,6 +75,29 @@ function testDatabaseUrl() {
 }
 
 function openAIResult(marker: string) {
+  if (marker.includes("rate-ai-preview")) {
+    return {
+      mapping: {
+        effectiveDate: "As at",
+        sourceCurrency: "Currency",
+        functionalCurrency: null,
+        rate: "AED per unit",
+        source: "Publisher",
+        note: null,
+      },
+      rates: [{
+        effectiveDate: "2026-08-25",
+        sourceCurrency: "EUR",
+        functionalCurrency: "AED",
+        rate: 4.2105,
+        source: "Central Bank",
+        note: null,
+      }],
+      warnings: ["The file did not state a target currency; AED was used from the workspace setting."],
+      unmappedColumns: [],
+      confidence: 0.91,
+    };
+  }
   if (marker.includes("bank-alpha")) {
     return {
       bankAccount: { name: "Operating account", bankName: "Alpha Bank", accountNumberLast4: "1234", currency: "AED" },
@@ -819,4 +842,35 @@ test("resends a pending invitation with its approved scope and invalidates the e
   assert.equal(accepted.response.status, 200);
   assert.equal(accepted.body.role, "admin");
   assert.deepEqual(accepted.body.clients.map((workspace) => workspace.id), [client.body.id]);
+});
+
+test("prepares unfamiliar exchange-rate CSV data without importing it", async () => {
+  const clientId = await createClient(`Rate preview ${randomUUID()}`);
+  const preview = await request<{
+    mapping: { effectiveDate: string | null; functionalCurrency: string | null };
+    rates: Array<{ effectiveDate: string; sourceCurrency: string; functionalCurrency: string; rate: number; source?: string; note?: string | null }>;
+    warnings: string[];
+    confidence: number;
+  }>("/ledgerflow/exchange-rates/parse", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      fileName: "unfamiliar-layout.csv",
+      content: "Rate schedule — rate-ai-preview\nAs at;Currency;AED per unit;Publisher\n25 Aug 2026;EUR;4.2105;Central Bank",
+    }),
+  });
+
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.mapping.effectiveDate, "As at");
+  assert.equal(preview.body.mapping.functionalCurrency, null);
+  assert.deepEqual(preview.body.rates, [{
+    effectiveDate: "2026-08-25",
+    sourceCurrency: "EUR",
+    functionalCurrency: "AED",
+    rate: 4.2105,
+    source: "Central Bank",
+    note: null,
+  }]);
+  assert.equal(preview.body.confidence, 0.91);
+  assert.match(preview.body.warnings[0] ?? "", /workspace setting/i);
 });

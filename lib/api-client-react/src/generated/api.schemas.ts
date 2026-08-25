@@ -334,6 +334,43 @@ export interface ExchangeRateImportResult {
   rates: ExchangeRate[];
 }
 
+export interface ExchangeRateParseInput {
+  clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 120000
+     */
+  content: string;
+  fileName?: string;
+}
+
+export interface ExchangeRateParseMapping {
+  /** @nullable */
+  effectiveDate: string | null;
+  /** @nullable */
+  sourceCurrency: string | null;
+  /** @nullable */
+  functionalCurrency: string | null;
+  /** @nullable */
+  rate: string | null;
+  /** @nullable */
+  source: string | null;
+  /** @nullable */
+  note: string | null;
+}
+
+export interface ExchangeRateParseResult {
+  mapping: ExchangeRateParseMapping;
+  rates: ExchangeRateInput[];
+  warnings: string[];
+  unmappedColumns: string[];
+  /**
+     * @minimum 0
+     * @maximum 1
+     */
+  confidence: number;
+}
+
 export interface LedgerOverview {
   period: string;
   currencies: string[];

@@ -42,6 +42,8 @@ import type {
   ExchangeRateImportInput,
   ExchangeRateImportResult,
   ExchangeRateInput,
+  ExchangeRateParseInput,
+  ExchangeRateParseResult,
   ExchangeRateUpdate,
   FinancialStatements,
   GetBankAccountsParams,
@@ -1804,6 +1806,77 @@ export const useImportExchangeRates = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getImportExchangeRatesMutationOptions(options));
+    }
+
+export const getParseExchangeRatesUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/exchange-rates/parse`
+}
+
+/**
+ * @summary Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+ */
+export const parseExchangeRates = async (exchangeRateParseInput: ExchangeRateParseInput, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRateParseResult> => {
+
+  return customFetch<ExchangeRateParseResult>(getParseExchangeRatesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(exchangeRateParseInput)
+  }
+);}
+
+
+
+
+
+export const getParseExchangeRatesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof parseExchangeRates>>, TError,{data: BodyType<ExchangeRateParseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof parseExchangeRates>>, TError,{data: BodyType<ExchangeRateParseInput>}, TContext> => {
+
+const mutationKey = ['parseExchangeRates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof parseExchangeRates>>, {data: BodyType<ExchangeRateParseInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  parseExchangeRates(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ParseExchangeRatesMutationResult = NonNullable<Awaited<ReturnType<typeof parseExchangeRates>>>
+    export type ParseExchangeRatesMutationBody = BodyType<ExchangeRateParseInput>
+    export type ParseExchangeRatesMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Prepare an AI-assisted preview of unfamiliar exchange-rate CSV data
+ */
+export const useParseExchangeRates = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof parseExchangeRates>>, TError,{data: BodyType<ExchangeRateParseInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof parseExchangeRates>>,
+        TError,
+        {data: BodyType<ExchangeRateParseInput>},
+        TContext
+      > => {
+      return useMutation(getParseExchangeRatesMutationOptions(options));
     }
 
 export const getHealthCheckUrl = () => {

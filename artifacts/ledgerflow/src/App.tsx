@@ -11,11 +11,11 @@ import {
   getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
-  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance, useImportStatement,
+  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers
 } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
+  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -63,6 +63,67 @@ const monthInputToPeriod = (value: string) => {
   const month = match ? Number(match[2]) : 0;
   return match && month >= 1 && month <= 12 ? `${monthNames[month - 1]} ${match[1]}` : '';
 };
+const csvHeaderKey = (value: string) => value.replace(/^\uFEFF/, '').trim().toLowerCase().replaceAll(/[^a-z]/g, '');
+function readCsvRecords(content: string) {
+  const normalized = content.replace(/^\uFEFF/, '');
+  const firstLine = normalized.split(/\r?\n/, 1)[0] ?? '';
+  const delimiter = [',', ';', '\t'].reduce((best, candidate) => {
+    const count = [...firstLine].filter((character) => character === candidate).length;
+    return count > best.count ? { value: candidate, count } : best;
+  }, { value: ',', count: -1 }).value;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    const next = normalized[index + 1];
+    if (character === '"') {
+      if (quoted && next === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && character === delimiter) {
+      row.push(cell.trim());
+      cell = '';
+    } else if (!quoted && (character === '\n' || character === '\r')) {
+      if (character === '\r' && next === '\n') index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += character;
+    }
+  }
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+function deterministicExchangeRates(content: string): ExchangeRateInput[] {
+  const rows = readCsvRecords(content);
+  const headerIndex = rows.findIndex((row) => row.some((cell) => ['effectivedate', 'date', 'asof', 'valuedate', 'ratedate', 'sourcecurrency', 'fromcurrency', 'functionalcurrency', 'tocurrency', 'rate', 'exchangerate', 'closingrate'].includes(csvHeaderKey(cell))));
+  if (headerIndex < 0) return [];
+  const headers = rows[headerIndex].map(csvHeaderKey);
+  const valueAt = (cells: string[], names: string[]) => {
+    const index = headers.findIndex((header) => names.includes(header));
+    return index < 0 ? '' : (cells[index] ?? '').trim();
+  };
+  return rows.slice(headerIndex + 1).map((cells) => ({
+    effectiveDate: valueAt(cells, ['effectivedate', 'date', 'asof', 'valuedate', 'ratedate']),
+    sourceCurrency: valueAt(cells, ['sourcecurrency', 'fromcurrency', 'basecurrency', 'currencyfrom']).toUpperCase(),
+    functionalCurrency: valueAt(cells, ['functionalcurrency', 'tocurrency', 'targetcurrency', 'quotecurrency']).toUpperCase(),
+    rate: Number(valueAt(cells, ['rate', 'exchangerate', 'closingrate', 'midrate']).replaceAll(',', '')),
+    source: valueAt(cells, ['ratesource', 'provider', 'publisher', 'source']) || 'Imported CSV',
+    note: valueAt(cells, ['note', 'memo', 'comment']) || null,
+  })).filter((rate) => /^\d{4}-\d{2}-\d{2}$/.test(rate.effectiveDate)
+    && /^[A-Z]{3}$/.test(rate.sourceCurrency)
+    && /^[A-Z]{3}$/.test(rate.functionalCurrency)
+    && Number.isFinite(rate.rate)
+    && rate.rate > 0);
+}
 function openInvitationEmail(invitation: Pick<WorkspaceInvitation, 'email' | 'emailSubject' | 'emailBody'>) {
   if (!invitation.emailSubject || !invitation.emailBody) return;
   const mailto = `mailto:${encodeURIComponent(invitation.email)}?subject=${encodeURIComponent(invitation.emailSubject)}&body=${encodeURIComponent(invitation.emailBody)}`;
@@ -96,6 +157,7 @@ function WorkspaceSettingsPage() {
   const updateRate = useUpdateExchangeRate();
   const deleteRate = useDeleteExchangeRate();
   const importRates = useImportExchangeRates();
+  const parseRates = useParseExchangeRates();
   const bankAccountsQuery = useGetBankAccounts({ clientId: activeClient?.id ?? 0 });
   const [form, setForm] = useState({
     name: activeClient?.name ?? '',
@@ -107,6 +169,8 @@ function WorkspaceSettingsPage() {
   const [editingRateId, setEditingRateId] = useState<number | null>(null);
   const [rateForm, setRateForm] = useState({ sourceCurrency: 'USD', functionalCurrency: activeClient?.functionalCurrency ?? 'AED', effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
   const [rateImportError, setRateImportError] = useState('');
+  const [rateImportNotice, setRateImportNotice] = useState('');
+  const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
   const [saved, setSaved] = useState(false);
 
   if (!activeClient) return <WorkspaceRecoveryState onRetry={() => setLocation('/')} />;
@@ -141,28 +205,34 @@ function WorkspaceSettingsPage() {
     setEditingRateId(rate.id);
     setRateForm({ sourceCurrency: rate.sourceCurrency, functionalCurrency: rate.functionalCurrency, effectiveDate: rate.effectiveDate, rate: String(rate.rate), source: rate.source, note: rate.note ?? '' });
   };
+  const importParsedRates = async (rates: ExchangeRateInput[], source: 'csv' | 'ai') => {
+    try {
+      const result = await importRates.mutateAsync({ data: { rates } });
+      invalidateRates();
+      setRatePreview(null);
+      setRateImportNotice(`${result.importedCount + result.updatedCount} rate${result.importedCount + result.updatedCount === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`);
+    } catch (error) {
+      setRateImportError(error instanceof Error ? error.message : 'The detected rates could not be imported. Check the preview and try again.');
+    }
+  };
   const importRateFile = async (file: File | undefined) => {
     if (!file) return;
     try {
       setRateImportError('');
-      const [header, ...rows] = (await file.text()).split(/\r?\n/).filter(Boolean);
-      const columns = header.split(',').map((value) => value.trim().toLowerCase().replaceAll(/[^a-z]/g, ''));
-      const valueAt = (cells: string[], names: string[]) => cells[columns.findIndex((column) => names.includes(column))] ?? '';
-      const rates = rows.map((row) => {
-        const cells = row.split(',').map((value) => value.trim().replace(/^"|"$/g, ''));
-        return {
-          effectiveDate: valueAt(cells, ['effectivedate', 'date']),
-          sourceCurrency: valueAt(cells, ['sourcecurrency', 'fromcurrency', 'source']),
-          functionalCurrency: valueAt(cells, ['functionalcurrency', 'tocurrency', 'functional']),
-          rate: Number(valueAt(cells, ['rate', 'exchangerate'])),
-          source: valueAt(cells, ['ratesource', 'source']) || 'Imported CSV',
-          note: valueAt(cells, ['note', 'memo']) || null,
-        };
-      }).filter((rate) => rate.effectiveDate && rate.sourceCurrency && rate.functionalCurrency && Number.isFinite(rate.rate));
-      if (!rates.length) throw new Error('Use headers: effectiveDate, sourceCurrency, functionalCurrency, rate.');
-      importRates.mutate({ data: { rates } }, { onSuccess: invalidateRates });
+      setRateImportNotice('');
+      setRatePreview(null);
+      const content = await file.text();
+      const rates = deterministicExchangeRates(content);
+      if (rates.length) {
+        await importParsedRates(rates, 'csv');
+        return;
+      }
+      if (content.length > 120000) throw new Error('This CSV is too large for AI-assisted detection. Reduce it to 120 KB or use the standard template.');
+      const preview = await parseRates.mutateAsync({ data: { clientId: activeClient.id, content, fileName: file.name } });
+      if (!preview.rates.length) throw new Error('No safe exchange-rate rows were found. Add clear date, currency, and rate values, then try again.');
+      setRatePreview(preview);
     } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read.');
+      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read or mapped safely.');
     }
   };
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
@@ -207,7 +277,7 @@ function WorkspaceSettingsPage() {
           </form>
         </section>
         <section id="exchange-rates" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {importRates.isPending ? 'Importing…' : 'Import CSV'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => importRateFile(event.target.files?.[0])} /></label></div>
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate. CSV layouts without standard headers are prepared for your review with AI.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {parseRates.isPending ? 'Detecting layout…' : importRates.isPending ? 'Importing…' : 'Import CSV'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,text/csv" disabled={parseRates.isPending || importRates.isPending} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; void importRateFile(file); }} /></label></div>
           <form onSubmit={saveRate} className="mt-5 grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 md:grid-cols-6">
             <label className="text-[10px] font-medium">Source<input data-testid="input-page-rate-source-currency" required maxLength={3} value={rateForm.sourceCurrency} onChange={(event) => setRateForm({ ...rateForm, sourceCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
             <label className="text-[10px] font-medium">Functional<input data-testid="input-page-rate-functional-currency" required maxLength={3} value={rateForm.functionalCurrency} onChange={(event) => setRateForm({ ...rateForm, functionalCurrency: event.target.value.toUpperCase() })} className="mt-1 h-9 w-full rounded border border-input bg-card px-2 font-mono text-xs" /></label>
@@ -217,6 +287,15 @@ function WorkspaceSettingsPage() {
             <div className="flex items-end gap-2"><button data-testid="button-page-save-exchange-rate" disabled={createRate.isPending || updateRate.isPending} className="h-9 rounded bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{editingRateId ? 'Update' : 'Add rate'}</button>{editingRateId && <button type="button" data-testid="button-page-cancel-exchange-rate" onClick={resetRateForm} className="h-9 rounded border border-border px-2 text-[11px] font-semibold">Cancel</button>}</div>
           </form>
           {(createRate.isError || updateRate.isError || importRates.isError || rateImportError) && <p data-testid="status-page-exchange-rate-error" className="mt-3 text-xs text-destructive">{rateImportError || 'The rate could not be saved. Use three-letter currency codes, a valid date, and a rate greater than zero.'}</p>}
+          {rateImportNotice && <p data-testid="status-page-exchange-rate-success" className="mt-3 text-xs text-primary">{rateImportNotice}</p>}
+          {ratePreview && <section data-testid="card-page-exchange-rate-ai-preview" className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-mono text-[9px] uppercase tracking-[.14em] text-primary">AI-assisted import preview</div><h3 className="mt-1 text-sm font-semibold">Confirm the detected rate mapping</h3><p className="mt-1 text-[11px] leading-5 text-muted-foreground">Nothing has been imported yet. Review the direction and sample rows before confirming.</p></div><span className="rounded-full bg-card px-2 py-1 font-mono text-[10px] text-primary">{Math.round(ratePreview.confidence * 100)}% confidence</span></div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{[['Date', ratePreview.mapping.effectiveDate], ['Source currency', ratePreview.mapping.sourceCurrency], ['Functional currency', ratePreview.mapping.functionalCurrency], ['Rate', ratePreview.mapping.rate], ['Source note', ratePreview.mapping.source]].map(([label, value]) => <div key={label} className="rounded border border-primary/15 bg-card px-3 py-2"><div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground">{label}</div><div className="mt-1 truncate text-[11px] font-semibold">{value || 'Not detected'}</div></div>)}</div>
+            {ratePreview.warnings.length > 0 && <ul data-testid="list-page-exchange-rate-preview-warnings" className="mt-3 space-y-1 rounded border border-accent/25 bg-accent/10 p-3 text-[11px] text-accent-foreground">{ratePreview.warnings.map((warning, index) => <li key={`${warning}-${index}`}>• {warning}</li>)}</ul>}
+            <div className="mt-4 overflow-x-auto rounded border border-primary/15 bg-card"><table className="w-full min-w-[560px] text-left text-[11px]"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source</th></tr></thead><tbody className="divide-y divide-border">{ratePreview.rates.slice(0, 10).map((rate, index) => <tr key={`${rate.effectiveDate}-${rate.sourceCurrency}-${rate.functionalCurrency}-${index}`}><td className="px-3 py-2 font-mono">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-2 font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-2 text-right font-mono">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-2 text-muted-foreground">{rate.source || 'AI-assisted CSV'}</td></tr>)}</tbody></table></div>
+            {ratePreview.rates.length > 10 && <p className="mt-2 text-[10px] text-muted-foreground">Showing 10 of {ratePreview.rates.length} detected rates.</p>}
+            <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" data-testid="button-page-cancel-exchange-rate-ai-preview" onClick={() => setRatePreview(null)} disabled={importRates.isPending} className="rounded border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground">Discard</button><button type="button" data-testid="button-page-confirm-exchange-rate-ai-preview" onClick={() => void importParsedRates(ratePreview.rates, 'ai')} disabled={importRates.isPending} className="rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{importRates.isPending ? 'Importing…' : `Confirm & import ${ratePreview.rates.length} rate${ratePreview.rates.length === 1 ? '' : 's'}`}</button></div>
+          </section>}
           <div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data.map((rate) => <tr data-testid={`row-page-exchange-rate-${rate.id}`} key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-page-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-page-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: invalidateRates })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div>
         </section>
         <section id="bank-accounts" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
