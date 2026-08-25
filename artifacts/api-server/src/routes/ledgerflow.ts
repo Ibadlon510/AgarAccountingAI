@@ -1566,6 +1566,73 @@ function descriptionScopeFromMessage(message: string) {
   return scope.length >= 3 ? scope : null;
 }
 
+const merchantScopeFillerWords = new Set([
+  "all",
+  "approved",
+  "each",
+  "every",
+  "eligible",
+  "entry",
+  "entries",
+  "for",
+  "in",
+  "lines",
+  "line",
+  "me",
+  "now",
+  "pending",
+  "please",
+  "posted",
+  "posting",
+  "review",
+  "reviewing",
+  "suggested",
+  "the",
+  "these",
+  "those",
+  "this",
+  "to",
+  "transaction",
+  "transactions",
+  "workspace",
+]);
+
+function conciseMerchantScopesFromMessage(message: string) {
+  const transitionPhrase = message.match(/\b(?:approve|approval|approving|post|posted|posting)\b\s+(.+?)(?:[.!?]|$)/i)?.[1];
+  if (!transitionPhrase) return [];
+
+  const phrase = transitionPhrase
+    .replace(/\b(?:journal\s+)?entries?\b/gi, " ")
+    .replace(/\btransactions?\b/gi, " ")
+    .replace(/\blines?\b/gi, " ")
+    .replace(/\bpayments?\b/gi, " ")
+    .replace(/\b(?:charges?|expenses?|activity|transfers?)\b/gi, " ")
+    .replace(/\b(?:all|each|every|the|these|those|approved|pending|suggested|eligible|posted|now|please)\b/gi, " ")
+    .replace(/\b(?:in|this|that|workspace|for|me|to)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!phrase) return [];
+
+  const scopes = phrase
+    .split(/\s+(?:and|or)\s+|,\s*/i)
+    .map((scope) => normalizeDescription(scope))
+    .filter((scope) => scope.length >= 3)
+    .filter((scope) => scope.split(/\s+/).some((word) => !merchantScopeFillerWords.has(word.toLowerCase())));
+  return [...new Set(scopes)];
+}
+
+function descriptionScopesFromMessage(message: string) {
+  const explicitScope = descriptionScopeFromMessage(message);
+  return explicitScope ? [explicitScope] : conciseMerchantScopesFromMessage(message);
+}
+
+function lineMatchesDescriptionScopes(
+  line: typeof statementLinesTable.$inferSelect,
+  descriptionScopes: string[],
+) {
+  return descriptionScopes.some((scope) => normalizeDescription(line.description).includes(scope));
+}
+
 function classificationAccountFromMessage(message: string) {
   const normalized = message.toLowerCase();
   return [...classificationAccounts]
@@ -1846,6 +1913,57 @@ class BulkActionValidationError extends Error {
   }
 }
 
+function statusCountDescription(
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+) {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    const status = effectiveEntryStatus(entry, lines);
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([status, count]) => `${count} ${status}`)
+    .join(", ");
+}
+
+function effectiveEntryStatus(
+  entry: typeof journalEntriesTable.$inferSelect,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+) {
+  const line = lines.find((candidate) => candidate.id === entry.statementLineId);
+  return entry.status === "posted" || line?.status === "posted" ? "posted" : entry.status;
+}
+
+function bulkStatusConflictError(
+  action: "approve" | "post",
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+) {
+  const count = entries.length;
+  const noun = `matching ${count === 1 ? "entry" : "entries"}`;
+  const statuses = statusCountDescription(entries, lines);
+  if (entries.length > 1 && new Set(entries.map((entry) => {
+    return effectiveEntryStatus(entry, lines);
+  })).size > 1) {
+    return `I found ${count} ${noun} with mixed statuses: ${statuses}. I will not silently narrow this merchant group to a subset. ${action === "post" ? "Approve any suggested entries first, then ask me to post the group once every matching entry is approved." : "Ask me to approve only a merchant group whose entries are still suggested; already approved or posted entries need no approval."}`;
+  }
+
+  if (action === "post" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "suggested")) {
+    return `I found ${count} ${noun}, but they are still suggested and need approval first. Ask me to approve these matching entries, then request posting after they are approved.`;
+  }
+  if (action === "post" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "posted")) {
+    return `I found ${count} ${noun}, but they are already posted. Nothing changed; ask me to review a different merchant scope if more work is expected.`;
+  }
+  if (action === "approve" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "approved")) {
+    return `I found ${count} ${noun}, but they are already approved. Ask me to post them when you are ready.`;
+  }
+  if (action === "approve" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "posted")) {
+    return `I found ${count} ${noun}, but they are already posted. Nothing changed; ask me to review a different merchant scope.`;
+  }
+  return `I found ${count} ${noun}, but their statuses are ${statuses}. Ask me for a scope containing only ${action === "post" ? "approved" : "suggested"} entries before confirming.`;
+}
+
 function prepareBulkActionRecommendation(
   message: string,
   clientId: number,
@@ -1866,7 +1984,7 @@ function prepareBulkActionRecommendation(
   const allRequested = /\b(?:all|every|each)\b/.test(normalized);
   const pendingRequested = /\b(?:pending|review|reviewing|suggested|eligible)\b/.test(normalized);
   const approvedRequested = /\bapproved\b/.test(normalized);
-  const descriptionScope = descriptionScopeFromMessage(message);
+  const descriptionScopes = descriptionScopesFromMessage(message);
   const idMatches = normalized.match(/(?:\bje\b|\bjournal entries?\b|\bentries?\b)\s*(?:ids?\s*)?#?\s*\d+(?:\s*(?:,|and)\s*#?\s*\d+)*/g) ?? [];
   const requestedIds = [...new Set(idMatches.flatMap((match) => {
     const numbers = match.match(/\d+/g) ?? [];
@@ -1880,29 +1998,33 @@ function prepareBulkActionRecommendation(
       return { error: "I cannot safely infer a qualified bulk scope. Use “approve all pending entries”, “post all approved entries”, or list specific journal entry IDs." };
     }
     if (type === "bulk_approve_entries") {
-      if (!pendingRequested || approvedRequested) {
+      if (!descriptionScopes.length && (!pendingRequested || approvedRequested)) {
         return { error: "For bulk approval, specify all pending or suggested entries. Entries that are already approved or posted need a separate scope." };
       }
       selectedEntries = entries.filter((entry) =>
-        entry.status === "suggested"
-          && (!descriptionScope || Boolean(lines.find((line) =>
-            line.id === entry.statementLineId && normalizeDescription(line.description).includes(descriptionScope),
+        (descriptionScopes.length ? true : entry.status === "suggested")
+          && (!descriptionScopes.length || Boolean(lines.find((line) =>
+            line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes),
           ))),
       );
-      scopeDescription = descriptionScope ? `suggested entries whose statement description contains “${descriptionScope}”` : "all suggested entries";
+      scopeDescription = descriptionScopes.length
+        ? `entries whose statement description contains “${descriptionScopes.join("” or “")}”`
+        : "all suggested entries";
     } else {
-      if (!approvedRequested || pendingRequested) {
+      if (!descriptionScopes.length && (!approvedRequested || pendingRequested)) {
         return { error: "For bulk posting, specify all approved entries. Suggested entries must be approved first." };
       }
       selectedEntries = entries.filter((entry) =>
-        entry.status === "approved"
-          && (!descriptionScope || Boolean(lines.find((line) =>
-            line.id === entry.statementLineId && normalizeDescription(line.description).includes(descriptionScope),
+        (descriptionScopes.length ? true : entry.status === "approved")
+          && (!descriptionScopes.length || Boolean(lines.find((line) =>
+            line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes),
           ))),
       );
-      scopeDescription = descriptionScope ? `approved entries whose statement description contains “${descriptionScope}”` : "all approved entries";
+      scopeDescription = descriptionScopes.length
+        ? `entries whose statement description contains “${descriptionScopes.join("” or “")}”`
+        : "all approved entries";
     }
-    if (!descriptionScope) {
+    if (!descriptionScopes.length) {
       const tokens = normalized.match(/[a-z]+/g) ?? [];
       const supportedScopeWords = new Set([
         "please", "can", "could", "would", "you", "approve", "approval", "approving", "post", "posted", "posting",
@@ -1920,6 +2042,12 @@ function prepareBulkActionRecommendation(
       return { error: "One or more requested journal entries are not available in this client workspace." };
     }
     scopeDescription = `the ${requestedIds.length} requested journal ${requestedIds.length === 1 ? "entry" : "entries"}`;
+  } else if (descriptionScopes.length) {
+    selectedEntries = entries.filter((entry) => {
+      const line = lines.find((candidate) => candidate.id === entry.statementLineId);
+      return Boolean(line && lineMatchesDescriptionScopes(line, descriptionScopes));
+    });
+    scopeDescription = `matching entries whose statement description contains “${descriptionScopes.join("” or “")}”`;
   } else {
     const matchingEntries = entries.filter((entry) => {
       const entryMemo = entry.memo.toLowerCase();
@@ -1933,12 +2061,14 @@ function prepareBulkActionRecommendation(
     scopeDescription = "the requested journal entry";
   }
 
+  if (!selectedEntries.length && descriptionScopes.length) {
+    return { error: `I could not find any journal entries with a statement description matching “${descriptionScopes.join("” or “")}” in this client workspace.` };
+  }
   if (!selectedEntries.length) {
     return { error: `There are no eligible entries to ${asksToApprove ? "approve" : "post"} in that scope.` };
   }
-  if (selectedEntries.some((entry) => entry.status !== expectedStatus)) {
-    const invalidLabel = asksToApprove ? "already approved or posted" : "not already approved";
-    return { error: `That scope includes entries that are ${invalidLabel}. Narrow the request to one eligible status before confirming.` };
+  if (selectedEntries.some((entry) => effectiveEntryStatus(entry, lines) !== expectedStatus)) {
+    return { error: bulkStatusConflictError(asksToApprove ? "approve" : "post", selectedEntries, lines) };
   }
 
   const selectedLineIds = [...new Set(selectedEntries.map((entry) => entry.statementLineId))];
