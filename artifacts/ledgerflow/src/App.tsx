@@ -14,6 +14,7 @@ import {
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateFirmProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile
 } from '@workspace/api-client-react';
+import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
   Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
 } from '@workspace/api-client-react';
@@ -822,7 +823,48 @@ function ImportStatementPage() {
   return <div>
     <PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. LedgerFlow detects the currency and shows every parsed row for approval before it loads anything into review.`} />
     <section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—LedgerFlow will infer the source currency from the document and prepare a review preview.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to analyze` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setMessage(''); setCompleted(null); }} /></label><div className="mt-5 flex justify-end"><button data-testid="button-parse-statement" type="button" onClick={previewStatement} disabled={!file || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{isUploading || importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Analyzing statement…</> : <><Sparkles size={14} /> Analyze with AI</>}</button></div>{message && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${completed?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary'}`}>{message}{completed?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}</section>
+    <StatementImportHistory />
   </div>;
+}
+
+function StatementImportHistory() {
+  const { activeClient } = useClientWorkspace();
+  const clientId = activeClient?.id ?? 0;
+  const importsQuery = useGetStatementImports({ clientId }, {
+    query: {
+      queryKey: getGetStatementImportsQueryKey({ clientId }),
+      enabled: Boolean(activeClient),
+    },
+  });
+  const undoMutation = useUndoStatementImport();
+  const [feedback, setFeedback] = useState('');
+
+  const undoImport = (importId: number, fileName: string) => {
+    if (!activeClient || !window.confirm(`Undo "${fileName}"? This permanently removes its review-only transactions and suggested journals. The original statement document and audit trail will be kept.`)) return;
+    setFeedback('');
+    undoMutation.mutate({ id: importId, data: { clientId: activeClient.id } }, {
+      onSuccess: (result) => {
+        setFeedback(result.message);
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) }),
+        ]);
+      },
+      onError: (error) => {
+        setFeedback(error instanceof Error ? error.message : 'This import could not be undone. It may contain reviewed, approved, or posted work.');
+      },
+    });
+  };
+
+  if (!activeClient) return null;
+  return <section className="mt-6 rounded-lg border border-card-border bg-card p-6" data-testid="statement-import-history">
+    <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Undo is available only while every imported transaction is still in review and its journal is still suggested. Source evidence is always retained.</p></div><button type="button" onClick={() => void importsQuery.refetch()} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-muted-foreground hover:bg-muted"><RefreshCw size={13} /> Refresh</button></div>
+    {feedback ? <div className="mt-4 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-primary" role="status">{feedback}</div> : null}
+    {importsQuery.isLoading ? <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><LoaderCircle size={14} className="animate-spin" /> Loading import history…</div> : null}
+    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replace('_', ' ')}</span></div>{statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a transaction or journal is changed, approved, or posted.</p> : null}</div><div className="flex shrink-0 items-center gap-2">{statementImport.sourceUrl ? <a href={statementImport.sourceUrl} className="text-xs font-semibold text-primary underline">Source</a> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
+  </section>;
 }
 
 function LegacyImportStatementPage() {

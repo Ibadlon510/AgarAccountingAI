@@ -13,4 +13,5 @@ export const StatementImportOutcome = {
   completed: 'completed',
   duplicate: 'duplicate',
   failed: 'failed',
+  undone: 'undone',
 } as const;

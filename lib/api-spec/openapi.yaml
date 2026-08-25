@@ -575,6 +575,31 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StatementImport"
+  /ledgerflow/statement-imports/{id}/undo:
+    post:
+      operationId: undoStatementImport
+      tags: [ledgerflow]
+      summary: Remove a review-only statement import while preserving its evidence trail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementImportUndoInput"
+      responses:
+        "200":
+          description: Import was already undone or its review-only data was removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementImportUndoResult"
+        "409":
+          description: The import contains accounting work that is no longer review-only
   /ledgerflow/uploaded-files:
     get:
       operationId: getUploadedFiles
@@ -1479,11 +1504,27 @@ components:
         fileName: { type: string }
         mimeType: { type: string }
         objectPath: { type: ["string", "null"] }
-        outcome: { type: string, enum: [completed, duplicate, failed] }
+        outcome: { type: string, enum: [completed, duplicate, failed, undone] }
         errorMessage: { type: ["string", "null"] }
         importedLineCount: { type: number }
         createdAt: { type: string }
         sourceUrl: { type: ["string", "null"] }
+    StatementImportUndoInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+    StatementImportUndoResult:
+      type: object
+      required: [id, clientId, outcome, removedLineCount, removedJournalEntryCount, alreadyUndone, message]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        outcome: { type: string, enum: [undone] }
+        removedLineCount: { type: number }
+        removedJournalEntryCount: { type: number }
+        alreadyUndone: { type: boolean }
+        message: { type: string }
     UploadedFile:
       type: object
       required: [id, fileName, mimeType, outcome, importedLineCount, processedAt, sourceStatus, sourceUrl]

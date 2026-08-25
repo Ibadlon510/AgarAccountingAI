@@ -73,6 +73,8 @@ import type {
   StatementImport,
   StatementImportInput,
   StatementImportResult,
+  StatementImportUndoInput,
+  StatementImportUndoResult,
   StatementLine,
   StatementLineInput,
   TrialBalanceRow,
@@ -2658,6 +2660,78 @@ export function useGetStatementImports<TData = Awaited<ReturnType<typeof getStat
 
 
 
+
+export const getUndoStatementImportUrl = (id: number,) => {
+
+
+
+
+  return `/api/ledgerflow/statement-imports/${id}/undo`
+}
+
+/**
+ * @summary Remove a review-only statement import while preserving its evidence trail
+ */
+export const undoStatementImport = async (id: number,
+    statementImportUndoInput: StatementImportUndoInput, options?: Parameters<typeof customFetch>[1]): Promise<StatementImportUndoResult> => {
+
+  return customFetch<StatementImportUndoResult>(getUndoStatementImportUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(statementImportUndoInput)
+  }
+);}
+
+
+
+
+
+export const getUndoStatementImportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof undoStatementImport>>, TError,{id: number;data: BodyType<StatementImportUndoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof undoStatementImport>>, TError,{id: number;data: BodyType<StatementImportUndoInput>}, TContext> => {
+
+const mutationKey = ['undoStatementImport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof undoStatementImport>>, {id: number;data: BodyType<StatementImportUndoInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  undoStatementImport(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UndoStatementImportMutationResult = NonNullable<Awaited<ReturnType<typeof undoStatementImport>>>
+    export type UndoStatementImportMutationBody = BodyType<StatementImportUndoInput>
+    export type UndoStatementImportMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove a review-only statement import while preserving its evidence trail
+ */
+export const useUndoStatementImport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof undoStatementImport>>, TError,{id: number;data: BodyType<StatementImportUndoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof undoStatementImport>>,
+        TError,
+        {id: number;data: BodyType<StatementImportUndoInput>},
+        TContext
+      > => {
+      return useMutation(getUndoStatementImportMutationOptions(options));
+    }
 
 export const getGetUploadedFilesUrl = (params: GetUploadedFilesParams,) => {
   const normalizedParams = new URLSearchParams();

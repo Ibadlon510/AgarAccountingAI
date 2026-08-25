@@ -219,7 +219,7 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
   }),
   outcomeCheck: check(
     "ledgerflow_statement_imports_outcome_check",
-    sql`outcome in ('completed', 'duplicate', 'failed')`,
+    sql`outcome in ('completed', 'duplicate', 'failed', 'undone')`,
   ),
 }));
 
@@ -253,6 +253,7 @@ export const aiActivityTable = pgTable("ledgerflow_ai_activity", {
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),
+  statementImportId: integer("statement_import_id"),
   bankAccountId: integer("bank_account_id"),
   date: text("date").notNull(),
   description: text("description").notNull(),
@@ -272,6 +273,7 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   importDedupeKeyUnique: uniqueIndex("ledgerflow_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
+  statementImportIndex: index("ledgerflow_statement_lines_import_idx").on(table.statementImportId),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
@@ -281,6 +283,11 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
     columns: [table.bankAccountId],
     foreignColumns: [bankAccountsTable.id],
     name: "ledgerflow_statement_lines_bank_account_fk",
+  }),
+  statementImportForeignKey: foreignKey({
+    columns: [table.statementImportId],
+    foreignColumns: [statementImportsTable.id],
+    name: "ledgerflow_statement_lines_import_fk",
   }),
 }));
 
@@ -386,6 +393,20 @@ export const bulkTransitionAuditsTable = pgTable("ledgerflow_bulk_transition_aud
 }, (table) => [
   index("ledgerflow_bulk_transition_audits_client_confirmed_idx").on(table.clientId, table.confirmedAt),
 ]);
+
+export const statementImportUndoAuditsTable = pgTable("ledgerflow_statement_import_undo_audits", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  statementImportId: integer("statement_import_id").notNull(),
+  actorUserId: varchar("actor_user_id").notNull(),
+  actorName: text("actor_name"),
+  actorEmail: text("actor_email"),
+  statementLineIds: integer("statement_line_ids").array().notNull(),
+  journalEntryIds: integer("journal_entry_ids").array().notNull(),
+  undoneAt: timestamp("undone_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ledgerflow_statement_import_undo_audits_client_undone_idx").on(table.clientId, table.undoneAt),
+]);
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
 export type JournalEntry = typeof journalEntriesTable.$inferSelect;
@@ -393,5 +414,6 @@ export type AccountClassification = typeof accountClassificationsTable.$inferSel
 export type ReportPack = typeof reportPacksTable.$inferSelect;
 
 export type BulkTransitionAudit = typeof bulkTransitionAuditsTable.$inferSelect;
+export type StatementImportUndoAudit = typeof statementImportUndoAuditsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;
 export type UpsertUser = typeof usersTable.$inferInsert;

@@ -63,6 +63,9 @@ import {
   PostJournalEntryBody,
   ImportStatementBody,
   ImportStatementResponse,
+  UndoStatementImportBody,
+  UndoStatementImportParams,
+  UndoStatementImportResponse,
   RemoveLedgerflowAICredentialBody,
   RemoveLedgerflowAICredentialResponse,
   TestLedgerflowAISettingsBody,
@@ -98,6 +101,7 @@ import {
   journalEntriesTable,
   reportPacksTable,
   statementImportsTable,
+  statementImportUndoAuditsTable,
   statementLinesTable,
   usersTable,
   workspaceInvitationsTable,
@@ -2627,6 +2631,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           : "0.75";
         const amount = String(Math.abs(line.amount));
         return {
+          statementImportId: createdImport.id,
           clientId: scopedClientId,
           bankAccountId: detectedBankAccount?.id ?? null,
           date: line.date,
@@ -2805,6 +2810,119 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
   })));
 });
 
+router.post("/ledgerflow/statement-imports/:id/undo", async (req, res) => {
+  const params = UndoStatementImportParams.safeParse(req.params);
+  const body = UndoStatementImportBody.safeParse(req.body);
+  if (!params.success || !body.success || !Number.isInteger(params.data.id) || params.data.id <= 0) {
+    return res.status(400).json({ error: "A valid statement import ID and client ID are required." });
+  }
+  const client = await requireOwnedClient(req, res, body.data.clientId);
+  if (!client) return;
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [statementImport] = await tx.select()
+        .from(statementImportsTable)
+        .where(and(
+          eq(statementImportsTable.id, params.data.id),
+          eq(statementImportsTable.clientId, client.id),
+        ))
+        .for("update")
+        .limit(1);
+      if (!statementImport) return { kind: "missing" as const };
+      if (statementImport.outcome === "undone") {
+        return {
+          kind: "undone" as const,
+          removedLineCount: 0,
+          removedJournalEntryCount: 0,
+          alreadyUndone: true,
+          message: "This statement import was already undone. Its source document and audit record remain available.",
+        };
+      }
+      if (statementImport.outcome !== "completed") {
+        return {
+          kind: "blocked" as const,
+          message: "Only completed statement imports can be undone.",
+        };
+      }
+
+      const lines = await tx.select().from(statementLinesTable)
+        .where(and(
+          eq(statementLinesTable.clientId, client.id),
+          eq(statementLinesTable.statementImportId, statementImport.id),
+        ))
+        .for("update");
+      if (lines.length !== statementImport.importedLineCount) {
+        return {
+          kind: "blocked" as const,
+          message: "This import cannot be safely undone because its original review rows are missing or predate undo tracking.",
+        };
+      }
+
+      const lineIds = lines.map((line) => line.id);
+      const entries = lineIds.length
+        ? await tx.select().from(journalEntriesTable)
+          .where(and(
+            eq(journalEntriesTable.clientId, client.id),
+            inArray(journalEntriesTable.statementLineId, lineIds),
+          ))
+          .for("update")
+        : [];
+      const changedLine = lines.find((line) => line.status !== "needs_review");
+      const changedEntry = entries.find((entry) => entry.status !== "suggested");
+      if (entries.length !== lines.length || changedLine || changedEntry) {
+        return {
+          kind: "blocked" as const,
+          message: "This import cannot be undone because one or more transactions were changed, approved, or posted.",
+        };
+      }
+
+      const entryIds = entries.map((entry) => entry.id);
+      await tx.insert(statementImportUndoAuditsTable).values({
+        clientId: client.id,
+        statementImportId: statementImport.id,
+        actorUserId: currentUserId(req),
+        actorName: displayName(req.dbUser!),
+        actorEmail: req.dbUser!.email,
+        statementLineIds: lineIds,
+        journalEntryIds: entryIds,
+      });
+      if (entryIds.length) {
+        await tx.delete(journalEntriesTable).where(inArray(journalEntriesTable.id, entryIds));
+      }
+      if (lineIds.length) {
+        await tx.delete(statementLinesTable).where(inArray(statementLinesTable.id, lineIds));
+      }
+      await tx.update(statementImportsTable)
+        .set({ outcome: "undone", errorMessage: null })
+        .where(eq(statementImportsTable.id, statementImport.id));
+      return {
+        kind: "undone" as const,
+        removedLineCount: lineIds.length,
+        removedJournalEntryCount: entryIds.length,
+        alreadyUndone: false,
+        message: "Review-only transactions were removed. The original statement document and immutable undo audit were preserved.",
+      };
+    });
+
+    if (result.kind === "missing") {
+      return res.status(404).json({ error: "Statement import not found for this client." });
+    }
+    if (result.kind === "blocked") {
+      return res.status(409).json({ error: result.message });
+    }
+    return res.json(UndoStatementImportResponse.parse({
+      id: params.data.id,
+      clientId: client.id,
+      outcome: "undone",
+      ...result,
+    }));
+  } catch (error) {
+    req.log.error({ err: error, importId: params.data.id, clientId: client.id }, "Could not undo statement import");
+    return res.status(500).json({ error: "We could not undo this statement import. No review data was removed." });
+  }
+});
+
 router.get("/ledgerflow/uploaded-files", async (req, res) => {
   const requestedClientId = Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
@@ -2859,7 +2977,7 @@ router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
   }
   const client = await requireOwnedClient(req, res, statementImport.clientId);
   if (!client) return;
-  if (!["completed", "duplicate"].includes(statementImport.outcome)) {
+  if (!["completed", "duplicate", "undone"].includes(statementImport.outcome)) {
     res.status(404).json({ error: "Source document not found" });
     return;
   }

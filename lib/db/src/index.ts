@@ -102,6 +102,28 @@ export async function ensureLedgerflowIntegrity() {
         WHEN duplicate_object THEN NULL;
       END;
       $$;
+
+      DO $$
+      BEGIN
+        CREATE TRIGGER ledgerflow_statement_import_undo_audits_append_only
+          BEFORE UPDATE OR DELETE ON ledgerflow_statement_import_undo_audits
+          FOR EACH ROW
+          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END;
+      $$;
+
+      DO $$
+      BEGIN
+        CREATE TRIGGER ledgerflow_statement_import_undo_audits_no_truncate
+          BEFORE TRUNCATE ON ledgerflow_statement_import_undo_audits
+          FOR EACH STATEMENT
+          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+      EXCEPTION
+        WHEN duplicate_object THEN NULL;
+      END;
+      $$;
     `);
     await client.query("COMMIT");
     transactionStarted = false;

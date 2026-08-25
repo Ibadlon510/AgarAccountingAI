@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
+import { Readable } from "node:stream";
 import { after, before, test } from "node:test";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import * as XLSX from "xlsx";
 import { objectStorageService } from "../src/routes/storage";
 
 type ImportResult = {
+  importId?: number;
   fileName: string;
   importStatus: "preview" | "imported" | "imported_with_duplicates" | "duplicates_found" | "duplicate_file";
   message?: string;
@@ -146,6 +148,7 @@ before(async () => {
     return {
       getMetadata: async () => [{ size: String(content.length), contentType: "text/csv" }],
       download: async () => [content],
+      createReadStream: () => Readable.from(content),
     };
   }) as typeof objectStorageService.getObjectEntityFile;
   aiServer = (await import("node:http")).createServer(async (req, res) => {
@@ -343,6 +346,102 @@ test("reports an exact file re-upload without adding review lines", async () => 
   assert.deepEqual(duplicate.body.duplicateLines, []);
   assert.deepEqual(duplicate.body.lines, []);
   assert.equal((await statementLines(clientId)).length, 1);
+});
+
+test("undoes only a review-only import, preserves evidence and audit IDs, and is idempotent", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Review-only undo ${randomUUID()}`);
+  const imported = await importStatement(clientId, "undo-review-only.csv", "undo-review-only");
+  assert.equal(imported.response.status, 201);
+  assert.ok(imported.body.importId);
+  const importId = imported.body.importId;
+  const lineId = imported.body.lines[0]?.id;
+  assert.ok(lineId);
+  const [entry] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, lineId));
+  assert.ok(entry);
+
+  const undone = await request<{
+    outcome: "undone";
+    removedLineCount: number;
+    removedJournalEntryCount: number;
+    alreadyUndone: boolean;
+  }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(undone.response.status, 200);
+  assert.equal(undone.body.outcome, "undone");
+  assert.equal(undone.body.removedLineCount, 1);
+  assert.equal(undone.body.removedJournalEntryCount, 1);
+  assert.equal(undone.body.alreadyUndone, false);
+  assert.deepEqual(await statementLines(clientId), []);
+
+  const [storedImport] = await database.db.select().from(database.statementImportsTable)
+    .where(eq(database.statementImportsTable.id, importId));
+  assert.equal(storedImport?.outcome, "undone");
+  assert.ok(storedImport?.objectPath);
+  const preservedSource = await fetch(`${baseUrl}/ledgerflow/statement-imports/${importId}/source`, {
+    headers: { "x-test-user-id": primaryUserId },
+  });
+  assert.equal(preservedSource.status, 200);
+  assert.match(Buffer.from(await preservedSource.arrayBuffer()).toString("utf8"), /undo-review-only/);
+  const [audit] = await database.db.select().from(database.statementImportUndoAuditsTable)
+    .where(eq(database.statementImportUndoAuditsTable.statementImportId, importId));
+  assert.deepEqual(audit?.statementLineIds, [lineId]);
+  assert.deepEqual(audit?.journalEntryIds, [entry.id]);
+  assert.equal(audit?.clientId, clientId);
+
+  const repeat = await request<{ alreadyUndone: boolean }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(repeat.response.status, 200);
+  assert.equal(repeat.body.alreadyUndone, true);
+  const audits = await database.db.select().from(database.statementImportUndoAuditsTable)
+    .where(eq(database.statementImportUndoAuditsTable.statementImportId, importId));
+  assert.equal(audits.length, 1);
+
+  const trialBalance = await request<unknown[]>(`/ledgerflow/trial-balance?clientId=${clientId}`);
+  assert.equal(trialBalance.response.status, 200);
+  assert.deepEqual(trialBalance.body, []);
+});
+
+test("blocks changed imports and isolates the statement-import undo mutation", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Blocked import undo ${randomUUID()}`);
+  const imported = await importStatement(clientId, "undo-blocked.csv", "undo-blocked");
+  assert.equal(imported.response.status, 201);
+  assert.ok(imported.body.importId);
+  const importId = imported.body.importId;
+  const lineId = imported.body.lines[0]?.id;
+  assert.ok(lineId);
+  const [entry] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, lineId));
+  assert.ok(entry);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "approved" })
+    .where(eq(database.journalEntriesTable.id, entry.id));
+
+  const foreign = await request<{ error: string }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  }, secondaryUserId);
+  assert.equal(foreign.response.status, 403);
+
+  const blocked = await request<{ error: string }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(blocked.response.status, 409);
+  assert.match(blocked.body.error, /changed, approved, or posted/i);
+  assert.equal((await statementLines(clientId)).length, 1);
+  const [storedImport] = await database.db.select().from(database.statementImportsTable)
+    .where(eq(database.statementImportsTable.id, importId));
+  assert.equal(storedImport?.outcome, "completed");
+  const audits = await database.db.select().from(database.statementImportUndoAuditsTable)
+    .where(eq(database.statementImportUndoAuditsTable.statementImportId, importId));
+  assert.equal(audits.length, 0);
 });
 
 test("returns a currency-aware statement preview without creating lines or import history", async () => {

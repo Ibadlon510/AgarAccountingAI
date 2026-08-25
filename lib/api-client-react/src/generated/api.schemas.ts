@@ -519,6 +519,7 @@ export const StatementImportOutcome = {
   completed: 'completed',
   duplicate: 'duplicate',
   failed: 'failed',
+  undone: 'undone',
 } as const;
 
 export interface StatementImport {
@@ -534,6 +535,27 @@ export interface StatementImport {
   createdAt: string;
   /** @nullable */
   sourceUrl?: string | null;
+}
+
+export interface StatementImportUndoInput {
+  clientId: number;
+}
+
+export type StatementImportUndoResultOutcome = typeof StatementImportUndoResultOutcome[keyof typeof StatementImportUndoResultOutcome];
+
+
+export const StatementImportUndoResultOutcome = {
+  undone: 'undone',
+} as const;
+
+export interface StatementImportUndoResult {
+  id: number;
+  clientId: number;
+  outcome: StatementImportUndoResultOutcome;
+  removedLineCount: number;
+  removedJournalEntryCount: number;
+  alreadyUndone: boolean;
+  message: string;
 }
 
 export type UploadedFileOutcome = typeof UploadedFileOutcome[keyof typeof UploadedFileOutcome];

@@ -893,13 +893,35 @@ export const GetStatementImportsResponseItem = zod.object({
   "fileName": zod.string(),
   "mimeType": zod.string(),
   "objectPath": zod.string().nullable(),
-  "outcome": zod.enum(['completed', 'duplicate', 'failed']),
+  "outcome": zod.enum(['completed', 'duplicate', 'failed', 'undone']),
   "errorMessage": zod.string().nullish(),
   "importedLineCount": zod.number(),
   "createdAt": zod.string(),
   "sourceUrl": zod.string().nullish()
 })
 export const GetStatementImportsResponse = zod.array(GetStatementImportsResponseItem)
+
+
+/**
+ * @summary Remove a review-only statement import while preserving its evidence trail
+ */
+export const UndoStatementImportParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UndoStatementImportBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const UndoStatementImportResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "outcome": zod.enum(['undone']),
+  "removedLineCount": zod.number(),
+  "removedJournalEntryCount": zod.number(),
+  "alreadyUndone": zod.boolean(),
+  "message": zod.string()
+})
 
 
 /**
