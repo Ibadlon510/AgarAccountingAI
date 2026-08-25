@@ -206,6 +206,10 @@ after(async () => {
     if (activeDatabase && createdClientIds.length) {
       await activeDatabase.db.delete(activeDatabase.aiProviderConfigsTable)
         .where(inArray(activeDatabase.aiProviderConfigsTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.bulkTransitionAuditsTable)
+        .where(inArray(activeDatabase.bulkTransitionAuditsTable.clientId, createdClientIds));
+      await activeDatabase.db.delete(activeDatabase.aiActivityTable)
+        .where(inArray(activeDatabase.aiActivityTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.journalEntriesTable)
         .where(inArray(activeDatabase.journalEntriesTable.clientId, createdClientIds));
       await activeDatabase.db.delete(activeDatabase.statementLinesTable)
@@ -366,6 +370,132 @@ test("scopes duplicate detection to the importing client", async () => {
   assert.equal((await statementLines(secondaryClientId, secondaryUserId)).length, 1);
 });
 
+test("stages deterministic description recodes before separately confirmed approval and posting", async () => {
+  const clientId = await createClient(`AI action scope ${randomUUID()}`);
+  const createdLine = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-25",
+      description: "Acme invoice 9381",
+      currency: "AED",
+      amount: 240,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(createdLine.response.status, 201);
+  assert.equal(createdLine.body.accountSuggestion, "General expenses");
+
+  type Recommendation = {
+    type: string;
+    lineIds?: number[];
+    entryIds?: number[];
+    statementLineIds?: number[];
+    accountSuggestion?: string;
+  };
+  type CopilotResponse = { answer: string; recommendations: Recommendation[] };
+  const classification = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "Classify all transactions matching Acme invoice as Software & subscriptions.",
+    }),
+  });
+  assert.equal(classification.response.status, 200);
+  assert.equal(classification.body.recommendations.length, 1);
+  assert.equal(classification.body.recommendations[0]?.type, "recode_lines");
+  assert.deepEqual(classification.body.recommendations[0]?.lineIds, [createdLine.body.id]);
+  assert.equal(classification.body.recommendations[0]?.accountSuggestion, "Software & subscriptions");
+
+  const mixedRequest = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "Classify all transactions matching Acme invoice as Software & subscriptions and post them.",
+    }),
+  });
+  assert.equal(mixedRequest.response.status, 200);
+  assert.equal(mixedRequest.body.recommendations.length, 0);
+  assert.match(mixedRequest.body.answer, /separate steps/i);
+
+  const recode = await request<{ updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "recode_lines",
+      clientId,
+      lineIds: classification.body.recommendations[0]?.lineIds,
+      accountSuggestion: "Software & subscriptions",
+    }),
+  });
+  assert.equal(recode.response.status, 200);
+  assert.equal(recode.body.updatedLineCount, 1);
+
+  const journalEntries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
+    `/ledgerflow/journal-entries?clientId=${clientId}`,
+  );
+  assert.equal(journalEntries.response.status, 200);
+  const entry = journalEntries.body.find((item) => item.statementLineId === createdLine.body.id);
+  assert.ok(entry);
+  assert.equal(entry.status, "suggested");
+
+  const approvalCard = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({ clientId, message: "Approve all suggested entries." }),
+  });
+  assert.equal(approvalCard.response.status, 200);
+  assert.equal(approvalCard.body.recommendations[0]?.type, "bulk_approve_entries");
+
+  const approval = await request<{ toStatus: string; entryCount: number }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "bulk_approve_entries",
+      clientId,
+      entryIds: approvalCard.body.recommendations[0]?.entryIds,
+      statementLineIds: approvalCard.body.recommendations[0]?.statementLineIds,
+    }),
+  });
+  assert.equal(approval.response.status, 200);
+  assert.equal(approval.body.toStatus, "approved");
+  assert.equal(approval.body.entryCount, 1);
+
+  const repeatedApproval = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "bulk_approve_entries",
+      clientId,
+      entryIds: approvalCard.body.recommendations[0]?.entryIds,
+      statementLineIds: approvalCard.body.recommendations[0]?.statementLineIds,
+    }),
+  });
+  assert.equal(repeatedApproval.response.status, 409);
+  assert.match(repeatedApproval.body.error, /only suggested entries/i);
+
+  const postingCard = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({ clientId, message: "Post all approved entries." }),
+  });
+  assert.equal(postingCard.response.status, 200);
+  assert.equal(postingCard.body.recommendations[0]?.type, "bulk_post_entries");
+  const posting = await request<{ toStatus: string }>("/ledgerflow/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      type: "bulk_post_entries",
+      clientId,
+      entryIds: postingCard.body.recommendations[0]?.entryIds,
+      statementLineIds: postingCard.body.recommendations[0]?.statementLineIds,
+    }),
+  });
+  assert.equal(posting.response.status, 200);
+  assert.equal(posting.body.toStatus, "posted");
+
+  const audits = await request<Array<{ transition: string; fromStatus: string; toStatus: string; actor: { id: string } }>>(
+    `/ledgerflow/bulk-transition-audits?clientId=${clientId}`,
+  );
+  assert.equal(audits.response.status, 200);
+  assert.deepEqual(audits.body.map((audit) => audit.transition).sort(), ["bulk_approve_entries", "bulk_post_entries"]);
+  assert.ok(audits.body.every((audit) => audit.actor.id === primaryUserId));
+});
+
 test("keeps workspace AI credentials redacted, isolated, rotatable, and routes extraction through the selected provider", async () => {
   const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
   const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryUserId);
@@ -493,6 +623,19 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(recodeRecommendation?.type, "recode_lines");
   assert.equal(recodeRecommendation?.accountSuggestion, "Revenue");
   assert.equal(recodeRecommendation?.lineIds?.length, 2);
+
+  for (const mixedInstruction of [
+    "All transactions with description SUNWEB GROUP GMBH must be posted as revenue and post them.",
+    "All transactions with description SUNWEB GROUP GMBH must be posted as revenue and approve them.",
+  ]) {
+    const mixedRequest = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+      method: "POST",
+      body: JSON.stringify({ clientId, message: mixedInstruction }),
+    });
+    assert.equal(mixedRequest.response.status, 200);
+    assert.equal(mixedRequest.body.recommendations.length, 0);
+    assert.match(mixedRequest.body.answer, /separate steps/i);
+  }
 
   const recodeConfirmation = await request<{ updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
     method: "POST",

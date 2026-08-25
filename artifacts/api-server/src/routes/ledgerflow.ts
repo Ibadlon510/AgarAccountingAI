@@ -23,6 +23,8 @@ import {
   DeleteExchangeRateParams,
   GetBankAccountsQueryParams,
   GetBankAccountsResponse,
+  GetBulkTransitionAuditsQueryParams,
+  GetBulkTransitionAuditsResponse,
   GetExchangeRatesResponse,
   ImportExchangeRatesBody,
   ImportExchangeRatesResponse,
@@ -957,7 +959,9 @@ function ledgerAccountCategory(account: string, side: "debit" | "credit") {
 
 function suggestAccount(description: string, direction: string) {
   const text = description.toLowerCase();
-  if (/\b(?:transfer|xfer|inter[- ]?account|own account|between accounts)\b/.test(text)) return interAccountTransferAccount;
+  if (/\b(?:internal|inter[\s-]?account|own[-\s]?account)\s+transfer\b|\b(?:transfer|xfer).*\b(?:savings|current|operating|reserve|wallet|own account)\b/.test(text)) {
+    return interAccountTransferAccount;
+  }
   if (direction === "inflow") {
     if (/stripe|retainer|client|invoice|sale|sales|payment|payout|customer/.test(text)) return "Revenue";
     return "Other income";
@@ -985,6 +989,16 @@ const classificationAccounts = new Set([
   "General expenses",
   interAccountTransferAccount,
 ]);
+
+function journalAccountsForSuggestion(direction: string, accountSuggestion: string) {
+  return direction === "inflow"
+    ? { debitAccount: "Bank / cash", creditAccount: accountSuggestion }
+    : { debitAccount: accountSuggestion, creditAccount: "Bank / cash" };
+}
+
+function isInterAccountTransferEntry(entry: Pick<typeof journalEntriesTable.$inferSelect, "debitAccount" | "creditAccount">) {
+  return isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount);
+}
 const vendorNoiseWords = new Set([
   "account", "ae", "bank", "charge", "charges", "co", "company", "credit",
   "debit", "fee", "fees", "fze", "fz", "inc", "invoice", "ltd", "llc",
@@ -1136,8 +1150,7 @@ async function ensureSuggestedAccounts() {
     await db.update(journalEntriesTable)
       .set({
         confidence,
-        debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
-        creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
+        ...journalAccountsForSuggestion(line.direction, accountSuggestion),
       })
       .where(eq(journalEntriesTable.statementLineId, line.id));
   }
@@ -1168,8 +1181,7 @@ async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
     currency: line.currency,
     status: "suggested",
     confidence: line.confidence ?? "0.80",
-    debitAccount: line.direction === "inflow" ? "Bank / cash" : account,
-    creditAccount: line.direction === "inflow" ? account : "Bank / cash",
+    ...journalAccountsForSuggestion(line.direction, account),
     amount: line.amount,
     functionalCurrency: line.functionalCurrency,
     functionalAmount: line.functionalAmount,
@@ -1282,7 +1294,8 @@ function escapeRegExp(value: string) {
 function descriptionScopeFromMessage(message: string) {
   const quoted = message.match(/\b(?:description|memo|narration)\b[^"'“”]*["“]([^"”]+)["”]/i)?.[1];
   const unquoted = message.match(/\b(?:description|memo|narration)(?:\s+(?:is|contains|matching|matches|like|of|with))?\s+(.+?)(?=\s+\b(?:must|should|need(?:s)?|as|to|be|classified|recorded|set|approve|approved|post|posted|posting)\b|[.!?]|$)/i)?.[1];
-  const scope = normalizeDescription(quoted ?? unquoted ?? "");
+  const batchMatch = message.match(/\b(?:transactions?|lines?)\s+matching\s+["“']?(.+?)["”']?\s+(?:as|to|into)\b/i)?.[1];
+  const scope = normalizeDescription(quoted ?? batchMatch ?? unquoted ?? "");
   return scope.length >= 3 ? scope : null;
 }
 
@@ -1290,8 +1303,22 @@ function classificationAccountFromMessage(message: string) {
   const normalized = message.toLowerCase();
   return [...classificationAccounts]
     .sort((left, right) => right.length - left.length)
-    .find((account) => new RegExp(`\\b(?:as|to|be|is)\\s+(?:an?\\s+)?${escapeRegExp(account.toLowerCase())}\\b`, "i").test(normalized))
+    .find((account) => new RegExp(`\\b${escapeRegExp(account.toLowerCase())}\\b`, "i").test(normalized))
     ?? null;
+}
+
+function asksForDescriptionClassification(message: string) {
+  return /\b(?:classify|categorize|recode|reclassify)\b/i.test(message)
+    || /\b(?:must|should|need(?:s)?)\s+be\s+(?:classified|recorded|posted)\s+as\b/i.test(message);
+}
+
+function asksForLedgerTransition(message: string) {
+  const accountNames = [...classificationAccounts].map(escapeRegExp).join("|");
+  const withoutClassificationClause = message.replace(
+    new RegExp(`\\b(?:must|should|need(?:s)?)\\s+be\\s+posted\\s+as\\s+(?:an?\\s+)?(?:${accountNames})\\b`, "gi"),
+    "",
+  );
+  return /\b(?:approve|approval|approving|post|posted|posting)\b/i.test(withoutClassificationClause);
 }
 
 function prepareDescriptionRecodeRecommendation(
@@ -1300,6 +1327,7 @@ function prepareDescriptionRecodeRecommendation(
   entries: Array<typeof journalEntriesTable.$inferSelect>,
   lines: Array<typeof statementLinesTable.$inferSelect>,
 ): { recommendation?: AICopilotRecommendation; error?: string } | null {
+  if (!asksForDescriptionClassification(message)) return null;
   const descriptionScope = descriptionScopeFromMessage(message);
   const accountSuggestion = classificationAccountFromMessage(message);
   if (!descriptionScope || !accountSuggestion) return null;
@@ -2247,6 +2275,16 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
   const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines);
+  const asksToClassify = asksForDescriptionClassification(message);
+  const asksToTransition = asksForLedgerTransition(message);
+  if (asksToClassify && asksToTransition) {
+    res.json(AskLedgerflowAIResponse.parse({
+      answer: "Classification and ledger posting are separate steps. Confirm the classification card first, then ask me to prepare either an approval or a posting confirmation for the eligible entries.",
+      context,
+      recommendations: [],
+    }));
+    return;
+  }
   if (descriptionRecode?.error) {
     res.json(AskLedgerflowAIResponse.parse({
       answer: descriptionRecode.error,
@@ -2518,6 +2556,18 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
           if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
         }
 
+        await tx.insert(bulkTransitionAuditsTable).values({
+          clientId: body.clientId,
+          actorUserId: currentUserId(req),
+          actorName: displayName(req.dbUser!),
+          actorEmail: req.dbUser!.email,
+          transition: body.type,
+          fromStatus: expectedStatus,
+          toStatus: resultingStatus,
+          entryIds,
+          statementLineIds,
+        });
+
         return { entries: updatedEntries, expectedStatus, resultingStatus };
       });
     } catch (error) {
@@ -2601,8 +2651,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
       for (const line of lockedLines) {
         const [updatedEntry] = await tx.update(journalEntriesTable).set({
           confidence,
-          debitAccount: line.direction === "inflow" ? "Bank / cash" : accountSuggestion,
-          creditAccount: line.direction === "inflow" ? accountSuggestion : "Bank / cash",
+          ...journalAccountsForSuggestion(line.direction, accountSuggestion),
         }).where(and(
           eq(journalEntriesTable.clientId, client.id),
           eq(journalEntriesTable.statementLineId, line.id),
@@ -3128,6 +3177,31 @@ router.get("/ledgerflow/exchange-rates", async (req, res) => {
     currentUserId(req),
   )).orderBy(desc(exchangeRatesTable.effectiveDate), asc(exchangeRatesTable.sourceCurrency), asc(exchangeRatesTable.functionalCurrency));
   res.json(GetExchangeRatesResponse.parse(rates.map(exchangeRateResponse)));
+});
+
+router.get("/ledgerflow/bulk-transition-audits", async (req, res) => {
+  const parsed = GetBulkTransitionAuditsQueryParams.parse(req.query);
+  const client = await requireOwnedClient(req, res, parsed.clientId);
+  if (!client) return;
+  const audits = await db.select().from(bulkTransitionAuditsTable).where(eq(
+    bulkTransitionAuditsTable.clientId,
+    client.id,
+  )).orderBy(desc(bulkTransitionAuditsTable.confirmedAt));
+  res.json(GetBulkTransitionAuditsResponse.parse(audits.map((audit) => ({
+    id: audit.id,
+    clientId: audit.clientId,
+    actor: {
+      id: audit.actorUserId,
+      name: audit.actorName ?? "Team member",
+      email: audit.actorEmail,
+    },
+    transition: audit.transition,
+    fromStatus: audit.fromStatus,
+    toStatus: audit.toStatus,
+    entryIds: audit.entryIds,
+    statementLineIds: audit.statementLineIds,
+    confirmedAt: audit.confirmedAt,
+  }))));
 });
 
 router.post("/ledgerflow/exchange-rates", async (req, res) => {

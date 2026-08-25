@@ -69,7 +69,7 @@ type AccountMeta = {
   kind: AccountKind;
   displayName: string;
   currentNonCurrent: "current" | "non_current" | "not_applicable";
-  cashFlowCategory: "operating" | "investing" | "financing";
+  cashFlowCategory: "operating" | "investing" | "financing" | "non_cash";
   noteNumber: number;
   relatedParty: boolean;
   tax: boolean;
@@ -120,6 +120,7 @@ export function eligibleReportProfiles(periodEnd: string, clientBasis: string) {
 
 const standardAccountMeta = (account: string): AccountMeta => {
   const normalized = account.toLowerCase();
+  if (/inter[\s-]?account transfer/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "non_cash", noteNumber: 3, relatedParty: false, tax: false };
   if (/bank|cash/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 3, relatedParty: false, tax: false };
   if (/receivable|inventory|prepayment|deposit|due from/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 8, relatedParty: /due from/.test(normalized), tax: false };
   if (/property|plant|equipment|intangible|capital asset/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "non_current", cashFlowCategory: "investing", noteNumber: 8, relatedParty: false, tax: false };
@@ -296,12 +297,15 @@ export function buildReportPack(input: {
   const currentEquity = currentExplicitEquity + currentNetIncome + currentOci;
   const comparativeEquity = comparativeExplicitEquity + comparativeNetIncome + comparativeOci;
 
-  const cashBalances = assets.filter((item) => /bank|cash/i.test(item.account));
+  const cashBalances = assets.filter((item) => /bank|cash|inter[\s-]?account transfer/i.test(item.account));
   const cashCurrent = sums(cashBalances, "current");
   const cashComparative = sums(cashBalances, "comparative");
   const openingCash = cashComparative;
   const cashMovement = cashCurrent - openingCash;
   const operatingCash = currentEntries.reduce((total, entry) => {
+    if (/inter[\s-]?account transfer/i.test(entry.debitAccount) || /inter[\s-]?account transfer/i.test(entry.creditAccount)) {
+      return total;
+    }
     const amount = convertedAmount(entry);
     return total + (entry.debitAccount === "Bank / cash" ? amount : entry.creditAccount === "Bank / cash" ? -amount : 0);
   }, 0);

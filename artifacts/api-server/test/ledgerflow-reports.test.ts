@@ -48,6 +48,7 @@ type TrialBalanceRow = {
 type StatementSection = {
   label: string;
   amount: number;
+  children?: StatementSection[];
 };
 
 type FinancialStatements = {
@@ -126,20 +127,26 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(client.response.status, 201);
   clientId = client.body.id;
 
-  const line = await request<{ id: number }>("/ledgerflow/statement-lines", {
+  const line = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {
     method: "POST",
     body: JSON.stringify({
       clientId,
-      date: "2026-08-24",
-      description: "Scoped software subscription",
+      date: "2026-08-25",
+      description: "Internal transfer to savings account",
       currency: "AED",
-      amount: 125,
+      amount: 75,
       direction: "outflow",
     }),
   });
   assert.equal(line.response.status, 201);
+  assert.equal(line.body.accountSuggestion, "Inter-account transfer");
 
-  const entries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
+  const entries = await request<Array<{
+    id: number;
+    statementLineId: number;
+    status: string;
+    lines: Array<{ account: string; debit: number; credit: number }>;
+  }>>(
     `/ledgerflow/journal-entries?clientId=${clientId}`,
   );
   assert.equal(entries.response.status, 200);
@@ -185,6 +192,11 @@ test("posting a journal entry updates client-scoped reports", async () => {
     method: "POST",
     body: JSON.stringify({ clientId }),
   });
+
+  const [trialBalance, after] = await Promise.all([
+    request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${clientId}`),
+    request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`),
+  ]);
   assert.equal(posting.response.status, 200);
   assert.equal(posting.body.status, "posted");
 
@@ -209,6 +221,8 @@ test("posting a journal entry updates client-scoped reports", async () => {
   const postedExpenses = sectionAmount(postedStatements.body.incomeStatement, "Operating expenses");
   const postedNetIncome = sectionAmount(postedStatements.body.incomeStatement, "Net income");
   const postedCashFlow = sectionAmount(postedStatements.body.cashFlow, "Net cash from operating activities");
+
+  const before = await request<FinancialStatements>(`/ledgerflow/financial-statements?clientId=${clientId}`);
   assert.equal(postedExpenses - beforeExpenses, -amount);
   assert.equal(postedNetIncome - beforeNetIncome, -amount);
   assert.equal(postedCashFlow - beforeCashFlow, -amount);
@@ -245,6 +259,9 @@ test("posting a journal entry updates client-scoped reports", async () => {
   const transferAccount = afterTransferTrialBalance.body.find((row) => row.account === "Inter-account transfer");
   assert.ok(transferAccount);
   assert.equal(transferAccount.category, "Assets");
+  const assets = afterTransferStatements.body.balanceSheet.find((section) => section.label === "Assets");
+  assert.equal(assets?.children?.find((section) => section.label === "Bank / cash")?.amount, -200);
+  assert.equal(assets?.children?.find((section) => section.label === "Inter-account transfer")?.amount, 75);
   assert.equal(
     sectionAmount(afterTransferStatements.body.incomeStatement, "Net income"),
     postedNetIncome,
