@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, desc, eq, gt, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import * as XLSX from "xlsx";
 import {
@@ -26,6 +26,7 @@ import {
   GetBulkTransitionAuditsQueryParams,
   GetBulkTransitionAuditsResponse,
   GetExchangeRatesResponse,
+  GetFirmProfileResponse,
   ImportExchangeRatesBody,
   ImportExchangeRatesResponse,
   ParseExchangeRatesBody,
@@ -38,6 +39,8 @@ import {
   UpdateExchangeRateBody,
   UpdateExchangeRateParams,
   UpdateExchangeRateResponse,
+  UpdateFirmProfileBody,
+  UpdateFirmProfileResponse,
   CreateStatementLineBody,
   CreateStatementLineResponse,
   GetFinancialStatementsQueryParams,
@@ -87,6 +90,7 @@ import {
   clientsTable,
   db,
   exchangeRatesTable,
+  firmProfilesTable,
   journalEntriesTable,
   reportPacksTable,
   statementImportsTable,
@@ -487,7 +491,7 @@ type RateResolution = {
   exchangeRateStatus: "not_required" | "exact" | "prior" | "missing";
 };
 
-async function resolveExchangeRate(userId: string, sourceCurrency: string, functionalCurrency: string, transactionDate: string, amount: string | number): Promise<RateResolution> {
+async function resolveExchangeRate(firmId: number, sourceCurrency: string, functionalCurrency: string, transactionDate: string, amount: string | number): Promise<RateResolution> {
   const source = normalizeCurrency(sourceCurrency);
   const functional = normalizeCurrency(functionalCurrency);
   if (source === functional) {
@@ -500,7 +504,7 @@ async function resolveExchangeRate(userId: string, sourceCurrency: string, funct
     };
   }
   const [rate] = await db.select().from(exchangeRatesTable).where(and(
-    eq(exchangeRatesTable.userId, userId),
+    eq(exchangeRatesTable.firmId, firmId),
     eq(exchangeRatesTable.sourceCurrency, source),
     eq(exchangeRatesTable.functionalCurrency, functional),
     lte(exchangeRatesTable.effectiveDate, transactionDate),
@@ -523,19 +527,16 @@ async function resolveExchangeRate(userId: string, sourceCurrency: string, funct
   };
 }
 
-async function refreshWorkspaceRateConversions(userId: string) {
+async function refreshFirmRateConversions(firmId: number) {
   const lines = await db.select({
     line: statementLinesTable,
     functionalCurrency: clientsTable.functionalCurrency,
   }).from(statementLinesTable)
-    .innerJoin(clientWorkspacesTable, and(
-      eq(clientWorkspacesTable.clientId, statementLinesTable.clientId),
-      eq(clientWorkspacesTable.userId, userId),
-    ))
-    .innerJoin(clientsTable, eq(clientsTable.id, statementLinesTable.clientId));
+    .innerJoin(clientsTable, eq(clientsTable.id, statementLinesTable.clientId))
+    .where(eq(clientsTable.firmId, firmId));
 
   await Promise.all(lines.map(async ({ line, functionalCurrency }) => {
-    const conversion = await resolveExchangeRate(userId, line.currency, functionalCurrency, calendarDate(line.date) ?? "", line.amount);
+    const conversion = await resolveExchangeRate(firmId, line.currency, functionalCurrency, calendarDate(line.date) ?? "", line.amount);
     const values = {
       functionalCurrency: conversion.functionalCurrency,
       functionalAmount: conversion.functionalAmount,
@@ -819,6 +820,47 @@ function clientSummary(client: typeof clientsTable.$inferSelect) {
   return { id: client.id, name: client.name };
 }
 
+function firmProfileResponse(firm: typeof firmProfilesTable.$inferSelect) {
+  return { id: firm.id, name: firm.name, legalName: firm.legalName };
+}
+
+async function getOrCreateFirmProfile(userId: string) {
+  const memberships = await db.select({
+    clientId: clientsTable.id,
+    firmId: clientsTable.firmId,
+    name: clientsTable.name,
+    legalName: clientsTable.legalName,
+  }).from(clientWorkspacesTable)
+    .innerJoin(clientsTable, eq(clientsTable.id, clientWorkspacesTable.clientId))
+    .where(eq(clientWorkspacesTable.userId, userId))
+    .orderBy(asc(clientWorkspacesTable.createdAt));
+  const existingFirmId = memberships.find((client) => client.firmId != null)?.firmId;
+  if (existingFirmId != null) {
+    const [firm] = await db.select().from(firmProfilesTable).where(eq(firmProfilesTable.id, existingFirmId)).limit(1);
+    if (firm) return firm;
+  }
+  let [firm] = await db.select().from(firmProfilesTable)
+    .where(eq(firmProfilesTable.ownerUserId, userId))
+    .limit(1);
+  if (!firm) {
+    const seed = memberships[0];
+    [firm] = await db.insert(firmProfilesTable).values({
+      ownerUserId: userId,
+      name: seed?.name ?? "Your bookkeeping firm",
+      legalName: seed?.legalName ?? "Legal entity to be configured",
+    }).returning();
+  }
+  const unassignedClientIds = memberships.filter((client) => client.firmId == null).map((client) => client.clientId);
+  if (unassignedClientIds.length) {
+    await db.update(clientsTable).set({ firmId: firm.id }).where(inArray(clientsTable.id, unassignedClientIds));
+  }
+  await db.update(exchangeRatesTable).set({ firmId: firm.id }).where(and(
+    eq(exchangeRatesTable.userId, userId),
+    isNull(exchangeRatesTable.firmId),
+  ));
+  return firm;
+}
+
 function displayName(user: Pick<typeof usersTable.$inferSelect, "email" | "firstName" | "lastName">) {
   return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "Team member";
 }
@@ -1037,7 +1079,18 @@ export async function ensureUserWorkspace(userId: string) {
     const workspaceName = accountName === "New"
       ? "New LedgerFlow private workspace"
       : `${accountName}'s private workspace`;
+    let [firm] = await tx.select().from(firmProfilesTable)
+      .where(eq(firmProfilesTable.ownerUserId, userId))
+      .limit(1);
+    if (!firm) {
+      [firm] = await tx.insert(firmProfilesTable).values({
+        ownerUserId: userId,
+        name: workspaceName,
+        legalName: "Legal entity to be configured",
+      }).returning();
+    }
     const [client] = await tx.insert(clientsTable).values({
+      firmId: firm.id,
       name: workspaceName,
       legalName: "Legal entity to be configured",
       functionalCurrency: "AED",
@@ -2191,13 +2244,17 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       return res.status(400).json({ error: "Selected bank account was not found for this client." });
     }
     failedBankAccountId = selectedBankAccount?.id ?? null;
+    const firm = client.firmId == null
+      ? await getOrCreateFirmProfile(currentUserId(req))
+      : (await db.select().from(firmProfilesTable).where(eq(firmProfilesTable.id, client.firmId)).limit(1))[0]
+        ?? await getOrCreateFirmProfile(currentUserId(req));
     const resolvedLines = await Promise.all(lines.map(async (line) => {
       const currencyValue = normalizeCurrency(line.currency || currency);
       return {
         line,
         currencyValue,
         conversion: await resolveExchangeRate(
-          currentUserId(req),
+          firm.id,
           currencyValue,
           normalizeCurrency(client.functionalCurrency),
           line.date,
@@ -2993,6 +3050,7 @@ router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
 });
 
 router.get("/clients", async (req, res) => {
+  await getOrCreateFirmProfile(currentUserId(req));
   const clientIds = await getUserClientIds(currentUserId(req));
   const clients = clientIds.length
     ? await db.select().from(clientsTable).where(inArray(clientsTable.id, clientIds)).orderBy(asc(clientsTable.name))
@@ -3039,6 +3097,26 @@ router.patch("/ledgerflow/account-profile", async (req, res): Promise<void> => {
   }));
 });
 
+router.get("/workspace/firm-profile", async (req, res) => {
+  const firm = await getOrCreateFirmProfile(currentUserId(req));
+  res.json(GetFirmProfileResponse.parse(firmProfileResponse(firm)));
+});
+
+router.patch("/workspace/firm-profile", async (req, res) => {
+  const admin = await requireWorkspaceAdmin(req, res);
+  if (!admin) return;
+  const parsed = UpdateFirmProfileBody.safeParse(req.body);
+  if (!parsed.success || !parsed.data.name.trim() || !parsed.data.legalName.trim()) {
+    return res.status(400).json({ error: "Enter the firm's name and legal name." });
+  }
+  const firm = await getOrCreateFirmProfile(currentUserId(req));
+  const [saved] = await db.update(firmProfilesTable).set({
+    name: parsed.data.name.trim(),
+    legalName: parsed.data.legalName.trim(),
+  }).where(eq(firmProfilesTable.id, firm.id)).returning();
+  return res.json(UpdateFirmProfileResponse.parse(firmProfileResponse(saved)));
+});
+
 router.post("/clients", async (req, res) => {
   const admin = await requireWorkspaceAdmin(req, res);
   if (!admin) return;
@@ -3051,9 +3129,11 @@ router.post("/clients", async (req, res) => {
   };
   if (!body.name || !body.legalName) return res.status(400).json({ error: "Client name and legal name are required" });
   const { name, legalName } = body;
+  const firm = await getOrCreateFirmProfile(currentUserId(req));
   const client = await db.transaction(async (tx) => {
     const [created] = await tx.insert(clientsTable)
       .values({
+        firmId: firm.id,
         name,
         legalName,
         functionalCurrency: body.functionalCurrency || "AED",
@@ -3385,9 +3465,10 @@ router.post("/workspace/invitations/:token/accept", async (req, res) => {
 });
 
 router.get("/ledgerflow/exchange-rates", async (req, res) => {
+  const firm = await getOrCreateFirmProfile(currentUserId(req));
   const rates = await db.select().from(exchangeRatesTable).where(eq(
-    exchangeRatesTable.userId,
-    currentUserId(req),
+    exchangeRatesTable.firmId,
+    firm.id,
   )).orderBy(desc(exchangeRatesTable.effectiveDate), asc(exchangeRatesTable.sourceCurrency), asc(exchangeRatesTable.functionalCurrency));
   res.json(GetExchangeRatesResponse.parse(rates.map(exchangeRateResponse)));
 });
@@ -3429,8 +3510,9 @@ router.post("/ledgerflow/exchange-rates", async (req, res) => {
     return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid exchange rate." });
   }
   try {
-    const [rate] = await db.insert(exchangeRatesTable).values({ ...body, userId: currentUserId(req) }).returning();
-    await refreshWorkspaceRateConversions(currentUserId(req));
+    const firm = await getOrCreateFirmProfile(currentUserId(req));
+    const [rate] = await db.insert(exchangeRatesTable).values({ ...body, userId: currentUserId(req), firmId: firm.id }).returning();
+    await refreshFirmRateConversions(firm.id);
     return res.status(201).json(CreateExchangeRateResponse.parse(exchangeRateResponse(rate)));
   } catch (error) {
     if ((error as { code?: string }).code === "23505") {
@@ -3453,12 +3535,13 @@ router.patch("/ledgerflow/exchange-rates/:id", async (req, res) => {
     return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid exchange rate." });
   }
   try {
+    const firm = await getOrCreateFirmProfile(currentUserId(req));
     const [rate] = await db.update(exchangeRatesTable).set(body).where(and(
       eq(exchangeRatesTable.id, params.data.id),
-      eq(exchangeRatesTable.userId, currentUserId(req)),
+      eq(exchangeRatesTable.firmId, firm.id),
     )).returning();
     if (!rate) return res.status(404).json({ error: "Exchange rate not found in this workspace." });
-    await refreshWorkspaceRateConversions(currentUserId(req));
+    await refreshFirmRateConversions(firm.id);
     return res.json(UpdateExchangeRateResponse.parse(exchangeRateResponse(rate)));
   } catch (error) {
     if ((error as { code?: string }).code === "23505") {
@@ -3473,12 +3556,13 @@ router.delete("/ledgerflow/exchange-rates/:id", async (req, res) => {
   if (!admin) return;
   const params = DeleteExchangeRateParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: "Invalid exchange rate." });
+  const firm = await getOrCreateFirmProfile(currentUserId(req));
   const [deleted] = await db.delete(exchangeRatesTable).where(and(
     eq(exchangeRatesTable.id, params.data.id),
-    eq(exchangeRatesTable.userId, currentUserId(req)),
+    eq(exchangeRatesTable.firmId, firm.id),
   )).returning({ id: exchangeRatesTable.id });
   if (!deleted) return res.status(404).json({ error: "Exchange rate not found in this workspace." });
-  await refreshWorkspaceRateConversions(currentUserId(req));
+  await refreshFirmRateConversions(firm.id);
   return res.status(204).send();
 });
 
@@ -3500,6 +3584,7 @@ router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
     uniqueKeys.add(key);
     return false;
   })) return res.status(400).json({ error: "Each imported currency pair and effective date must appear once." });
+  const firm = await getOrCreateFirmProfile(currentUserId(req));
 
   const result = await db.transaction(async (tx) => {
     const returned: Array<typeof exchangeRatesTable.$inferSelect> = [];
@@ -3507,7 +3592,7 @@ router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
     let updatedCount = 0;
     for (const rate of rates) {
       const [existing] = await tx.select().from(exchangeRatesTable).where(and(
-        eq(exchangeRatesTable.userId, currentUserId(req)),
+        eq(exchangeRatesTable.firmId, firm.id),
         eq(exchangeRatesTable.sourceCurrency, rate.sourceCurrency),
         eq(exchangeRatesTable.functionalCurrency, rate.functionalCurrency),
         eq(exchangeRatesTable.effectiveDate, rate.effectiveDate),
@@ -3517,14 +3602,14 @@ router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
         returned.push(updated);
         updatedCount += 1;
       } else {
-        const [created] = await tx.insert(exchangeRatesTable).values({ ...rate, userId: currentUserId(req) }).returning();
+        const [created] = await tx.insert(exchangeRatesTable).values({ ...rate, userId: currentUserId(req), firmId: firm.id }).returning();
         returned.push(created);
         importedCount += 1;
       }
     }
     return { importedCount, updatedCount, rates: returned };
   });
-  await refreshWorkspaceRateConversions(currentUserId(req));
+  await refreshFirmRateConversions(firm.id);
   return res.json(ImportExchangeRatesResponse.parse({
     ...result,
     rates: result.rates.map(exchangeRateResponse),
@@ -3706,8 +3791,12 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
   }
   const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
   const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, body.description);
+  const firm = client.firmId == null
+    ? await getOrCreateFirmProfile(currentUserId(req))
+    : (await db.select().from(firmProfilesTable).where(eq(firmProfilesTable.id, client.firmId)).limit(1))[0]
+      ?? await getOrCreateFirmProfile(currentUserId(req));
   const conversion = await resolveExchangeRate(
-    currentUserId(req),
+    firm.id,
     body.currency,
     normalizeCurrency(client.functionalCurrency),
     body.date,

@@ -42,6 +42,35 @@ export const UpdateLedgerflowAccountProfileResponse = zod.object({
 
 
 /**
+ * @summary Get the bookkeeping firm's shared profile
+ */
+export const GetFirmProfileResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string()
+})
+
+
+/**
+ * @summary Update the bookkeeping firm's shared identity
+ */
+
+
+
+
+export const UpdateFirmProfileBody = zod.object({
+  "name": zod.string().min(1),
+  "legalName": zod.string().min(1)
+})
+
+export const UpdateFirmProfileResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string()
+})
+
+
+/**
  * @summary Start the browser OIDC login flow
  */
 export const BeginBrowserLoginQueryParams = zod.object({

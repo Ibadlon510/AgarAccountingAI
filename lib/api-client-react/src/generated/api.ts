@@ -46,6 +46,8 @@ import type {
   ExchangeRateParseResult,
   ExchangeRateUpdate,
   FinancialStatements,
+  FirmProfile,
+  FirmProfileInput,
   GetBankAccountsParams,
   GetBulkTransitionAuditsParams,
   GetFinancialStatementsParams,
@@ -256,6 +258,154 @@ export const useUpdateLedgerflowAccountProfile = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateLedgerflowAccountProfileMutationOptions(options));
+    }
+
+export const getGetFirmProfileUrl = () => {
+
+
+
+
+  return `/api/workspace/firm-profile`
+}
+
+/**
+ * @summary Get the bookkeeping firm's shared profile
+ */
+export const getFirmProfile = async ( options?: Parameters<typeof customFetch>[1]): Promise<FirmProfile> => {
+
+  return customFetch<FirmProfile>(getGetFirmProfileUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirmProfileQueryKey = () => {
+    return [
+    `/api/workspace/firm-profile`
+    ] as const;
+    }
+
+
+export const getGetFirmProfileQueryOptions = <TData = Awaited<ReturnType<typeof getFirmProfile>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirmProfileQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirmProfile>>> = ({ signal }) => getFirmProfile({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirmProfile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirmProfileQueryResult = NonNullable<Awaited<ReturnType<typeof getFirmProfile>>>
+export type GetFirmProfileQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the bookkeeping firm's shared profile
+ */
+
+export function useGetFirmProfile<TData = Awaited<ReturnType<typeof getFirmProfile>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirmProfileQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateFirmProfileUrl = () => {
+
+
+
+
+  return `/api/workspace/firm-profile`
+}
+
+/**
+ * @summary Update the bookkeeping firm's shared identity
+ */
+export const updateFirmProfile = async (firmProfileInput: FirmProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<FirmProfile> => {
+
+  return customFetch<FirmProfile>(getUpdateFirmProfileUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(firmProfileInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateFirmProfileMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFirmProfile>>, TError,{data: BodyType<FirmProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateFirmProfile>>, TError,{data: BodyType<FirmProfileInput>}, TContext> => {
+
+const mutationKey = ['updateFirmProfile'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateFirmProfile>>, {data: BodyType<FirmProfileInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateFirmProfile(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateFirmProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateFirmProfile>>>
+    export type UpdateFirmProfileMutationBody = BodyType<FirmProfileInput>
+    export type UpdateFirmProfileMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update the bookkeeping firm's shared identity
+ */
+export const useUpdateFirmProfile = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFirmProfile>>, TError,{data: BodyType<FirmProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateFirmProfile>>,
+        TError,
+        {data: BodyType<FirmProfileInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateFirmProfileMutationOptions(options));
     }
 
 export const getBeginBrowserLoginUrl = (params?: BeginBrowserLoginParams,) => {

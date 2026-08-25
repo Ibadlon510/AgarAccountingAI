@@ -47,6 +47,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AccountProfile"
+  /workspace/firm-profile:
+    get:
+      operationId: getFirmProfile
+      tags: [ledgerflow]
+      summary: Get the bookkeeping firm's shared profile
+      responses:
+        "200":
+          description: Firm profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmProfile"
+    patch:
+      operationId: updateFirmProfile
+      tags: [ledgerflow]
+      summary: Update the bookkeeping firm's shared identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FirmProfileInput"
+      responses:
+        "200":
+          description: Firm profile saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmProfile"
   /login:
     get:
       operationId: beginBrowserLogin
@@ -984,6 +1013,19 @@ components:
       properties:
         firstName: { type: string, minLength: 1 }
         lastName: { type: string, minLength: 1 }
+    FirmProfile:
+      type: object
+      required: [id, name, legalName]
+      properties:
+        id: { type: number }
+        name: { type: string }
+        legalName: { type: string }
+    FirmProfileInput:
+      type: object
+      required: [name, legalName]
+      properties:
+        name: { type: string, minLength: 1 }
+        legalName: { type: string, minLength: 1 }
     MobileTokenExchangeRequest:
       type: object
       required: [code, code_verifier, redirect_uri, state]

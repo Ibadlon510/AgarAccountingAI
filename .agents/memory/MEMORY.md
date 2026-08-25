@@ -17,3 +17,4 @@
 - [Onboarding domain separation](onboarding-domain-separation.md) — register the firm first; collect reporting settings for each client when that client is created.
 - [AI import continuity and safety](ai-import-continuity.md) — retain imports across navigation with exact upload identity; only parse bank-provenanced fallback documents.
 - [PDF bank statement extraction](pdf-bank-statement-extraction.md) — recognize bank-provenanced multiline PDF tables deterministically and never let AI replace their complete transaction set.
+- [Firm exchange-rate schedules](firm-exchange-rate-schedules.md) — exchange-rate schedules are firm-owned and shared across that firm’s clients.

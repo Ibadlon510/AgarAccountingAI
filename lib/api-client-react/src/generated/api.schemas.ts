@@ -35,6 +35,19 @@ export interface AccountProfileInput {
   lastName: string;
 }
 
+export interface FirmProfile {
+  id: number;
+  name: string;
+  legalName: string;
+}
+
+export interface FirmProfileInput {
+  /** @minLength 1 */
+  name: string;
+  /** @minLength 1 */
+  legalName: string;
+}
+
 export interface MobileTokenExchangeRequest {
   /** @minLength 1 */
   code: string;

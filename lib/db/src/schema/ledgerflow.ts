@@ -23,15 +23,38 @@ export const sessionsTable = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+export const firmProfilesTable = pgTable("ledgerflow_firm_profiles", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  ownerUserId: varchar("owner_user_id").notNull().unique(),
+  name: text("name").notNull(),
+  legalName: text("legal_name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  foreignKey({
+    columns: [table.ownerUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_profiles_owner_user_fk",
+  }).onDelete("cascade"),
+]);
+
 export const clientsTable = pgTable("ledgerflow_clients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  firmId: integer("firm_id"),
   name: text("name").notNull(),
   legalName: text("legal_name").notNull(),
   functionalCurrency: text("functional_currency").notNull().default("AED"),
   basis: text("basis").notNull().default("IFRS"),
   period: text("period").notNull().default("August 2026"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => [
+  index("ledgerflow_clients_firm_idx").on(table.firmId),
+  foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "ledgerflow_clients_firm_fk",
+  }),
+]);
 
 export const clientWorkspacesTable = pgTable(
   "ledgerflow_client_workspaces",
@@ -92,6 +115,7 @@ export const workspaceInvitationsTable = pgTable(
 export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: varchar("user_id").notNull(),
+  firmId: integer("firm_id"),
   sourceCurrency: varchar("source_currency", { length: 3 }).notNull(),
   functionalCurrency: varchar("functional_currency", { length: 3 }).notNull(),
   effectiveDate: date("effective_date", { mode: "string" }).notNull(),
@@ -105,6 +129,15 @@ export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
     .on(table.userId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
   userLookupIdx: index("ledgerflow_exchange_rates_user_lookup_idx")
     .on(table.userId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  firmCurrencyDateUnique: uniqueIndex("ledgerflow_exchange_rates_firm_pair_date_idx")
+    .on(table.firmId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  firmLookupIdx: index("ledgerflow_exchange_rates_firm_lookup_idx")
+    .on(table.firmId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  firmForeignKey: foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "ledgerflow_exchange_rates_firm_fk",
+  }),
 }));
 export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),

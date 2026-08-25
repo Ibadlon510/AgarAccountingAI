@@ -52,6 +52,8 @@ export * from './exchangeRateParseMapping';
 export * from './exchangeRateParseResult';
 export * from './exchangeRateUpdate';
 export * from './financialStatements';
+export * from './firmProfile';
+export * from './firmProfileInput';
 export * from './getBankAccountsParams';
 export * from './getBulkTransitionAuditsParams';
 export * from './getFinancialStatementsParams';

@@ -23,6 +23,8 @@ const userIds = [
   `usage-owner-${randomUUID()}`,
   `usage-foreign-${randomUUID()}`,
   `profile-owner-${randomUUID()}`,
+  `firm-schedule-owner-${randomUUID()}`,
+  `firm-schedule-foreign-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -244,6 +246,44 @@ test("provisions isolated starter workspaces and configures only the owner's wor
     .where(eq(database.clientWorkspacesTable.clientId, second.body[0].id));
   assert.equal(firstWorkspace.userId, userIds[0]);
   assert.equal(secondWorkspace.userId, userIds[1]);
+});
+
+test("keeps one exchange-rate schedule with its firm while clients remain separate", async () => {
+  const ownerId = userIds[14]!;
+  const foreignId = userIds[15]!;
+  const starter = await request<Array<{ id: number }>>("/clients", ownerId);
+  assert.equal(starter.response.status, 200);
+  clientIds.push(starter.body[0]!.id);
+
+  const secondClient = await request<{ id: number }>("/clients", ownerId, {
+    method: "POST",
+    body: JSON.stringify({ name: "Second firm client", legalName: "Second firm client LLC", functionalCurrency: "AED", basis: "IFRS", period: "December 2026" }),
+  });
+  assert.equal(secondClient.response.status, 201);
+  clientIds.push(secondClient.body.id);
+
+  const profile = await request<{ id: number; name: string }>("/workspace/firm-profile", ownerId);
+  assert.equal(profile.response.status, 200);
+  const savedProfile = await request<{ name: string }>("/workspace/firm-profile", ownerId, {
+    method: "PATCH",
+    body: JSON.stringify({ name: "Shared books firm", legalName: "Shared Books Firm LLC" }),
+  });
+  assert.equal(savedProfile.response.status, 200);
+  assert.equal(savedProfile.body.name, "Shared books firm");
+
+  const createdRate = await request<{ id: number }>("/ledgerflow/exchange-rates", ownerId, {
+    method: "POST",
+    body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 3.6725, source: "Manual" }),
+  });
+  assert.equal(createdRate.response.status, 201);
+  const firmRates = await request<Array<{ id: number }>>("/ledgerflow/exchange-rates", ownerId);
+  assert.deepEqual(firmRates.body.map((rate) => rate.id), [createdRate.body.id]);
+
+  const foreignStarter = await request<Array<{ id: number }>>("/clients", foreignId);
+  clientIds.push(foreignStarter.body[0]!.id);
+  const foreignRates = await request<unknown[]>("/ledgerflow/exchange-rates", foreignId);
+  assert.equal(foreignRates.response.status, 200);
+  assert.deepEqual(foreignRates.body, []);
 });
 
 test("persists onboarding identity before configuring the owner's starter workspace", async () => {
