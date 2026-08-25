@@ -66,9 +66,9 @@ const monthInputToPeriod = (value: string) => {
 const csvHeaderKey = (value: string) => value.replace(/^\uFEFF/, '').trim().toLowerCase().replaceAll(/[^a-z]/g, '');
 function readCsvRecords(content: string) {
   const normalized = content.replace(/^\uFEFF/, '');
-  const firstLine = normalized.split(/\r?\n/, 1)[0] ?? '';
+  const delimiterSample = normalized.split(/\r?\n/).slice(0, 12).join('\n');
   const delimiter = [',', ';', '\t'].reduce((best, candidate) => {
-    const count = [...firstLine].filter((character) => character === candidate).length;
+    const count = [...delimiterSample].filter((character) => character === candidate).length;
     return count > best.count ? { value: candidate, count } : best;
   }, { value: ',', count: -1 }).value;
   const rows: string[][] = [];

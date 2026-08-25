@@ -219,6 +219,125 @@ function calendarDate(value: string | Date | null | undefined) {
   return value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
 }
 
+function exchangeRateCsvKey(value: string) {
+  return value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function exchangeRateCsvRows(content: string) {
+  const text = content.replace(/^\uFEFF/, "");
+  const delimiterSample = text.split(/\r?\n/).slice(0, 12).join("\n");
+  const delimiter = [",", ";", "\t"].reduce((best, candidate) => {
+    const count = [...delimiterSample].filter((character) => character === candidate).length;
+    return count > best.count ? { value: candidate, count } : best;
+  }, { value: ",", count: -1 }).value;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    const next = text[index + 1];
+    if (character === "\"") {
+      if (quoted && next === "\"") {
+        cell += "\"";
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && character === delimiter) {
+      row.push(cell.trim());
+      cell = "";
+    } else if (!quoted && (character === "\n" || character === "\r")) {
+      if (character === "\r" && next === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function exchangeRateCsvDate(value: string) {
+  const trimmed = value.trim();
+  if (isIsoDate(trimmed.slice(0, 10))) return trimmed.slice(0, 10);
+  const numeric = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (numeric) {
+    const first = Number(numeric[1]);
+    const second = Number(numeric[2]);
+    const year = Number(numeric[3]);
+    const month = first > 12 ? second : second > 12 ? first : null;
+    const day = first > 12 ? first : second > 12 ? second : null;
+    if (month !== null && day !== null) {
+      const candidate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      return isIsoDate(candidate) ? candidate : null;
+    }
+    return null;
+  }
+  const timestamp = Date.parse(trimmed);
+  if (Number.isNaN(timestamp)) return null;
+  const candidate = new Date(timestamp).toISOString().slice(0, 10);
+  return isIsoDate(candidate) ? candidate : null;
+}
+
+function exchangeRateCsvNumber(value: string) {
+  const trimmed = value.trim().replace(/\s/g, "").replace(/[^\d.,+()-]/g, "");
+  if (!trimmed) return NaN;
+  const normalized = trimmed.includes(".")
+    ? trimmed.replaceAll(",", "")
+    : (trimmed.match(/,/g) ?? []).length === 1
+      ? trimmed.replace(",", ".")
+      : trimmed.replaceAll(",", "");
+  return Number(normalized.replace(/^\((.*)\)$/, "-$1"));
+}
+
+function ratesFromExchangeRateMapping(
+  content: string,
+  mapping: {
+    effectiveDate: string | null;
+    sourceCurrency: string | null;
+    functionalCurrency: string | null;
+    rate: string | null;
+    source: string | null;
+    note: string | null;
+  },
+  defaultFunctionalCurrency: string,
+) {
+  if (!mapping.effectiveDate || !mapping.sourceCurrency || !mapping.rate) return [];
+  const rows = exchangeRateCsvRows(content);
+  const mappedHeaders = new Map(Object.entries(mapping)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+    .map(([key, value]) => [key, exchangeRateCsvKey(value)]));
+  const headerIndex = rows.findIndex((row) => {
+    const headers = row.map(exchangeRateCsvKey);
+    return [mappedHeaders.get("effectiveDate"), mappedHeaders.get("sourceCurrency"), mappedHeaders.get("rate")]
+      .every((header) => header && headers.includes(header));
+  });
+  if (headerIndex < 0) return [];
+  const headers = rows[headerIndex].map(exchangeRateCsvKey);
+  const valueAt = (cells: string[], field: string) => {
+    const mappedHeader = mappedHeaders.get(field);
+    const index = mappedHeader ? headers.indexOf(mappedHeader) : -1;
+    return index < 0 ? "" : (cells[index] ?? "").trim();
+  };
+  return rows.slice(headerIndex + 1).map((cells) => {
+    const sourceCurrency = normalizeCurrency(valueAt(cells, "sourceCurrency"));
+    const functionalCurrency = normalizeCurrency(valueAt(cells, "functionalCurrency") || defaultFunctionalCurrency);
+    return {
+      effectiveDate: exchangeRateCsvDate(valueAt(cells, "effectiveDate")) ?? "",
+      sourceCurrency,
+      functionalCurrency,
+      rate: exchangeRateCsvNumber(valueAt(cells, "rate")),
+      source: valueAt(cells, "source") || "AI-assisted CSV",
+      note: valueAt(cells, "note") || null,
+    };
+  }).filter((rate) => rate.effectiveDate && rate.sourceCurrency && rate.functionalCurrency && Number.isFinite(rate.rate) && rate.rate > 0);
+}
+
 function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
@@ -3365,14 +3484,24 @@ router.post("/ledgerflow/exchange-rates/parse", async (req, res) => {
 
     const warnings = [...preview.data.warnings];
     const rates: Array<ReturnType<typeof normalizeRateInput>> = [];
-    for (const rate of preview.data.rates) {
+    const mappedRates = ratesFromExchangeRateMapping(parsed.data.content, preview.data.mapping, client.functionalCurrency);
+    if (mappedRates.length) {
+      warnings.push("Rows were re-read from the detected CSV columns and normalized on the server before review.");
+    }
+    const uniqueKeys = new Set<string>();
+    for (const rate of [...preview.data.rates, ...mappedRates]) {
       try {
-        rates.push(normalizeRateInput({
+        const normalized = normalizeRateInput({
           ...rate,
           effectiveDate: calendarDate(rate.effectiveDate) ?? "",
           source: rate.source ?? "AI-assisted CSV",
           note: rate.note ?? null,
-        }));
+        });
+        const key = `${normalized.sourceCurrency}|${normalized.functionalCurrency}|${normalized.effectiveDate}`;
+        if (!uniqueKeys.has(key)) {
+          rates.push(normalized);
+          uniqueKeys.add(key);
+        }
       } catch (error) {
         warnings.push(error instanceof Error ? error.message : "A detected rate could not be validated.");
       }
