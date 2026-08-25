@@ -560,6 +560,14 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
   const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion && classificationAccounts.includes(line.accountSuggestion) ? line.accountSuggestion : 'General expenses');
   const debitLine = entry?.lines.find((item) => item.debit > 0);
   const creditLine = entry?.lines.find((item) => item.credit > 0);
+  const sourceAmount = debitLine?.debit ?? creditLine?.credit ?? line.amount;
+  const functionalCurrency = entry?.functionalCurrency ?? line.functionalCurrency;
+  const functionalAmount = entry?.functionalAmount ?? line.functionalAmount;
+  const exchangeRate = entry?.exchangeRate ?? line.exchangeRate;
+  const exchangeRateEffectiveDate = entry?.exchangeRateEffectiveDate ?? line.exchangeRateEffectiveDate;
+  const exchangeRateStatus = entry?.exchangeRateStatus ?? line.exchangeRateStatus;
+  const baseCurrency = functionalCurrency ?? entry?.currency ?? line.currency;
+  const isForeignCurrency = Boolean(entry && functionalCurrency && entry.currency !== functionalCurrency);
 
   const toggleFromRow = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -595,9 +603,22 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, journalLoa
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Debit account</div><div data-testid={`journal-debit-${line.id}`} className="mt-1 text-xs font-semibold">{debitLine?.account ?? '—'}</div></div>
           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Credit account</div><div data-testid={`journal-credit-${line.id}`} className="mt-1 text-xs font-semibold">{creditLine?.account ?? '—'}</div></div>
-          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Amount</div><div data-testid={`journal-amount-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{money(debitLine?.debit ?? creditLine?.credit ?? 0, entry.currency)}</div></div>
+           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Amount</div><div data-testid={`journal-amount-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{money(sourceAmount, entry.currency)}</div></div>
           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Confidence</div><div data-testid={`journal-confidence-${line.id}`} className="mt-1 text-xs font-semibold">{Math.round(entry.confidence * 100)}%</div></div>
         </div>
+         {isForeignCurrency && <div data-testid={`currency-conversion-${line.id}`} className={`mt-4 rounded-md border p-4 ${exchangeRateStatus === 'missing' || functionalAmount == null ? 'border-destructive/20 bg-destructive/5' : 'border-primary/20 bg-primary/5'}`}>
+           <div className="flex flex-wrap items-start justify-between gap-2">
+             <div><div className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">Currency conversion</div><p className="mt-1 text-[11px] text-muted-foreground">Recorded in foreign currency, converted for reporting in the client base currency.</p></div>
+             <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${exchangeRateStatus === 'exact' ? 'bg-primary/10 text-primary' : exchangeRateStatus === 'prior' ? 'bg-accent/15 text-accent-foreground' : 'bg-destructive/10 text-destructive'}`}>{exchangeRateStatus === 'exact' ? 'Exact-date rate' : exchangeRateStatus === 'prior' ? 'Prior rate' : 'Rate missing'}</span>
+           </div>
+           <div className="mt-3 grid gap-3 md:grid-cols-3">
+             <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Foreign currency (FCY)</div><div data-testid={`conversion-source-${line.id}`} className="mt-1 font-mono text-sm font-semibold">{money(sourceAmount, entry.currency)}</div></div>
+             <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Exchange rate</div><div data-testid={`conversion-rate-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{exchangeRate == null ? 'Unavailable' : `1 ${entry.currency} = ${exchangeRate.toFixed(6)} ${functionalCurrency}`}</div><div className="mt-1 text-[10px] text-muted-foreground">{exchangeRateEffectiveDate ? `Effective ${shortDate(exchangeRateEffectiveDate)}` : 'Add a rate on or before the transaction date'}</div></div>
+             <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Base currency (BCY)</div><div data-testid={`conversion-base-${line.id}`} className="mt-1 font-mono text-sm font-semibold">{functionalAmount == null ? 'Unconverted' : money(functionalAmount, baseCurrency)}</div></div>
+           </div>
+           {exchangeRateStatus === 'prior' && exchangeRateEffectiveDate && <p className="mt-3 text-[10px] text-accent-foreground">No rate was recorded on the transaction date, so the latest rate available before {shortDate(entry.date)} was used.</p>}
+           {exchangeRateStatus === 'missing' && <p className="mt-3 text-[10px] text-destructive">This transaction is not included in base-currency reporting until a dated exchange rate is added.</p>}
+         </div>}
         {canConfirmClassification && <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <label className="block text-[11px] font-semibold">Classification decision
