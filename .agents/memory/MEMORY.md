@@ -12,3 +12,4 @@
 - [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.
 - [Legacy demo workspace remediation](legacy-demo-workspace-remediation.md) — only a full untouched historical signature may be rerouted; record successful remediation instead of inferring it later.
 - [Usage retention accounting](usage-retention-accounting.md) — report only persisted, unexpired evidence and successful provider-backed AI completions.
+- [Onboarding domain separation](onboarding-domain-separation.md) — register the firm first; collect reporting settings for each client when that client is created.
