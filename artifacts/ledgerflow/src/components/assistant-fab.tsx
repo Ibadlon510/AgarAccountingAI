@@ -425,7 +425,7 @@ export function AssistantFAB() {
         updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
           ...message,
           type: 'import-progress',
-          content: 'Connection interrupted. LedgerFlow will keep checking this client’s import trail.'
+          content: 'Connection interrupted. AgarAccounting AI will keep checking this client’s import trail.'
         } : message));
       }
     }
@@ -446,7 +446,7 @@ export function AssistantFAB() {
                 <Sparkles size={16} />
               </div>
               <div>
-                <h3 className="text-[13px] font-semibold leading-none text-foreground">LedgerFlow AI</h3>
+                <h3 className="text-[13px] font-semibold leading-none text-foreground">AgarAccounting AI</h3>
                   <p className="mt-1 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">
                    {activeClient ? activeClient.name : 'Select a workspace'}
                  </p>

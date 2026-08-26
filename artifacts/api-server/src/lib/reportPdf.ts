@@ -44,7 +44,7 @@ function pageContent(lines: string[], page: number, title: string) {
       remaining -= 12;
     }
   }
-  content.push("0 -8 Td", `/F1 7 Tf`, `(LedgerFlow report snapshot · page ${page}) Tj`, "ET");
+  content.push("0 -8 Td", `/F1 7 Tf`, `(AgarAccounting AI System report snapshot · page ${page}) Tj`, "ET");
   return content.join("\n");
 }
 
@@ -80,7 +80,7 @@ export function buildReportPdf(snapshot: ReportSnapshot, signatory: ReportSignat
       `Linked statement lines included: ${snapshot.traceability.postedLineCount}`,
       `Source imports in client workspace: ${snapshot.traceability.sourceImportCount}`,
       "",
-      "Each statement line stores source account, journal-entry, and evidence linkage in LedgerFlow.",
+      "Each statement line stores source account, journal-entry, and evidence linkage in AgarAccounting AI System.",
       "",
       `Prepared by: ${signatory.preparedBy || "Pending"}`,
       `Reviewed by: ${signatory.reviewedBy || "Pending"}`,

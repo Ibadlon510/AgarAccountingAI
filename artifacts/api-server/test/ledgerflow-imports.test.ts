@@ -1004,7 +1004,9 @@ test("resends a pending invitation with its approved scope and invalidates the e
     }),
   });
   assert.equal(created.response.status, 201);
-  assert.match(created.body.emailSubject, /invited to ledgerflow/i);
+  assert.match(created.body.emailSubject, /invited to agaraccounting ai system/i);
+  assert.match(created.body.emailBody, /invited you to agaraccounting ai system/i);
+  assert.doesNotMatch(created.body.emailBody, /ledgerflow/i);
   assert.match(created.body.emailBody, /as an admin/i);
   assert.match(created.body.emailBody, new RegExp(client.body.name));
   assert.match(created.body.emailBody, /expires on/i);

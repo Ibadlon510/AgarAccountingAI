@@ -33,7 +33,7 @@ paths:
     patch:
       operationId: updateLedgerflowAccountProfile
       tags: [ledgerflow]
-      summary: Save the authenticated account owner's LedgerFlow profile
+      summary: Save the authenticated account owner's AgarAccounting AI System profile
       requestBody:
         required: true
         content:

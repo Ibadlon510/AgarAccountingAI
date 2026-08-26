@@ -9,6 +9,7 @@ import {
   eligibleReportProfiles,
   type ReportSnapshot,
 } from "../src/lib/reportPack";
+import { buildReportPdf } from "../src/lib/reportPdf";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -173,6 +174,20 @@ test("accepts only the report profiles eligible for each basis and annual period
   );
   assert.deepEqual(eligibleReportProfiles("2027-06-30", "IFRS"), []);
   assert.deepEqual(eligibleReportProfiles("2027-12-31", "US GAAP"), []);
+});
+
+test("brands generated report PDFs as AgarAccounting AI System", () => {
+  const { snapshot } = buildProfilePack("IFRS", "IAS 1");
+  const pdf = buildReportPdf(snapshot, {
+    preparedBy: "Report Preparer",
+    reviewedBy: "Report Reviewer",
+    authorizedBy: "Report Authorizer",
+    authorizationDate: "2027-12-31",
+  }).toString("utf8");
+  assert.match(pdf, /AgarAccounting AI System report snapshot/);
+  assert.match(pdf, /evidence linkage in\)/);
+  assert.match(pdf, /\(AgarAccounting AI System\.\)/);
+  assert.doesNotMatch(pdf, /LedgerFlow/);
 });
 
 test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct from IAS 1", () => {

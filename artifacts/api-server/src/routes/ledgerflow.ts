@@ -1170,11 +1170,11 @@ function invitationResponse(
     createdAt: invitation.createdAt,
     ...(inviteLink ? { inviteLink } : {}),
     ...(inviteLink ? {
-      emailSubject: "You’re invited to LedgerFlow",
+      emailSubject: "You’re invited to AgarAccounting AI System",
       emailBody: [
         `Hello,`,
         ``,
-        `${invitedBy} invited you to LedgerFlow as ${roleLabel}.`,
+        `${invitedBy} invited you to AgarAccounting AI System as ${roleLabel}.`,
         ``,
         `You’ll have access to these client workspaces:`,
         ...clients.map((client) => `- ${client.name}`),
@@ -1305,7 +1305,7 @@ export async function ensureUserWorkspace(userId: string) {
       || user.email?.split("@")[0]?.trim()
       || "New";
     const workspaceName = accountName === "New"
-      ? "New LedgerFlow private workspace"
+      ? "New AgarAccounting AI private workspace"
       : `${accountName}'s private workspace`;
     const [client] = await tx.insert(clientsTable).values({
       ownerUserId: userId,
@@ -3233,7 +3233,7 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     const completion = await completeAI(client.id, [
         {
           role: "system",
-          content: "You are LedgerFlow's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
+          content: "You are AgarAccounting AI System's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
         },
         {
           role: "user",
@@ -3515,7 +3515,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
     return res.status(400).json({ error: "Select at least one line and a proposed account before confirming a recode." });
   }
   if (!classificationAccounts.has(accountSuggestion)) {
-    return res.status(400).json({ error: "Choose one of LedgerFlow's supported accounts before confirming a classification." });
+    return res.status(400).json({ error: "Choose one of AgarAccounting AI System's supported accounts before confirming a classification." });
   }
   const confidence = Number.isFinite(Number(body.confidence)) && Number(body.confidence) >= 0 && Number(body.confidence) <= 1
     ? Number(body.confidence).toFixed(2)
@@ -5108,7 +5108,7 @@ router.get("/ledgerflow/report-packs/:id/pdf", async (req, res) => {
     return res.status(409).json({ error: "Finalize the reviewed report pack before downloading its PDF." });
   }
   const pdf = buildReportPdf(pack.snapshot as ReportSnapshot, pack.signatory as ReportSignatory);
-  const filename = `${client.legalName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "ledgerflow"}-${calendarDate(pack.periodEnd)}-financial-statements.pdf`;
+  const filename = `${client.legalName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "agaraccounting-ai"}-${calendarDate(pack.periodEnd)}-financial-statements.pdf`;
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   return res.send(pdf);
