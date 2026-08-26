@@ -676,6 +676,10 @@ export interface SystemRateImportResult {
   rates: SystemRate[];
 }
 
+export interface SystemRateClearResult {
+  deletedCount: number;
+}
+
 export interface SystemRatePair {
   sourceCurrency: string;
   functionalCurrency: string;
@@ -1667,11 +1671,11 @@ export type GetUploadedFilesParams = {
 clientId: number;
 };
 
-export type GetLedgerflowAIConversationsParams = {
+export type GetAgarAccountingAIConversationsParams = {
 clientId: number;
 };
 
-export type GetLedgerflowAISettingsParams = {
+export type GetAgarAccountingAISettingsParams = {
 clientId: number;
 };
 
@@ -1695,3 +1699,4 @@ period?: string;
 export type GetReportPacksParams = {
 clientId: number;
 };
+

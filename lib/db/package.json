@@ -8,8 +8,8 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts && node ./ensure-ledgerflow-integrity.mjs",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts && node ./ensure-ledgerflow-integrity.mjs"
+    "push": "drizzle-kit push --config ./drizzle.config.ts && node ./ensure-agaraccounting-integrity.mjs",
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts && node ./ensure-agaraccounting-integrity.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
-const baseUrl = process.env.LEDGERFLOW_BASE_URL;
+const baseUrl = process.env.AGARACCOUNTING_BASE_URL;
 const clerkSecretKey = process.env.CLERK_SECRET_KEY;
-const smokePassword = process.env.LEDGERFLOW_CLERK_SMOKE_PASSWORD;
+const smokePassword = process.env.AGARACCOUNTING_CLERK_SMOKE_PASSWORD;
 
 if (typeof baseUrl !== "string" || typeof clerkSecretKey !== "string" || typeof smokePassword !== "string") {
   throw new Error(
-    "LEDGERFLOW_BASE_URL, CLERK_SECRET_KEY, and LEDGERFLOW_CLERK_SMOKE_PASSWORD are required.",
+    "AGARACCOUNTING_BASE_URL, CLERK_SECRET_KEY, and AGARACCOUNTING_CLERK_SMOKE_PASSWORD are required.",
   );
 }
 const requiredPassword = smokePassword;
@@ -83,7 +83,7 @@ try {
   await expectUserPage(page, "/financial-statements", /financial statement pack/i);
 
   let authorizationHeader: string | undefined;
-  const apiUrl = new URL("/api/ledgerflow/clients", baseUrl).toString();
+  const apiUrl = new URL("/api/agaraccounting/clients", baseUrl).toString();
   const requestListener = (request: { url(): string; headers(): Record<string, string> }) => {
     if (request.url() === apiUrl) authorizationHeader = request.headers().authorization;
   };

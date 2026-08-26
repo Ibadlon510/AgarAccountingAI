@@ -1,6 +1,6 @@
 ---
 name: AI copilot confirmation boundary
-description: LedgerFlow AI can prepare client-scoped recodes, setup, and bulk ledger transitions, but users alone confirm changes.
+description: AgarAccounting AI can prepare client-scoped recodes, setup, and bulk ledger transitions, but users alone confirm changes.
 ---
 
 AI may explain the close, identify similar transactions, prepare batch recodes, propose bank-account setup, and prepare bulk approvals or postings. Every data-changing proposal must show its client scope and require an explicit user confirmation; approval and posting remain separate accountant-controlled actions.

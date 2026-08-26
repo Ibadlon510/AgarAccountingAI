@@ -272,9 +272,9 @@ function providerBaseUrl(provider: AIProvider) {
     return process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "";
   }
   if (provider === "openai") {
-    return process.env.LEDGERFLOW_OPENAI_BASE_URL || "https://api.openai.com/v1";
+    return process.env.AGARACCOUNTING_OPENAI_BASE_URL || "https://api.openai.com/v1";
   }
-  return process.env.LEDGERFLOW_ANTHROPIC_BASE_URL || "https://api.anthropic.com";
+  return process.env.AGARACCOUNTING_ANTHROPIC_BASE_URL || "https://api.anthropic.com";
 }
 
 function providerError(error: unknown) {

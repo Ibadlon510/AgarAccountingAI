@@ -1,6 +1,6 @@
 ---
 name: Usage retention accounting
-description: Truthfulness rules for LedgerFlow usage and retention metrics.
+description: Truthfulness rules for AgarAccounting usage and retention metrics.
 ---
 
 Usage must count only evidence that is actually retained in private object storage and has not expired. Import audit metadata alone is not stored evidence. AI usage represents successful provider-backed completions, not local workflow recommendations or failed calls.

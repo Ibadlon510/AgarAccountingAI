@@ -24,7 +24,7 @@ export const sessionsTable = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-export const firmProfilesTable = pgTable("ledgerflow_firm_profiles", {
+export const firmProfilesTable = pgTable("agaraccounting_firm_profiles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   ownerUserId: varchar("owner_user_id").notNull(),
   name: text("name").notNull(),
@@ -34,39 +34,39 @@ export const firmProfilesTable = pgTable("ledgerflow_firm_profiles", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  uniqueIndex("ledgerflow_firm_profiles_owner_kind_idx").on(table.ownerUserId, table.profileKind),
+  uniqueIndex("agaraccounting_firm_profiles_owner_kind_idx").on(table.ownerUserId, table.profileKind),
   foreignKey({
     columns: [table.ownerUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_profiles_owner_user_fk",
+    name: "agaraccounting_firm_profiles_owner_user_fk",
   }).onDelete("cascade"),
-  check("ledgerflow_firm_profiles_kind_check", sql`profile_kind in ('accounting_firm', 'internal_rate_container')`),
+  check("agaraccounting_firm_profiles_kind_check", sql`profile_kind in ('accounting_firm', 'internal_rate_container')`),
 ]);
 
-export const firmMembershipsTable = pgTable("ledgerflow_firm_memberships", {
+export const firmMembershipsTable = pgTable("agaraccounting_firm_memberships", {
   firmId: integer("firm_id").notNull(),
   userId: varchar("user_id").notNull(),
   role: text("role").notNull().default("accountant"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("ledgerflow_firm_memberships_firm_user_idx").on(table.firmId, table.userId),
-  index("ledgerflow_firm_memberships_user_role_idx").on(table.userId, table.role),
-  check("ledgerflow_firm_memberships_role_check", sql`role in ('owner', 'admin', 'accountant', 'bookkeeper')`),
-  check("ledgerflow_firm_memberships_status_check", sql`status in ('active', 'revoked')`),
+  uniqueIndex("agaraccounting_firm_memberships_firm_user_idx").on(table.firmId, table.userId),
+  index("agaraccounting_firm_memberships_user_role_idx").on(table.userId, table.role),
+  check("agaraccounting_firm_memberships_role_check", sql`role in ('owner', 'admin', 'accountant', 'bookkeeper')`),
+  check("agaraccounting_firm_memberships_status_check", sql`status in ('active', 'revoked')`),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
-    name: "ledgerflow_firm_memberships_firm_fk",
+    name: "agaraccounting_firm_memberships_firm_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.userId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_memberships_user_fk",
+    name: "agaraccounting_firm_memberships_user_fk",
   }).onDelete("cascade"),
 ]);
 
-export const clientsTable = pgTable("ledgerflow_clients", {
+export const clientsTable = pgTable("agaraccounting_clients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   firmId: integer("firm_id"),
   rateProfileId: integer("rate_profile_id"),
@@ -82,30 +82,30 @@ export const clientsTable = pgTable("ledgerflow_clients", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   transferredAt: timestamp("transferred_at", { withTimezone: true }),
 }, (table) => [
-  index("ledgerflow_clients_firm_idx").on(table.firmId),
-  index("ledgerflow_clients_rate_profile_idx").on(table.rateProfileId),
-  index("ledgerflow_clients_owner_idx").on(table.ownerUserId),
-  check("ledgerflow_clients_ownership_status_check", sql`ownership_status in ('company_owned', 'firm_provisional')`),
-  check("ledgerflow_clients_subscription_liable_party_check", sql`subscription_liable_party in ('company', 'firm')`),
+  index("agaraccounting_clients_firm_idx").on(table.firmId),
+  index("agaraccounting_clients_rate_profile_idx").on(table.rateProfileId),
+  index("agaraccounting_clients_owner_idx").on(table.ownerUserId),
+  check("agaraccounting_clients_ownership_status_check", sql`ownership_status in ('company_owned', 'firm_provisional')`),
+  check("agaraccounting_clients_subscription_liable_party_check", sql`subscription_liable_party in ('company', 'firm')`),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
-    name: "ledgerflow_clients_firm_fk",
+    name: "agaraccounting_clients_firm_fk",
   }),
   foreignKey({
     columns: [table.rateProfileId],
     foreignColumns: [firmProfilesTable.id],
-    name: "ledgerflow_clients_rate_profile_fk",
+    name: "agaraccounting_clients_rate_profile_fk",
   }),
   foreignKey({
     columns: [table.ownerUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_clients_owner_user_fk",
+    name: "agaraccounting_clients_owner_user_fk",
   }),
 ]);
 
 export const clientWorkspacesTable = pgTable(
-  "ledgerflow_client_workspaces",
+  "agaraccounting_client_workspaces",
   {
     clientId: integer("client_id").notNull(),
     userId: varchar("user_id").notNull(),
@@ -113,23 +113,23 @@ export const clientWorkspacesTable = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("ledgerflow_client_workspaces_client_user_idx").on(table.clientId, table.userId),
-    index("ledgerflow_client_workspaces_user_role_idx").on(table.userId, table.role),
-    check("ledgerflow_client_workspaces_role_check", sql`role in ('owner', 'admin', 'accountant', 'bookkeeper')`),
+    uniqueIndex("agaraccounting_client_workspaces_client_user_idx").on(table.clientId, table.userId),
+    index("agaraccounting_client_workspaces_user_role_idx").on(table.userId, table.role),
+    check("agaraccounting_client_workspaces_role_check", sql`role in ('owner', 'admin', 'accountant', 'bookkeeper')`),
     foreignKey({
       columns: [table.clientId],
       foreignColumns: [clientsTable.id],
-      name: "ledgerflow_client_workspaces_client_fk",
+      name: "agaraccounting_client_workspaces_client_fk",
     }),
     foreignKey({
       columns: [table.userId],
       foreignColumns: [usersTable.id],
-      name: "ledgerflow_client_workspaces_user_fk",
+      name: "agaraccounting_client_workspaces_user_fk",
     }),
   ],
 );
 
-export const firmCompanyEngagementsTable = pgTable("ledgerflow_firm_company_engagements", {
+export const firmCompanyEngagementsTable = pgTable("agaraccounting_firm_company_engagements", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   firmId: integer("firm_id").notNull(),
   clientId: integer("client_id").notNull(),
@@ -140,32 +140,32 @@ export const firmCompanyEngagementsTable = pgTable("ledgerflow_firm_company_enga
   acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 }, (table) => [
-  uniqueIndex("ledgerflow_firm_company_engagements_pair_idx").on(table.firmId, table.clientId),
-  index("ledgerflow_firm_company_engagements_client_status_idx").on(table.clientId, table.status),
-  check("ledgerflow_firm_company_engagements_status_check", sql`status in ('provisional', 'active', 'revoked')`),
+  uniqueIndex("agaraccounting_firm_company_engagements_pair_idx").on(table.firmId, table.clientId),
+  index("agaraccounting_firm_company_engagements_client_status_idx").on(table.clientId, table.status),
+  check("agaraccounting_firm_company_engagements_status_check", sql`status in ('provisional', 'active', 'revoked')`),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
-    name: "ledgerflow_firm_company_engagements_firm_fk",
+    name: "agaraccounting_firm_company_engagements_firm_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_firm_company_engagements_client_fk",
+    name: "agaraccounting_firm_company_engagements_client_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.invitedByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_company_engagements_inviter_fk",
+    name: "agaraccounting_firm_company_engagements_inviter_fk",
   }),
   foreignKey({
     columns: [table.acceptedByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_company_engagements_accepter_fk",
+    name: "agaraccounting_firm_company_engagements_accepter_fk",
   }),
 ]);
 
-export const firmEngagementMembersTable = pgTable("ledgerflow_firm_engagement_members", {
+export const firmEngagementMembersTable = pgTable("agaraccounting_firm_engagement_members", {
   engagementId: integer("engagement_id").notNull(),
   userId: varchar("user_id").notNull(),
   role: text("role").notNull().default("bookkeeper"),
@@ -177,33 +177,33 @@ export const firmEngagementMembersTable = pgTable("ledgerflow_firm_engagement_me
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   previousWorkspaceRole: text("previous_workspace_role"),
 }, (table) => [
-  uniqueIndex("ledgerflow_firm_engagement_members_engagement_user_idx").on(table.engagementId, table.userId),
-  index("ledgerflow_firm_engagement_members_user_status_idx").on(table.userId, table.status),
-  check("ledgerflow_firm_engagement_members_role_check", sql`role in ('accountant', 'bookkeeper')`),
-  check("ledgerflow_firm_engagement_members_status_check", sql`status in ('nominated', 'approved', 'revoked')`),
+  uniqueIndex("agaraccounting_firm_engagement_members_engagement_user_idx").on(table.engagementId, table.userId),
+  index("agaraccounting_firm_engagement_members_user_status_idx").on(table.userId, table.status),
+  check("agaraccounting_firm_engagement_members_role_check", sql`role in ('accountant', 'bookkeeper')`),
+  check("agaraccounting_firm_engagement_members_status_check", sql`status in ('nominated', 'approved', 'revoked')`),
   foreignKey({
     columns: [table.engagementId],
     foreignColumns: [firmCompanyEngagementsTable.id],
-    name: "ledgerflow_firm_engagement_members_engagement_fk",
+    name: "agaraccounting_firm_engagement_members_engagement_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.userId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_engagement_members_user_fk",
+    name: "agaraccounting_firm_engagement_members_user_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.nominatedByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_engagement_members_nominator_fk",
+    name: "agaraccounting_firm_engagement_members_nominator_fk",
   }),
   foreignKey({
     columns: [table.approvedByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_firm_engagement_members_approver_fk",
+    name: "agaraccounting_firm_engagement_members_approver_fk",
   }),
 ]);
 
-export const organizationInvitationsTable = pgTable("ledgerflow_organization_invitations", {
+export const organizationInvitationsTable = pgTable("agaraccounting_organization_invitations", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   kind: text("kind").notNull(),
   clientId: integer("client_id"),
@@ -217,35 +217,35 @@ export const organizationInvitationsTable = pgTable("ledgerflow_organization_inv
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("ledgerflow_organization_invitations_email_status_idx").on(table.email, table.status),
-  index("ledgerflow_organization_invitations_client_idx").on(table.clientId),
-  check("ledgerflow_organization_invitations_kind_check", sql`kind in ('firm_member', 'firm_engagement', 'company_transfer')`),
-  check("ledgerflow_organization_invitations_role_check", sql`role is null or role in ('admin', 'accountant', 'bookkeeper')`),
-  check("ledgerflow_organization_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
+  index("agaraccounting_organization_invitations_email_status_idx").on(table.email, table.status),
+  index("agaraccounting_organization_invitations_client_idx").on(table.clientId),
+  check("agaraccounting_organization_invitations_kind_check", sql`kind in ('firm_member', 'firm_engagement', 'company_transfer')`),
+  check("agaraccounting_organization_invitations_role_check", sql`role is null or role in ('admin', 'accountant', 'bookkeeper')`),
+  check("agaraccounting_organization_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
   foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_organization_invitations_client_fk",
+    name: "agaraccounting_organization_invitations_client_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
-    name: "ledgerflow_organization_invitations_firm_fk",
+    name: "agaraccounting_organization_invitations_firm_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.invitedByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_organization_invitations_inviter_fk",
+    name: "agaraccounting_organization_invitations_inviter_fk",
   }),
   foreignKey({
     columns: [table.acceptedUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_organization_invitations_accepter_fk",
+    name: "agaraccounting_organization_invitations_accepter_fk",
   }),
 ]);
 
 export const workspaceInvitationsTable = pgTable(
-  "ledgerflow_workspace_invitations",
+  "agaraccounting_workspace_invitations",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
     email: varchar("email").notNull(),
@@ -259,23 +259,23 @@ export const workspaceInvitationsTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("ledgerflow_workspace_invitations_email_status_idx").on(table.email, table.status),
-    index("ledgerflow_workspace_invitations_inviter_idx").on(table.invitedByUserId),
-    check("ledgerflow_workspace_invitations_role_check", sql`role in ('admin', 'bookkeeper')`),
-    check("ledgerflow_workspace_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
+    index("agaraccounting_workspace_invitations_email_status_idx").on(table.email, table.status),
+    index("agaraccounting_workspace_invitations_inviter_idx").on(table.invitedByUserId),
+    check("agaraccounting_workspace_invitations_role_check", sql`role in ('admin', 'bookkeeper')`),
+    check("agaraccounting_workspace_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
     foreignKey({
       columns: [table.invitedByUserId],
       foreignColumns: [usersTable.id],
-      name: "ledgerflow_workspace_invitations_inviter_fk",
+      name: "agaraccounting_workspace_invitations_inviter_fk",
     }),
     foreignKey({
       columns: [table.acceptedUserId],
       foreignColumns: [usersTable.id],
-      name: "ledgerflow_workspace_invitations_accepted_user_fk",
+      name: "agaraccounting_workspace_invitations_accepted_user_fk",
     }),
   ],
 );
-export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
+export const exchangeRatesTable = pgTable("agaraccounting_exchange_rates", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: varchar("user_id").notNull(),
   firmId: integer("firm_id"),
@@ -288,42 +288,42 @@ export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
 }, (table) => ({
-  userCurrencyDateUnique: uniqueIndex("ledgerflow_exchange_rates_user_pair_date_idx")
+  userCurrencyDateUnique: uniqueIndex("agaraccounting_exchange_rates_user_pair_date_idx")
     .on(table.userId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
-  userLookupIdx: index("ledgerflow_exchange_rates_user_lookup_idx")
+  userLookupIdx: index("agaraccounting_exchange_rates_user_lookup_idx")
     .on(table.userId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
-  firmCurrencyDateUnique: uniqueIndex("ledgerflow_exchange_rates_firm_pair_date_idx")
+  firmCurrencyDateUnique: uniqueIndex("agaraccounting_exchange_rates_firm_pair_date_idx")
     .on(table.firmId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
-  firmLookupIdx: index("ledgerflow_exchange_rates_firm_lookup_idx")
+  firmLookupIdx: index("agaraccounting_exchange_rates_firm_lookup_idx")
     .on(table.firmId, table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
   firmForeignKey: foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
-    name: "ledgerflow_exchange_rates_firm_fk",
+    name: "agaraccounting_exchange_rates_firm_fk",
   }),
 }));
 
-export const systemRateAdminsTable = pgTable("ledgerflow_system_rate_admins", {
+export const systemRateAdminsTable = pgTable("agaraccounting_system_rate_admins", {
   userId: varchar("user_id").primaryKey(),
   grantedByUserId: varchar("granted_by_user_id"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 }, (table) => [
-  index("ledgerflow_system_rate_admins_status_idx").on(table.status),
-  check("ledgerflow_system_rate_admins_status_check", sql`status in ('active', 'revoked')`),
+  index("agaraccounting_system_rate_admins_status_idx").on(table.status),
+  check("agaraccounting_system_rate_admins_status_check", sql`status in ('active', 'revoked')`),
   foreignKey({
     columns: [table.userId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_system_rate_admins_user_fk",
+    name: "agaraccounting_system_rate_admins_user_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.grantedByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_system_rate_admins_granted_by_fk",
+    name: "agaraccounting_system_rate_admins_granted_by_fk",
   }),
 ]);
-export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", {
+export const aiProviderConfigsTable = pgTable("agaraccounting_ai_provider_configs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   provider: text("provider").notNull().default("managed_openai"),
@@ -336,10 +336,10 @@ export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
 }, (table) => ({
-  clientUnique: uniqueIndex("ledgerflow_ai_provider_configs_client_idx").on(table.clientId),
+  clientUnique: uniqueIndex("agaraccounting_ai_provider_configs_client_idx").on(table.clientId),
 }));
 
-export const aiModelCatalogTable = pgTable("ledgerflow_ai_model_catalog", {
+export const aiModelCatalogTable = pgTable("agaraccounting_ai_model_catalog", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -351,9 +351,9 @@ export const aiModelCatalogTable = pgTable("ledgerflow_ai_model_catalog", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
 }, (table) => ({
-  providerModelUnique: uniqueIndex("ledgerflow_ai_model_catalog_provider_model_idx").on(table.provider, table.model),
+  providerModelUnique: uniqueIndex("agaraccounting_ai_model_catalog_provider_model_idx").on(table.provider, table.model),
 }));
-export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
+export const bankAccountsTable = pgTable("agaraccounting_bank_accounts", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   name: text("name").notNull(),
@@ -363,15 +363,15 @@ export const bankAccountsTable = pgTable("ledgerflow_bank_accounts", {
   identityKey: text("identity_key"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  identityKeyUnique: uniqueIndex("ledgerflow_bank_accounts_identity_key_idx").on(table.identityKey),
+  identityKeyUnique: uniqueIndex("agaraccounting_bank_accounts_identity_key_idx").on(table.identityKey),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_bank_accounts_client_fk",
+    name: "agaraccounting_bank_accounts_client_fk",
   }),
 }));
 
-export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
+export const statementImportsTable = pgTable("agaraccounting_statement_imports", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   bankAccountId: integer("bank_account_id"),
@@ -389,26 +389,26 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
   importedLineCount: integer("imported_line_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  clientCompletedFileHashUnique: uniqueIndex("ledgerflow_statement_imports_client_file_hash_idx")
+  clientCompletedFileHashUnique: uniqueIndex("agaraccounting_statement_imports_client_file_hash_idx")
     .on(table.clientId, table.fileHash)
     .where(sql`outcome = 'completed'`),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_statement_imports_client_fk",
+    name: "agaraccounting_statement_imports_client_fk",
   }),
   bankAccountForeignKey: foreignKey({
     columns: [table.bankAccountId],
     foreignColumns: [bankAccountsTable.id],
-    name: "ledgerflow_statement_imports_bank_account_fk",
+    name: "agaraccounting_statement_imports_bank_account_fk",
   }),
   outcomeCheck: check(
-    "ledgerflow_statement_imports_outcome_v3_check",
+    "agaraccounting_statement_imports_outcome_v3_check",
     sql`outcome in ('pending_confirmation', 'completed', 'duplicate', 'failed', 'undone')`,
   ),
 }));
 
-export const aiActivityTable = pgTable("ledgerflow_ai_activity", {
+export const aiActivityTable = pgTable("agaraccounting_ai_activity", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   userId: varchar("user_id").notNull(),
@@ -422,21 +422,21 @@ export const aiActivityTable = pgTable("ledgerflow_ai_activity", {
   status: text("status").notNull().default("completed"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("ledgerflow_ai_activity_client_created_idx").on(table.clientId, table.createdAt),
-  index("ledgerflow_ai_activity_user_created_idx").on(table.userId, table.createdAt),
+  index("agaraccounting_ai_activity_client_created_idx").on(table.clientId, table.createdAt),
+  index("agaraccounting_ai_activity_user_created_idx").on(table.userId, table.createdAt),
   foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_ai_activity_client_fk",
+    name: "agaraccounting_ai_activity_client_fk",
   }),
   foreignKey({
     columns: [table.userId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_ai_activity_user_fk",
+    name: "agaraccounting_ai_activity_user_fk",
   }),
 ]);
 
-export const assistantThreadsTable = pgTable("ledgerflow_assistant_threads", {
+export const assistantThreadsTable = pgTable("agaraccounting_assistant_threads", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   userId: varchar("user_id").notNull(),
@@ -446,21 +446,21 @@ export const assistantThreadsTable = pgTable("ledgerflow_assistant_threads", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  index("ledgerflow_assistant_threads_client_user_updated_idx").on(table.clientId, table.userId, table.updatedAt),
+  index("agaraccounting_assistant_threads_client_user_updated_idx").on(table.clientId, table.userId, table.updatedAt),
   foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_assistant_threads_client_fk",
+    name: "agaraccounting_assistant_threads_client_fk",
   }).onDelete("cascade"),
   foreignKey({
     columns: [table.userId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_assistant_threads_user_fk",
+    name: "agaraccounting_assistant_threads_user_fk",
   }).onDelete("cascade"),
-  check("ledgerflow_assistant_threads_status_check", sql`status in ('active', 'cleared')`),
+  check("agaraccounting_assistant_threads_status_check", sql`status in ('active', 'cleared')`),
 ]);
 
-export const assistantTurnsTable = pgTable("ledgerflow_assistant_turns", {
+export const assistantTurnsTable = pgTable("agaraccounting_assistant_turns", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   threadId: integer("thread_id").notNull(),
   role: text("role").notNull(),
@@ -469,15 +469,15 @@ export const assistantTurnsTable = pgTable("ledgerflow_assistant_turns", {
   attachment: jsonb("attachment"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("ledgerflow_assistant_turns_thread_created_idx").on(table.threadId, table.createdAt),
+  index("agaraccounting_assistant_turns_thread_created_idx").on(table.threadId, table.createdAt),
   foreignKey({
     columns: [table.threadId],
     foreignColumns: [assistantThreadsTable.id],
-    name: "ledgerflow_assistant_turns_thread_fk",
+    name: "agaraccounting_assistant_turns_thread_fk",
   }).onDelete("cascade"),
-  check("ledgerflow_assistant_turns_role_check", sql`role in ('user', 'assistant')`),
+  check("agaraccounting_assistant_turns_role_check", sql`role in ('user', 'assistant')`),
 ]);
-export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
+export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),
   statementImportId: integer("statement_import_id"),
@@ -500,26 +500,26 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  importDedupeKeyUnique: uniqueIndex("ledgerflow_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
-  statementImportIndex: index("ledgerflow_statement_lines_import_idx").on(table.statementImportId),
+  importDedupeKeyUnique: uniqueIndex("agaraccounting_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
+  statementImportIndex: index("agaraccounting_statement_lines_import_idx").on(table.statementImportId),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_statement_lines_client_fk",
+    name: "agaraccounting_statement_lines_client_fk",
   }),
   bankAccountForeignKey: foreignKey({
     columns: [table.bankAccountId],
     foreignColumns: [bankAccountsTable.id],
-    name: "ledgerflow_statement_lines_bank_account_fk",
+    name: "agaraccounting_statement_lines_bank_account_fk",
   }),
   statementImportForeignKey: foreignKey({
     columns: [table.statementImportId],
     foreignColumns: [statementImportsTable.id],
-    name: "ledgerflow_statement_lines_import_fk",
+    name: "agaraccounting_statement_lines_import_fk",
   }),
 }));
 
-export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
+export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),
   statementLineId: integer("statement_line_id").notNull(),
@@ -539,20 +539,20 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
-  statementLineUnique: uniqueIndex("ledgerflow_journal_entries_statement_line_id_idx").on(table.statementLineId),
+  statementLineUnique: uniqueIndex("agaraccounting_journal_entries_statement_line_id_idx").on(table.statementLineId),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_journal_entries_client_fk",
+    name: "agaraccounting_journal_entries_client_fk",
   }),
   statementLineForeignKey: foreignKey({
     columns: [table.statementLineId],
     foreignColumns: [statementLinesTable.id],
-    name: "ledgerflow_journal_entries_statement_line_fk",
+    name: "agaraccounting_journal_entries_statement_line_fk",
   }),
 }));
 
-export const accountClassificationsTable = pgTable("ledgerflow_account_classifications", {
+export const accountClassificationsTable = pgTable("agaraccounting_account_classifications", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   accountName: text("account_name").notNull(),
@@ -567,15 +567,15 @@ export const accountClassificationsTable = pgTable("ledgerflow_account_classific
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
 }, (table) => ({
-  clientAccountUnique: uniqueIndex("ledgerflow_account_classifications_client_account_idx").on(table.clientId, table.accountName),
+  clientAccountUnique: uniqueIndex("agaraccounting_account_classifications_client_account_idx").on(table.clientId, table.accountName),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_account_classifications_client_fk",
+    name: "agaraccounting_account_classifications_client_fk",
   }),
 }));
 
-export const reportPacksTable = pgTable("ledgerflow_report_packs", {
+export const reportPacksTable = pgTable("agaraccounting_report_packs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   createdBy: varchar("created_by").notNull(),
@@ -597,17 +597,17 @@ export const reportPacksTable = pgTable("ledgerflow_report_packs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
   finalizedAt: timestamp("finalized_at", { withTimezone: true }),
 }, (table) => [
-  index("ledgerflow_report_packs_client_period_idx").on(table.clientId, table.periodEnd),
+  index("agaraccounting_report_packs_client_period_idx").on(table.clientId, table.periodEnd),
   foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
-    name: "ledgerflow_report_packs_client_fk",
+    name: "agaraccounting_report_packs_client_fk",
   }),
-  check("ledgerflow_report_packs_status_check", sql`status in ('draft', 'finalized')`),
-  check("ledgerflow_report_packs_basis_check", sql`reporting_basis in ('IFRS', 'IFRS for SMEs')`),
+  check("agaraccounting_report_packs_status_check", sql`status in ('draft', 'finalized')`),
+  check("agaraccounting_report_packs_basis_check", sql`reporting_basis in ('IFRS', 'IFRS for SMEs')`),
 ]);
 
-export const bulkTransitionAuditsTable = pgTable("ledgerflow_bulk_transition_audits", {
+export const bulkTransitionAuditsTable = pgTable("agaraccounting_bulk_transition_audits", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   actorUserId: varchar("actor_user_id").notNull(),
@@ -620,10 +620,10 @@ export const bulkTransitionAuditsTable = pgTable("ledgerflow_bulk_transition_aud
   statementLineIds: integer("statement_line_ids").array().notNull(),
   confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("ledgerflow_bulk_transition_audits_client_confirmed_idx").on(table.clientId, table.confirmedAt),
+  index("agaraccounting_bulk_transition_audits_client_confirmed_idx").on(table.clientId, table.confirmedAt),
 ]);
 
-export const statementImportUndoAuditsTable = pgTable("ledgerflow_statement_import_undo_audits", {
+export const statementImportUndoAuditsTable = pgTable("agaraccounting_statement_import_undo_audits", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
   statementImportId: integer("statement_import_id").notNull(),
@@ -634,7 +634,7 @@ export const statementImportUndoAuditsTable = pgTable("ledgerflow_statement_impo
   journalEntryIds: integer("journal_entry_ids").array().notNull(),
   undoneAt: timestamp("undone_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("ledgerflow_statement_import_undo_audits_client_undone_idx").on(table.clientId, table.undoneAt),
+  index("agaraccounting_statement_import_undo_audits_client_undone_idx").on(table.clientId, table.undoneAt),
 ]);
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
@@ -649,7 +649,7 @@ export type AssistantTurn = typeof assistantTurnsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;
 export type UpsertUser = typeof usersTable.$inferInsert;
 
-export const systemRatesTable = pgTable("ledgerflow_system_rates", {
+export const systemRatesTable = pgTable("agaraccounting_system_rates", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   sourceCurrency: varchar("source_currency", { length: 3 }).notNull(),
   functionalCurrency: varchar("functional_currency", { length: 3 }).notNull(),
@@ -661,16 +661,16 @@ export const systemRatesTable = pgTable("ledgerflow_system_rates", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  uniqueIndex("ledgerflow_system_rates_pair_date_idx").on(table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
-  index("ledgerflow_system_rates_lookup_idx").on(table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  uniqueIndex("agaraccounting_system_rates_pair_date_idx").on(table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  index("agaraccounting_system_rates_lookup_idx").on(table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
   foreignKey({
     columns: [table.createdByUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_system_rates_creator_fk",
+    name: "agaraccounting_system_rates_creator_fk",
   }),
 ]);
 
-export const systemRateAuditEventsTable = pgTable("ledgerflow_system_rate_audit_events", {
+export const systemRateAuditEventsTable = pgTable("agaraccounting_system_rate_audit_events", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   actorUserId: varchar("actor_user_id").notNull(),
   systemRateId: integer("system_rate_id"),
@@ -678,16 +678,16 @@ export const systemRateAuditEventsTable = pgTable("ledgerflow_system_rate_audit_
   summary: text("summary").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  index("ledgerflow_system_rate_audit_events_created_idx").on(table.createdAt),
-  check("ledgerflow_system_rate_audit_events_action_check", sql`action in ('created', 'updated', 'deleted', 'imported')`),
+  index("agaraccounting_system_rate_audit_events_created_idx").on(table.createdAt),
+  check("agaraccounting_system_rate_audit_events_action_check", sql`action in ('created', 'updated', 'deleted', 'imported')`),
   foreignKey({
     columns: [table.actorUserId],
     foreignColumns: [usersTable.id],
-    name: "ledgerflow_system_rate_audit_events_actor_fk",
+    name: "agaraccounting_system_rate_audit_events_actor_fk",
   }),
   foreignKey({
     columns: [table.systemRateId],
     foreignColumns: [systemRatesTable.id],
-    name: "ledgerflow_system_rate_audit_events_rate_fk",
+    name: "agaraccounting_system_rate_audit_events_rate_fk",
   }).onDelete("set null"),
 ]);

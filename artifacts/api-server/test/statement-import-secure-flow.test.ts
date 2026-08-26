@@ -88,7 +88,7 @@ async function importPrivatePdf(clientId: number, fileName: string, buffer: Buff
     importedCount: number;
     duplicateCount: number;
     lines: Array<{ id: number }>;
-  }>("/ledgerflow/import-statement", {
+  }>("/agaraccounting/import-statement", {
     clientId,
     fileName,
     mimeType: "application/pdf",
@@ -99,8 +99,8 @@ async function importPrivatePdf(clientId: number, fileName: string, buffer: Buff
 }
 
 before(async () => {
-  if (!process.env.LEDGERFLOW_TEST_DATABASE_URL) {
-    throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for statement import integration tests.");
+  if (!process.env.AGARACCOUNTING_TEST_DATABASE_URL) {
+    throw new Error("AGARACCOUNTING_TEST_DATABASE_URL is required for statement import integration tests.");
   }
   process.env.PRIVATE_OBJECT_DIR = "/test-private";
   primaryUserId = `statement-import-primary-${randomUUID()}`;
@@ -114,7 +114,7 @@ before(async () => {
   const aiPort = await listen(aiServer);
   process.env.AI_INTEGRATIONS_OPENAI_API_KEY = "statement-import-test-key";
   process.env.AI_INTEGRATIONS_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
-  process.env.LEDGERFLOW_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
+  process.env.AGARACCOUNTING_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
 
   const storage = await import("../src/routes/storage");
   storage.objectStorageService.getObjectEntityUploadURL = async (prefix) =>
@@ -169,7 +169,7 @@ after(async () => {
   }
   await db.delete(firmProfilesTable).where(inArray(firmProfilesTable.ownerUserId, userIds));
   await db.delete(usersTable).where(inArray(usersTable.id, userIds));
-  if (process.env.LEDGERFLOW_TEST_FOCUSED === "true") await pool.end();
+  if (process.env.AGARACCOUNTING_TEST_FOCUSED === "true") await pool.end();
 });
 
 test("imports a secure text PDF through the deterministic fallback and records exact re-uploads correctly", async () => {

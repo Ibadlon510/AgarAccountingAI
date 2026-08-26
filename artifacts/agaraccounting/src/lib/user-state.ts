@@ -1,5 +1,5 @@
 export const getActiveWorkspaceStorageKey = (userId: string) =>
-  `ledgerflow-active-client-id:${userId}`;
+  `agaraccounting-active-client-id:${userId}`;
 
 export interface UserStateStorage {
   removeItem: (key: string) => void;

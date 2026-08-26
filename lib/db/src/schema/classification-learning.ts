@@ -7,7 +7,7 @@ import { index, integer, numeric, pgTable, text, timestamp, uniqueIndex, varchar
  * or any other source-client detail.
  */
 export const classificationPatternsTable = pgTable(
-  "ledgerflow_classification_patterns",
+  "agaraccounting_classification_patterns",
   {
     id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
     userId: varchar("user_id").notNull(),
@@ -19,12 +19,12 @@ export const classificationPatternsTable = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
   },
   (table) => [
-    uniqueIndex("ledgerflow_classification_patterns_user_vendor_account_idx").on(
+    uniqueIndex("agaraccounting_classification_patterns_user_vendor_account_idx").on(
       table.userId,
       table.normalizedVendor,
       table.accountSuggestion,
     ),
-    index("ledgerflow_classification_patterns_user_vendor_idx").on(table.userId, table.normalizedVendor),
+    index("agaraccounting_classification_patterns_user_vendor_idx").on(table.userId, table.normalizedVendor),
   ],
 );
 

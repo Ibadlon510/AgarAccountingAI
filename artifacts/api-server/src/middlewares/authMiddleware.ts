@@ -2,7 +2,7 @@ import { clerkClient, getAuth } from "@clerk/express";
 import { db, systemRateAdminsTable, usersTable, type User as DbUser } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { type NextFunction, type Request, type Response } from "express";
-import { ensureUserWorkspace } from "../routes/ledgerflow";
+import { ensureUserWorkspace } from "../routes/agaraccounting";
 
 declare global {
   namespace Express {
@@ -22,7 +22,7 @@ async function bootstrapSystemRateAdmin(dbUser: DbUser) {
   const email = dbUser.email?.trim().toLowerCase();
   if (!email) return;
   const configuredEmails = new Set(
-    (process.env.LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS ?? "")
+    (process.env.AGARACCOUNTING_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS ?? "")
       .split(",")
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean),

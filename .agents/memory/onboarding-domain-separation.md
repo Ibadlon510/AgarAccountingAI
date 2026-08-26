@@ -1,6 +1,6 @@
 ---
 name: Onboarding domain separation
-description: LedgerFlow's first-run boundary between account, company, and client data.
+description: AgarAccounting's first-run boundary between account, company, and client data.
 ---
 
 First-run onboarding registers the account owner and bookkeeping company only. Client accounting details — functional currency, reporting basis, and close period — belong to the individual client-creation flow, not to company onboarding.

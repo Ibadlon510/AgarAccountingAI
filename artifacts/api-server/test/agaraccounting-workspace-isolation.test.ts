@@ -51,8 +51,8 @@ const legacyDemoRows = [
 ] as const;
 
 function testDatabaseUrl() {
-  const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
-  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
+  const value = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
+  if (!value) throw new Error("AGARACCOUNTING_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
     throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
@@ -254,10 +254,10 @@ test("provisions isolated starter workspaces and configures only the owner's wor
   assert.equal(firstAgain.body[0].legalName, "First Client FZ-LLC");
 
   const [firstLines, firstEntries, secondLines, secondEntries] = await Promise.all([
-    request<unknown[]>(`/ledgerflow/statement-lines?clientId=${first.body[0].id}`, userIds[0]),
-    request<unknown[]>(`/ledgerflow/journal-entries?clientId=${first.body[0].id}`, userIds[0]),
-    request<unknown[]>(`/ledgerflow/statement-lines?clientId=${second.body[0].id}`, userIds[1]),
-    request<unknown[]>(`/ledgerflow/journal-entries?clientId=${second.body[0].id}`, userIds[1]),
+    request<unknown[]>(`/agaraccounting/statement-lines?clientId=${first.body[0].id}`, userIds[0]),
+    request<unknown[]>(`/agaraccounting/journal-entries?clientId=${first.body[0].id}`, userIds[0]),
+    request<unknown[]>(`/agaraccounting/statement-lines?clientId=${second.body[0].id}`, userIds[1]),
+    request<unknown[]>(`/agaraccounting/journal-entries?clientId=${second.body[0].id}`, userIds[1]),
   ]);
   for (const result of [firstLines, firstEntries, secondLines, secondEntries]) {
     assert.equal(result.response.status, 200);
@@ -266,14 +266,14 @@ test("provisions isolated starter workspaces and configures only the owner's wor
 
   const foreignClientId = first.body[0].id;
   const [lines, entries, report, update, upload] = await Promise.all([
-    request<{ error: string }>(`/ledgerflow/statement-lines?clientId=${foreignClientId}`, userIds[1]),
-    request<{ error: string }>(`/ledgerflow/journal-entries?clientId=${foreignClientId}`, userIds[1]),
-    request<{ error: string }>(`/ledgerflow/financial-statements?clientId=${foreignClientId}`, userIds[1]),
+    request<{ error: string }>(`/agaraccounting/statement-lines?clientId=${foreignClientId}`, userIds[1]),
+    request<{ error: string }>(`/agaraccounting/journal-entries?clientId=${foreignClientId}`, userIds[1]),
+    request<{ error: string }>(`/agaraccounting/financial-statements?clientId=${foreignClientId}`, userIds[1]),
     request<{ error: string }>(`/clients/${foreignClientId}`, userIds[1], {
       method: "PATCH",
       body: JSON.stringify({ name: "Attempted change" }),
     }),
-    request<{ error: string }>("/ledgerflow/import-statement", userIds[1], {
+    request<{ error: string }>("/agaraccounting/import-statement", userIds[1], {
       method: "POST",
       body: JSON.stringify({
         clientId: foreignClientId,
@@ -322,17 +322,17 @@ test("keeps one exchange-rate schedule with its firm while clients remain separa
   assert.equal(savedProfile.response.status, 200);
   assert.equal(savedProfile.body.name, "Shared books firm");
 
-  const createdRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${starter.body[0]!.id}`, ownerId, {
+  const createdRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?clientId=${starter.body[0]!.id}`, ownerId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 3.6725, source: "Manual" }),
   });
   assert.equal(createdRate.response.status, 201);
-  const firmRates = await request<Array<{ id: number }>>(`/ledgerflow/exchange-rates?clientId=${starter.body[0]!.id}`, ownerId);
+  const firmRates = await request<Array<{ id: number }>>(`/agaraccounting/exchange-rates?clientId=${starter.body[0]!.id}`, ownerId);
   assert.deepEqual(firmRates.body.map((rate) => rate.id), [createdRate.body.id]);
 
   const foreignStarter = await request<Array<{ id: number }>>("/clients", foreignId);
   clientIds.push(foreignStarter.body[0]!.id);
-  const foreignRates = await request<unknown[]>(`/ledgerflow/exchange-rates?clientId=${foreignStarter.body[0]!.id}`, foreignId);
+  const foreignRates = await request<unknown[]>(`/agaraccounting/exchange-rates?clientId=${foreignStarter.body[0]!.id}`, foreignId);
   assert.equal(foreignRates.response.status, 200);
   assert.deepEqual(foreignRates.body, []);
 });
@@ -365,19 +365,19 @@ test("keeps a dual-mode owner's company schedule separate from their accounting 
   const clientId = clients.body[0]!.id;
   clientIds.push(clientId);
 
-  const firmRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?firmId=${firmId}`, ownerId, {
+  const firmRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?firmId=${firmId}`, ownerId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 3.67 }),
   });
-  const companyRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${clientId}`, ownerId, {
+  const companyRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?clientId=${clientId}`, ownerId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "EUR", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 4.1 }),
   });
   assert.equal(firmRate.response.status, 201);
   assert.equal(companyRate.response.status, 201);
 
-  const firmRates = await request<Array<{ id: number }>>(`/ledgerflow/exchange-rates?firmId=${firmId}`, ownerId);
-  const companyRates = await request<Array<{ id: number }>>(`/ledgerflow/exchange-rates?clientId=${clientId}`, ownerId);
+  const firmRates = await request<Array<{ id: number }>>(`/agaraccounting/exchange-rates?firmId=${firmId}`, ownerId);
+  const companyRates = await request<Array<{ id: number }>>(`/agaraccounting/exchange-rates?clientId=${clientId}`, ownerId);
   assert.deepEqual(firmRates.body.map(({ id }) => id), [firmRate.body.id]);
   assert.deepEqual(companyRates.body.map(({ id }) => id), [companyRate.body.id]);
   assert.notEqual(firmRate.body.id, companyRate.body.id);
@@ -385,7 +385,7 @@ test("keeps a dual-mode owner's company schedule separate from their accounting 
   const foreignClients = await request<Array<{ id: number }>>("/clients", foreignId);
   assert.equal(foreignClients.response.status, 200);
   clientIds.push(...foreignClients.body.map(({ id }) => id));
-  const unauthorizedFirmRead = await request<{ error: string }>(`/ledgerflow/exchange-rates?firmId=${firmId}`, foreignId);
+  const unauthorizedFirmRead = await request<{ error: string }>(`/agaraccounting/exchange-rates?firmId=${firmId}`, foreignId);
   assert.equal(unauthorizedFirmRead.response.status, 403);
 
   assert.ok(database);
@@ -499,15 +499,15 @@ test("prevents a delegated company admin from changing an owner-shared rate sche
     { clientId: clients[1].id, userId: ownerId, role: "owner" },
     { clientId: clients[0].id, userId: adminId, role: "admin" },
   ]);
-  const created = await request<{ id: number }>("/ledgerflow/exchange-rates?clientId=" + clients[0].id, ownerId, {
+  const created = await request<{ id: number }>("/agaraccounting/exchange-rates?clientId=" + clients[0].id, ownerId, {
     method: "POST", body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", rate: 3.67, effectiveDate: "2026-08-01" }),
   });
   assert.equal(created.response.status, 201);
-  const delegatedCreate = await request("/ledgerflow/exchange-rates?clientId=" + clients[0].id, adminId, {
+  const delegatedCreate = await request("/agaraccounting/exchange-rates?clientId=" + clients[0].id, adminId, {
     method: "POST", body: JSON.stringify({ sourceCurrency: "EUR", functionalCurrency: "AED", rate: 4.1, effectiveDate: "2026-08-01" }),
   });
   assert.equal(delegatedCreate.response.status, 403);
-  const delegatedEdit = await request(`/ledgerflow/exchange-rates/${created.body.id}`, adminId, {
+  const delegatedEdit = await request(`/agaraccounting/exchange-rates/${created.body.id}`, adminId, {
     method: "PATCH", body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", rate: 9.99, effectiveDate: "2026-08-01" }),
   });
   assert.equal(delegatedEdit.response.status, 403);
@@ -548,7 +548,7 @@ test("hides engagement metadata from firm staff until company approval", async (
 test("persists onboarding identity before configuring the owner's starter workspace", async () => {
   const ownerId = userIds[12];
   const profile = await request<{ email: string | null; firstName: string; lastName: string }>(
-    "/ledgerflow/account-profile",
+    "/agaraccounting/account-profile",
     ownerId,
     {
       method: "PATCH",
@@ -590,7 +590,7 @@ test("continues to classify historic generated placeholders as starter workspace
   assert.ok(database);
   const historicStarters = [
     { userId: userIds[9], name: "Amina's workspace" },
-    { userId: userIds[10], name: "New LedgerFlow workspace" },
+    { userId: userIds[10], name: "New AgarAccounting workspace" },
   ];
   for (const starter of historicStarters) {
     await database.db.insert(database.usersTable).values({ id: starter.userId });
@@ -700,7 +700,7 @@ test("reports current-cycle AI estimates per authorized client without counting 
       clientName: string;
       usage: { estimatedReplitCreditsUsd: number; estimatedProviderDirectUsd: number; models: Array<{ provider: string; model: string }> };
     }>;
-  }>("/ledgerflow/usage", ownerId);
+  }>("/agaraccounting/usage", ownerId);
 
   assert.equal(usage.response.status, 200);
   assert.equal(usage.body.aiActivity.used, 3);

@@ -1,6 +1,6 @@
 ---
 name: Report profile eligibility
-description: Eligibility rules and profile-specific output for LedgerFlow statutory-style report packs.
+description: Eligibility rules and profile-specific output for AgarAccounting statutory-style report packs.
 ---
 
 Only offer a report basis configured on the client; annual packs require a December 31 period, and IFRS 18 is restricted to full IFRS periods ending in 2027 or later. Keep the selected basis and presentation profile on the immutable snapshot.

@@ -17,8 +17,8 @@ const clientIds: number[] = [];
 const firmIds: number[] = [];
 
 function testDatabaseUrl() {
-  const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
-  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
+  const value = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
+  if (!value) throw new Error("AGARACCOUNTING_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
     throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
@@ -109,10 +109,14 @@ test("protects and applies the system catalog with traceable fallback precedence
   const clientId = adminClients.body[0]!.id;
   clientIds.push(clientId, tenantClients.body[0]!.id);
 
-  const denied = await request<{ error: string }>("/ledgerflow/system-rates", tenantAdminId);
+  const denied = await request<{ error: string }>("/agaraccounting/system-rates", tenantAdminId);
   assert.equal(denied.response.status, 403);
   assert.match(denied.body.error, /system administrator/i);
-  const deniedPreview = await request<{ error: string }>("/ledgerflow/system-rates/parse", tenantAdminId, {
+  const deniedClear = await request<{ error: string }>("/agaraccounting/system-rates", tenantAdminId, {
+    method: "DELETE",
+  });
+  assert.equal(deniedClear.response.status, 403);
+  const deniedPreview = await request<{ error: string }>("/agaraccounting/system-rates/parse", tenantAdminId, {
     method: "POST",
     body: JSON.stringify({ fileBase64: "dGVzdA==", fileName: "rates.xlsx" }),
   });
@@ -128,7 +132,7 @@ test("protects and applies the system catalog with traceable fallback precedence
     { effectiveDate: "2026-08-02", sourceCurrency: "CHF", rate: 4.5 },
   ]), "Rates");
   const preview = await request<{ rates: Array<{ sourceCurrency: string; functionalCurrency: string; rate: number }> }>(
-    "/ledgerflow/system-rates/parse",
+    "/agaraccounting/system-rates/parse",
     systemAdminId,
     {
       method: "POST",
@@ -146,7 +150,7 @@ test("protects and applies the system catalog with traceable fallback precedence
       { sourceCurrency: "CHF", functionalCurrency: "AED", rate: 4.5 },
     ],
   );
-  assert.deepEqual((await request<unknown[]>("/ledgerflow/system-rates", systemAdminId)).body, []);
+  assert.deepEqual((await request<unknown[]>("/agaraccounting/system-rates", systemAdminId)).body, []);
 
   const systemRates = [
     { sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 3.5, source: "System test" },
@@ -155,7 +159,7 @@ test("protects and applies the system catalog with traceable fallback precedence
     { sourceCurrency: "JPY", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 0.025, source: "System test" },
   ];
   const imported = await request<{ importedCount: number; rates: Array<{ id: number; effectiveDate: string }> }>(
-    "/ledgerflow/system-rates/import",
+    "/agaraccounting/system-rates/import",
     systemAdminId,
     { method: "POST", body: JSON.stringify({ rates: systemRates }) },
   );
@@ -163,7 +167,7 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.equal(imported.body.importedCount, 4);
   assert.equal(imported.body.rates[0]!.effectiveDate, "2026-08-01");
 
-  const companyRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${clientId}`, systemAdminId, {
+  const companyRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?clientId=${clientId}`, systemAdminId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 3.8 }),
   });
@@ -184,7 +188,7 @@ test("protects and applies the system catalog with traceable fallback precedence
   });
   await database.db.update(database.clientsTable).set({ firmId: firm.id })
     .where(eq(database.clientsTable.id, clientId));
-  const firmRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?firmId=${firm.id}`, systemAdminId, {
+  const firmRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?firmId=${firm.id}`, systemAdminId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "EUR", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 4.2 }),
   });
@@ -195,7 +199,7 @@ test("protects and applies the system catalog with traceable fallback precedence
     exchangeRate: number | null;
     exchangeRateSourceScope: string;
     exchangeRateStatus: string;
-  }>("/ledgerflow/statement-lines", systemAdminId, {
+  }>("/agaraccounting/statement-lines", systemAdminId, {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -233,22 +237,22 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.equal(optedOutLine.body.exchangeRateStatus, "missing");
 
   const journals = await request<Array<{ id: number; statementLineId: number }>>(
-    `/ledgerflow/journal-entries?clientId=${clientId}`,
+    `/agaraccounting/journal-entries?clientId=${clientId}`,
     systemAdminId,
   );
   const systemJournal = journals.body.find((entry) => entry.statementLineId === systemLine.body.id);
   assert.ok(systemJournal);
-  assert.equal((await request(`/ledgerflow/journal-entries/${systemJournal.id}/approve`, systemAdminId, {
+  assert.equal((await request(`/agaraccounting/journal-entries/${systemJournal.id}/approve`, systemAdminId, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   })).response.status, 200);
-  assert.equal((await request(`/ledgerflow/journal-entries/${systemJournal.id}/post`, systemAdminId, {
+  assert.equal((await request(`/agaraccounting/journal-entries/${systemJournal.id}/post`, systemAdminId, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   })).response.status, 200);
 
   const gbpRate = imported.body.rates[2]!;
-  const updatedSystemRate = await request(`/ledgerflow/system-rates/${gbpRate.id}`, systemAdminId, {
+  const updatedSystemRate = await request(`/agaraccounting/system-rates/${gbpRate.id}`, systemAdminId, {
     method: "PATCH",
     body: JSON.stringify({ ...systemRates[2], rate: 9.9 }),
   });
@@ -263,22 +267,36 @@ test("protects and applies the system catalog with traceable fallback precedence
     workspacesUsingFallback: number;
     workspacesWithFallbackDisabled: number;
     recentChanges: unknown[];
-  }>("/ledgerflow/system-rates/dashboard", systemAdminId);
+  }>("/agaraccounting/system-rates/dashboard", systemAdminId);
   assert.equal(dashboard.response.status, 200);
   assert.ok(dashboard.body.availablePairs.length >= 4);
   assert.ok(dashboard.body.workspacesUsingFallback >= 1);
   assert.ok(dashboard.body.workspacesWithFallbackDisabled >= 1);
   assert.ok(dashboard.body.recentChanges.length >= 2);
   assert.doesNotMatch(JSON.stringify(dashboard.body), /functionalAmount|amount/i);
+
+  const cleared = await request<{ deletedCount: number }>("/agaraccounting/system-rates", systemAdminId, {
+    method: "DELETE",
+  });
+  assert.equal(cleared.response.status, 200);
+  assert.equal(cleared.body.deletedCount, systemRates.length);
+  assert.deepEqual((await request<unknown[]>("/agaraccounting/system-rates", systemAdminId)).body, []);
+  const clearedDashboard = await request<{ availablePairs: unknown[]; recentChanges: Array<{ summary: string }> }>(
+    "/agaraccounting/system-rates/dashboard",
+    systemAdminId,
+  );
+  assert.equal(clearedDashboard.response.status, 200);
+  assert.deepEqual(clearedDashboard.body.availablePairs, []);
+  assert.match(clearedDashboard.body.recentChanges[0]!.summary, /cleared 4 global exchange rates/i);
 });
 
 test("bootstraps a configured verified email once without bypassing later revocation", async () => {
   assert.ok(database);
   const email = `system-admin-${randomUUID()}@example.com`;
   await database.db.insert(database.usersTable).values({ id: bootstrapAdminId, email });
-  process.env.LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS = email;
+  process.env.AGARACCOUNTING_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS = email;
   try {
-    const response = await request<unknown[]>("/ledgerflow/system-rates", bootstrapAdminId);
+    const response = await request<unknown[]>("/agaraccounting/system-rates", bootstrapAdminId);
     assert.equal(response.response.status, 200);
     const [entitlement] = await database.db.select().from(database.systemRateAdminsTable)
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
@@ -287,7 +305,7 @@ test("bootstraps a configured verified email once without bypassing later revoca
     await database.db.update(database.systemRateAdminsTable)
       .set({ status: "revoked", revokedAt })
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
-    const deniedAfterRevocation = await request<{ error: string }>("/ledgerflow/system-rates", bootstrapAdminId);
+    const deniedAfterRevocation = await request<{ error: string }>("/agaraccounting/system-rates", bootstrapAdminId);
     assert.equal(deniedAfterRevocation.response.status, 403);
     const [stillRevoked] = await database.db.select().from(database.systemRateAdminsTable)
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
@@ -297,6 +315,6 @@ test("bootstraps a configured verified email once without bypassing later revoca
       .where(eq(database.clientsTable.ownerUserId, bootstrapAdminId));
     clientIds.push(...ownedClients.map(({ id }) => id));
   } finally {
-    delete process.env.LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS;
+    delete process.env.AGARACCOUNTING_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS;
   }
 });

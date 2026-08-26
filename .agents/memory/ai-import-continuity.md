@@ -1,6 +1,6 @@
 ---
 name: AI import continuity and safety
-description: Rules for keeping LedgerFlow imports recoverable across navigation while limiting deterministic fallback to credible bank evidence.
+description: Rules for keeping AgarAccounting imports recoverable across navigation while limiting deterministic fallback to credible bank evidence.
 ---
 
 Assistant conversations and active statement imports are client-scoped. An in-flight import must retain its exact private upload identity until a matching server-side terminal trail record is available; a client switch or refresh changes the visible context, not the originating work.

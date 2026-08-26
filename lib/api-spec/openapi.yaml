@@ -10,7 +10,7 @@ servers:
 tags:
   - name: health
     description: Health operations
-  - name: ledgerflow
+  - name: agaraccounting
     description: Accounting workflow operations
   - name: auth
     description: Browser and mobile authentication endpoints
@@ -29,10 +29,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthUserEnvelope"
-  /ledgerflow/account-profile:
+  /agaraccounting/account-profile:
     patch:
-      operationId: updateLedgerflowAccountProfile
-      tags: [ledgerflow]
+      operationId: updateAgarAccountingAccountProfile
+      tags: [agaraccounting]
       summary: Save the authenticated account owner's AgarAccounting AI System profile
       requestBody:
         required: true
@@ -50,7 +50,7 @@ paths:
   /workspace/firm-profile:
     get:
       operationId: getFirmProfile
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get the bookkeeping firm's shared profile
       responses:
         "200":
@@ -61,7 +61,7 @@ paths:
                 $ref: "#/components/schemas/FirmProfile"
     patch:
       operationId: updateFirmProfile
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Update the bookkeeping firm's shared identity
       requestBody:
         required: true
@@ -79,7 +79,7 @@ paths:
   /organizations/context:
     get:
       operationId: getOrganizationContext
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get the authenticated user's company and accounting-firm context
       responses:
         "200":
@@ -91,7 +91,7 @@ paths:
   /organizations/onboarding:
     post:
       operationId: completeOrganizationOnboarding
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Complete company, accounting-firm, or dual onboarding
       requestBody:
         required: true
@@ -109,7 +109,7 @@ paths:
   /firms/{id}/invitations:
     post:
       operationId: inviteFirmMember
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Invite a member to an accounting firm
       parameters:
         - name: id
@@ -132,7 +132,7 @@ paths:
   /companies/{id}/firm-invitations:
     post:
       operationId: inviteAccountingFirm
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Invite an accounting firm administrator to serve a company
       parameters:
         - name: id
@@ -155,7 +155,7 @@ paths:
   /companies/{id}/transfer-invitations:
     post:
       operationId: inviteCompanyOwnerTransfer
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Invite a client owner to accept a firm-created company
       parameters:
         - name: id
@@ -178,7 +178,7 @@ paths:
   /organization-invitations/{token}/accept:
     post:
       operationId: acceptOrganizationInvitation
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Accept a firm, engagement, or company-transfer invitation
       parameters:
         - name: token
@@ -195,7 +195,7 @@ paths:
   /engagements/{id}/nominations:
     post:
       operationId: nominateFirmEngagementMember
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Nominate a firm member for company access
       parameters:
         - name: id
@@ -218,7 +218,7 @@ paths:
   /engagements/{id}/nominations/{userId}/approve:
     post:
       operationId: approveFirmEngagementMember
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Approve a nominated firm member for company access
       parameters:
         - name: id
@@ -239,7 +239,7 @@ paths:
   /engagements/{id}/members/{userId}:
     delete:
       operationId: revokeFirmEngagementMember
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Revoke one firm's access to a company
       parameters:
         - name: id
@@ -256,7 +256,7 @@ paths:
   /engagements/{id}:
     delete:
       operationId: revokeFirmEngagement
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: End an accounting-firm engagement
       parameters:
         - name: id
@@ -333,7 +333,7 @@ paths:
   /clients:
     get:
       operationId: getClients
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List client workspaces
       responses:
         "200":
@@ -346,7 +346,7 @@ paths:
                   $ref: "#/components/schemas/Client"
     post:
       operationId: createClient
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Create a client workspace
       requestBody:
         required: true
@@ -364,7 +364,7 @@ paths:
   /clients/{id}:
     patch:
       operationId: updateClient
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Update a client workspace
       parameters:
         - name: id
@@ -387,7 +387,7 @@ paths:
   /workspace/members:
     get:
       operationId: getWorkspaceMembers
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Review workspace members and invitations
       responses:
         "200":
@@ -399,7 +399,7 @@ paths:
   /workspace/members/{userId}:
     patch:
       operationId: updateWorkspaceMember
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Update a member role and client access
       parameters:
         - name: userId
@@ -421,7 +421,7 @@ paths:
                 $ref: "#/components/schemas/WorkspaceMember"
     delete:
       operationId: removeWorkspaceMember
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Remove a workspace member
       parameters:
         - name: userId
@@ -434,7 +434,7 @@ paths:
   /workspace/invitations:
     post:
       operationId: createWorkspaceInvitation
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Invite a teammate to the workspace
       requestBody:
         required: true
@@ -452,7 +452,7 @@ paths:
   /workspace/invitations/{id}:
     delete:
       operationId: revokeWorkspaceInvitation
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Revoke a pending workspace invitation
       parameters:
         - name: id
@@ -465,7 +465,7 @@ paths:
   /workspace/invitations/{id}/resend:
     post:
       operationId: resendWorkspaceInvitation
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Resend a pending workspace invitation
       parameters:
         - name: id
@@ -482,7 +482,7 @@ paths:
   /workspace/invitations/{token}/accept:
     post:
       operationId: acceptWorkspaceInvitation
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Accept a workspace invitation
       parameters:
         - name: token
@@ -496,10 +496,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceMember"
-  /ledgerflow/usage:
+  /agaraccounting/usage:
     get:
-      operationId: getLedgerflowUsage
-      tags: [ledgerflow]
+      operationId: getAgarAccountingUsage
+      tags: [agaraccounting]
       summary: Get server-measured workspace usage and plan limits
       responses:
         "200":
@@ -508,10 +508,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceUsage"
-  /ledgerflow/exchange-rates:
+  /agaraccounting/exchange-rates:
     get:
       operationId: getExchangeRates
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List the authenticated workspace exchange-rate schedule
       parameters:
         - $ref: "#/components/parameters/RateScopeClientId"
@@ -527,7 +527,7 @@ paths:
                   $ref: "#/components/schemas/ExchangeRate"
     post:
       operationId: createExchangeRate
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Add a dated workspace exchange rate
       parameters:
         - $ref: "#/components/parameters/RateScopeClientId"
@@ -545,10 +545,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExchangeRate"
-  /ledgerflow/exchange-rates/{id}:
+  /agaraccounting/exchange-rates/{id}:
     patch:
       operationId: updateExchangeRate
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Edit a dated workspace exchange rate
       parameters:
         - name: id
@@ -570,7 +570,7 @@ paths:
                 $ref: "#/components/schemas/ExchangeRate"
     delete:
       operationId: deleteExchangeRate
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Remove a dated workspace exchange rate
       parameters:
         - name: id
@@ -580,10 +580,10 @@ paths:
       responses:
         "204":
           description: Exchange rate deleted
-  /ledgerflow/exchange-rates/import:
+  /agaraccounting/exchange-rates/import:
     post:
       operationId: importExchangeRates
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Import dated workspace exchange rates
       parameters:
         - $ref: "#/components/parameters/RateScopeClientId"
@@ -601,10 +601,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExchangeRateImportResult"
-  /ledgerflow/exchange-rates/parse:
+  /agaraccounting/exchange-rates/parse:
     post:
       operationId: parseExchangeRates
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Prepare an exchange-rate import preview from CSV or Excel data
       requestBody:
         required: true
@@ -619,10 +619,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExchangeRateParseResult"
-  /ledgerflow/system-rates/dashboard:
+  /agaraccounting/system-rates/dashboard:
     get:
       operationId: getSystemRateDashboard
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get aggregated system exchange-rate health
       description: Restricted to explicitly entitled system administrators. This response contains aggregate coverage metrics only.
       responses:
@@ -634,10 +634,10 @@ paths:
                 $ref: "#/components/schemas/SystemRateDashboard"
         "403":
           description: System administrator entitlement required
-  /ledgerflow/system-rates:
+  /agaraccounting/system-rates:
     get:
       operationId: getSystemRates
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List global fallback exchange rates
       responses:
         "200":
@@ -652,7 +652,7 @@ paths:
           description: System administrator entitlement required
     post:
       operationId: createSystemRate
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Add a global fallback exchange rate
       requestBody:
         required: true
@@ -669,10 +669,24 @@ paths:
                 $ref: "#/components/schemas/SystemRate"
         "403":
           description: System administrator entitlement required
-  /ledgerflow/system-rates/{id}:
+    delete:
+      operationId: clearSystemRates
+      tags: [agaraccounting]
+      summary: Clear all global fallback exchange rates
+      description: Removes all global fallback rate records while retaining the rate table and audit history.
+      responses:
+        "200":
+          description: Global fallback exchange rates cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemRateClearResult"
+        "403":
+          description: System administrator entitlement required
+  /agaraccounting/system-rates/{id}:
     patch:
       operationId: updateSystemRate
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Edit a global fallback exchange rate
       parameters:
         - name: id
@@ -696,7 +710,7 @@ paths:
           description: System administrator entitlement required
     delete:
       operationId: deleteSystemRate
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Remove a global fallback exchange rate
       parameters:
         - name: id
@@ -708,10 +722,10 @@ paths:
           description: Global fallback exchange rate deleted
         "403":
           description: System administrator entitlement required
-  /ledgerflow/system-rates/import:
+  /agaraccounting/system-rates/import:
     post:
       operationId: importSystemRates
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Import dated global fallback exchange rates
       requestBody:
         required: true
@@ -728,10 +742,10 @@ paths:
                 $ref: "#/components/schemas/SystemRateImportResult"
         "403":
           description: System administrator entitlement required
-  /ledgerflow/system-rates/parse:
+  /agaraccounting/system-rates/parse:
     post:
       operationId: parseSystemRates
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Prepare a global fallback exchange-rate import preview from Excel data
       requestBody:
         required: true
@@ -761,10 +775,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
-  /ledgerflow/overview:
+  /agaraccounting/overview:
     get:
       operationId: getLedgerOverview
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get bookkeeping workflow overview
       parameters:
         - name: clientId
@@ -778,10 +792,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/LedgerOverview"
-  /ledgerflow/bank-accounts:
+  /agaraccounting/bank-accounts:
     get:
       operationId: getBankAccounts
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List a client's bank accounts
       parameters:
         - name: clientId
@@ -799,7 +813,7 @@ paths:
                   $ref: "#/components/schemas/BankAccount"
     post:
       operationId: createBankAccount
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Create a client bank account
       requestBody:
         required: true
@@ -814,10 +828,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BankAccount"
-  /ledgerflow/statement-lines:
+  /agaraccounting/statement-lines:
     get:
       operationId: getStatementLines
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List bank statement lines
       parameters:
         - name: clientId
@@ -851,7 +865,7 @@ paths:
                   $ref: "#/components/schemas/StatementLine"
     post:
       operationId: createStatementLine
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Add a bank statement line
       requestBody:
         required: true
@@ -866,10 +880,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementLine"
-  /ledgerflow/import-statement:
+  /agaraccounting/import-statement:
     post:
       operationId: importStatement
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Extract statement lines from a PDF, CSV, or Excel file
       requestBody:
         required: true
@@ -890,10 +904,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementImportResult"
-  /ledgerflow/statement-imports:
+  /agaraccounting/statement-imports:
     get:
       operationId: getStatementImports
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List statement import trail
       parameters:
         - name: clientId
@@ -909,10 +923,10 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/StatementImport"
-  /ledgerflow/statement-imports/{id}/undo:
+  /agaraccounting/statement-imports/{id}/undo:
     post:
       operationId: undoStatementImport
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Remove a review-only statement import while preserving its evidence trail
       parameters:
         - name: id
@@ -934,10 +948,10 @@ paths:
                 $ref: "#/components/schemas/StatementImportUndoResult"
         "409":
           description: The import contains accounting work that is no longer review-only
-  /ledgerflow/uploaded-files:
+  /agaraccounting/uploaded-files:
     get:
       operationId: getUploadedFiles
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List successful uploaded statement files
       parameters:
         - name: clientId
@@ -953,10 +967,10 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/UploadedFile"
-  /ledgerflow/statement-imports/{id}/source:
+  /agaraccounting/statement-imports/{id}/source:
     get:
       operationId: getStatementImportSource
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Download an imported statement source document
       parameters:
         - name: id
@@ -975,10 +989,10 @@ paths:
           description: The statement is not in an accessible workspace
         "404":
           description: Source document not found
-  /ledgerflow/ai-chat:
+  /agaraccounting/ai-chat:
     post:
-      operationId: askLedgerflowAI
-      tags: [ledgerflow]
+      operationId: askAgarAccountingAI
+      tags: [agaraccounting]
       summary: Ask the AI assistant about a client workspace
       requestBody:
         required: true
@@ -993,10 +1007,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIChatResponse"
-  /ledgerflow/ai-conversations:
+  /agaraccounting/ai-conversations:
     get:
-      operationId: getLedgerflowAIConversations
-      tags: [ledgerflow]
+      operationId: getAgarAccountingAIConversations
+      tags: [agaraccounting]
       summary: List client-scoped accountant copilot conversations
       parameters:
         - name: clientId
@@ -1013,8 +1027,8 @@ paths:
                 items:
                   $ref: "#/components/schemas/AIConversationSummary"
     post:
-      operationId: createLedgerflowAIConversation
-      tags: [ledgerflow]
+      operationId: createAgarAccountingAIConversation
+      tags: [agaraccounting]
       summary: Start a client-scoped accountant copilot conversation
       requestBody:
         required: true
@@ -1029,10 +1043,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIConversation"
-  /ledgerflow/ai-conversations/{id}:
+  /agaraccounting/ai-conversations/{id}:
     get:
-      operationId: getLedgerflowAIConversation
-      tags: [ledgerflow]
+      operationId: getAgarAccountingAIConversation
+      tags: [agaraccounting]
       summary: Get a client-scoped copilot conversation and its turns
       parameters:
         - name: id
@@ -1047,8 +1061,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/AIConversation"
     patch:
-      operationId: renameLedgerflowAIConversation
-      tags: [ledgerflow]
+      operationId: renameAgarAccountingAIConversation
+      tags: [agaraccounting]
       summary: Rename a copilot conversation
       parameters:
         - name: id
@@ -1069,8 +1083,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/AIConversation"
     delete:
-      operationId: clearLedgerflowAIConversation
-      tags: [ledgerflow]
+      operationId: clearAgarAccountingAIConversation
+      tags: [agaraccounting]
       summary: Clear a copilot conversation while retaining its identity
       parameters:
         - name: id
@@ -1080,10 +1094,10 @@ paths:
       responses:
         "204":
           description: Conversation cleared
-  /ledgerflow/ai-settings:
+  /agaraccounting/ai-settings:
     get:
-      operationId: getLedgerflowAISettings
-      tags: [ledgerflow]
+      operationId: getAgarAccountingAISettings
+      tags: [agaraccounting]
       summary: Get redacted AI provider settings for a client workspace
       parameters:
         - name: clientId
@@ -1098,8 +1112,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/AIProviderSettings"
     put:
-      operationId: updateLedgerflowAISettings
-      tags: [ledgerflow]
+      operationId: updateAgarAccountingAISettings
+      tags: [agaraccounting]
       summary: Select an AI provider and optionally add or rotate its API credential
       requestBody:
         required: true
@@ -1114,10 +1128,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIProviderSettings"
-  /ledgerflow/ai-settings/test:
+  /agaraccounting/ai-settings/test:
     post:
-      operationId: testLedgerflowAISettings
-      tags: [ledgerflow]
+      operationId: testAgarAccountingAISettings
+      tags: [agaraccounting]
       summary: Test the selected AI provider without returning its credential
       requestBody:
         required: true
@@ -1132,10 +1146,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIProviderSettings"
-  /ledgerflow/ai-settings/credential:
+  /agaraccounting/ai-settings/credential:
     delete:
-      operationId: removeLedgerflowAICredential
-      tags: [ledgerflow]
+      operationId: removeAgarAccountingAICredential
+      tags: [agaraccounting]
       summary: Remove the workspace-owned AI credential and return to managed OpenAI
       requestBody:
         required: true
@@ -1150,10 +1164,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIProviderSettings"
-  /ledgerflow/ai-actions/confirm:
+  /agaraccounting/ai-actions/confirm:
     post:
       operationId: confirmAICopilotAction
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Apply a user-confirmed AI bookkeeping proposal
       requestBody:
         required: true
@@ -1168,10 +1182,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AICopilotActionResult"
-  /ledgerflow/bulk-transition-audits:
+  /agaraccounting/bulk-transition-audits:
     get:
       operationId: getBulkTransitionAudits
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List immutable ledger transition history
       parameters:
         - name: clientId
@@ -1187,10 +1201,10 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/BulkTransitionAudit"
-  /ledgerflow/journal-entries:
+  /agaraccounting/journal-entries:
     get:
       operationId: getJournalEntries
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List journal entries
       parameters:
         - name: clientId
@@ -1206,10 +1220,10 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/JournalEntry"
-  /ledgerflow/journal-entries/{id}/approve:
+  /agaraccounting/journal-entries/{id}/approve:
     post:
       operationId: approveJournalEntry
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Approve a suggested journal entry
       parameters:
         - name: id
@@ -1230,10 +1244,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JournalEntry"
-  /ledgerflow/journal-entries/{id}/post:
+  /agaraccounting/journal-entries/{id}/post:
     post:
       operationId: postJournalEntry
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Post an approved journal entry to the ledger
       parameters:
         - name: id
@@ -1256,10 +1270,10 @@ paths:
                 $ref: "#/components/schemas/JournalEntry"
         "409":
           description: Journal entry must be approved before posting
-  /ledgerflow/journal-entries/{id}/unpost:
+  /agaraccounting/journal-entries/{id}/unpost:
     post:
       operationId: unpostJournalEntry
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Return a posted journal entry to approved and remove it from live reports
       parameters:
         - name: id
@@ -1282,10 +1296,10 @@ paths:
                 $ref: "#/components/schemas/JournalEntry"
         "409":
           description: Journal entry must be posted before it can be unposted
-  /ledgerflow/trial-balance:
+  /agaraccounting/trial-balance:
     get:
       operationId: getTrialBalance
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get trial balance
       parameters:
         - name: clientId
@@ -1301,10 +1315,10 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TrialBalanceRow"
-  /ledgerflow/financial-statements:
+  /agaraccounting/financial-statements:
     get:
       operationId: getFinancialStatements
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get financial statement reports
       parameters:
         - name: clientId
@@ -1323,10 +1337,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FinancialStatements"
-  /ledgerflow/report-packs:
+  /agaraccounting/report-packs:
     get:
       operationId: getReportPacks
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: List saved IFRS report-pack snapshots
       parameters:
         - name: clientId
@@ -1344,7 +1358,7 @@ paths:
                   $ref: "#/components/schemas/ReportPackSummary"
     post:
       operationId: createReportPack
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Generate a comparative IFRS-style report pack snapshot
       requestBody:
         required: true
@@ -1361,10 +1375,10 @@ paths:
                 $ref: "#/components/schemas/ReportPack"
         "422":
           description: Report data cannot be generated safely
-  /ledgerflow/report-packs/{id}:
+  /agaraccounting/report-packs/{id}:
     get:
       operationId: getReportPack
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Get one saved report-pack snapshot
       parameters:
         - name: id
@@ -1382,7 +1396,7 @@ paths:
           description: Report pack not found
     patch:
       operationId: updateReportPack
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Update report-pack inputs or finalize after review
       parameters:
         - name: id
@@ -1404,10 +1418,10 @@ paths:
                 $ref: "#/components/schemas/ReportPack"
         "409":
           description: Finalization is blocked by validation or accountant inputs
-  /ledgerflow/report-packs/{id}/pdf:
+  /agaraccounting/report-packs/{id}/pdf:
     get:
       operationId: downloadReportPackPdf
-      tags: [ledgerflow]
+      tags: [agaraccounting]
       summary: Download the saved report-pack snapshot as a PDF
       parameters:
         - name: id
@@ -2057,6 +2071,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SystemRate"
+    SystemRateClearResult:
+      type: object
+      required: [deletedCount]
+      properties:
+        deletedCount: { type: number }
     SystemRatePair:
       type: object
       required: [sourceCurrency, functionalCurrency, latestEffectiveDate, rateCount]

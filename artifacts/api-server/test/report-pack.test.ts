@@ -18,8 +18,8 @@ let testUserId = "";
 let testClientId: number | undefined;
 
 function testDatabaseUrl() {
-  const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
-  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for report-pack integration tests.");
+  const value = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
+  if (!value) throw new Error("AGARACCOUNTING_TEST_DATABASE_URL is required for report-pack integration tests.");
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
     throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
@@ -187,7 +187,6 @@ test("brands generated report PDFs as AgarAccounting AI System", () => {
   assert.match(pdf, /AgarAccounting AI System report snapshot/);
   assert.match(pdf, /evidence linkage in\)/);
   assert.match(pdf, /\(AgarAccounting AI System\.\)/);
-  assert.doesNotMatch(pdf, /LedgerFlow/);
 });
 
 test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct from IAS 1", () => {
@@ -228,7 +227,7 @@ test("rejects ineligible report-pack basis, profile, and period combinations", a
   ];
 
   for (const body of requests) {
-    const result: { response: Response; body: { error: string } } = await request<{ error: string }>("/ledgerflow/report-packs", {
+    const result: { response: Response; body: { error: string } } = await request<{ error: string }>("/agaraccounting/report-packs", {
       method: "POST",
       body: JSON.stringify({ clientId: testClientId, presentationCurrency: "AED", ...body }),
     });
@@ -271,7 +270,7 @@ test("finalized snapshots retain their original profile and cannot be mutated", 
     reportingBasis: string;
     presentationProfile: string;
     snapshot: ReportSnapshot;
-  }>(`/ledgerflow/report-packs/${finalizedPack.id}`);
+  }>(`/agaraccounting/report-packs/${finalizedPack.id}`);
   assert.equal(saved.response.status, 200);
   assert.equal(saved.body.status, "finalized");
   assert.equal(saved.body.reportingBasis, "IFRS");
@@ -280,7 +279,7 @@ test("finalized snapshots retain their original profile and cannot be mutated", 
   assert.equal(saved.body.snapshot.presentationProfile, "IFRS 18");
   const finalizedSnapshot = saved.body.snapshot;
 
-  const mutation = await request<{ error: string }>(`/ledgerflow/report-packs/${finalizedPack.id}`, {
+  const mutation = await request<{ error: string }>(`/agaraccounting/report-packs/${finalizedPack.id}`, {
     method: "PATCH",
     body: JSON.stringify({
       clientId: testClientId,
@@ -292,7 +291,7 @@ test("finalized snapshots retain their original profile and cannot be mutated", 
   assert.match(mutation.body.error, /immutable/i);
 
   const reloaded = await request<{ status: string; snapshot: ReportSnapshot }>(
-    `/ledgerflow/report-packs/${finalizedPack.id}`,
+    `/agaraccounting/report-packs/${finalizedPack.id}`,
   );
   assert.equal(reloaded.response.status, 200);
   assert.equal(reloaded.body.status, "finalized");

@@ -1,6 +1,6 @@
 ---
 name: Firm exchange-rate schedules
-description: Explains the deliberate scope of exchange-rate schedules in LedgerFlow.
+description: Explains the deliberate scope of exchange-rate schedules in AgarAccounting.
 ---
 
 Exchange-rate schedules belong to a stable rate profile. Firm-managed companies share the accounting firm's profile; company-only ledgers use an internal company-owner profile. Never select a rate profile from the user who happened to make the request.

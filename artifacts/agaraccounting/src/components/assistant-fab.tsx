@@ -6,15 +6,15 @@ import {
 } from 'lucide-react';
 import { useClientWorkspace } from '../App';
 import {
-  useAskLedgerflowAI,
+  useAskAgarAccountingAI,
   useImportStatement,
   useConfirmAICopilotAction,
   useGetStatementImports,
-  useGetLedgerflowAIConversations,
-  useGetLedgerflowAIConversation,
-  useCreateLedgerflowAIConversation,
-  useRenameLedgerflowAIConversation,
-  useClearLedgerflowAIConversation,
+  useGetAgarAccountingAIConversations,
+  useGetAgarAccountingAIConversation,
+  useCreateAgarAccountingAIConversation,
+  useRenameAgarAccountingAIConversation,
+  useClearAgarAccountingAIConversation,
   getGetStatementImportsQueryKey,
   getGetStatementLinesQueryKey,
   getGetBulkTransitionAuditsQueryKey,
@@ -23,8 +23,8 @@ import {
   getGetBankAccountsQueryKey,
   getGetTrialBalanceQueryKey,
   getGetFinancialStatementsQueryKey,
-  getGetLedgerflowAIConversationsQueryKey,
-  getGetLedgerflowAIConversationQueryKey
+  getGetAgarAccountingAIConversationsQueryKey,
+  getGetAgarAccountingAIConversationQueryKey
 } from '@workspace/api-client-react';
 import type {
   AIChatResponse, AICopilotRecommendation,
@@ -54,7 +54,7 @@ type RenderMessage = {
 };
 
 const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
-const ASSISTANT_STATE_STORAGE_KEY = 'ledgerflow-ai-assistant-state';
+const ASSISTANT_STATE_STORAGE_KEY = 'agaraccounting-ai-assistant-state';
 
 type PendingImport = {
   clientId: number;
@@ -357,7 +357,7 @@ function MessageBubble({ msg, activeClient, activeThreadId, onClose, onRetry }: 
     if (rec.type !== 'bulk_post_entries' || !activeThreadId) return;
     const movedLines = rec.lineCount ?? rec.statementLineIds?.length ?? 0;
 
-    queryClient.setQueryData(getGetLedgerflowAIConversationQueryKey(activeThreadId), (old: any) => {
+    queryClient.setQueryData(getGetAgarAccountingAIConversationQueryKey(activeThreadId), (old: any) => {
       if (!old) return old;
       return {
         ...old,
@@ -480,7 +480,7 @@ export function AssistantFAB() {
 
   const { activeClient, clients } = useClientWorkspace();
   const queryClient = useQueryClient();
-  const chatMutation = useAskLedgerflowAI();
+  const chatMutation = useAskAgarAccountingAI();
   const importMutation = useImportStatement();
   const { uploadFile, isUploading } = useUpload();
 
@@ -491,7 +491,7 @@ export function AssistantFAB() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const createMutation = useCreateLedgerflowAIConversation();
+  const createMutation = useCreateAgarAccountingAIConversation();
 
   const activeClientKey = activeClient ? String(activeClient.id) : 'none';
   const pendingImport = activeClient ? assistantState.pendingImports[activeClientKey] : undefined;
@@ -503,18 +503,18 @@ export function AssistantFAB() {
   const [renameTitle, setRenameTitle] = useState('');
   const [showOptions, setShowOptions] = useState(false);
 
-  const conversationsQuery = useGetLedgerflowAIConversations(
+  const conversationsQuery = useGetAgarAccountingAIConversations(
     { clientId: activeClient?.id ?? 0 },
-    { query: { enabled: !!activeClient, queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient?.id ?? 0 }) } }
+    { query: { enabled: !!activeClient, queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: activeClient?.id ?? 0 }) } }
   );
 
-  const activeThread = useGetLedgerflowAIConversation(
+  const activeThread = useGetAgarAccountingAIConversation(
     activeThreadId ?? 0,
-    { query: { enabled: !!activeThreadId, queryKey: getGetLedgerflowAIConversationQueryKey(activeThreadId ?? 0) } }
+    { query: { enabled: !!activeThreadId, queryKey: getGetAgarAccountingAIConversationQueryKey(activeThreadId ?? 0) } }
   );
 
-  const renameMutation = useRenameLedgerflowAIConversation();
-  const clearMutation = useClearLedgerflowAIConversation();
+  const renameMutation = useRenameAgarAccountingAIConversation();
+  const clearMutation = useClearAgarAccountingAIConversation();
 
   const importTrail = useGetStatementImports(
     { clientId: activeClient?.id ?? 0 },
@@ -637,12 +637,12 @@ export function AssistantFAB() {
          const responseThreadId = activeThreadId ?? res.threadId;
          if (!activeThreadId) {
            setActiveThreadId(res.threadId);
-           queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: client.id }) });
+           queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: client.id }) });
          } else {
-           queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(activeThreadId) });
+           queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationQueryKey(activeThreadId) });
          }
          if (/\b(?:reset|clear)\s+(?:all\s+)?filters?\b|\bshow\s+all\b/i.test(content)) {
-           queryClient.setQueryData(getGetLedgerflowAIConversationQueryKey(responseThreadId), (current: unknown) => {
+           queryClient.setQueryData(getGetAgarAccountingAIConversationQueryKey(responseThreadId), (current: unknown) => {
              if (typeof current !== 'object' || current === null) return current;
              return { ...current, scope: {} };
            });
@@ -653,10 +653,10 @@ export function AssistantFAB() {
          const durableThreadId = activeThreadId ?? getErrorThreadId(err);
          setOptimisticTurns([]);
          setActiveChatClientId(null);
-         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: client.id }) });
+         queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: client.id }) });
          if (durableThreadId) {
            setActiveThreadId(durableThreadId);
-           queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(durableThreadId) });
+           queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationQueryKey(durableThreadId) });
            return;
          }
          setLocalImportMessages(prev => ({
@@ -855,7 +855,7 @@ export function AssistantFAB() {
                   createMutation.mutate({ data: { clientId: activeClient.id } }, {
                     onSuccess: (res) => {
                       setActiveThreadId(res.id);
-                      queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient.id }) });
+                      queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: activeClient.id }) });
                       setView('chat');
                       setTimeout(() => composerRef.current?.focus(), 0);
                     }
@@ -881,8 +881,8 @@ export function AssistantFAB() {
                      e.preventDefault();
                      renameMutation.mutate({ id: thread.id, data: { clientId: activeClient!.id, title: renameTitle } }, {
                        onSuccess: () => {
-                         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient!.id }) });
-                         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(thread.id) });
+                         queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: activeClient!.id }) });
+                         queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationQueryKey(thread.id) });
                        }
                      });
                      setRenamingId(null);
@@ -911,8 +911,8 @@ export function AssistantFAB() {
                          if (confirm('Delete this conversation?')) {
                            clearMutation.mutate({ id: thread.id }, {
                              onSuccess: () => {
-                               queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient!.id }) });
-                               queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(thread.id) });
+                               queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: activeClient!.id }) });
+                               queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationQueryKey(thread.id) });
                              }
                            });
                          }
@@ -984,8 +984,8 @@ export function AssistantFAB() {
                               if (confirm('Clear this conversation?')) {
                                 clearMutation.mutate({ id: activeThreadId }, {
                                   onSuccess: () => {
-                                    queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient!.id }) });
-                                    queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(activeThreadId) });
+                                    queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationsQueryKey({ clientId: activeClient!.id }) });
+                                    queryClient.invalidateQueries({ queryKey: getGetAgarAccountingAIConversationQueryKey(activeThreadId) });
                                   }
                                 });
                               }

@@ -14,7 +14,7 @@ if (!process.env.DATABASE_URL) {
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 export const db = drizzle(pool, { schema });
 
-const LEDGERFLOW_INTEGRITY_LOCK = 239023;
+const AGARACCOUNTING_INTEGRITY_LOCK = 239023;
 
 export function createDatabasePool(connectionString: string) {
   return new Pool({ connectionString });
@@ -33,7 +33,7 @@ type StatementImportHashIndex = {
 function isExpectedStatementImportHashIndex(index: StatementImportHashIndex | undefined) {
   return Boolean(
     index
-      && index.tableName === "ledgerflow_statement_imports"
+      && index.tableName === "agaraccounting_statement_imports"
       && index.isUnique
       && normalizedIndexPredicate(index.predicate) === "outcome = 'completed'"
       && /\(\s*client_id\s*,\s*file_hash\s*\)/i.test(index.indexDefinition),
@@ -57,22 +57,22 @@ async function statementImportHashIndex(client: PoolClient, indexName = STATEMEN
   return result.rows[0];
 }
 
-const STATEMENT_IMPORT_HASH_INDEX = "ledgerflow_statement_imports_client_file_hash_idx";
+const STATEMENT_IMPORT_HASH_INDEX = "agaraccounting_statement_imports_client_file_hash_idx";
 
 async function dropIndexConcurrently(client: PoolClient, indexName: string) {
   await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${indexName}`);
 }
 
-export async function ensureLedgerflowIntegrity() {
+export async function ensureAgarAccountingIntegrity() {
   const client = await pool.connect();
   let transactionStarted = false;
   try {
-    await client.query("SELECT pg_advisory_lock($1)", [LEDGERFLOW_INTEGRITY_LOCK]);
+    await client.query("SELECT pg_advisory_lock($1)", [AGARACCOUNTING_INTEGRITY_LOCK]);
     await ensureStatementImportHashIndex(client);
     await client.query("BEGIN");
     transactionStarted = true;
     await client.query(`
-      CREATE OR REPLACE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation()
+      CREATE OR REPLACE FUNCTION agaraccounting_reject_bulk_transition_audit_mutation()
       RETURNS trigger
       LANGUAGE plpgsql
       AS $$
@@ -83,10 +83,10 @@ export async function ensureLedgerflowIntegrity() {
 
       DO $$
       BEGIN
-        CREATE TRIGGER ledgerflow_bulk_transition_audits_append_only
-          BEFORE UPDATE OR DELETE ON ledgerflow_bulk_transition_audits
+        CREATE TRIGGER agaraccounting_bulk_transition_audits_append_only
+          BEFORE UPDATE OR DELETE ON agaraccounting_bulk_transition_audits
           FOR EACH ROW
-          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+          EXECUTE FUNCTION agaraccounting_reject_bulk_transition_audit_mutation();
       EXCEPTION
         WHEN duplicate_object THEN NULL;
       END;
@@ -94,10 +94,10 @@ export async function ensureLedgerflowIntegrity() {
 
       DO $$
       BEGIN
-        CREATE TRIGGER ledgerflow_bulk_transition_audits_no_truncate
-          BEFORE TRUNCATE ON ledgerflow_bulk_transition_audits
+        CREATE TRIGGER agaraccounting_bulk_transition_audits_no_truncate
+          BEFORE TRUNCATE ON agaraccounting_bulk_transition_audits
           FOR EACH STATEMENT
-          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+          EXECUTE FUNCTION agaraccounting_reject_bulk_transition_audit_mutation();
       EXCEPTION
         WHEN duplicate_object THEN NULL;
       END;
@@ -105,10 +105,10 @@ export async function ensureLedgerflowIntegrity() {
 
       DO $$
       BEGIN
-        CREATE TRIGGER ledgerflow_statement_import_undo_audits_append_only
-          BEFORE UPDATE OR DELETE ON ledgerflow_statement_import_undo_audits
+        CREATE TRIGGER agaraccounting_statement_import_undo_audits_append_only
+          BEFORE UPDATE OR DELETE ON agaraccounting_statement_import_undo_audits
           FOR EACH ROW
-          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+          EXECUTE FUNCTION agaraccounting_reject_bulk_transition_audit_mutation();
       EXCEPTION
         WHEN duplicate_object THEN NULL;
       END;
@@ -116,10 +116,10 @@ export async function ensureLedgerflowIntegrity() {
 
       DO $$
       BEGIN
-        CREATE TRIGGER ledgerflow_statement_import_undo_audits_no_truncate
-          BEFORE TRUNCATE ON ledgerflow_statement_import_undo_audits
+        CREATE TRIGGER agaraccounting_statement_import_undo_audits_no_truncate
+          BEFORE TRUNCATE ON agaraccounting_statement_import_undo_audits
           FOR EACH STATEMENT
-          EXECUTE FUNCTION ledgerflow_reject_bulk_transition_audit_mutation();
+          EXECUTE FUNCTION agaraccounting_reject_bulk_transition_audit_mutation();
       EXCEPTION
         WHEN duplicate_object THEN NULL;
       END;
@@ -133,34 +133,34 @@ export async function ensureLedgerflowIntegrity() {
     }
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `AgarAccounting AI database integrity bootstrap failed before the API could accept traffic. Verify that ledgerflow_statement_imports has at most one completed row for each client and file hash, then rerun the release. ${detail}`,
+      `AgarAccounting AI database integrity bootstrap failed before the API could accept traffic. Verify that agaraccounting_statement_imports has at most one completed row for each client and file hash, then rerun the release. ${detail}`,
       { cause: error },
     );
   } finally {
-    await client.query("SELECT pg_advisory_unlock($1)", [LEDGERFLOW_INTEGRITY_LOCK]);
+    await client.query("SELECT pg_advisory_unlock($1)", [AGARACCOUNTING_INTEGRITY_LOCK]);
     client.release();
   }
 }
 
 async function ensureStatementImportHashIndex(client: PoolClient) {
   const existing = await statementImportHashIndex(client);
-  if (existing && existing.tableName !== "ledgerflow_statement_imports") {
+  if (existing && existing.tableName !== "agaraccounting_statement_imports") {
     throw new Error(
-      `The named index ${STATEMENT_IMPORT_HASH_INDEX} belongs to ${existing.tableName}, not ledgerflow_statement_imports.`,
+      `The named index ${STATEMENT_IMPORT_HASH_INDEX} belongs to ${existing.tableName}, not agaraccounting_statement_imports.`,
     );
   }
 
   if (!existing) {
     await client.query(`
       CREATE UNIQUE INDEX CONCURRENTLY ${STATEMENT_IMPORT_HASH_INDEX}
-        ON ledgerflow_statement_imports (client_id, file_hash)
+        ON agaraccounting_statement_imports (client_id, file_hash)
         WHERE outcome = 'completed'
     `);
   } else if (!isExpectedStatementImportHashIndex(existing)) {
     const replacement = await statementImportHashIndex(client, STATEMENT_IMPORT_HASH_REPLACEMENT_INDEX);
-    if (replacement && replacement.tableName !== "ledgerflow_statement_imports") {
+    if (replacement && replacement.tableName !== "agaraccounting_statement_imports") {
       throw new Error(
-        `The replacement index ${STATEMENT_IMPORT_HASH_REPLACEMENT_INDEX} belongs to ${replacement.tableName}, not ledgerflow_statement_imports.`,
+        `The replacement index ${STATEMENT_IMPORT_HASH_REPLACEMENT_INDEX} belongs to ${replacement.tableName}, not agaraccounting_statement_imports.`,
       );
     }
     if (replacement && !isExpectedStatementImportHashIndex(replacement)) {
@@ -171,7 +171,7 @@ async function ensureStatementImportHashIndex(client: PoolClient) {
     )) {
       await client.query(`
         CREATE UNIQUE INDEX CONCURRENTLY ${STATEMENT_IMPORT_HASH_REPLACEMENT_INDEX}
-          ON ledgerflow_statement_imports (client_id, file_hash)
+          ON agaraccounting_statement_imports (client_id, file_hash)
           WHERE outcome = 'completed'
       `);
     }
@@ -194,9 +194,9 @@ async function ensureStatementImportHashIndex(client: PoolClient) {
   }
 }
 
-export const ensureLedgerflowAuditImmutability = ensureLedgerflowIntegrity;
+export const ensureAgarAccountingAuditImmutability = ensureAgarAccountingIntegrity;
 
-const STATEMENT_IMPORT_HASH_REPLACEMENT_INDEX = "ledgerflow_statement_imports_file_hash_completed_idx";
+const STATEMENT_IMPORT_HASH_REPLACEMENT_INDEX = "agaraccounting_statement_imports_file_hash_completed_idx";
 
 function normalizedIndexPredicate(predicate: string | null) {
   return predicate

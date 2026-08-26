@@ -9,18 +9,18 @@ import {
   UnpostJournalEntryParams,
   UnpostJournalEntryBody,
   UnpostJournalEntryResponse,
-  AskLedgerflowAIBody,
-  AskLedgerflowAIResponse,
-  ClearLedgerflowAIConversationParams,
-  CreateLedgerflowAIConversationBody,
-  CreateLedgerflowAIConversationResponse,
-  GetLedgerflowAIConversationParams,
-  GetLedgerflowAIConversationResponse,
-  GetLedgerflowAIConversationsQueryParams,
-  GetLedgerflowAIConversationsResponse,
-  RenameLedgerflowAIConversationBody,
-  RenameLedgerflowAIConversationParams,
-  RenameLedgerflowAIConversationResponse,
+  AskAgarAccountingAIBody,
+  AskAgarAccountingAIResponse,
+  ClearAgarAccountingAIConversationParams,
+  CreateAgarAccountingAIConversationBody,
+  CreateAgarAccountingAIConversationResponse,
+  GetAgarAccountingAIConversationParams,
+  GetAgarAccountingAIConversationResponse,
+  GetAgarAccountingAIConversationsQueryParams,
+  GetAgarAccountingAIConversationsResponse,
+  RenameAgarAccountingAIConversationBody,
+  RenameAgarAccountingAIConversationParams,
+  RenameAgarAccountingAIConversationResponse,
   ConfirmAICopilotActionBody,
   ConfirmAICopilotActionResponse,
   AcceptWorkspaceInvitationParams,
@@ -31,6 +31,7 @@ import {
   CreateBankAccountResponse,
   CreateExchangeRateBody,
   CreateExchangeRateResponse,
+  ClearSystemRatesResponse,
   CreateReportPackBody,
   CreateReportPackResponse,
   DeleteExchangeRateParams,
@@ -47,7 +48,7 @@ import {
   ParseSystemRatesBody,
   ParseSystemRatesResponse,
   ApproveJournalEntryResponse,
-  GetLedgerflowUsageResponse,
+  GetAgarAccountingUsageResponse,
   UpdateClientParams,
   UpdateClientBody,
   UpdateClientResponse,
@@ -64,8 +65,8 @@ import {
   GetReportPackResponse,
   GetReportPacksQueryParams,
   GetReportPacksResponse,
-  GetLedgerflowAISettingsQueryParams,
-  GetLedgerflowAISettingsResponse,
+  GetAgarAccountingAISettingsQueryParams,
+  GetAgarAccountingAISettingsResponse,
   GetJournalEntriesResponse,
   GetLedgerOverviewResponse,
   GetStatementLinesQueryParams,
@@ -78,14 +79,14 @@ import {
   UndoStatementImportBody,
   UndoStatementImportParams,
   UndoStatementImportResponse,
-  RemoveLedgerflowAICredentialBody,
-  RemoveLedgerflowAICredentialResponse,
-  TestLedgerflowAISettingsBody,
-  TestLedgerflowAISettingsResponse,
-  UpdateLedgerflowAccountProfileBody,
-  UpdateLedgerflowAccountProfileResponse,
-  UpdateLedgerflowAISettingsBody,
-  UpdateLedgerflowAISettingsResponse,
+  RemoveAgarAccountingAICredentialBody,
+  RemoveAgarAccountingAICredentialResponse,
+  TestAgarAccountingAISettingsBody,
+  TestAgarAccountingAISettingsResponse,
+  UpdateAgarAccountingAccountProfileBody,
+  UpdateAgarAccountingAccountProfileResponse,
+  UpdateAgarAccountingAISettingsBody,
+  UpdateAgarAccountingAISettingsResponse,
   UpdateReportPackBody,
   UpdateReportPackParams,
   UpdateReportPackResponse,
@@ -244,7 +245,7 @@ function isPlaceholderStarterWorkspace(client: typeof clientsTable.$inferSelect)
     && client.period === "August 2026"
     && (
       /private workspace$/i.test(client.name)
-      || /ledgerflow workspace$/i.test(client.name)
+      || /agaraccounting workspace$/i.test(client.name)
       || /(?:'s|’s) workspace$/i.test(client.name)
     );
 }
@@ -2623,7 +2624,7 @@ function hasBankStatementStructure(text: string, parsedRows: ParsedBankLine[], h
     && (hasBankProvenance || hasSelectedBankAccount);
 }
 
-router.post("/ledgerflow/import-statement", async (req, res) => {
+router.post("/agaraccounting/import-statement", async (req, res) => {
   const parsed = ImportStatementBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
   const { importId: pendingImportId, clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed } = parsed.data as typeof parsed.data & { objectPath?: string };
@@ -3186,7 +3187,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     req.log.error({ err: error }, "Statement import failed");
     const databaseFailure = databaseError(error);
     if (databaseFailure?.code === "23505"
-      && databaseFailure.constraint === "ledgerflow_statement_imports_client_file_hash_idx") {
+      && databaseFailure.constraint === "agaraccounting_statement_imports_client_file_hash_idx") {
       return res.status(503).json({
         error: "Statement import is temporarily unavailable because the database is not ready for import history. Please try again after the release completes.",
       });
@@ -3215,7 +3216,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
   }
 });
 
-router.get("/ledgerflow/statement-imports", async (req, res) => {
+router.get("/agaraccounting/statement-imports", async (req, res) => {
   const requestedClientId = Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
@@ -3242,7 +3243,7 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
   }));
 });
 
-router.post("/ledgerflow/statement-imports/:id/undo", async (req, res) => {
+router.post("/agaraccounting/statement-imports/:id/undo", async (req, res) => {
   const params = UndoStatementImportParams.safeParse(req.params);
   const body = UndoStatementImportBody.safeParse(req.body);
   if (!params.success || !body.success || !Number.isInteger(params.data.id) || params.data.id <= 0) {
@@ -3355,7 +3356,7 @@ router.post("/ledgerflow/statement-imports/:id/undo", async (req, res) => {
   }
 });
 
-router.get("/ledgerflow/uploaded-files", async (req, res) => {
+router.get("/agaraccounting/uploaded-files", async (req, res) => {
   const requestedClientId = Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
@@ -3394,7 +3395,7 @@ router.get("/ledgerflow/uploaded-files", async (req, res) => {
   return res.json(GetUploadedFilesResponse.parse(files));
 });
 
-router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
+router.get("/agaraccounting/statement-imports/:id/source", async (req, res) => {
   const importId = Number(req.params.id);
   if (!Number.isInteger(importId) || importId <= 0) {
     res.status(404).json({ error: "Source document not found" });
@@ -3936,8 +3937,8 @@ async function deterministicAccountingAnswer(
   };
 }
 
-router.get("/ledgerflow/ai-conversations", async (req, res) => {
-  const { clientId } = GetLedgerflowAIConversationsQueryParams.parse(req.query);
+router.get("/agaraccounting/ai-conversations", async (req, res) => {
+  const { clientId } = GetAgarAccountingAIConversationsQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
   await purgeExpiredAssistantData();
@@ -3950,11 +3951,11 @@ router.get("/ledgerflow/ai-conversations", async (req, res) => {
       .where(eq(assistantTurnsTable.threadId, thread.id));
     return assistantThreadSummary(thread, turns.length);
   }));
-  res.json(GetLedgerflowAIConversationsResponse.parse(responses));
+  res.json(GetAgarAccountingAIConversationsResponse.parse(responses));
 });
 
-router.post("/ledgerflow/ai-conversations", async (req, res) => {
-  const body = CreateLedgerflowAIConversationBody.parse(req.body);
+router.post("/agaraccounting/ai-conversations", async (req, res) => {
+  const body = CreateAgarAccountingAIConversationBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
   const [thread] = await db.insert(assistantThreadsTable).values({
@@ -3962,19 +3963,19 @@ router.post("/ledgerflow/ai-conversations", async (req, res) => {
     userId: currentUserId(req),
     title: body.title?.trim() || "New conversation",
   }).returning();
-  res.status(201).json(CreateLedgerflowAIConversationResponse.parse(await assistantConversationResponse(thread)));
+  res.status(201).json(CreateAgarAccountingAIConversationResponse.parse(await assistantConversationResponse(thread)));
 });
 
-router.get("/ledgerflow/ai-conversations/:id", async (req, res) => {
-  const { id } = GetLedgerflowAIConversationParams.parse(req.params);
+router.get("/agaraccounting/ai-conversations/:id", async (req, res) => {
+  const { id } = GetAgarAccountingAIConversationParams.parse(req.params);
   const scoped = await requireAssistantThread(req, res, id);
   if (!scoped) return;
-  res.json(GetLedgerflowAIConversationResponse.parse(await assistantConversationResponse(scoped.thread)));
+  res.json(GetAgarAccountingAIConversationResponse.parse(await assistantConversationResponse(scoped.thread)));
 });
 
-router.patch("/ledgerflow/ai-conversations/:id", async (req, res) => {
-  const { id } = RenameLedgerflowAIConversationParams.parse(req.params);
-  const body = RenameLedgerflowAIConversationBody.parse(req.body);
+router.patch("/agaraccounting/ai-conversations/:id", async (req, res) => {
+  const { id } = RenameAgarAccountingAIConversationParams.parse(req.params);
+  const body = RenameAgarAccountingAIConversationBody.parse(req.body);
   const scoped = await requireAssistantThread(req, res, id);
   if (!scoped) return;
   if (scoped.thread.clientId !== body.clientId) {
@@ -3986,11 +3987,11 @@ router.patch("/ledgerflow/ai-conversations/:id", async (req, res) => {
     status: "active",
     updatedAt: new Date(),
   }).where(eq(assistantThreadsTable.id, id)).returning();
-  res.json(RenameLedgerflowAIConversationResponse.parse(await assistantConversationResponse(thread)));
+  res.json(RenameAgarAccountingAIConversationResponse.parse(await assistantConversationResponse(thread)));
 });
 
-router.delete("/ledgerflow/ai-conversations/:id", async (req, res) => {
-  const { id } = ClearLedgerflowAIConversationParams.parse(req.params);
+router.delete("/agaraccounting/ai-conversations/:id", async (req, res) => {
+  const { id } = ClearAgarAccountingAIConversationParams.parse(req.params);
   const scoped = await requireAssistantThread(req, res, id);
   if (!scoped) return;
   await db.transaction(async (tx) => {
@@ -4004,13 +4005,13 @@ router.delete("/ledgerflow/ai-conversations/:id", async (req, res) => {
   res.status(204).end();
 });
 
-router.post("/ledgerflow/ai-chat", async (req, res) => {
+router.post("/agaraccounting/ai-chat", async (req, res) => {
   const requestedCurrency = req.body?.filters?.currency;
   if (typeof requestedCurrency === "string" && !/^[A-Za-z]{3}$/.test(requestedCurrency)) {
     res.status(400).json({ error: "Currency filters must use a three-letter ISO currency code." });
     return;
   }
-  const parsedInput = AskLedgerflowAIBody.safeParse(req.body);
+  const parsedInput = AskAgarAccountingAIBody.safeParse(req.body);
   if (!parsedInput.success) {
     res.status(400).json({ error: "The chat request is invalid. Check the client, message, thread, and filter values before retrying." });
     return;
@@ -4065,7 +4066,7 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
     results?: Array<Record<string, unknown>>;
     citations?: Array<{ recordType: string; recordId: number; label: string; href: string }>;
   }) => {
-    const response = AskLedgerflowAIResponse.parse({
+    const response = AskAgarAccountingAIResponse.parse({
       answer: payload.answer,
       threadId: thread.id,
       context,
@@ -4220,8 +4221,8 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   }
 });
 
-router.get("/ledgerflow/ai-settings", async (req, res) => {
-  const { clientId } = GetLedgerflowAISettingsQueryParams.parse(req.query);
+router.get("/agaraccounting/ai-settings", async (req, res) => {
+  const { clientId } = GetAgarAccountingAISettingsQueryParams.parse(req.query);
   const membership = await requireClientAdmin(req, res, clientId);
   if (!membership) return;
   const client = await getOwnedClient(req, clientId);
@@ -4229,7 +4230,7 @@ router.get("/ledgerflow/ai-settings", async (req, res) => {
   try {
     const config = await getAIProviderConfig(client.id);
     const availableModels = await getAIModelCatalog();
-    res.json(GetLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
+    res.json(GetAgarAccountingAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
   } catch (error) {
     if (error instanceof AIProviderError) {
       res.status(error.status).json({ error: error.message });
@@ -4239,8 +4240,8 @@ router.get("/ledgerflow/ai-settings", async (req, res) => {
   }
 });
 
-router.put("/ledgerflow/ai-settings", async (req, res) => {
-  const body = UpdateLedgerflowAISettingsBody.parse(req.body);
+router.put("/agaraccounting/ai-settings", async (req, res) => {
+  const body = UpdateAgarAccountingAISettingsBody.parse(req.body);
   const membership = await requireClientAdmin(req, res, body.clientId);
   if (!membership) return;
   const client = await getOwnedClient(req, body.clientId);
@@ -4259,14 +4260,14 @@ router.put("/ledgerflow/ai-settings", async (req, res) => {
   }
   try {
     const config = await saveAIProviderConfig(client.id, body.provider, body.model, body.apiKey);
-    return res.json(UpdateLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
+    return res.json(UpdateAgarAccountingAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
   } catch {
     return res.status(500).json({ error: "AI settings could not be saved. Try again." });
   }
 });
 
-router.post("/ledgerflow/ai-settings/test", async (req, res) => {
-  const body = TestLedgerflowAISettingsBody.parse(req.body);
+router.post("/agaraccounting/ai-settings/test", async (req, res) => {
+  const body = TestAgarAccountingAISettingsBody.parse(req.body);
   const membership = await requireClientAdmin(req, res, body.clientId);
   if (!membership) return;
   const client = await getOwnedClient(req, body.clientId);
@@ -4289,7 +4290,7 @@ router.post("/ledgerflow/ai-settings/test", async (req, res) => {
       await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
     }
     const availableModels = await getAIModelCatalog();
-    return res.json(TestLedgerflowAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
+    return res.json(TestAgarAccountingAISettingsResponse.parse(aiSettingsResponse(config, availableModels)));
   } catch (error) {
     if (aiActivityId !== undefined) {
       await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
@@ -4301,8 +4302,8 @@ router.post("/ledgerflow/ai-settings/test", async (req, res) => {
   }
 });
 
-router.delete("/ledgerflow/ai-settings/credential", async (req, res) => {
-  const body = RemoveLedgerflowAICredentialBody.parse(req.body);
+router.delete("/agaraccounting/ai-settings/credential", async (req, res) => {
+  const body = RemoveAgarAccountingAICredentialBody.parse(req.body);
   const membership = await requireClientAdmin(req, res, body.clientId);
   if (!membership) return;
   const client = await getOwnedClient(req, body.clientId);
@@ -4310,7 +4311,7 @@ router.delete("/ledgerflow/ai-settings/credential", async (req, res) => {
   try {
     const config = await removeAIProviderCredential(client.id);
     const availableModels = await getAIModelCatalog();
-    res.json(RemoveLedgerflowAICredentialResponse.parse(aiSettingsResponse(config, availableModels)));
+    res.json(RemoveAgarAccountingAICredentialResponse.parse(aiSettingsResponse(config, availableModels)));
   } catch (error) {
     if (error instanceof AIProviderError) {
       res.status(error.status).json({ error: error.message });
@@ -4320,7 +4321,7 @@ router.delete("/ledgerflow/ai-settings/credential", async (req, res) => {
   }
 });
 
-router.get("/ledgerflow/bank-accounts", async (req, res) => {
+router.get("/agaraccounting/bank-accounts", async (req, res) => {
   const { clientId } = GetBankAccountsQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
@@ -4328,7 +4329,7 @@ router.get("/ledgerflow/bank-accounts", async (req, res) => {
   res.json(GetBankAccountsResponse.parse(accounts.map(bankAccountResponse)));
 });
 
-router.post("/ledgerflow/bank-accounts", async (req, res) => {
+router.post("/agaraccounting/bank-accounts", async (req, res) => {
   const body = CreateBankAccountBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
@@ -4337,7 +4338,7 @@ router.post("/ledgerflow/bank-accounts", async (req, res) => {
   return res.status(201).json(CreateBankAccountResponse.parse(bankAccountResponse(account)));
 });
 
-router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
+router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
   const body = ConfirmAICopilotActionBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
@@ -4547,7 +4548,7 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
   }));
 });
 
-router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
+router.get("/agaraccounting/usage", async (req, res): Promise<void> => {
   const userId = currentUserId(req);
   const clientIds = await getUserClientIds(userId);
   const now = new Date();
@@ -4615,7 +4616,7 @@ router.get("/ledgerflow/usage", async (req, res): Promise<void> => {
   const evidenceBytes = retainedEvidence.reduce((total, item) => total + (item.fileSize ?? 0), 0);
   const evidenceMetric = usageMetric(evidenceBytes, USAGE_PLAN.storedEvidenceBytes);
 
-  res.json(GetLedgerflowUsageResponse.parse({
+  res.json(GetAgarAccountingUsageResponse.parse({
     plan: USAGE_PLAN.name,
     asOf: now.toISOString(),
     billingPeriod: {
@@ -4657,8 +4658,8 @@ router.get("/clients", async (req, res) => {
   }));
 });
 
-router.patch("/ledgerflow/account-profile", async (req, res): Promise<void> => {
-  const parsed = UpdateLedgerflowAccountProfileBody.safeParse(req.body);
+router.patch("/agaraccounting/account-profile", async (req, res): Promise<void> => {
+  const parsed = UpdateAgarAccountingAccountProfileBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Enter your first and last name to continue." });
     return;
@@ -4678,7 +4679,7 @@ router.patch("/ledgerflow/account-profile", async (req, res): Promise<void> => {
     return;
   }
   req.dbUser = user;
-  res.json(UpdateLedgerflowAccountProfileResponse.parse({
+  res.json(UpdateAgarAccountingAccountProfileResponse.parse({
     email: user.email,
     firstName: user.firstName ?? firstName,
     lastName: user.lastName ?? lastName,
@@ -5330,7 +5331,7 @@ router.post("/workspace/invitations/:token/accept", async (req, res) => {
   ));
 });
 
-router.get("/ledgerflow/system-rates/dashboard", async (req, res) => {
+router.get("/agaraccounting/system-rates/dashboard", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const [rates, clients, lines, recentChanges] = await Promise.all([
     db.select().from(systemRatesTable).orderBy(desc(systemRatesTable.effectiveDate)),
@@ -5428,14 +5429,14 @@ router.get("/ledgerflow/system-rates/dashboard", async (req, res) => {
   }));
 });
 
-router.get("/ledgerflow/system-rates", async (req, res) => {
+router.get("/agaraccounting/system-rates", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const rates = await db.select().from(systemRatesTable)
     .orderBy(desc(systemRatesTable.effectiveDate), asc(systemRatesTable.sourceCurrency), asc(systemRatesTable.functionalCurrency));
   res.json(GetSystemRatesResponse.parse(rates.map(systemRateResponse)));
 });
 
-router.post("/ledgerflow/system-rates", async (req, res) => {
+router.post("/agaraccounting/system-rates", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const parsed = CreateSystemRateBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A valid dated system exchange rate is required." });
@@ -5466,7 +5467,7 @@ router.post("/ledgerflow/system-rates", async (req, res) => {
   }
 });
 
-router.patch("/ledgerflow/system-rates/:id", async (req, res) => {
+router.patch("/agaraccounting/system-rates/:id", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const params = UpdateSystemRateParams.safeParse({ id: Number(req.params.id) });
   const parsed = UpdateSystemRateBody.safeParse(req.body);
@@ -5498,7 +5499,22 @@ router.patch("/ledgerflow/system-rates/:id", async (req, res) => {
   }
 });
 
-router.delete("/ledgerflow/system-rates/:id", async (req, res) => {
+router.delete("/agaraccounting/system-rates", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const result = await db.transaction(async (tx) => {
+    const deleted = await tx.delete(systemRatesTable).returning({ id: systemRatesTable.id });
+    await tx.insert(systemRateAuditEventsTable).values({
+      actorUserId: currentUserId(req),
+      action: "deleted",
+      summary: `Cleared ${deleted.length} global exchange rate${deleted.length === 1 ? "" : "s"}.`,
+    });
+    return { deletedCount: deleted.length };
+  });
+  await refreshSystemRateConversions();
+  return res.json(ClearSystemRatesResponse.parse(result));
+});
+
+router.delete("/agaraccounting/system-rates/:id", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const params = DeleteSystemRateParams.safeParse({ id: Number(req.params.id) });
   if (!params.success) return res.status(400).json({ error: "Invalid system exchange rate." });
@@ -5513,7 +5529,7 @@ router.delete("/ledgerflow/system-rates/:id", async (req, res) => {
   return res.sendStatus(204);
 });
 
-router.post("/ledgerflow/system-rates/import", async (req, res) => {
+router.post("/agaraccounting/system-rates/import", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const parsed = ImportSystemRatesBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Import at least one valid dated system rate." });
@@ -5569,7 +5585,7 @@ router.post("/ledgerflow/system-rates/import", async (req, res) => {
   }));
 });
 
-router.post("/ledgerflow/system-rates/parse", async (req, res) => {
+router.post("/agaraccounting/system-rates/parse", async (req, res) => {
   if (!await requireSystemRateAdmin(req, res)) return;
   const parsed = ParseSystemRatesBody.safeParse(req.body);
   if (!parsed.success || !parsed.data.fileBase64) {
@@ -5605,7 +5621,7 @@ router.post("/ledgerflow/system-rates/parse", async (req, res) => {
   }
 });
 
-router.get("/ledgerflow/exchange-rates", async (req, res) => {
+router.get("/agaraccounting/exchange-rates", async (req, res) => {
   const firm = await requireExplicitRateProfile(req, res, false);
   if (!firm) return;
   const rates = await db.select().from(exchangeRatesTable).where(eq(
@@ -5615,7 +5631,7 @@ router.get("/ledgerflow/exchange-rates", async (req, res) => {
   res.json(GetExchangeRatesResponse.parse(rates.map(exchangeRateResponse)));
 });
 
-router.get("/ledgerflow/bulk-transition-audits", async (req, res) => {
+router.get("/agaraccounting/bulk-transition-audits", async (req, res) => {
   const parsed = GetBulkTransitionAuditsQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, parsed.clientId);
   if (!client) return;
@@ -5640,7 +5656,7 @@ router.get("/ledgerflow/bulk-transition-audits", async (req, res) => {
   }))));
 });
 
-router.post("/ledgerflow/exchange-rates", async (req, res) => {
+router.post("/agaraccounting/exchange-rates", async (req, res) => {
   const firm = await requireExplicitRateProfile(req, res, true);
   if (!firm) return;
   const parsed = CreateExchangeRateBody.safeParse(req.body);
@@ -5663,7 +5679,7 @@ router.post("/ledgerflow/exchange-rates", async (req, res) => {
   }
 });
 
-router.patch("/ledgerflow/exchange-rates/:id", async (req, res) => {
+router.patch("/agaraccounting/exchange-rates/:id", async (req, res) => {
   const params = UpdateExchangeRateParams.safeParse(req.params);
   const parsed = UpdateExchangeRateBody.safeParse(req.body);
   if (!params.success || !parsed.success) return res.status(400).json({ error: "A valid dated exchange rate is required." });
@@ -5691,7 +5707,7 @@ router.patch("/ledgerflow/exchange-rates/:id", async (req, res) => {
   }
 });
 
-router.delete("/ledgerflow/exchange-rates/:id", async (req, res) => {
+router.delete("/agaraccounting/exchange-rates/:id", async (req, res) => {
   const params = DeleteExchangeRateParams.safeParse(req.params);
   if (!params.success) return res.status(400).json({ error: "Invalid exchange rate." });
   const scope = await requireExistingRateManager(req, res, params.data.id);
@@ -5705,7 +5721,7 @@ router.delete("/ledgerflow/exchange-rates/:id", async (req, res) => {
   return res.status(204).send();
 });
 
-router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
+router.post("/agaraccounting/exchange-rates/import", async (req, res) => {
   const firm = await requireExplicitRateProfile(req, res, true);
   if (!firm) return;
   const parsed = ImportExchangeRatesBody.safeParse(req.body);
@@ -5753,7 +5769,7 @@ router.post("/ledgerflow/exchange-rates/import", async (req, res) => {
   }));
 });
 
-router.post("/ledgerflow/exchange-rates/parse", async (req, res) => {
+router.post("/agaraccounting/exchange-rates/parse", async (req, res) => {
   const admin = await requireWorkspaceAdmin(req, res);
   if (!admin) return;
   const parsed = ParseExchangeRatesBody.safeParse(req.body);
@@ -5869,7 +5885,7 @@ router.post("/ledgerflow/exchange-rates/parse", async (req, res) => {
   }
 });
 
-router.get("/ledgerflow/overview", async (req, res) => {
+router.get("/agaraccounting/overview", async (req, res) => {
   const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
@@ -5899,7 +5915,7 @@ router.get("/ledgerflow/overview", async (req, res) => {
   res.json(data);
 });
 
-router.get("/ledgerflow/statement-lines", async (req, res) => {
+router.get("/agaraccounting/statement-lines", async (req, res) => {
   const result = GetStatementLinesQueryParams.safeParse(req.query);
   if (!result.success) return res.status(400).json({ error: "Statement line filters are invalid." });
   const parsed = result.data;
@@ -5915,7 +5931,7 @@ router.get("/ledgerflow/statement-lines", async (req, res) => {
   return res.json(GetStatementLinesResponse.parse(lines.map((line) => statementLineResponse(line, workspacePatterns))));
 });
 
-router.post("/ledgerflow/statement-lines", async (req, res) => {
+router.post("/agaraccounting/statement-lines", async (req, res) => {
   const body = CreateStatementLineBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
@@ -5959,7 +5975,7 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
   return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns)));
 });
 
-router.get("/ledgerflow/journal-entries", async (req, res) => {
+router.get("/agaraccounting/journal-entries", async (req, res) => {
   const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
@@ -5967,7 +5983,7 @@ router.get("/ledgerflow/journal-entries", async (req, res) => {
   res.json(GetJournalEntriesResponse.parse(entries.map(journalEntryResponse)));
 });
 
-router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
+router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
   const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = ApproveJournalEntryBody.parse(req.body);
   const client = await requireOwnedClient(req, res, clientId);
@@ -6015,7 +6031,7 @@ router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
-router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
+router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
   const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = PostJournalEntryBody.parse(req.body);
   const client = await requireOwnedClient(req, res, clientId);
@@ -6084,7 +6100,7 @@ router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
-router.post("/ledgerflow/journal-entries/:id/unpost", async (req, res) => {
+router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
   const { id } = UnpostJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = UnpostJournalEntryBody.parse(req.body);
   const client = await requireOwnedClient(req, res, clientId);
@@ -6143,7 +6159,7 @@ router.post("/ledgerflow/journal-entries/:id/unpost", async (req, res) => {
   return res.json(UnpostJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
-router.get("/ledgerflow/trial-balance", async (req, res) => {
+router.get("/agaraccounting/trial-balance", async (req, res) => {
   const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
@@ -6182,7 +6198,7 @@ router.get("/ledgerflow/trial-balance", async (req, res) => {
   res.json(GetTrialBalanceResponse.parse(rows));
 });
 
-router.get("/ledgerflow/financial-statements", async (req, res) => {
+router.get("/agaraccounting/financial-statements", async (req, res) => {
   const { period } = GetFinancialStatementsQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, req.query.clientId === undefined ? undefined : Number(req.query.clientId));
   if (!client) return;
@@ -6238,7 +6254,7 @@ router.get("/ledgerflow/financial-statements", async (req, res) => {
   res.json(GetFinancialStatementsResponse.parse(report));
 });
 
-router.get("/ledgerflow/report-packs", async (req, res) => {
+router.get("/agaraccounting/report-packs", async (req, res) => {
   const { clientId } = GetReportPacksQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
@@ -6248,7 +6264,7 @@ router.get("/ledgerflow/report-packs", async (req, res) => {
   res.json(GetReportPacksResponse.parse(packs.map(reportPackSummary)));
 });
 
-router.post("/ledgerflow/report-packs", async (req, res) => {
+router.post("/agaraccounting/report-packs", async (req, res) => {
   const body = CreateReportPackBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
@@ -6317,7 +6333,7 @@ router.post("/ledgerflow/report-packs", async (req, res) => {
   return res.status(201).json(CreateReportPackResponse.parse(reportPackResponse(pack)));
 });
 
-router.get("/ledgerflow/report-packs/:id", async (req, res) => {
+router.get("/agaraccounting/report-packs/:id", async (req, res) => {
   const { id } = GetReportPackParams.parse({ id: Number(req.params.id) });
   const [pack] = await db.select().from(reportPacksTable).where(eq(reportPacksTable.id, id)).limit(1);
   if (!pack) return res.status(404).json({ error: "Report pack not found." });
@@ -6326,7 +6342,7 @@ router.get("/ledgerflow/report-packs/:id", async (req, res) => {
   return res.json(GetReportPackResponse.parse(reportPackResponse(pack)));
 });
 
-router.patch("/ledgerflow/report-packs/:id", async (req, res) => {
+router.patch("/agaraccounting/report-packs/:id", async (req, res) => {
   const { id } = UpdateReportPackParams.parse({ id: Number(req.params.id) });
   const body = UpdateReportPackBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
@@ -6368,7 +6384,7 @@ router.patch("/ledgerflow/report-packs/:id", async (req, res) => {
   return res.json(UpdateReportPackResponse.parse(reportPackResponse(updated)));
 });
 
-router.get("/ledgerflow/report-packs/:id/pdf", async (req, res) => {
+router.get("/agaraccounting/report-packs/:id/pdf", async (req, res) => {
   const { id } = GetReportPackParams.parse({ id: Number(req.params.id) });
   const [pack] = await db.select().from(reportPacksTable).where(eq(reportPacksTable.id, id)).limit(1);
   if (!pack) return res.status(404).json({ error: "Report pack not found." });

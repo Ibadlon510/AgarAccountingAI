@@ -1,6 +1,6 @@
 ---
 name: Clerk proxy transport
-description: How LedgerFlow's managed Clerk proxy differs between development and production.
+description: How AgarAccounting's managed Clerk proxy differs between development and production.
 ---
 
 Use `VITE_CLERK_PROXY_URL` as the `ClerkProvider` proxy URL without hardcoding or environment gating it.

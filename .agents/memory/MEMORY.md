@@ -2,7 +2,7 @@
 - [Mutation scope contracts](mutation-scope-contracts.md) — use named request bodies, not query parameters, when adding generated mutation scope in this workspace.
 - [PDF worker bundling](pdf-worker-bundling.md) — pdf-parse needs its worker emitted beside the bundled API server.
 - [AI copilot confirmation boundary](ai-copilot-confirmation-boundary.md) — AI prepares scoped proposals; users alone confirm changes, approve, and post.
-- [Auth schema readiness](auth-schema-readiness.md) — LedgerFlow sign-in acceptance testing requires a fully applied development schema.
+- [Auth schema readiness](auth-schema-readiness.md) — AgarAccounting sign-in acceptance testing requires a fully applied development schema.
 - [Bank account import identity](bank-account-import-identity.md) — masked last-four digits are not unique; match client accounts using bank, account name, currency, and last four together.
 - [Ledger integrity constraints](ledger-integrity-constraints.md) — keep cross-client relationship checks in idempotent database triggers because composite foreign keys are not stable under this workspace’s schema push.
 - [Workspace classification learning](workspace-classification-learning.md) — classification memory is user-scoped aggregate evidence, never source-client transaction data.
@@ -12,7 +12,7 @@
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
 - [Journal transition evidence](journal-transition-evidence.md) — manual and bulk posting transitions share one append-only client-scoped audit history.
 - [Clerk proxy transport](clerk-proxy-transport.md) — pass the platform-provisioned Clerk proxy URL unconditionally; it is intentionally empty during development.
-- [Clerk onboarding profile resilience](clerk-onboarding-profile-resilience.md) — save required LedgerFlow owner identity locally; a production Clerk profile update can reject otherwise valid onboarding.
+- [Clerk onboarding profile resilience](clerk-onboarding-profile-resilience.md) — save required AgarAccounting owner identity locally; a production Clerk profile update can reject otherwise valid onboarding.
 - [Legacy demo workspace remediation](legacy-demo-workspace-remediation.md) — only a full untouched historical signature may be rerouted; record successful remediation instead of inferring it later.
 - [Usage retention accounting](usage-retention-accounting.md) — report only persisted, unexpired evidence and successful provider-backed AI completions.
 - [Onboarding domain separation](onboarding-domain-separation.md) — register the firm first; collect reporting settings for each client when that client is created.

@@ -5,6 +5,7 @@ import {
   useCreateSystemRate, 
   useUpdateSystemRate, 
   useDeleteSystemRate,
+  useClearSystemRates,
   useImportSystemRates,
   useParseSystemRates,
   getGetSystemRatesQueryKey,
@@ -147,6 +148,7 @@ export default function Rates() {
         </div>
         <div className="flex items-center gap-2">
           <ImportRatesDialog defaultFunctionalCurrency={mostCommonFunctionalCurrency(rates ?? []) || DEFAULT_FUNCTIONAL_CURRENCY} />
+          <ClearAllRatesDialog rateCount={rates?.length ?? 0} disabled={isLoading || !rates?.length} />
           <RateDialog mode="create" />
         </div>
       </div>
@@ -221,6 +223,66 @@ export default function Rates() {
         </Table>
       </Card>
     </div>
+  );
+}
+
+function ClearAllRatesDialog({ rateCount, disabled }: { rateCount: number; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const clearMutation = useClearSystemRates();
+
+  const onClear = async () => {
+    try {
+      const result = await clearMutation.mutateAsync();
+      queryClient.invalidateQueries({ queryKey: getGetSystemRatesQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetSystemRateDashboardQueryKey() });
+      setOpen(false);
+      toast({
+        title: "Exchange rates cleared",
+        description: `Deleted ${result.deletedCount} rate${result.deletedCount === 1 ? "" : "s"}. The table and audit history were preserved.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Could not clear exchange rates",
+        description: error instanceof Error ? error.message : "The exchange-rate cleanup was rejected.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          data-testid="button-clear-all-system-rates"
+          variant="destructive"
+          disabled={disabled}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          Clear all
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Clear all system exchange rates?</DialogTitle>
+          <DialogDescription>
+            This will delete all {rateCount.toLocaleString()} global fallback rate records for every tenant. The rate table and audit history will remain available, but the action cannot be undone. You can upload the corrected EUR schedule after this finishes.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="pt-4">
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button
+            data-testid="button-confirm-clear-all-system-rates"
+            variant="destructive"
+            onClick={() => void onClear()}
+            disabled={clearMutation.isPending}
+          >
+            {clearMutation.isPending ? "Clearing…" : `Delete ${rateCount.toLocaleString()} rates`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

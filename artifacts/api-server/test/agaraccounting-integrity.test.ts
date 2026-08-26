@@ -5,11 +5,11 @@ import { sql } from "drizzle-orm";
 import {
   clientsTable,
   db,
-  ensureLedgerflowIntegrity,
+  ensureAgarAccountingIntegrity,
   statementImportsTable,
 } from "@workspace/db";
 
-const databaseUrl = process.env.LEDGERFLOW_TEST_DATABASE_URL;
+const databaseUrl = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
 const testDatabaseName = databaseUrl
   ? decodeURIComponent(new URL(databaseUrl).pathname).replace(/^\/+/, "")
   : "";
@@ -22,13 +22,13 @@ test("repairs the legacy statement import hash index and preserves duplicate aud
   let clientId: number | undefined;
 
   try {
-    await db.execute(sql`DROP INDEX IF EXISTS ledgerflow_statement_imports_client_file_hash_idx`);
+    await db.execute(sql`DROP INDEX IF EXISTS agaraccounting_statement_imports_client_file_hash_idx`);
     await db.execute(sql`
-      CREATE UNIQUE INDEX ledgerflow_statement_imports_client_file_hash_idx
-        ON ledgerflow_statement_imports (client_id, file_hash)
+      CREATE UNIQUE INDEX agaraccounting_statement_imports_client_file_hash_idx
+        ON agaraccounting_statement_imports (client_id, file_hash)
     `);
 
-    await ensureLedgerflowIntegrity();
+    await ensureAgarAccountingIntegrity();
     const [index] = (await db.execute(sql`
       SELECT
         index_info.indisunique AS "isUnique",
@@ -37,7 +37,7 @@ test("repairs the legacy statement import hash index and preserves duplicate aud
       JOIN pg_index AS index_info ON index_info.indexrelid = index_class.oid
       JOIN pg_namespace AS index_namespace ON index_namespace.oid = index_class.relnamespace
       WHERE index_namespace.nspname = current_schema()
-        AND index_class.relname = 'ledgerflow_statement_imports_client_file_hash_idx'
+        AND index_class.relname = 'agaraccounting_statement_imports_client_file_hash_idx'
     `)).rows as Array<{ isUnique: boolean; predicate: string | null }>;
     assert.equal(index?.isUnique, true);
     assert.match(index?.predicate ?? "", /outcome\s*=\s*'completed'/i);

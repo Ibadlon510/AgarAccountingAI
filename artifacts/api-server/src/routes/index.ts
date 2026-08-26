@@ -1,6 +1,6 @@
 import { Router, type IRouter, type RequestHandler } from "express";
 import healthRouter from "./health";
-import ledgerflowRouter from "./ledgerflow";
+import agaraccountingRouter from "./agaraccounting";
 import storageRouter from "./storage";
 import { requireAuth } from "../middlewares/authMiddleware";
 
@@ -10,7 +10,7 @@ export function createRouter(authMiddleware: RequestHandler = requireAuth): IRou
   router.use(healthRouter);
   router.use(authMiddleware);
   router.use(storageRouter);
-  router.use(ledgerflowRouter);
+  router.use(agaraccountingRouter);
 
   return router;
 }

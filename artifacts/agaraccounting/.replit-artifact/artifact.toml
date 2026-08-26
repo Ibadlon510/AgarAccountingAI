@@ -3,26 +3,26 @@ previewPath = "/"
 title = "AgarAccounting AI System"
 description = "AgarAccounting AI System turns multi-currency bank statement lines into reviewed journal entries, trial balances, and financial statements with clear auditability."
 version = "1.0.0"
-id = "artifacts/ledgerflow"
+id = "artifacts/agaraccounting"
 router = "path"
 
 [[services]]
 name = "web"
 paths = [ "/" ]
-localPort = 21293
+localPort = 24514
 
 [services.development]
-run = "pnpm --filter @workspace/ledgerflow run dev"
+run = "pnpm --filter @workspace/agaraccounting run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/ledgerflow", "run", "build" ]
+build = [ "pnpm", "--filter", "@workspace/agaraccounting", "run", "build" ]
 serve = "static"
-publicDir = "artifacts/ledgerflow/dist/public"
+publicDir = "artifacts/agaraccounting/dist/public"
 
 [[services.production.rewrites]]
 from = "/*"
 to = "/index.html"
 
 [services.env]
-PORT = "21293"
+PORT = "24514"
 BASE_PATH = "/"

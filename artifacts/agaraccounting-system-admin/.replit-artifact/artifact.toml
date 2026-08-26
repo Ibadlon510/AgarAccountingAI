@@ -3,26 +3,26 @@ previewPath = "/system-admin/"
 title = "AgarAccounting AI System Admin"
 description = "Private AgarAccounting AI System console for aggregated exchange-rate health and controlled global fallback-rate administration."
 version = "1.0.0"
-id = "artifacts/ledgerflow-system-admin"
+id = "artifacts/agaraccounting-system-admin"
 router = "path"
 
 [[services]]
 name = "web"
 paths = [ "/system-admin/" ]
-localPort = 24883
+localPort = 22329
 
 [services.development]
-run = "pnpm --filter @workspace/ledgerflow-system-admin run dev"
+run = "pnpm --filter @workspace/agaraccounting-system-admin run dev"
 
 [services.production]
-build = [ "pnpm", "--filter", "@workspace/ledgerflow-system-admin", "run", "build" ]
+build = [ "pnpm", "--filter", "@workspace/agaraccounting-system-admin", "run", "build" ]
 serve = "static"
-publicDir = "artifacts/ledgerflow-system-admin/dist/public"
+publicDir = "artifacts/agaraccounting-system-admin/dist/public"
 
 [[services.production.rewrites]]
 from = "/*"
 to = "/index.html"
 
 [services.env]
-PORT = "24883"
+PORT = "22329"
 BASE_PATH = "/system-admin/"

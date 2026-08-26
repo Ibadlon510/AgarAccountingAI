@@ -29,12 +29,12 @@ export const GetCurrentAuthUserResponse = zod.object({
 
 
 
-export const UpdateLedgerflowAccountProfileBody = zod.object({
+export const UpdateAgarAccountingAccountProfileBody = zod.object({
   "firstName": zod.string().min(1),
   "lastName": zod.string().min(1)
 })
 
-export const UpdateLedgerflowAccountProfileResponse = zod.object({
+export const UpdateAgarAccountingAccountProfileResponse = zod.object({
   "email": zod.string().nullable(),
   "firstName": zod.string(),
   "lastName": zod.string()
@@ -802,7 +802,7 @@ export const AcceptWorkspaceInvitationResponse = zod.object({
 /**
  * @summary Get server-measured workspace usage and plan limits
  */
-export const GetLedgerflowUsageResponse = zod.object({
+export const GetAgarAccountingUsageResponse = zod.object({
   "plan": zod.string(),
   "asOf": zod.coerce.date(),
   "billingPeriod": zod.object({
@@ -1191,6 +1191,15 @@ export const CreateSystemRateResponse = zod.object({
   "note": zod.string().nullable(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * Removes all global fallback rate records while retaining the rate table and audit history.
+ * @summary Clear all global fallback exchange rates
+ */
+export const ClearSystemRatesResponse = zod.object({
+  "deletedCount": zod.number()
 })
 
 
@@ -1609,16 +1618,16 @@ export const GetStatementImportSourceResponse = zod.unknown()
 /**
  * @summary Ask the AI assistant about a client workspace
  */
-export const askLedgerflowAIBodyMessageMax = 4000;
+export const askAgarAccountingAIBodyMessageMax = 4000;
 
-export const askLedgerflowAIBodyFiltersCurrencyMin = 3;
-export const askLedgerflowAIBodyFiltersCurrencyMax = 3;
+export const askAgarAccountingAIBodyFiltersCurrencyMin = 3;
+export const askAgarAccountingAIBodyFiltersCurrencyMax = 3;
 
 
 
-export const AskLedgerflowAIBody = zod.object({
+export const AskAgarAccountingAIBody = zod.object({
   "clientId": zod.number(),
-  "message": zod.string().min(1).max(askLedgerflowAIBodyMessageMax),
+  "message": zod.string().min(1).max(askAgarAccountingAIBodyMessageMax),
   "threadId": zod.number().optional(),
   "filters": zod.object({
   "period": zod.string().optional(),
@@ -1627,7 +1636,7 @@ export const AskLedgerflowAIBody = zod.object({
   "minAmount": zod.number().optional(),
   "maxAmount": zod.number().optional(),
   "direction": zod.enum(['inflow', 'outflow']).optional(),
-  "currency": zod.string().min(askLedgerflowAIBodyFiltersCurrencyMin).max(askLedgerflowAIBodyFiltersCurrencyMax).optional(),
+  "currency": zod.string().min(askAgarAccountingAIBodyFiltersCurrencyMin).max(askAgarAccountingAIBodyFiltersCurrencyMax).optional(),
   "status": zod.string().optional(),
   "merchant": zod.string().optional(),
   "account": zod.string().optional(),
@@ -1635,10 +1644,10 @@ export const AskLedgerflowAIBody = zod.object({
 }).optional()
 })
 
-export const askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
+export const askAgarAccountingAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 
 
-export const AskLedgerflowAIResponse = zod.object({
+export const AskAgarAccountingAIResponse = zod.object({
   "answer": zod.string(),
   "threadId": zod.number(),
   "recommendations": zod.array(zod.object({
@@ -1665,7 +1674,7 @@ export const AskLedgerflowAIResponse = zod.object({
   "bankAccount": zod.union([zod.object({
   "name": zod.string(),
   "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().regex(askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp).nullish(),
+  "accountNumberLast4": zod.string().regex(askAgarAccountingAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp).nullish(),
   "currency": zod.string()
 }),zod.null()]).optional(),
   "requiresConfirmation": zod.boolean()
@@ -1696,11 +1705,11 @@ export const AskLedgerflowAIResponse = zod.object({
 /**
  * @summary List client-scoped accountant copilot conversations
  */
-export const GetLedgerflowAIConversationsQueryParams = zod.object({
+export const GetAgarAccountingAIConversationsQueryParams = zod.object({
   "clientId": zod.coerce.number()
 })
 
-export const GetLedgerflowAIConversationsResponseItem = zod.object({
+export const GetAgarAccountingAIConversationsResponseItem = zod.object({
   "id": zod.number(),
   "clientId": zod.number(),
   "title": zod.string(),
@@ -1709,22 +1718,22 @@ export const GetLedgerflowAIConversationsResponseItem = zod.object({
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
 })
-export const GetLedgerflowAIConversationsResponse = zod.array(GetLedgerflowAIConversationsResponseItem)
+export const GetAgarAccountingAIConversationsResponse = zod.array(GetAgarAccountingAIConversationsResponseItem)
 
 
 /**
  * @summary Start a client-scoped accountant copilot conversation
  */
-export const createLedgerflowAIConversationBodyTitleMax = 120;
+export const createAgarAccountingAIConversationBodyTitleMax = 120;
 
 
 
-export const CreateLedgerflowAIConversationBody = zod.object({
+export const CreateAgarAccountingAIConversationBody = zod.object({
   "clientId": zod.number(),
-  "title": zod.string().min(1).max(createLedgerflowAIConversationBodyTitleMax).optional()
+  "title": zod.string().min(1).max(createAgarAccountingAIConversationBodyTitleMax).optional()
 })
 
-export const CreateLedgerflowAIConversationResponse = zod.object({
+export const CreateAgarAccountingAIConversationResponse = zod.object({
   "id": zod.number(),
   "clientId": zod.number(),
   "title": zod.string(),
@@ -1748,11 +1757,11 @@ export const CreateLedgerflowAIConversationResponse = zod.object({
 /**
  * @summary Get a client-scoped copilot conversation and its turns
  */
-export const GetLedgerflowAIConversationParams = zod.object({
+export const GetAgarAccountingAIConversationParams = zod.object({
   "id": zod.coerce.number()
 })
 
-export const GetLedgerflowAIConversationResponse = zod.object({
+export const GetAgarAccountingAIConversationResponse = zod.object({
   "id": zod.number(),
   "clientId": zod.number(),
   "title": zod.string(),
@@ -1776,20 +1785,20 @@ export const GetLedgerflowAIConversationResponse = zod.object({
 /**
  * @summary Rename a copilot conversation
  */
-export const RenameLedgerflowAIConversationParams = zod.object({
+export const RenameAgarAccountingAIConversationParams = zod.object({
   "id": zod.coerce.number()
 })
 
-export const renameLedgerflowAIConversationBodyTitleMax = 120;
+export const renameAgarAccountingAIConversationBodyTitleMax = 120;
 
 
 
-export const RenameLedgerflowAIConversationBody = zod.object({
+export const RenameAgarAccountingAIConversationBody = zod.object({
   "clientId": zod.number(),
-  "title": zod.string().min(1).max(renameLedgerflowAIConversationBodyTitleMax)
+  "title": zod.string().min(1).max(renameAgarAccountingAIConversationBodyTitleMax)
 })
 
-export const RenameLedgerflowAIConversationResponse = zod.object({
+export const RenameAgarAccountingAIConversationResponse = zod.object({
   "id": zod.number(),
   "clientId": zod.number(),
   "title": zod.string(),
@@ -1813,21 +1822,21 @@ export const RenameLedgerflowAIConversationResponse = zod.object({
 /**
  * @summary Clear a copilot conversation while retaining its identity
  */
-export const ClearLedgerflowAIConversationParams = zod.object({
+export const ClearAgarAccountingAIConversationParams = zod.object({
   "id": zod.coerce.number()
 })
 
-export const ClearLedgerflowAIConversationResponse = zod.void()
+export const ClearAgarAccountingAIConversationResponse = zod.void()
 
 
 /**
  * @summary Get redacted AI provider settings for a client workspace
  */
-export const GetLedgerflowAISettingsQueryParams = zod.object({
+export const GetAgarAccountingAISettingsQueryParams = zod.object({
   "clientId": zod.coerce.number()
 })
 
-export const GetLedgerflowAISettingsResponse = zod.object({
+export const GetAgarAccountingAISettingsResponse = zod.object({
   "clientId": zod.number(),
   "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
   "model": zod.string(),
@@ -1851,14 +1860,14 @@ export const GetLedgerflowAISettingsResponse = zod.object({
 
 
 
-export const UpdateLedgerflowAISettingsBody = zod.object({
+export const UpdateAgarAccountingAISettingsBody = zod.object({
   "clientId": zod.number(),
   "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
   "model": zod.string(),
   "apiKey": zod.string().min(1).optional()
 })
 
-export const UpdateLedgerflowAISettingsResponse = zod.object({
+export const UpdateAgarAccountingAISettingsResponse = zod.object({
   "clientId": zod.number(),
   "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
   "model": zod.string(),
@@ -1879,11 +1888,11 @@ export const UpdateLedgerflowAISettingsResponse = zod.object({
 /**
  * @summary Test the selected AI provider without returning its credential
  */
-export const TestLedgerflowAISettingsBody = zod.object({
+export const TestAgarAccountingAISettingsBody = zod.object({
   "clientId": zod.number()
 })
 
-export const TestLedgerflowAISettingsResponse = zod.object({
+export const TestAgarAccountingAISettingsResponse = zod.object({
   "clientId": zod.number(),
   "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
   "model": zod.string(),
@@ -1904,11 +1913,11 @@ export const TestLedgerflowAISettingsResponse = zod.object({
 /**
  * @summary Remove the workspace-owned AI credential and return to managed OpenAI
  */
-export const RemoveLedgerflowAICredentialBody = zod.object({
+export const RemoveAgarAccountingAICredentialBody = zod.object({
   "clientId": zod.number()
 })
 
-export const RemoveLedgerflowAICredentialResponse = zod.object({
+export const RemoveAgarAccountingAICredentialResponse = zod.object({
   "clientId": zod.number(),
   "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
   "model": zod.string(),
@@ -2662,3 +2671,5 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
+
+

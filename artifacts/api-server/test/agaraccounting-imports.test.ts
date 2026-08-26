@@ -75,8 +75,8 @@ let primaryUserId: string;
 let secondaryUserId: string;
 
 function testDatabaseUrl() {
-  const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
-  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
+  const value = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
+  if (!value) throw new Error("AGARACCOUNTING_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
 
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
@@ -183,10 +183,10 @@ before(async () => {
     res.end(JSON.stringify(responseBody));
   });
   const aiPort = await listen(aiServer);
-  process.env.AI_INTEGRATIONS_OPENAI_API_KEY = "ledgerflow-test-openai-key";
+  process.env.AI_INTEGRATIONS_OPENAI_API_KEY = "agaraccounting-test-openai-key";
   process.env.AI_INTEGRATIONS_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
-  process.env.LEDGERFLOW_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
-  process.env.LEDGERFLOW_ANTHROPIC_BASE_URL = `http://127.0.0.1:${aiPort}`;
+  process.env.AGARACCOUNTING_OPENAI_BASE_URL = `http://127.0.0.1:${aiPort}/v1`;
+  process.env.AGARACCOUNTING_ANTHROPIC_BASE_URL = `http://127.0.0.1:${aiPort}`;
 
   const { createApp } = await import("../src/app");
   const { createRequireAuth } = await import("../src/middlewares/authMiddleware");
@@ -214,8 +214,8 @@ before(async () => {
     ),
   });
   database = await import("@workspace/db");
-  primaryUserId = `ledgerflow-import-primary-${randomUUID()}`;
-  secondaryUserId = `ledgerflow-import-secondary-${randomUUID()}`;
+  primaryUserId = `agaraccounting-import-primary-${randomUUID()}`;
+  secondaryUserId = `agaraccounting-import-secondary-${randomUUID()}`;
   await database.db.insert(database.usersTable).values([
     { id: primaryUserId, email: `${primaryUserId}@example.test`, firstName: "Primary", lastName: "Test" },
     { id: secondaryUserId, email: `${secondaryUserId}@example.test`, firstName: "Secondary", lastName: "Test" },
@@ -318,14 +318,14 @@ async function importBody(clientId: number, fileName: string, marker: string, co
 }
 
 async function importStatement(clientId: number, fileName: string, marker: string, contentSuffix = "", userId = primaryUserId) {
-  return request<ImportResult>("/ledgerflow/import-statement", {
+  return request<ImportResult>("/agaraccounting/import-statement", {
     method: "POST",
     body: await importBody(clientId, fileName, marker, contentSuffix, userId),
   }, userId);
 }
 
 async function statementLines(clientId: number, userId = primaryUserId) {
-  const result = await request<StatementLine[]>(`/ledgerflow/statement-lines?clientId=${clientId}`, undefined, userId);
+  const result = await request<StatementLine[]>(`/agaraccounting/statement-lines?clientId=${clientId}`, undefined, userId);
   assert.equal(result.response.status, 200);
   return result.body.filter((line) => line.description !== "EMIRATES AIRLINES"
     && line.description !== "STRIPE PAYOUT 8472"
@@ -369,7 +369,7 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
     removedLineCount: number;
     removedJournalEntryCount: number;
     alreadyUndone: boolean;
-  }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+  }>(`/agaraccounting/statement-imports/${importId}/undo`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   });
@@ -384,14 +384,14 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
     .where(eq(database.statementImportsTable.id, importId));
   assert.equal(storedImport?.outcome, "undone");
   assert.ok(storedImport?.objectPath);
-  const preservedSource = await fetch(`${baseUrl}/ledgerflow/statement-imports/${importId}/source`, {
+  const preservedSource = await fetch(`${baseUrl}/agaraccounting/statement-imports/${importId}/source`, {
     headers: { "x-test-user-id": primaryUserId },
   });
   assert.equal(preservedSource.status, 200);
   assert.equal(preservedSource.headers.get("content-type"), "text/csv");
   assert.equal(preservedSource.headers.get("content-disposition"), 'inline; filename="undo-review-only.csv"');
   assert.match(Buffer.from(await preservedSource.arrayBuffer()).toString("utf8"), /undo-review-only/);
-  const downloadedSource = await fetch(`${baseUrl}/ledgerflow/statement-imports/${importId}/source?download=true`, {
+  const downloadedSource = await fetch(`${baseUrl}/agaraccounting/statement-imports/${importId}/source?download=true`, {
     headers: { "x-test-user-id": primaryUserId },
   });
   assert.equal(downloadedSource.status, 200);
@@ -403,7 +403,7 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
   assert.deepEqual(audit?.journalEntryIds, [entry.id]);
   assert.equal(audit?.clientId, clientId);
 
-  const repeat = await request<{ alreadyUndone: boolean }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+  const repeat = await request<{ alreadyUndone: boolean }>(`/agaraccounting/statement-imports/${importId}/undo`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   });
@@ -413,7 +413,7 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
     .where(eq(database.statementImportUndoAuditsTable.statementImportId, importId));
   assert.equal(audits.length, 1);
 
-  const trialBalance = await request<unknown[]>(`/ledgerflow/trial-balance?clientId=${clientId}`);
+  const trialBalance = await request<unknown[]>(`/agaraccounting/trial-balance?clientId=${clientId}`);
   assert.equal(trialBalance.response.status, 200);
   assert.deepEqual(trialBalance.body, []);
 });
@@ -434,13 +434,13 @@ test("blocks changed imports and isolates the statement-import undo mutation", a
     .set({ status: "approved" })
     .where(eq(database.journalEntriesTable.id, entry.id));
 
-  const foreign = await request<{ error: string }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+  const foreign = await request<{ error: string }>(`/agaraccounting/statement-imports/${importId}/undo`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   }, secondaryUserId);
   assert.equal(foreign.response.status, 403);
 
-  const blocked = await request<{ error: string }>(`/ledgerflow/statement-imports/${importId}/undo`, {
+  const blocked = await request<{ error: string }>(`/agaraccounting/statement-imports/${importId}/undo`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   });
@@ -462,7 +462,7 @@ test("stores a USD statement for confirmation without creating lines, then loads
   const objectPath = `/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/${randomUUID()}`;
   statementFiles.set(objectPath, Buffer.from(`Bank Statement\nCurrency: USD\nDate,Description,Debit,Credit\n2026-08-25,${marker},100,`));
 
-  const preview = await request<ImportResult>("/ledgerflow/import-statement", {
+  const preview = await request<ImportResult>("/agaraccounting/import-statement", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -487,7 +487,7 @@ test("stores a USD statement for confirmation without creating lines, then loads
     detectedCurrency: string | null;
     importedLineCount: number;
     sourceUrl: string | null;
-  }>>(`/ledgerflow/statement-imports?clientId=${clientId}`, undefined, primaryUserId);
+  }>>(`/agaraccounting/statement-imports?clientId=${clientId}`, undefined, primaryUserId);
   assert.equal(history.response.status, 200);
   assert.equal(history.body.length, 1);
   assert.equal(history.body[0].id, preview.body.importId);
@@ -496,7 +496,7 @@ test("stores a USD statement for confirmation without creating lines, then loads
   assert.equal(history.body[0].importedLineCount, 0);
   assert.equal(history.body[0].sourceUrl, null);
 
-  const confirmed = await request<ImportResult>("/ledgerflow/import-statement", {
+  const confirmed = await request<ImportResult>("/agaraccounting/import-statement", {
     method: "POST",
     body: JSON.stringify({
       importId: preview.body.importId,
@@ -516,7 +516,7 @@ test("stores a USD statement for confirmation without creating lines, then loads
   assert.equal(loadedLines[0].currency, "USD");
 
   const confirmedHistory = await request<Array<{ id: number; outcome: string; importedLineCount: number }>>(
-    `/ledgerflow/statement-imports?clientId=${clientId}`,
+    `/agaraccounting/statement-imports?clientId=${clientId}`,
     undefined,
     primaryUserId,
   );
@@ -559,7 +559,7 @@ test("does not merge bank accounts that share last four digits", async () => {
   assert.equal(alpha.body.lines[0]?.bankAccountId, alpha.body.bankAccount?.id);
   assert.equal(beta.body.lines[0]?.bankAccountId, beta.body.bankAccount?.id);
 
-  const accounts = await request<Array<{ id: number; bankName: string | null }>>(`/ledgerflow/bank-accounts?clientId=${clientId}`);
+  const accounts = await request<Array<{ id: number; bankName: string | null }>>(`/agaraccounting/bank-accounts?clientId=${clientId}`);
   assert.equal(accounts.response.status, 200);
   const importedAccounts = accounts.body.filter((account) => account.bankName === "Alpha Bank" || account.bankName === "Beta Bank");
   assert.equal(importedAccounts.length, 2);
@@ -647,7 +647,7 @@ test("lists only successful uploaded files in newest-first order and keeps expir
     processedAt: string;
     sourceStatus: "available" | "expired" | "unavailable";
     sourceUrl: string | null;
-  }>>(`/ledgerflow/uploaded-files?clientId=${clientId}`);
+  }>>(`/agaraccounting/uploaded-files?clientId=${clientId}`);
   assert.equal(files.response.status, 200);
   assert.deepEqual(files.body.map((file) => file.fileName), [
     "expired-statement.pdf",
@@ -663,21 +663,21 @@ test("lists only successful uploaded files in newest-first order and keeps expir
   assert.match(files.body[2]?.processedAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
 
   const foreignList = await request<{ error: string }>(
-    `/ledgerflow/uploaded-files?clientId=${clientId}`,
+    `/agaraccounting/uploaded-files?clientId=${clientId}`,
     undefined,
     secondaryUserId,
   );
   assert.equal(foreignList.response.status, 403);
 
   const foreignSource = await request<{ error: string }>(
-    `/ledgerflow/statement-imports/${completed.id}/source`,
+    `/agaraccounting/statement-imports/${completed.id}/source`,
     undefined,
     secondaryUserId,
   );
   assert.equal(foreignSource.response.status, 403);
 
   const expiredSource = await request<{ error: string }>(
-    `/ledgerflow/statement-imports/${expired.id}/source`,
+    `/agaraccounting/statement-imports/${expired.id}/source`,
   );
   assert.equal(expiredSource.response.status, 404);
 
@@ -687,7 +687,7 @@ test("lists only successful uploaded files in newest-first order and keeps expir
     role: "bookkeeper",
   });
   const teamMemberFiles = await request<Array<{ id: number }>>(
-    `/ledgerflow/uploaded-files?clientId=${clientId}`,
+    `/agaraccounting/uploaded-files?clientId=${clientId}`,
     undefined,
     secondaryUserId,
   );
@@ -712,7 +712,7 @@ test("serves a private PDF inline with a safe name and downloads it only when re
     evidenceExpiresAt: new Date(Date.now() + 60_000),
   }).returning();
 
-  const preview = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source`, {
+  const preview = await fetch(`${baseUrl}/agaraccounting/statement-imports/${statementImport.id}/source`, {
     headers: { "x-test-user-id": primaryUserId },
   });
   assert.equal(preview.status, 200);
@@ -720,20 +720,20 @@ test("serves a private PDF inline with a safe name and downloads it only when re
   assert.equal(preview.headers.get("content-disposition"), 'inline; filename="Quarterly_statement__final_.pdf"');
   assert.deepEqual(Buffer.from(await preview.arrayBuffer()), pdf);
 
-  const download = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source?download=1`, {
+  const download = await fetch(`${baseUrl}/agaraccounting/statement-imports/${statementImport.id}/source?download=1`, {
     headers: { "x-test-user-id": primaryUserId },
   });
   assert.equal(download.status, 200);
   assert.equal(download.headers.get("content-disposition"), 'attachment; filename="Quarterly_statement__final_.pdf"');
   assert.deepEqual(Buffer.from(await download.arrayBuffer()), pdf);
 
-  const inaccessible = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source`, {
+  const inaccessible = await fetch(`${baseUrl}/agaraccounting/statement-imports/${statementImport.id}/source`, {
     headers: { "x-test-user-id": secondaryUserId },
   });
   assert.equal(inaccessible.status, 403);
 
   statementFiles.delete(objectPath);
-  const missing = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source`, {
+  const missing = await fetch(`${baseUrl}/agaraccounting/statement-imports/${statementImport.id}/source`, {
     headers: { "x-test-user-id": primaryUserId },
   });
   assert.equal(missing.status, 404);
@@ -741,7 +741,7 @@ test("serves a private PDF inline with a safe name and downloads it only when re
 
 test("stages deterministic description recodes before separately confirmed approval and posting", async () => {
   const clientId = await createClient(`AI action scope ${randomUUID()}`);
-  const createdLine = await request<{ id: number; accountSuggestion: string }>("/ledgerflow/statement-lines", {
+  const createdLine = await request<{ id: number; accountSuggestion: string }>("/agaraccounting/statement-lines", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -763,7 +763,7 @@ test("stages deterministic description recodes before separately confirmed appro
     accountSuggestion?: string;
   };
   type CopilotResponse = { answer: string; recommendations: Recommendation[] };
-  const classification = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+  const classification = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -776,7 +776,7 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.deepEqual(classification.body.recommendations[0]?.lineIds, [createdLine.body.id]);
   assert.equal(classification.body.recommendations[0]?.accountSuggestion, "Software & subscriptions");
 
-  const mixedRequest = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+  const mixedRequest = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -787,7 +787,7 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(mixedRequest.body.recommendations.length, 0);
   assert.match(mixedRequest.body.answer, /separate steps/i);
 
-  const recode = await request<{ updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
+  const recode = await request<{ updatedLineCount: number }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       type: "recode_lines",
@@ -800,21 +800,21 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(recode.body.updatedLineCount, 1);
 
   const journalEntries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
-    `/ledgerflow/journal-entries?clientId=${clientId}`,
+    `/agaraccounting/journal-entries?clientId=${clientId}`,
   );
   assert.equal(journalEntries.response.status, 200);
   const entry = journalEntries.body.find((item) => item.statementLineId === createdLine.body.id);
   assert.ok(entry);
   assert.equal(entry.status, "suggested");
 
-  const approvalCard = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+  const approvalCard = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({ clientId, message: "Approve all suggested entries." }),
   });
   assert.equal(approvalCard.response.status, 200);
   assert.equal(approvalCard.body.recommendations[0]?.type, "bulk_approve_entries");
 
-  const approval = await request<{ toStatus: string; entryCount: number }>("/ledgerflow/ai-actions/confirm", {
+  const approval = await request<{ toStatus: string; entryCount: number }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       type: "bulk_approve_entries",
@@ -827,7 +827,7 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(approval.body.toStatus, "approved");
   assert.equal(approval.body.entryCount, 1);
 
-  const repeatedApproval = await request<{ error: string }>("/ledgerflow/ai-actions/confirm", {
+  const repeatedApproval = await request<{ error: string }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       type: "bulk_approve_entries",
@@ -839,13 +839,13 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(repeatedApproval.response.status, 409);
   assert.match(repeatedApproval.body.error, /only suggested entries/i);
 
-  const postingCard = await request<CopilotResponse>("/ledgerflow/ai-chat", {
+  const postingCard = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({ clientId, message: "Post all approved entries." }),
   });
   assert.equal(postingCard.response.status, 200);
   assert.equal(postingCard.body.recommendations[0]?.type, "bulk_post_entries");
-  const posting = await request<{ toStatus: string }>("/ledgerflow/ai-actions/confirm", {
+  const posting = await request<{ toStatus: string }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       type: "bulk_post_entries",
@@ -857,7 +857,7 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(posting.response.status, 200);
   assert.equal(posting.body.toStatus, "posted");
 
-  const audits = await request<Array<{ transition: string; actor: { id: string } }>>(`/ledgerflow/bulk-transition-audits?clientId=${clientId}`);
+  const audits = await request<Array<{ transition: string; actor: { id: string } }>>(`/agaraccounting/bulk-transition-audits?clientId=${clientId}`);
   assert.equal(audits.response.status, 200);
   assert.deepEqual(audits.body.map((audit) => audit.transition).sort(), ["bulk_approve_entries", "bulk_post_entries"]);
   assert.ok(audits.body.every((audit) => audit.actor.id === primaryUserId));
@@ -897,7 +897,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
     id: number;
     clientId: number;
     turns: unknown[];
-  }>("/ledgerflow/ai-conversations", {
+  }>("/agaraccounting/ai-conversations", {
     method: "POST",
     body: JSON.stringify({ clientId, title: "August exception review" }),
   });
@@ -905,7 +905,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
   assert.equal(created.body.clientId, clientId);
   assert.deepEqual(created.body.turns, []);
 
-  const invalidCurrency = await request<{ error: string }>("/ledgerflow/ai-chat", {
+  const invalidCurrency = await request<{ error: string }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -921,7 +921,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
     threadId: number;
     results: Array<{ complete: boolean; rows: Array<{ id: number }>; totals: { count: number } }>;
     citations: Array<{ recordId: number; href: string }>;
-  }>("/ledgerflow/ai-chat", {
+  }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -940,7 +940,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
 
   const followUp = await request<{
     results: Array<{ rows: Array<{ currency: string; direction: string }> }>;
-  }>("/ledgerflow/ai-chat", {
+  }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -952,7 +952,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
   assert.equal(followUp.body.results[0]?.rows.length, 33);
   assert.ok(followUp.body.results[0]?.rows.every((row) => row.currency === "USD" && row.direction === "outflow"));
 
-  const periodFiltered = await request<{ results: Array<{ rows: unknown[] }> }>("/ledgerflow/ai-chat", {
+  const periodFiltered = await request<{ results: Array<{ rows: unknown[] }> }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -965,7 +965,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
 
   const resetFilters = await request<{
     results: Array<{ rows: unknown[]; totals: { outflowByCurrency: Record<string, number> } }>;
-  }>("/ledgerflow/ai-chat", {
+  }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -980,7 +980,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
   const resumed = await request<{
     scope: { direction?: string; currency?: string };
     turns: Array<{ role: string; response?: { threadId?: number } }>;
-  }>(`/ledgerflow/ai-conversations/${created.body.id}`);
+  }>(`/agaraccounting/ai-conversations/${created.body.id}`);
   assert.equal(resumed.response.status, 200);
   assert.deepEqual(resumed.body.scope, {});
   assert.equal(resumed.body.turns.length, 8);
@@ -997,7 +997,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
       rows: Array<{ section: string; currency: string }>;
       totals: { functionalCurrency: string; missingRateCount: number };
     }>;
-  }>("/ledgerflow/ai-chat", {
+  }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1015,7 +1015,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
 
   const priorPeriodTrialBalance = await request<{
     results: Array<{ kind: string; rows: unknown[]; totals: { totalDebit: number; totalCredit: number } }>;
-  }>("/ledgerflow/ai-chat", {
+  }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1029,14 +1029,14 @@ test("persists isolated copilot threads and returns complete grounded results ac
   assert.equal(priorPeriodTrialBalance.body.results[0]?.totals.totalDebit, 0);
   assert.equal(priorPeriodTrialBalance.body.results[0]?.totals.totalCredit, 0);
 
-  const renamed = await request<{ title: string }>(`/ledgerflow/ai-conversations/${created.body.id}`, {
+  const renamed = await request<{ title: string }>(`/agaraccounting/ai-conversations/${created.body.id}`, {
     method: "PATCH",
     body: JSON.stringify({ clientId, title: "USD outflow review" }),
   });
   assert.equal(renamed.response.status, 200);
   assert.equal(renamed.body.title, "USD outflow review");
 
-  const dormant = await request<{ id: number }>("/ledgerflow/ai-conversations", {
+  const dormant = await request<{ id: number }>("/agaraccounting/ai-conversations", {
     method: "POST",
     body: JSON.stringify({ clientId, title: "Expired conversation" }),
   });
@@ -1053,12 +1053,12 @@ test("persists isolated copilot threads and returns complete grounded results ac
     updatedAt: expiredAt,
   }).where(eq(database.assistantThreadsTable.id, dormant.body.id));
   const afterRetention = await request<Array<{ id: number; status: string }>>(
-    `/ledgerflow/ai-conversations?clientId=${clientId}`,
+    `/agaraccounting/ai-conversations?clientId=${clientId}`,
   );
   assert.equal(afterRetention.response.status, 200);
   assert.equal(afterRetention.body.find((thread) => thread.id === dormant.body.id)?.status, "cleared");
   const expiredConversation = await request<{ scope: Record<string, unknown>; turns: unknown[] }>(
-    `/ledgerflow/ai-conversations/${dormant.body.id}`,
+    `/agaraccounting/ai-conversations/${dormant.body.id}`,
   );
   assert.deepEqual(expiredConversation.body.scope, {});
   assert.deepEqual(expiredConversation.body.turns, []);
@@ -1069,13 +1069,13 @@ test("persists isolated copilot threads and returns complete grounded results ac
     role: "bookkeeper",
   });
   const foreignThread = await request<{ error: string }>(
-    `/ledgerflow/ai-conversations/${created.body.id}`,
+    `/agaraccounting/ai-conversations/${created.body.id}`,
     undefined,
     secondaryUserId,
   );
   assert.equal(foreignThread.response.status, 404);
   const foreignList = await request<unknown[]>(
-    `/ledgerflow/ai-conversations?clientId=${clientId}`,
+    `/agaraccounting/ai-conversations?clientId=${clientId}`,
     undefined,
     secondaryUserId,
   );
@@ -1083,7 +1083,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
   assert.deepEqual(foreignList.body, []);
 
   const otherClientId = await createClient(`Other copilot client ${randomUUID()}`);
-  const crossClient = await request<{ error: string }>("/ledgerflow/ai-chat", {
+  const crossClient = await request<{ error: string }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId: otherClientId,
@@ -1094,12 +1094,12 @@ test("persists isolated copilot threads and returns complete grounded results ac
   assert.equal(crossClient.response.status, 409);
   assert.match(crossClient.body.error, /cannot cross client workspaces/i);
 
-  const cleared = await request<unknown>(`/ledgerflow/ai-conversations/${created.body.id}`, {
+  const cleared = await request<unknown>(`/agaraccounting/ai-conversations/${created.body.id}`, {
     method: "DELETE",
   });
   assert.equal(cleared.response.status, 204);
   const afterClear = await request<{ status: string; scope: Record<string, unknown>; turns: unknown[] }>(
-    `/ledgerflow/ai-conversations/${created.body.id}`,
+    `/agaraccounting/ai-conversations/${created.body.id}`,
   );
   assert.equal(afterClear.response.status, 200);
   assert.equal(afterClear.body.status, "cleared");
@@ -1111,20 +1111,20 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   const primaryClientId = await createClient(`AI provider primary ${randomUUID()}`);
   const secondaryClientId = await createClient(`AI provider secondary ${randomUUID()}`, secondaryUserId);
   const defaultSettings = await request<{ provider: string; credentialLast4: string | null }>(
-    `/ledgerflow/ai-settings?clientId=${primaryClientId}`,
+    `/agaraccounting/ai-settings?clientId=${primaryClientId}`,
   );
   assert.equal(defaultSettings.response.status, 200);
   assert.equal(defaultSettings.body.provider, "managed_openai");
   assert.equal(defaultSettings.body.credentialLast4, null);
 
-  const missingKey = await request<{ error: string }>("/ledgerflow/ai-settings", {
+  const missingKey = await request<{ error: string }>("/agaraccounting/ai-settings", {
     method: "PUT",
     body: JSON.stringify({ clientId: primaryClientId, provider: "anthropic", model: "claude-3-5-sonnet-latest" }),
   });
   assert.equal(missingKey.response.status, 400);
   assert.match(missingKey.body.error, /add an api key/i);
 
-  const saved = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
+  const saved = await request<Record<string, unknown>>("/agaraccounting/ai-settings", {
     method: "PUT",
     body: JSON.stringify({
       clientId: primaryClientId,
@@ -1139,11 +1139,11 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   assert.equal(JSON.stringify(saved.body).includes("anthropic-first-key-1234"), false);
 
   const crossWorkspaceRead = await request<{ error: string }>(
-    `/ledgerflow/ai-settings?clientId=${secondaryClientId}`,
+    `/agaraccounting/ai-settings?clientId=${secondaryClientId}`,
   );
   assert.equal(crossWorkspaceRead.response.status, 403);
 
-  const rotated = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
+  const rotated = await request<Record<string, unknown>>("/agaraccounting/ai-settings", {
     method: "PUT",
     body: JSON.stringify({
       clientId: primaryClientId,
@@ -1155,7 +1155,7 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   assert.equal(rotated.response.status, 200);
   assert.equal(rotated.body.credentialLast4, "5678");
 
-  const tested = await request<{ credentialStatus: string; lastTestedAt: string | null }>("/ledgerflow/ai-settings/test", {
+  const tested = await request<{ credentialStatus: string; lastTestedAt: string | null }>("/agaraccounting/ai-settings/test", {
     method: "POST",
     body: JSON.stringify({ clientId: primaryClientId }),
   });
@@ -1166,7 +1166,7 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   const routedImport = await importStatement(primaryClientId, "anthropic-provider.csv", "anthropic-provider");
   assert.equal(routedImport.response.status, 201);
   assert.ok(aiRequests.some((item) => item.path === "/v1/messages" && item.credential === "anthropic-rotated-key-5678"));
-  const routedChat = await request<{ answer: string }>("/ledgerflow/ai-chat", {
+  const routedChat = await request<{ answer: string }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({ clientId: primaryClientId, message: "What should I review first?" }),
   });
@@ -1174,7 +1174,7 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   assert.ok(routedChat.body.answer.length > 0);
   assert.ok(aiRequests.filter((item) => item.path === "/v1/messages" && item.credential === "anthropic-rotated-key-5678").length >= 2);
 
-  const invalid = await request<Record<string, unknown>>("/ledgerflow/ai-settings", {
+  const invalid = await request<Record<string, unknown>>("/agaraccounting/ai-settings", {
     method: "PUT",
     body: JSON.stringify({
       clientId: primaryClientId,
@@ -1184,14 +1184,14 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
     }),
   });
   assert.equal(invalid.response.status, 200);
-  const invalidTest = await request<{ error: string }>("/ledgerflow/ai-settings/test", {
+  const invalidTest = await request<{ error: string }>("/agaraccounting/ai-settings/test", {
     method: "POST",
     body: JSON.stringify({ clientId: primaryClientId }),
   });
   assert.equal(invalidTest.response.status, 502);
   assert.match(invalidTest.body.error, /credential was rejected/i);
 
-  const removed = await request<{ provider: string; credentialLast4: string | null }>("/ledgerflow/ai-settings/credential", {
+  const removed = await request<{ provider: string; credentialLast4: string | null }>("/agaraccounting/ai-settings/credential", {
     method: "DELETE",
     body: JSON.stringify({ clientId: primaryClientId }),
   });
@@ -1201,13 +1201,13 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
 
   const managedImport = await importStatement(primaryClientId, "managed-provider.csv", "managed-provider");
   assert.equal(managedImport.response.status, 201);
-  assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "ledgerflow-test-openai-key"));
+  assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "agaraccounting-test-openai-key"));
 });
 
 test("prepares description-scoped recoding, approval, and posting as separate confirmed actions", async () => {
   const clientId = await createClient(`AI batch scope ${randomUUID()}`);
   for (const [date, amount] of [["2026-08-23", 150], ["2026-08-24", 250]] as const) {
-    const created = await request<{ id: number }>("/ledgerflow/statement-lines", {
+    const created = await request<{ id: number }>("/agaraccounting/statement-lines", {
       method: "POST",
       body: JSON.stringify({
         clientId,
@@ -1221,7 +1221,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
     assert.equal(created.response.status, 201);
   }
 
-  const recode = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+  const recode = await request<{ recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1238,7 +1238,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
     "All transactions with description SUNWEB GROUP GMBH must be posted as revenue and post them.",
     "All transactions with description SUNWEB GROUP GMBH must be posted as revenue and approve them.",
   ]) {
-    const mixedRequest = await request<{ answer: string; recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+    const mixedRequest = await request<{ answer: string; recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
       method: "POST",
       body: JSON.stringify({ clientId, message: mixedInstruction }),
     });
@@ -1247,7 +1247,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
     assert.match(mixedRequest.body.answer, /separate steps/i);
   }
 
-  const recodeConfirmation = await request<{ updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
+  const recodeConfirmation = await request<{ updatedLineCount: number }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1260,7 +1260,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(recodeConfirmation.response.status, 200);
   assert.equal(recodeConfirmation.body.updatedLineCount, 2);
 
-  const approval = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+  const approval = await request<{ recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1272,7 +1272,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(approvalRecommendation?.type, "bulk_approve_entries");
   assert.equal(approvalRecommendation?.entryCount, 2);
 
-  const approvalConfirmation = await request<{ toStatus: string }>("/ledgerflow/ai-actions/confirm", {
+  const approvalConfirmation = await request<{ toStatus: string }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1284,7 +1284,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(approvalConfirmation.response.status, 200);
   assert.equal(approvalConfirmation.body.toStatus, "approved");
 
-  const posting = await request<{ recommendations: AIRecommendation[] }>("/ledgerflow/ai-chat", {
+  const posting = await request<{ recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1293,7 +1293,7 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   });
   assert.equal(posting.response.status, 200);
   const postingRecommendation = posting.body.recommendations[0];
-  const postingConfirmation = await request<{ toStatus: string; updatedLineCount: number }>("/ledgerflow/ai-actions/confirm", {
+  const postingConfirmation = await request<{ toStatus: string; updatedLineCount: number }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1317,7 +1317,7 @@ test("filters statement lines by receipts or payments with client, currency, and
     { description: "Direction receipt USD", currency: "USD", amount: 400, direction: "inflow" },
   ];
   for (const line of lines) {
-    const created = await request<{ id: number }>("/ledgerflow/statement-lines", {
+    const created = await request<{ id: number }>("/agaraccounting/statement-lines", {
       method: "POST",
       body: JSON.stringify({ clientId, date: "2026-08-26", ...line }),
     });
@@ -1325,7 +1325,7 @@ test("filters statement lines by receipts or payments with client, currency, and
   }
 
   const receipts = await request<Array<{ description: string; direction: string }>>(
-    `/ledgerflow/statement-lines?clientId=${clientId}&direction=inflow`,
+    `/agaraccounting/statement-lines?clientId=${clientId}&direction=inflow`,
   );
   assert.deepEqual(receipts.body.map((line) => line.description), [
     "Direction receipt AED",
@@ -1334,7 +1334,7 @@ test("filters statement lines by receipts or payments with client, currency, and
   assert.ok(receipts.body.every((line) => line.direction === "inflow"));
 
   const payments = await request<Array<{ description: string; direction: string }>>(
-    `/ledgerflow/statement-lines?clientId=${clientId}&direction=outflow`,
+    `/agaraccounting/statement-lines?clientId=${clientId}&direction=outflow`,
   );
   assert.deepEqual(payments.body.map((line) => line.description), [
     "Direction payment AED",
@@ -1343,18 +1343,18 @@ test("filters statement lines by receipts or payments with client, currency, and
   assert.ok(payments.body.every((line) => line.direction === "outflow"));
 
   const combined = await request<Array<{ description: string; currency: string; status: string }>>(
-    `/ledgerflow/statement-lines?clientId=${clientId}&direction=outflow&currency=USD&status=needs_review`,
+    `/agaraccounting/statement-lines?clientId=${clientId}&direction=outflow&currency=USD&status=needs_review`,
   );
   assert.deepEqual(combined.body.map((line) => line.description), ["Direction payment USD"]);
   assert.ok(combined.body.every((line) => line.currency === "USD" && line.status === "needs_review"));
 
   const empty = await request<unknown[]>(
-    `/ledgerflow/statement-lines?clientId=${clientId}&direction=inflow&currency=GBP`,
+    `/agaraccounting/statement-lines?clientId=${clientId}&direction=inflow&currency=GBP`,
   );
   assert.deepEqual(empty.body, []);
 
   const invalid = await fetch(
-    `${baseUrl}/ledgerflow/statement-lines?clientId=${clientId}&direction=refund`,
+    `${baseUrl}/agaraccounting/statement-lines?clientId=${clientId}&direction=refund`,
     { headers: { "x-test-user-id": primaryUserId } },
   );
   assert.equal(invalid.status, 400);
@@ -1369,7 +1369,7 @@ test("resends a pending invitation with its approved scope and invalidates the e
   assert.equal(client.response.status, 201);
   createdClientIds.push(client.body.id);
 
-  const invitedUserId = `ledgerflow-resend-bookkeeper-${suffix}`;
+  const invitedUserId = `agaraccounting-resend-bookkeeper-${suffix}`;
   const invitedEmail = `${invitedUserId}@example.test`;
   assert.ok(database);
   await database.db.insert(database.usersTable).values({
@@ -1399,7 +1399,6 @@ test("resends a pending invitation with its approved scope and invalidates the e
   assert.equal(created.response.status, 201);
   assert.match(created.body.emailSubject, /invited to agaraccounting ai system/i);
   assert.match(created.body.emailBody, /invited you to agaraccounting ai system/i);
-  assert.doesNotMatch(created.body.emailBody, /ledgerflow/i);
   assert.match(created.body.emailBody, /as an admin/i);
   assert.match(created.body.emailBody, new RegExp(client.body.name));
   assert.match(created.body.emailBody, /expires on/i);
@@ -1441,7 +1440,7 @@ test("prepares unfamiliar exchange-rate CSV data without importing it", async ()
     rates: Array<{ effectiveDate: string; sourceCurrency: string; functionalCurrency: string; rate: number; source: string; note: string | null }>;
     warnings: string[];
     confidence: number;
-  }>("/ledgerflow/exchange-rates/parse", {
+  }>("/agaraccounting/exchange-rates/parse", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -1481,7 +1480,7 @@ test("prepares recognizable Excel exchange-rate rows without calling AI or impor
     rates: Array<{ effectiveDate: string; sourceCurrency: string; functionalCurrency: string; rate: number; source: string; note: string | null }>;
     warnings: string[];
     confidence: number;
-  }>("/ledgerflow/exchange-rates/parse", {
+  }>("/agaraccounting/exchange-rates/parse", {
     method: "POST",
     body: JSON.stringify({
       clientId,

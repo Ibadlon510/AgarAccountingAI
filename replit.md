@@ -26,9 +26,9 @@ AgarAccounting AI System is an AI-assisted bookkeeping workspace that takes mult
 
 - `lib/api-spec/openapi.yaml` — API contract and generated client source.
 - `lib/db/src/schema/` — PostgreSQL schema for statement lines and journal entries.
-- `artifacts/api-server/src/routes/ledgerflow.ts` — workflow API, seeded demo data, and report outputs.
-- `artifacts/ledgerflow/src/App.tsx` — AgarAccounting AI System user interface and route shell.
-- `artifacts/ledgerflow/src/index.css` — product theme and visual tokens.
+- `artifacts/api-server/src/routes/agaraccounting.ts` — workflow API, seeded demo data, and report outputs.
+- `artifacts/agaraccounting/src/App.tsx` — AgarAccounting AI System user interface and route shell.
+- `artifacts/agaraccounting/src/index.css` — product theme and visual tokens.
 
 ## Architecture decisions
 
@@ -48,7 +48,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-- AgarAccounting AI System keeps compatibility-sensitive technical identifiers such as `/api/ledgerflow`, `@workspace/ledgerflow`, and `LEDGERFLOW_*`; do not rename them for cosmetic reasons.
+- AgarAccounting AI System keeps compatibility-sensitive technical identifiers such as `/api/agaraccounting`, `@workspace/agaraccounting`, and `AGARACCOUNTING_*`; do not rename them for cosmetic reasons.
 
 ## Pointers
 

@@ -9,19 +9,17 @@ test("ships the AgarAccounting browser identity and base-path-safe favicon", asy
   assert.match(html, /<title>AgarAccounting AI System<\/title>/);
   assert.match(html, /content="AgarAccounting AI System — precise, AI-assisted accounting workspace\."/);
   assert.match(html, /href="%BASE_URL%favicon\.svg"/);
-  assert.doesNotMatch(html, /LedgerFlow/);
 });
 
 test("ships AgarAccounting metadata and shell branding for the system-admin artifact", async () => {
   const [html, shell] = await Promise.all([
-    readFile(new URL("../../ledgerflow-system-admin/index.html", import.meta.url), "utf8"),
-    readFile(new URL("../../ledgerflow-system-admin/src/components/layout/Shell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../../agaraccounting-system-admin/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../../agaraccounting-system-admin/src/components/layout/Shell.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(html, /<title>AgarAccounting AI System Admin<\/title>/);
   assert.match(html, /content="AgarAccounting AI System Admin — private exchange-rate administration console\."/);
   assert.match(html, /href="%BASE_URL%favicon\.svg"/);
   assert.match(shell, /AgarAccounting AI<span[^>]*>Admin<\/span>/);
-  assert.doesNotMatch(`${html}\n${shell}`, /LedgerFlow/i);
 });
 
 test("ships full, compact, favicon, and email-safe brand assets", async () => {

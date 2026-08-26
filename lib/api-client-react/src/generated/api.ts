@@ -56,14 +56,14 @@ import type {
   FirmNominationInput,
   FirmProfile,
   FirmProfileInput,
+  GetAgarAccountingAIConversationsParams,
+  GetAgarAccountingAISettingsParams,
   GetBankAccountsParams,
   GetBulkTransitionAuditsParams,
   GetExchangeRatesParams,
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
   GetLedgerOverviewParams,
-  GetLedgerflowAIConversationsParams,
-  GetLedgerflowAISettingsParams,
   GetReportPacksParams,
   GetStatementImportsParams,
   GetStatementLinesParams,
@@ -93,6 +93,7 @@ import type {
   StatementLine,
   StatementLineInput,
   SystemRate,
+  SystemRateClearResult,
   SystemRateDashboard,
   SystemRateImportInput,
   SystemRateImportResult,
@@ -216,20 +217,20 @@ export function useGetCurrentAuthUser<TData = Awaited<ReturnType<typeof getCurre
 
 
 
-export const getUpdateLedgerflowAccountProfileUrl = () => {
+export const getUpdateAgarAccountingAccountProfileUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/account-profile`
+  return `/api/agaraccounting/account-profile`
 }
 
 /**
  * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
-export const updateLedgerflowAccountProfile = async (accountProfileInput: AccountProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<AccountProfile> => {
+export const updateAgarAccountingAccountProfile = async (accountProfileInput: AccountProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<AccountProfile> => {
 
-  return customFetch<AccountProfile>(getUpdateLedgerflowAccountProfileUrl(),
+  return customFetch<AccountProfile>(getUpdateAgarAccountingAccountProfileUrl(),
   {
     ...options,
     method: 'PATCH',
@@ -242,11 +243,11 @@ export const updateLedgerflowAccountProfile = async (accountProfileInput: Accoun
 
 
 
-export const getUpdateLedgerflowAccountProfileMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext> => {
+export const getUpdateAgarAccountingAccountProfileMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAgarAccountingAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAgarAccountingAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext> => {
 
-const mutationKey = ['updateLedgerflowAccountProfile'];
+const mutationKey = ['updateAgarAccountingAccountProfile'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -256,10 +257,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, {data: BodyType<AccountProfileInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAgarAccountingAccountProfile>>, {data: BodyType<AccountProfileInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  updateLedgerflowAccountProfile(data,requestOptions)
+          return  updateAgarAccountingAccountProfile(data,requestOptions)
         }
 
 
@@ -269,22 +270,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type UpdateLedgerflowAccountProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>>
-    export type UpdateLedgerflowAccountProfileMutationBody = BodyType<AccountProfileInput>
-    export type UpdateLedgerflowAccountProfileMutationError = ErrorType<unknown>
+    export type UpdateAgarAccountingAccountProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateAgarAccountingAccountProfile>>>
+    export type UpdateAgarAccountingAccountProfileMutationBody = BodyType<AccountProfileInput>
+    export type UpdateAgarAccountingAccountProfileMutationError = ErrorType<unknown>
 
     /**
  * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
-export const useUpdateLedgerflowAccountProfile = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useUpdateAgarAccountingAccountProfile = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAgarAccountingAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>,
+        Awaited<ReturnType<typeof updateAgarAccountingAccountProfile>>,
         TError,
         {data: BodyType<AccountProfileInput>},
         TContext
       > => {
-      return useMutation(getUpdateLedgerflowAccountProfileMutationOptions(options));
+      return useMutation(getUpdateAgarAccountingAccountProfileMutationOptions(options));
     }
 
 export const getGetFirmProfileUrl = () => {
@@ -2270,20 +2271,20 @@ export const useAcceptWorkspaceInvitation = <TError = ErrorType<unknown>,
       return useMutation(getAcceptWorkspaceInvitationMutationOptions(options));
     }
 
-export const getGetLedgerflowUsageUrl = () => {
+export const getGetAgarAccountingUsageUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/usage`
+  return `/api/agaraccounting/usage`
 }
 
 /**
  * @summary Get server-measured workspace usage and plan limits
  */
-export const getLedgerflowUsage = async ( options?: Parameters<typeof customFetch>[1]): Promise<WorkspaceUsage> => {
+export const getAgarAccountingUsage = async ( options?: Parameters<typeof customFetch>[1]): Promise<WorkspaceUsage> => {
 
-  return customFetch<WorkspaceUsage>(getGetLedgerflowUsageUrl(),
+  return customFetch<WorkspaceUsage>(getGetAgarAccountingUsageUrl(),
   {
     ...options,
     method: 'GET'
@@ -2296,45 +2297,45 @@ export const getLedgerflowUsage = async ( options?: Parameters<typeof customFetc
 
 
 
-export const getGetLedgerflowUsageQueryKey = () => {
+export const getGetAgarAccountingUsageQueryKey = () => {
     return [
-    `/api/ledgerflow/usage`
+    `/api/agaraccounting/usage`
     ] as const;
     }
 
 
-export const getGetLedgerflowUsageQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowUsage>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAgarAccountingUsageQueryOptions = <TData = Awaited<ReturnType<typeof getAgarAccountingUsage>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowUsageQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetAgarAccountingUsageQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowUsage>>> = ({ signal }) => getLedgerflowUsage({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgarAccountingUsage>>> = ({ signal }) => getAgarAccountingUsage({ signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowUsage>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingUsage>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type GetLedgerflowUsageQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowUsage>>>
-export type GetLedgerflowUsageQueryError = ErrorType<unknown>
+export type GetAgarAccountingUsageQueryResult = NonNullable<Awaited<ReturnType<typeof getAgarAccountingUsage>>>
+export type GetAgarAccountingUsageQueryError = ErrorType<unknown>
 
 
 /**
  * @summary Get server-measured workspace usage and plan limits
  */
 
-export function useGetLedgerflowUsage<TData = Awaited<ReturnType<typeof getLedgerflowUsage>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetAgarAccountingUsage<TData = Awaited<ReturnType<typeof getAgarAccountingUsage>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingUsage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetLedgerflowUsageQueryOptions(options)
+  const queryOptions = getGetAgarAccountingUsageQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -2359,7 +2360,7 @@ export const getGetExchangeRatesUrl = (params?: GetExchangeRatesParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/exchange-rates?${stringifiedParams}` : `/api/ledgerflow/exchange-rates`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/exchange-rates?${stringifiedParams}` : `/api/agaraccounting/exchange-rates`
 }
 
 /**
@@ -2382,7 +2383,7 @@ export const getExchangeRates = async (params?: GetExchangeRatesParams, options?
 
 export const getGetExchangeRatesQueryKey = (params?: GetExchangeRatesParams,) => {
     return [
-    `/api/ledgerflow/exchange-rates`, ...(params ? [params] : [])
+    `/api/agaraccounting/exchange-rates`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -2443,7 +2444,7 @@ export const getCreateExchangeRateUrl = (params?: CreateExchangeRateParams,) => 
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/exchange-rates?${stringifiedParams}` : `/api/ledgerflow/exchange-rates`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/exchange-rates?${stringifiedParams}` : `/api/agaraccounting/exchange-rates`
 }
 
 /**
@@ -2515,7 +2516,7 @@ export const getUpdateExchangeRateUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/exchange-rates/${id}`
+  return `/api/agaraccounting/exchange-rates/${id}`
 }
 
 /**
@@ -2587,7 +2588,7 @@ export const getDeleteExchangeRateUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/exchange-rates/${id}`
+  return `/api/agaraccounting/exchange-rates/${id}`
 }
 
 /**
@@ -2665,7 +2666,7 @@ export const getImportExchangeRatesUrl = (params?: ImportExchangeRatesParams,) =
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/exchange-rates/import?${stringifiedParams}` : `/api/ledgerflow/exchange-rates/import`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/exchange-rates/import?${stringifiedParams}` : `/api/agaraccounting/exchange-rates/import`
 }
 
 /**
@@ -2737,7 +2738,7 @@ export const getParseExchangeRatesUrl = () => {
 
 
 
-  return `/api/ledgerflow/exchange-rates/parse`
+  return `/api/agaraccounting/exchange-rates/parse`
 }
 
 /**
@@ -2808,7 +2809,7 @@ export const getGetSystemRateDashboardUrl = () => {
 
 
 
-  return `/api/ledgerflow/system-rates/dashboard`
+  return `/api/agaraccounting/system-rates/dashboard`
 }
 
 /**
@@ -2832,7 +2833,7 @@ export const getSystemRateDashboard = async ( options?: Parameters<typeof custom
 
 export const getGetSystemRateDashboardQueryKey = () => {
     return [
-    `/api/ledgerflow/system-rates/dashboard`
+    `/api/agaraccounting/system-rates/dashboard`
     ] as const;
     }
 
@@ -2886,7 +2887,7 @@ export const getGetSystemRatesUrl = () => {
 
 
 
-  return `/api/ledgerflow/system-rates`
+  return `/api/agaraccounting/system-rates`
 }
 
 /**
@@ -2909,7 +2910,7 @@ export const getSystemRates = async ( options?: Parameters<typeof customFetch>[1
 
 export const getGetSystemRatesQueryKey = () => {
     return [
-    `/api/ledgerflow/system-rates`
+    `/api/agaraccounting/system-rates`
     ] as const;
     }
 
@@ -2963,7 +2964,7 @@ export const getCreateSystemRateUrl = () => {
 
 
 
-  return `/api/ledgerflow/system-rates`
+  return `/api/agaraccounting/system-rates`
 }
 
 /**
@@ -3029,12 +3030,84 @@ export const useCreateSystemRate = <TError = ErrorType<void>,
       return useMutation(getCreateSystemRateMutationOptions(options));
     }
 
+export const getClearSystemRatesUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/system-rates`
+}
+
+/**
+ * Removes all global fallback rate records while retaining the rate table and audit history.
+ * @summary Clear all global fallback exchange rates
+ */
+export const clearSystemRates = async ( options?: Parameters<typeof customFetch>[1]): Promise<SystemRateClearResult> => {
+
+  return customFetch<SystemRateClearResult>(getClearSystemRatesUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearSystemRatesMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearSystemRates>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearSystemRates>>, TError,void, TContext> => {
+
+const mutationKey = ['clearSystemRates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearSystemRates>>, void> = () => {
+
+
+          return  clearSystemRates(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearSystemRatesMutationResult = NonNullable<Awaited<ReturnType<typeof clearSystemRates>>>
+
+    export type ClearSystemRatesMutationError = ErrorType<void>
+
+    /**
+ * @summary Clear all global fallback exchange rates
+ */
+export const useClearSystemRates = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearSystemRates>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearSystemRates>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getClearSystemRatesMutationOptions(options));
+    }
+
 export const getUpdateSystemRateUrl = (id: number,) => {
 
 
 
 
-  return `/api/ledgerflow/system-rates/${id}`
+  return `/api/agaraccounting/system-rates/${id}`
 }
 
 /**
@@ -3106,7 +3179,7 @@ export const getDeleteSystemRateUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/system-rates/${id}`
+  return `/api/agaraccounting/system-rates/${id}`
 }
 
 /**
@@ -3177,7 +3250,7 @@ export const getImportSystemRatesUrl = () => {
 
 
 
-  return `/api/ledgerflow/system-rates/import`
+  return `/api/agaraccounting/system-rates/import`
 }
 
 /**
@@ -3248,7 +3321,7 @@ export const getParseSystemRatesUrl = () => {
 
 
 
-  return `/api/ledgerflow/system-rates/parse`
+  return `/api/agaraccounting/system-rates/parse`
 }
 
 /**
@@ -3404,7 +3477,7 @@ export const getGetLedgerOverviewUrl = (params?: GetLedgerOverviewParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/overview?${stringifiedParams}` : `/api/ledgerflow/overview`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/overview?${stringifiedParams}` : `/api/agaraccounting/overview`
 }
 
 /**
@@ -3427,7 +3500,7 @@ export const getLedgerOverview = async (params?: GetLedgerOverviewParams, option
 
 export const getGetLedgerOverviewQueryKey = (params?: GetLedgerOverviewParams,) => {
     return [
-    `/api/ledgerflow/overview`, ...(params ? [params] : [])
+    `/api/agaraccounting/overview`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -3488,7 +3561,7 @@ export const getGetBankAccountsUrl = (params: GetBankAccountsParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/bank-accounts?${stringifiedParams}` : `/api/ledgerflow/bank-accounts`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/bank-accounts?${stringifiedParams}` : `/api/agaraccounting/bank-accounts`
 }
 
 /**
@@ -3511,7 +3584,7 @@ export const getBankAccounts = async (params: GetBankAccountsParams, options?: P
 
 export const getGetBankAccountsQueryKey = (params?: GetBankAccountsParams,) => {
     return [
-    `/api/ledgerflow/bank-accounts`, ...(params ? [params] : [])
+    `/api/agaraccounting/bank-accounts`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -3565,7 +3638,7 @@ export const getCreateBankAccountUrl = () => {
 
 
 
-  return `/api/ledgerflow/bank-accounts`
+  return `/api/agaraccounting/bank-accounts`
 }
 
 /**
@@ -3643,7 +3716,7 @@ export const getGetStatementLinesUrl = (params?: GetStatementLinesParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/statement-lines?${stringifiedParams}` : `/api/ledgerflow/statement-lines`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/statement-lines?${stringifiedParams}` : `/api/agaraccounting/statement-lines`
 }
 
 /**
@@ -3666,7 +3739,7 @@ export const getStatementLines = async (params?: GetStatementLinesParams, option
 
 export const getGetStatementLinesQueryKey = (params?: GetStatementLinesParams,) => {
     return [
-    `/api/ledgerflow/statement-lines`, ...(params ? [params] : [])
+    `/api/agaraccounting/statement-lines`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -3720,7 +3793,7 @@ export const getCreateStatementLineUrl = () => {
 
 
 
-  return `/api/ledgerflow/statement-lines`
+  return `/api/agaraccounting/statement-lines`
 }
 
 /**
@@ -3791,7 +3864,7 @@ export const getImportStatementUrl = () => {
 
 
 
-  return `/api/ledgerflow/import-statement`
+  return `/api/agaraccounting/import-statement`
 }
 
 /**
@@ -3869,7 +3942,7 @@ export const getGetStatementImportsUrl = (params: GetStatementImportsParams,) =>
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/statement-imports?${stringifiedParams}` : `/api/ledgerflow/statement-imports`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/statement-imports?${stringifiedParams}` : `/api/agaraccounting/statement-imports`
 }
 
 /**
@@ -3892,7 +3965,7 @@ export const getStatementImports = async (params: GetStatementImportsParams, opt
 
 export const getGetStatementImportsQueryKey = (params?: GetStatementImportsParams,) => {
     return [
-    `/api/ledgerflow/statement-imports`, ...(params ? [params] : [])
+    `/api/agaraccounting/statement-imports`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -3946,7 +4019,7 @@ export const getUndoStatementImportUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/statement-imports/${id}/undo`
+  return `/api/agaraccounting/statement-imports/${id}/undo`
 }
 
 /**
@@ -4025,7 +4098,7 @@ export const getGetUploadedFilesUrl = (params: GetUploadedFilesParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/uploaded-files?${stringifiedParams}` : `/api/ledgerflow/uploaded-files`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/uploaded-files?${stringifiedParams}` : `/api/agaraccounting/uploaded-files`
 }
 
 /**
@@ -4048,7 +4121,7 @@ export const getUploadedFiles = async (params: GetUploadedFilesParams, options?:
 
 export const getGetUploadedFilesQueryKey = (params?: GetUploadedFilesParams,) => {
     return [
-    `/api/ledgerflow/uploaded-files`, ...(params ? [params] : [])
+    `/api/agaraccounting/uploaded-files`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -4102,7 +4175,7 @@ export const getGetStatementImportSourceUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/statement-imports/${id}/source`
+  return `/api/agaraccounting/statement-imports/${id}/source`
 }
 
 /**
@@ -4125,7 +4198,7 @@ export const getStatementImportSource = async (id: number, options?: Parameters<
 
 export const getGetStatementImportSourceQueryKey = (id: number,) => {
     return [
-    `/api/ledgerflow/statement-imports/${id}/source`
+    `/api/agaraccounting/statement-imports/${id}/source`
     ] as const;
     }
 
@@ -4174,20 +4247,20 @@ export function useGetStatementImportSource<TData = Awaited<ReturnType<typeof ge
 
 
 
-export const getAskLedgerflowAIUrl = () => {
+export const getAskAgarAccountingAIUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/ai-chat`
+  return `/api/agaraccounting/ai-chat`
 }
 
 /**
  * @summary Ask the AI assistant about a client workspace
  */
-export const askLedgerflowAI = async (aIChatInput: AIChatInput, options?: Parameters<typeof customFetch>[1]): Promise<AIChatResponse> => {
+export const askAgarAccountingAI = async (aIChatInput: AIChatInput, options?: Parameters<typeof customFetch>[1]): Promise<AIChatResponse> => {
 
-  return customFetch<AIChatResponse>(getAskLedgerflowAIUrl(),
+  return customFetch<AIChatResponse>(getAskAgarAccountingAIUrl(),
   {
     ...options,
     method: 'POST',
@@ -4200,11 +4273,11 @@ export const askLedgerflowAI = async (aIChatInput: AIChatInput, options?: Parame
 
 
 
-export const getAskLedgerflowAIMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext> => {
+export const getAskAgarAccountingAIMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askAgarAccountingAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof askAgarAccountingAI>>, TError,{data: BodyType<AIChatInput>}, TContext> => {
 
-const mutationKey = ['askLedgerflowAI'];
+const mutationKey = ['askAgarAccountingAI'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4214,10 +4287,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof askLedgerflowAI>>, {data: BodyType<AIChatInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof askAgarAccountingAI>>, {data: BodyType<AIChatInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  askLedgerflowAI(data,requestOptions)
+          return  askAgarAccountingAI(data,requestOptions)
         }
 
 
@@ -4227,25 +4300,25 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type AskLedgerflowAIMutationResult = NonNullable<Awaited<ReturnType<typeof askLedgerflowAI>>>
-    export type AskLedgerflowAIMutationBody = BodyType<AIChatInput>
-    export type AskLedgerflowAIMutationError = ErrorType<unknown>
+    export type AskAgarAccountingAIMutationResult = NonNullable<Awaited<ReturnType<typeof askAgarAccountingAI>>>
+    export type AskAgarAccountingAIMutationBody = BodyType<AIChatInput>
+    export type AskAgarAccountingAIMutationError = ErrorType<unknown>
 
     /**
  * @summary Ask the AI assistant about a client workspace
  */
-export const useAskLedgerflowAI = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askLedgerflowAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useAskAgarAccountingAI = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askAgarAccountingAI>>, TError,{data: BodyType<AIChatInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof askLedgerflowAI>>,
+        Awaited<ReturnType<typeof askAgarAccountingAI>>,
         TError,
         {data: BodyType<AIChatInput>},
         TContext
       > => {
-      return useMutation(getAskLedgerflowAIMutationOptions(options));
+      return useMutation(getAskAgarAccountingAIMutationOptions(options));
     }
 
-export const getGetLedgerflowAIConversationsUrl = (params: GetLedgerflowAIConversationsParams,) => {
+export const getGetAgarAccountingAIConversationsUrl = (params: GetAgarAccountingAIConversationsParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -4257,15 +4330,15 @@ export const getGetLedgerflowAIConversationsUrl = (params: GetLedgerflowAIConver
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/ai-conversations?${stringifiedParams}` : `/api/ledgerflow/ai-conversations`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/ai-conversations?${stringifiedParams}` : `/api/agaraccounting/ai-conversations`
 }
 
 /**
  * @summary List client-scoped accountant copilot conversations
  */
-export const getLedgerflowAIConversations = async (params: GetLedgerflowAIConversationsParams, options?: Parameters<typeof customFetch>[1]): Promise<AIConversationSummary[]> => {
+export const getAgarAccountingAIConversations = async (params: GetAgarAccountingAIConversationsParams, options?: Parameters<typeof customFetch>[1]): Promise<AIConversationSummary[]> => {
 
-  return customFetch<AIConversationSummary[]>(getGetLedgerflowAIConversationsUrl(params),
+  return customFetch<AIConversationSummary[]>(getGetAgarAccountingAIConversationsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -4278,45 +4351,45 @@ export const getLedgerflowAIConversations = async (params: GetLedgerflowAIConver
 
 
 
-export const getGetLedgerflowAIConversationsQueryKey = (params?: GetLedgerflowAIConversationsParams,) => {
+export const getGetAgarAccountingAIConversationsQueryKey = (params?: GetAgarAccountingAIConversationsParams,) => {
     return [
-    `/api/ledgerflow/ai-conversations`, ...(params ? [params] : [])
+    `/api/agaraccounting/ai-conversations`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetLedgerflowAIConversationsQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError = ErrorType<unknown>>(params: GetLedgerflowAIConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAgarAccountingAIConversationsQueryOptions = <TData = Awaited<ReturnType<typeof getAgarAccountingAIConversations>>, TError = ErrorType<unknown>>(params: GetAgarAccountingAIConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAIConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAIConversationsQueryKey(params);
+  const queryKey =  queryOptions?.queryKey ?? getGetAgarAccountingAIConversationsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAIConversations>>> = ({ signal }) => getLedgerflowAIConversations(params, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgarAccountingAIConversations>>> = ({ signal }) => getAgarAccountingAIConversations(params, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAIConversations>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type GetLedgerflowAIConversationsQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAIConversations>>>
-export type GetLedgerflowAIConversationsQueryError = ErrorType<unknown>
+export type GetAgarAccountingAIConversationsQueryResult = NonNullable<Awaited<ReturnType<typeof getAgarAccountingAIConversations>>>
+export type GetAgarAccountingAIConversationsQueryError = ErrorType<unknown>
 
 
 /**
  * @summary List client-scoped accountant copilot conversations
  */
 
-export function useGetLedgerflowAIConversations<TData = Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError = ErrorType<unknown>>(
- params: GetLedgerflowAIConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetAgarAccountingAIConversations<TData = Awaited<ReturnType<typeof getAgarAccountingAIConversations>>, TError = ErrorType<unknown>>(
+ params: GetAgarAccountingAIConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAIConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetLedgerflowAIConversationsQueryOptions(params,options)
+  const queryOptions = getGetAgarAccountingAIConversationsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -4329,20 +4402,20 @@ export function useGetLedgerflowAIConversations<TData = Awaited<ReturnType<typeo
 
 
 
-export const getCreateLedgerflowAIConversationUrl = () => {
+export const getCreateAgarAccountingAIConversationUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/ai-conversations`
+  return `/api/agaraccounting/ai-conversations`
 }
 
 /**
  * @summary Start a client-scoped accountant copilot conversation
  */
-export const createLedgerflowAIConversation = async (aIConversationInput: AIConversationInput, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
+export const createAgarAccountingAIConversation = async (aIConversationInput: AIConversationInput, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
 
-  return customFetch<AIConversation>(getCreateLedgerflowAIConversationUrl(),
+  return customFetch<AIConversation>(getCreateAgarAccountingAIConversationUrl(),
   {
     ...options,
     method: 'POST',
@@ -4355,11 +4428,11 @@ export const createLedgerflowAIConversation = async (aIConversationInput: AIConv
 
 
 
-export const getCreateLedgerflowAIConversationMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext> => {
+export const getCreateAgarAccountingAIConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAgarAccountingAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAgarAccountingAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext> => {
 
-const mutationKey = ['createLedgerflowAIConversation'];
+const mutationKey = ['createAgarAccountingAIConversation'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4369,10 +4442,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, {data: BodyType<AIConversationInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAgarAccountingAIConversation>>, {data: BodyType<AIConversationInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  createLedgerflowAIConversation(data,requestOptions)
+          return  createAgarAccountingAIConversation(data,requestOptions)
         }
 
 
@@ -4382,38 +4455,38 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type CreateLedgerflowAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof createLedgerflowAIConversation>>>
-    export type CreateLedgerflowAIConversationMutationBody = BodyType<AIConversationInput>
-    export type CreateLedgerflowAIConversationMutationError = ErrorType<unknown>
+    export type CreateAgarAccountingAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof createAgarAccountingAIConversation>>>
+    export type CreateAgarAccountingAIConversationMutationBody = BodyType<AIConversationInput>
+    export type CreateAgarAccountingAIConversationMutationError = ErrorType<unknown>
 
     /**
  * @summary Start a client-scoped accountant copilot conversation
  */
-export const useCreateLedgerflowAIConversation = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useCreateAgarAccountingAIConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAgarAccountingAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof createLedgerflowAIConversation>>,
+        Awaited<ReturnType<typeof createAgarAccountingAIConversation>>,
         TError,
         {data: BodyType<AIConversationInput>},
         TContext
       > => {
-      return useMutation(getCreateLedgerflowAIConversationMutationOptions(options));
+      return useMutation(getCreateAgarAccountingAIConversationMutationOptions(options));
     }
 
-export const getGetLedgerflowAIConversationUrl = (id: number,) => {
+export const getGetAgarAccountingAIConversationUrl = (id: number,) => {
 
 
 
 
-  return `/api/ledgerflow/ai-conversations/${id}`
+  return `/api/agaraccounting/ai-conversations/${id}`
 }
 
 /**
  * @summary Get a client-scoped copilot conversation and its turns
  */
-export const getLedgerflowAIConversation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
+export const getAgarAccountingAIConversation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
 
-  return customFetch<AIConversation>(getGetLedgerflowAIConversationUrl(id),
+  return customFetch<AIConversation>(getGetAgarAccountingAIConversationUrl(id),
   {
     ...options,
     method: 'GET'
@@ -4426,45 +4499,45 @@ export const getLedgerflowAIConversation = async (id: number, options?: Paramete
 
 
 
-export const getGetLedgerflowAIConversationQueryKey = (id: number,) => {
+export const getGetAgarAccountingAIConversationQueryKey = (id: number,) => {
     return [
-    `/api/ledgerflow/ai-conversations/${id}`
+    `/api/agaraccounting/ai-conversations/${id}`
     ] as const;
     }
 
 
-export const getGetLedgerflowAIConversationQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAgarAccountingAIConversationQueryOptions = <TData = Awaited<ReturnType<typeof getAgarAccountingAIConversation>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAIConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAIConversationQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getGetAgarAccountingAIConversationQueryKey(id);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAIConversation>>> = ({ signal }) => getLedgerflowAIConversation(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgarAccountingAIConversation>>> = ({ signal }) => getAgarAccountingAIConversation(id, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAIConversation>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type GetLedgerflowAIConversationQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAIConversation>>>
-export type GetLedgerflowAIConversationQueryError = ErrorType<unknown>
+export type GetAgarAccountingAIConversationQueryResult = NonNullable<Awaited<ReturnType<typeof getAgarAccountingAIConversation>>>
+export type GetAgarAccountingAIConversationQueryError = ErrorType<unknown>
 
 
 /**
  * @summary Get a client-scoped copilot conversation and its turns
  */
 
-export function useGetLedgerflowAIConversation<TData = Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError = ErrorType<unknown>>(
- id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetAgarAccountingAIConversation<TData = Awaited<ReturnType<typeof getAgarAccountingAIConversation>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAIConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetLedgerflowAIConversationQueryOptions(id,options)
+  const queryOptions = getGetAgarAccountingAIConversationQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -4477,21 +4550,21 @@ export function useGetLedgerflowAIConversation<TData = Awaited<ReturnType<typeof
 
 
 
-export const getRenameLedgerflowAIConversationUrl = (id: number,) => {
+export const getRenameAgarAccountingAIConversationUrl = (id: number,) => {
 
 
 
 
-  return `/api/ledgerflow/ai-conversations/${id}`
+  return `/api/agaraccounting/ai-conversations/${id}`
 }
 
 /**
  * @summary Rename a copilot conversation
  */
-export const renameLedgerflowAIConversation = async (id: number,
+export const renameAgarAccountingAIConversation = async (id: number,
     aIConversationRenameInput: AIConversationRenameInput, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
 
-  return customFetch<AIConversation>(getRenameLedgerflowAIConversationUrl(id),
+  return customFetch<AIConversation>(getRenameAgarAccountingAIConversationUrl(id),
   {
     ...options,
     method: 'PATCH',
@@ -4504,11 +4577,11 @@ export const renameLedgerflowAIConversation = async (id: number,
 
 
 
-export const getRenameLedgerflowAIConversationMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext> => {
+export const getRenameAgarAccountingAIConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameAgarAccountingAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof renameAgarAccountingAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext> => {
 
-const mutationKey = ['renameLedgerflowAIConversation'];
+const mutationKey = ['renameAgarAccountingAIConversation'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4518,10 +4591,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, {id: number;data: BodyType<AIConversationRenameInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renameAgarAccountingAIConversation>>, {id: number;data: BodyType<AIConversationRenameInput>}> = (props) => {
           const {id,data} = props ?? {};
 
-          return  renameLedgerflowAIConversation(id,data,requestOptions)
+          return  renameAgarAccountingAIConversation(id,data,requestOptions)
         }
 
 
@@ -4531,38 +4604,38 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type RenameLedgerflowAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>>
-    export type RenameLedgerflowAIConversationMutationBody = BodyType<AIConversationRenameInput>
-    export type RenameLedgerflowAIConversationMutationError = ErrorType<unknown>
+    export type RenameAgarAccountingAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof renameAgarAccountingAIConversation>>>
+    export type RenameAgarAccountingAIConversationMutationBody = BodyType<AIConversationRenameInput>
+    export type RenameAgarAccountingAIConversationMutationError = ErrorType<unknown>
 
     /**
  * @summary Rename a copilot conversation
  */
-export const useRenameLedgerflowAIConversation = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useRenameAgarAccountingAIConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameAgarAccountingAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof renameLedgerflowAIConversation>>,
+        Awaited<ReturnType<typeof renameAgarAccountingAIConversation>>,
         TError,
         {id: number;data: BodyType<AIConversationRenameInput>},
         TContext
       > => {
-      return useMutation(getRenameLedgerflowAIConversationMutationOptions(options));
+      return useMutation(getRenameAgarAccountingAIConversationMutationOptions(options));
     }
 
-export const getClearLedgerflowAIConversationUrl = (id: number,) => {
+export const getClearAgarAccountingAIConversationUrl = (id: number,) => {
 
 
 
 
-  return `/api/ledgerflow/ai-conversations/${id}`
+  return `/api/agaraccounting/ai-conversations/${id}`
 }
 
 /**
  * @summary Clear a copilot conversation while retaining its identity
  */
-export const clearLedgerflowAIConversation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+export const clearAgarAccountingAIConversation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
 
-  return customFetch<void>(getClearLedgerflowAIConversationUrl(id),
+  return customFetch<void>(getClearAgarAccountingAIConversationUrl(id),
   {
     ...options,
     method: 'DELETE'
@@ -4575,11 +4648,11 @@ export const clearLedgerflowAIConversation = async (id: number, options?: Parame
 
 
 
-export const getClearLedgerflowAIConversationMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, TError,{id: number}, TContext> => {
+export const getClearAgarAccountingAIConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearAgarAccountingAIConversation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearAgarAccountingAIConversation>>, TError,{id: number}, TContext> => {
 
-const mutationKey = ['clearLedgerflowAIConversation'];
+const mutationKey = ['clearAgarAccountingAIConversation'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4589,10 +4662,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, {id: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearAgarAccountingAIConversation>>, {id: number}> = (props) => {
           const {id} = props ?? {};
 
-          return  clearLedgerflowAIConversation(id,requestOptions)
+          return  clearAgarAccountingAIConversation(id,requestOptions)
         }
 
 
@@ -4602,25 +4675,25 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type ClearLedgerflowAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>>
+    export type ClearAgarAccountingAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof clearAgarAccountingAIConversation>>>
 
-    export type ClearLedgerflowAIConversationMutationError = ErrorType<unknown>
+    export type ClearAgarAccountingAIConversationMutationError = ErrorType<unknown>
 
     /**
  * @summary Clear a copilot conversation while retaining its identity
  */
-export const useClearLedgerflowAIConversation = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useClearAgarAccountingAIConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearAgarAccountingAIConversation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof clearLedgerflowAIConversation>>,
+        Awaited<ReturnType<typeof clearAgarAccountingAIConversation>>,
         TError,
         {id: number},
         TContext
       > => {
-      return useMutation(getClearLedgerflowAIConversationMutationOptions(options));
+      return useMutation(getClearAgarAccountingAIConversationMutationOptions(options));
     }
 
-export const getGetLedgerflowAISettingsUrl = (params: GetLedgerflowAISettingsParams,) => {
+export const getGetAgarAccountingAISettingsUrl = (params: GetAgarAccountingAISettingsParams,) => {
   const normalizedParams = new URLSearchParams();
 
   Object.entries(params || {}).forEach(([key, value]) => {
@@ -4632,15 +4705,15 @@ export const getGetLedgerflowAISettingsUrl = (params: GetLedgerflowAISettingsPar
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/ai-settings?${stringifiedParams}` : `/api/ledgerflow/ai-settings`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/ai-settings?${stringifiedParams}` : `/api/agaraccounting/ai-settings`
 }
 
 /**
  * @summary Get redacted AI provider settings for a client workspace
  */
-export const getLedgerflowAISettings = async (params: GetLedgerflowAISettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+export const getAgarAccountingAISettings = async (params: GetAgarAccountingAISettingsParams, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
 
-  return customFetch<AIProviderSettings>(getGetLedgerflowAISettingsUrl(params),
+  return customFetch<AIProviderSettings>(getGetAgarAccountingAISettingsUrl(params),
   {
     ...options,
     method: 'GET'
@@ -4653,45 +4726,45 @@ export const getLedgerflowAISettings = async (params: GetLedgerflowAISettingsPar
 
 
 
-export const getGetLedgerflowAISettingsQueryKey = (params?: GetLedgerflowAISettingsParams,) => {
+export const getGetAgarAccountingAISettingsQueryKey = (params?: GetAgarAccountingAISettingsParams,) => {
     return [
-    `/api/ledgerflow/ai-settings`, ...(params ? [params] : [])
+    `/api/agaraccounting/ai-settings`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetLedgerflowAISettingsQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError = ErrorType<unknown>>(params: GetLedgerflowAISettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetAgarAccountingAISettingsQueryOptions = <TData = Awaited<ReturnType<typeof getAgarAccountingAISettings>>, TError = ErrorType<unknown>>(params: GetAgarAccountingAISettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAISettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAISettingsQueryKey(params);
+  const queryKey =  queryOptions?.queryKey ?? getGetAgarAccountingAISettingsQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAISettings>>> = ({ signal }) => getLedgerflowAISettings(params, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgarAccountingAISettings>>> = ({ signal }) => getAgarAccountingAISettings(params, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAISettings>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type GetLedgerflowAISettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAISettings>>>
-export type GetLedgerflowAISettingsQueryError = ErrorType<unknown>
+export type GetAgarAccountingAISettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getAgarAccountingAISettings>>>
+export type GetAgarAccountingAISettingsQueryError = ErrorType<unknown>
 
 
 /**
  * @summary Get redacted AI provider settings for a client workspace
  */
 
-export function useGetLedgerflowAISettings<TData = Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError = ErrorType<unknown>>(
- params: GetLedgerflowAISettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAISettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetAgarAccountingAISettings<TData = Awaited<ReturnType<typeof getAgarAccountingAISettings>>, TError = ErrorType<unknown>>(
+ params: GetAgarAccountingAISettingsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAgarAccountingAISettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetLedgerflowAISettingsQueryOptions(params,options)
+  const queryOptions = getGetAgarAccountingAISettingsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -4704,20 +4777,20 @@ export function useGetLedgerflowAISettings<TData = Awaited<ReturnType<typeof get
 
 
 
-export const getUpdateLedgerflowAISettingsUrl = () => {
+export const getUpdateAgarAccountingAISettingsUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/ai-settings`
+  return `/api/agaraccounting/ai-settings`
 }
 
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
-export const updateLedgerflowAISettings = async (aIProviderSettingsInput: AIProviderSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+export const updateAgarAccountingAISettings = async (aIProviderSettingsInput: AIProviderSettingsInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
 
-  return customFetch<AIProviderSettings>(getUpdateLedgerflowAISettingsUrl(),
+  return customFetch<AIProviderSettings>(getUpdateAgarAccountingAISettingsUrl(),
   {
     ...options,
     method: 'PUT',
@@ -4730,11 +4803,11 @@ export const updateLedgerflowAISettings = async (aIProviderSettingsInput: AIProv
 
 
 
-export const getUpdateLedgerflowAISettingsMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext> => {
+export const getUpdateAgarAccountingAISettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAgarAccountingAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAgarAccountingAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext> => {
 
-const mutationKey = ['updateLedgerflowAISettings'];
+const mutationKey = ['updateAgarAccountingAISettings'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4744,10 +4817,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, {data: BodyType<AIProviderSettingsInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAgarAccountingAISettings>>, {data: BodyType<AIProviderSettingsInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  updateLedgerflowAISettings(data,requestOptions)
+          return  updateAgarAccountingAISettings(data,requestOptions)
         }
 
 
@@ -4757,38 +4830,38 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type UpdateLedgerflowAISettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateLedgerflowAISettings>>>
-    export type UpdateLedgerflowAISettingsMutationBody = BodyType<AIProviderSettingsInput>
-    export type UpdateLedgerflowAISettingsMutationError = ErrorType<unknown>
+    export type UpdateAgarAccountingAISettingsMutationResult = NonNullable<Awaited<ReturnType<typeof updateAgarAccountingAISettings>>>
+    export type UpdateAgarAccountingAISettingsMutationBody = BodyType<AIProviderSettingsInput>
+    export type UpdateAgarAccountingAISettingsMutationError = ErrorType<unknown>
 
     /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
-export const useUpdateLedgerflowAISettings = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useUpdateAgarAccountingAISettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAgarAccountingAISettings>>, TError,{data: BodyType<AIProviderSettingsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof updateLedgerflowAISettings>>,
+        Awaited<ReturnType<typeof updateAgarAccountingAISettings>>,
         TError,
         {data: BodyType<AIProviderSettingsInput>},
         TContext
       > => {
-      return useMutation(getUpdateLedgerflowAISettingsMutationOptions(options));
+      return useMutation(getUpdateAgarAccountingAISettingsMutationOptions(options));
     }
 
-export const getTestLedgerflowAISettingsUrl = () => {
+export const getTestAgarAccountingAISettingsUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/ai-settings/test`
+  return `/api/agaraccounting/ai-settings/test`
 }
 
 /**
  * @summary Test the selected AI provider without returning its credential
  */
-export const testLedgerflowAISettings = async (aIProviderSettingsTestInput: AIProviderSettingsTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+export const testAgarAccountingAISettings = async (aIProviderSettingsTestInput: AIProviderSettingsTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
 
-  return customFetch<AIProviderSettings>(getTestLedgerflowAISettingsUrl(),
+  return customFetch<AIProviderSettings>(getTestAgarAccountingAISettingsUrl(),
   {
     ...options,
     method: 'POST',
@@ -4801,11 +4874,11 @@ export const testLedgerflowAISettings = async (aIProviderSettingsTestInput: AIPr
 
 
 
-export const getTestLedgerflowAISettingsMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof testLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext> => {
+export const getTestAgarAccountingAISettingsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testAgarAccountingAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testAgarAccountingAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext> => {
 
-const mutationKey = ['testLedgerflowAISettings'];
+const mutationKey = ['testAgarAccountingAISettings'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4815,10 +4888,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testLedgerflowAISettings>>, {data: BodyType<AIProviderSettingsTestInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testAgarAccountingAISettings>>, {data: BodyType<AIProviderSettingsTestInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  testLedgerflowAISettings(data,requestOptions)
+          return  testAgarAccountingAISettings(data,requestOptions)
         }
 
 
@@ -4828,38 +4901,38 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type TestLedgerflowAISettingsMutationResult = NonNullable<Awaited<ReturnType<typeof testLedgerflowAISettings>>>
-    export type TestLedgerflowAISettingsMutationBody = BodyType<AIProviderSettingsTestInput>
-    export type TestLedgerflowAISettingsMutationError = ErrorType<unknown>
+    export type TestAgarAccountingAISettingsMutationResult = NonNullable<Awaited<ReturnType<typeof testAgarAccountingAISettings>>>
+    export type TestAgarAccountingAISettingsMutationBody = BodyType<AIProviderSettingsTestInput>
+    export type TestAgarAccountingAISettingsMutationError = ErrorType<unknown>
 
     /**
  * @summary Test the selected AI provider without returning its credential
  */
-export const useTestLedgerflowAISettings = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testLedgerflowAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useTestAgarAccountingAISettings = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testAgarAccountingAISettings>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof testLedgerflowAISettings>>,
+        Awaited<ReturnType<typeof testAgarAccountingAISettings>>,
         TError,
         {data: BodyType<AIProviderSettingsTestInput>},
         TContext
       > => {
-      return useMutation(getTestLedgerflowAISettingsMutationOptions(options));
+      return useMutation(getTestAgarAccountingAISettingsMutationOptions(options));
     }
 
-export const getRemoveLedgerflowAICredentialUrl = () => {
+export const getRemoveAgarAccountingAICredentialUrl = () => {
 
 
 
 
-  return `/api/ledgerflow/ai-settings/credential`
+  return `/api/agaraccounting/ai-settings/credential`
 }
 
 /**
  * @summary Remove the workspace-owned AI credential and return to managed OpenAI
  */
-export const removeLedgerflowAICredential = async (aIProviderSettingsTestInput: AIProviderSettingsTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
+export const removeAgarAccountingAICredential = async (aIProviderSettingsTestInput: AIProviderSettingsTestInput, options?: Parameters<typeof customFetch>[1]): Promise<AIProviderSettings> => {
 
-  return customFetch<AIProviderSettings>(getRemoveLedgerflowAICredentialUrl(),
+  return customFetch<AIProviderSettings>(getRemoveAgarAccountingAICredentialUrl(),
   {
     ...options,
     method: 'DELETE',
@@ -4872,11 +4945,11 @@ export const removeLedgerflowAICredential = async (aIProviderSettingsTestInput: 
 
 
 
-export const getRemoveLedgerflowAICredentialMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext> => {
+export const getRemoveAgarAccountingAICredentialMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeAgarAccountingAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeAgarAccountingAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext> => {
 
-const mutationKey = ['removeLedgerflowAICredential'];
+const mutationKey = ['removeAgarAccountingAICredential'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4886,10 +4959,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, {data: BodyType<AIProviderSettingsTestInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeAgarAccountingAICredential>>, {data: BodyType<AIProviderSettingsTestInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  removeLedgerflowAICredential(data,requestOptions)
+          return  removeAgarAccountingAICredential(data,requestOptions)
         }
 
 
@@ -4899,22 +4972,22 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type RemoveLedgerflowAICredentialMutationResult = NonNullable<Awaited<ReturnType<typeof removeLedgerflowAICredential>>>
-    export type RemoveLedgerflowAICredentialMutationBody = BodyType<AIProviderSettingsTestInput>
-    export type RemoveLedgerflowAICredentialMutationError = ErrorType<unknown>
+    export type RemoveAgarAccountingAICredentialMutationResult = NonNullable<Awaited<ReturnType<typeof removeAgarAccountingAICredential>>>
+    export type RemoveAgarAccountingAICredentialMutationBody = BodyType<AIProviderSettingsTestInput>
+    export type RemoveAgarAccountingAICredentialMutationError = ErrorType<unknown>
 
     /**
  * @summary Remove the workspace-owned AI credential and return to managed OpenAI
  */
-export const useRemoveLedgerflowAICredential = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeLedgerflowAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+export const useRemoveAgarAccountingAICredential = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeAgarAccountingAICredential>>, TError,{data: BodyType<AIProviderSettingsTestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof removeLedgerflowAICredential>>,
+        Awaited<ReturnType<typeof removeAgarAccountingAICredential>>,
         TError,
         {data: BodyType<AIProviderSettingsTestInput>},
         TContext
       > => {
-      return useMutation(getRemoveLedgerflowAICredentialMutationOptions(options));
+      return useMutation(getRemoveAgarAccountingAICredentialMutationOptions(options));
     }
 
 export const getConfirmAICopilotActionUrl = () => {
@@ -4922,7 +4995,7 @@ export const getConfirmAICopilotActionUrl = () => {
 
 
 
-  return `/api/ledgerflow/ai-actions/confirm`
+  return `/api/agaraccounting/ai-actions/confirm`
 }
 
 /**
@@ -5000,7 +5073,7 @@ export const getGetBulkTransitionAuditsUrl = (params?: GetBulkTransitionAuditsPa
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/bulk-transition-audits?${stringifiedParams}` : `/api/ledgerflow/bulk-transition-audits`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/bulk-transition-audits?${stringifiedParams}` : `/api/agaraccounting/bulk-transition-audits`
 }
 
 /**
@@ -5023,7 +5096,7 @@ export const getBulkTransitionAudits = async (params?: GetBulkTransitionAuditsPa
 
 export const getGetBulkTransitionAuditsQueryKey = (params?: GetBulkTransitionAuditsParams,) => {
     return [
-    `/api/ledgerflow/bulk-transition-audits`, ...(params ? [params] : [])
+    `/api/agaraccounting/bulk-transition-audits`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -5084,7 +5157,7 @@ export const getGetJournalEntriesUrl = (params?: GetJournalEntriesParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/journal-entries?${stringifiedParams}` : `/api/ledgerflow/journal-entries`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/journal-entries?${stringifiedParams}` : `/api/agaraccounting/journal-entries`
 }
 
 /**
@@ -5107,7 +5180,7 @@ export const getJournalEntries = async (params?: GetJournalEntriesParams, option
 
 export const getGetJournalEntriesQueryKey = (params?: GetJournalEntriesParams,) => {
     return [
-    `/api/ledgerflow/journal-entries`, ...(params ? [params] : [])
+    `/api/agaraccounting/journal-entries`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -5161,7 +5234,7 @@ export const getApproveJournalEntryUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/journal-entries/${id}/approve`
+  return `/api/agaraccounting/journal-entries/${id}/approve`
 }
 
 /**
@@ -5233,7 +5306,7 @@ export const getPostJournalEntryUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/journal-entries/${id}/post`
+  return `/api/agaraccounting/journal-entries/${id}/post`
 }
 
 /**
@@ -5305,7 +5378,7 @@ export const getUnpostJournalEntryUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/journal-entries/${id}/unpost`
+  return `/api/agaraccounting/journal-entries/${id}/unpost`
 }
 
 /**
@@ -5384,7 +5457,7 @@ export const getGetTrialBalanceUrl = (params?: GetTrialBalanceParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/trial-balance?${stringifiedParams}` : `/api/ledgerflow/trial-balance`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/trial-balance?${stringifiedParams}` : `/api/agaraccounting/trial-balance`
 }
 
 /**
@@ -5407,7 +5480,7 @@ export const getTrialBalance = async (params?: GetTrialBalanceParams, options?: 
 
 export const getGetTrialBalanceQueryKey = (params?: GetTrialBalanceParams,) => {
     return [
-    `/api/ledgerflow/trial-balance`, ...(params ? [params] : [])
+    `/api/agaraccounting/trial-balance`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -5468,7 +5541,7 @@ export const getGetFinancialStatementsUrl = (params?: GetFinancialStatementsPara
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/financial-statements?${stringifiedParams}` : `/api/ledgerflow/financial-statements`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/financial-statements?${stringifiedParams}` : `/api/agaraccounting/financial-statements`
 }
 
 /**
@@ -5491,7 +5564,7 @@ export const getFinancialStatements = async (params?: GetFinancialStatementsPara
 
 export const getGetFinancialStatementsQueryKey = (params?: GetFinancialStatementsParams,) => {
     return [
-    `/api/ledgerflow/financial-statements`, ...(params ? [params] : [])
+    `/api/agaraccounting/financial-statements`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -5552,7 +5625,7 @@ export const getGetReportPacksUrl = (params: GetReportPacksParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/ledgerflow/report-packs?${stringifiedParams}` : `/api/ledgerflow/report-packs`
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/report-packs?${stringifiedParams}` : `/api/agaraccounting/report-packs`
 }
 
 /**
@@ -5575,7 +5648,7 @@ export const getReportPacks = async (params: GetReportPacksParams, options?: Par
 
 export const getGetReportPacksQueryKey = (params?: GetReportPacksParams,) => {
     return [
-    `/api/ledgerflow/report-packs`, ...(params ? [params] : [])
+    `/api/agaraccounting/report-packs`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -5629,7 +5702,7 @@ export const getCreateReportPackUrl = () => {
 
 
 
-  return `/api/ledgerflow/report-packs`
+  return `/api/agaraccounting/report-packs`
 }
 
 /**
@@ -5700,7 +5773,7 @@ export const getGetReportPackUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/report-packs/${id}`
+  return `/api/agaraccounting/report-packs/${id}`
 }
 
 /**
@@ -5723,7 +5796,7 @@ export const getReportPack = async (id: number, options?: Parameters<typeof cust
 
 export const getGetReportPackQueryKey = (id: number,) => {
     return [
-    `/api/ledgerflow/report-packs/${id}`
+    `/api/agaraccounting/report-packs/${id}`
     ] as const;
     }
 
@@ -5777,7 +5850,7 @@ export const getUpdateReportPackUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/report-packs/${id}`
+  return `/api/agaraccounting/report-packs/${id}`
 }
 
 /**
@@ -5849,7 +5922,7 @@ export const getDownloadReportPackPdfUrl = (id: number,) => {
 
 
 
-  return `/api/ledgerflow/report-packs/${id}/pdf`
+  return `/api/agaraccounting/report-packs/${id}/pdf`
 }
 
 /**
@@ -5872,7 +5945,7 @@ export const downloadReportPackPdf = async (id: number, options?: Parameters<typ
 
 export const getDownloadReportPackPdfQueryKey = (id: number,) => {
     return [
-    `/api/ledgerflow/report-packs/${id}/pdf`
+    `/api/agaraccounting/report-packs/${id}/pdf`
     ] as const;
     }
 
