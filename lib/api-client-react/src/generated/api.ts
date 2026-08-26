@@ -45,6 +45,9 @@ import type {
   Contact,
   ContactHistory,
   ContactInput,
+  ContactMergeInput,
+  ContactMergePreview,
+  ContactMergeResponse,
   ContactUpdate,
   CreateExchangeRateParams,
   ExchangeRate,
@@ -4169,6 +4172,148 @@ export const useUpdateContact = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateContactMutationOptions(options));
+    }
+
+export const getPreviewContactMergeUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/contacts/merge/preview`
+}
+
+/**
+ * @summary Preview a client-scoped contact merge
+ */
+export const previewContactMerge = async (contactMergeInput: ContactMergeInput, options?: Parameters<typeof customFetch>[1]): Promise<ContactMergePreview> => {
+
+  return customFetch<ContactMergePreview>(getPreviewContactMergeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(contactMergeInput)
+  }
+);}
+
+
+
+
+
+export const getPreviewContactMergeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewContactMerge>>, TError,{data: BodyType<ContactMergeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof previewContactMerge>>, TError,{data: BodyType<ContactMergeInput>}, TContext> => {
+
+const mutationKey = ['previewContactMerge'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof previewContactMerge>>, {data: BodyType<ContactMergeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  previewContactMerge(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PreviewContactMergeMutationResult = NonNullable<Awaited<ReturnType<typeof previewContactMerge>>>
+    export type PreviewContactMergeMutationBody = BodyType<ContactMergeInput>
+    export type PreviewContactMergeMutationError = ErrorType<void>
+
+    /**
+ * @summary Preview a client-scoped contact merge
+ */
+export const usePreviewContactMerge = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof previewContactMerge>>, TError,{data: BodyType<ContactMergeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof previewContactMerge>>,
+        TError,
+        {data: BodyType<ContactMergeInput>},
+        TContext
+      > => {
+      return useMutation(getPreviewContactMergeMutationOptions(options));
+    }
+
+export const getMergeContactsUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/contacts/merge`
+}
+
+/**
+ * @summary Merge two contacts while preserving client-scoped accounting history
+ */
+export const mergeContacts = async (contactMergeInput: ContactMergeInput, options?: Parameters<typeof customFetch>[1]): Promise<ContactMergeResponse> => {
+
+  return customFetch<ContactMergeResponse>(getMergeContactsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(contactMergeInput)
+  }
+);}
+
+
+
+
+
+export const getMergeContactsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeContacts>>, TError,{data: BodyType<ContactMergeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof mergeContacts>>, TError,{data: BodyType<ContactMergeInput>}, TContext> => {
+
+const mutationKey = ['mergeContacts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mergeContacts>>, {data: BodyType<ContactMergeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  mergeContacts(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MergeContactsMutationResult = NonNullable<Awaited<ReturnType<typeof mergeContacts>>>
+    export type MergeContactsMutationBody = BodyType<ContactMergeInput>
+    export type MergeContactsMutationError = ErrorType<void>
+
+    /**
+ * @summary Merge two contacts while preserving client-scoped accounting history
+ */
+export const useMergeContacts = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof mergeContacts>>, TError,{data: BodyType<ContactMergeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof mergeContacts>>,
+        TError,
+        {data: BodyType<ContactMergeInput>},
+        TContext
+      > => {
+      return useMutation(getMergeContactsMutationOptions(options));
     }
 
 export const getGetContactHistoryUrl = (clientId: number,

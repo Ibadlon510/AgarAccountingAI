@@ -1061,6 +1061,12 @@ export interface Contact {
   legalName: string;
   contactType: ContactContactType;
   status: ContactStatus;
+  /** @nullable */
+  mergedIntoContactId: number | null;
+  /** @nullable */
+  mergedAt: string | null;
+  /** @nullable */
+  mergedByUserId: string | null;
   aliases: string[];
   createdAt: string;
   updatedAt: string;
@@ -1133,6 +1139,54 @@ export interface ContactUpdate {
      * @items.maxLength 160
      */
   aliases?: string[];
+}
+
+export interface ContactMergeInput {
+  clientId: number;
+  survivingContactId: number;
+  mergedContactId: number;
+}
+
+export type ContactMergeConflictKind = typeof ContactMergeConflictKind[keyof typeof ContactMergeConflictKind];
+
+
+export const ContactMergeConflictKind = {
+  duplicate_on_survivor: 'duplicate_on_survivor',
+  belongs_to_other_contact: 'belongs_to_other_contact',
+} as const;
+
+export interface ContactMergeConflict {
+  alias: string;
+  kind: ContactMergeConflictKind;
+  message: string;
+}
+
+export type ContactMergePreviewCounts = {
+  aliases: number;
+  statementLines: number;
+  journalEntries: number;
+  evidenceRecords: number;
+};
+
+export interface ContactMergePreview {
+  clientId: number;
+  survivingContact: Contact;
+  mergedContact: Contact;
+  conflicts: ContactMergeConflict[];
+  counts: ContactMergePreviewCounts;
+  canMerge: boolean;
+}
+
+export interface ContactMergeResponse {
+  auditId: number;
+  survivingContact: Contact;
+  mergedContact: Contact;
+  duplicateAliases: string[];
+  aliasesReassigned: string[];
+  statementLineIds: number[];
+  journalEntryIds: number[];
+  evidenceIds: number[];
+  mergedAt: string;
 }
 
 export type ContactHistoryItemDirection = typeof ContactHistoryItemDirection[keyof typeof ContactHistoryItemDirection];

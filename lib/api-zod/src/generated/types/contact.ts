@@ -15,6 +15,12 @@ export interface Contact {
   legalName: string;
   contactType: ContactContactType;
   status: ContactStatus;
+  /** @nullable */
+  mergedIntoContactId: number | null;
+  /** @nullable */
+  mergedAt: Date | null;
+  /** @nullable */
+  mergedByUserId: string | null;
   aliases: string[];
   createdAt: Date;
   updatedAt: Date;

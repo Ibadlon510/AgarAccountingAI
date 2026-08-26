@@ -9,6 +9,9 @@ export const contactsTable = pgTable("agaraccounting_contacts", {
   legalName: text("legal_name").notNull(),
   contactType: text("contact_type").notNull(),
   status: text("status").notNull().default("active"),
+  mergedIntoContactId: integer("merged_into_contact_id"),
+  mergedAt: timestamp("merged_at", { withTimezone: true }),
+  mergedByUserId: varchar("merged_by_user_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
@@ -80,7 +83,46 @@ export const contactClassificationEvidenceTable = pgTable("agaraccounting_contac
   }),
 ]);
 
+export const contactMergeAuditsTable = pgTable("agaraccounting_contact_merge_audits", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  survivingContactId: integer("surviving_contact_id").notNull(),
+  mergedContactId: integer("merged_contact_id").notNull(),
+  actorUserId: varchar("actor_user_id").notNull(),
+  survivingContactName: text("surviving_contact_name").notNull(),
+  mergedContactName: text("merged_contact_name").notNull(),
+  duplicateAliases: text("duplicate_aliases").array().notNull(),
+  aliasesReassigned: text("aliases_reassigned").array().notNull(),
+  statementLineIds: integer("statement_line_ids").array().notNull(),
+  journalEntryIds: integer("journal_entry_ids").array().notNull(),
+  evidenceIds: integer("evidence_ids").array().notNull(),
+  mergedAt: timestamp("merged_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("agaraccounting_contact_merge_audits_client_merged_idx").on(table.clientId, table.mergedAt),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "agaraccounting_contact_merge_audits_client_fk",
+  }),
+  foreignKey({
+    columns: [table.survivingContactId],
+    foreignColumns: [contactsTable.id],
+    name: "agaraccounting_contact_merge_audits_surviving_contact_fk",
+  }),
+  foreignKey({
+    columns: [table.mergedContactId],
+    foreignColumns: [contactsTable.id],
+    name: "agaraccounting_contact_merge_audits_merged_contact_fk",
+  }),
+  foreignKey({
+    columns: [table.actorUserId],
+    foreignColumns: [usersTable.id],
+    name: "agaraccounting_contact_merge_audits_actor_fk",
+  }),
+]);
+
 export type Contact = typeof contactsTable.$inferSelect;
 export type InsertContact = typeof contactsTable.$inferInsert;
 export type ContactAlias = typeof contactAliasesTable.$inferSelect;
 export type ContactClassificationEvidence = typeof contactClassificationEvidenceTable.$inferSelect;
+export type ContactMergeAudit = typeof contactMergeAuditsTable.$inferSelect;

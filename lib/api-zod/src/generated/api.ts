@@ -20,6 +20,8 @@ export const GetCurrentAuthUserResponse = zod.object({
   "profileImageUrl": zod.string().nullable()
 }),zod.null()])
 })
+
+
 /**
  * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
@@ -139,6 +141,8 @@ export const GetOrganizationContextResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
+
+
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
@@ -224,6 +228,8 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
+
+
 /**
  * @summary Invite a member to an accounting firm
  */
@@ -393,6 +399,8 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
+
+
 /**
  * @summary Nominate a firm member for company access
  */
@@ -427,7 +435,9 @@ export const NominateFirmEngagementMemberResponse = zod.object({
   "role": zod.enum(['accountant', 'bookkeeper']),
   "status": zod.enum(['nominated', 'approved', 'revoked'])
 }))
-});
+})
+
+
 /**
  * @summary Approve a nominated firm member for company access
  */
@@ -453,6 +463,8 @@ export const ApproveFirmEngagementMemberResponse = zod.object({
   "status": zod.enum(['nominated', 'approved', 'revoked'])
 }))
 })
+
+
 /**
  * @summary Revoke one firm's access to a company
  */
@@ -1532,6 +1544,9 @@ export const GetContactsResponseItem = zod.object({
   "legalName": zod.string(),
   "contactType": zod.enum(['customer', 'supplier', 'both']),
   "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
   "aliases": zod.array(zod.string()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1567,6 +1582,9 @@ export const CreateContactResponse = zod.object({
   "legalName": zod.string(),
   "contactType": zod.enum(['customer', 'supplier', 'both']),
   "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
   "aliases": zod.array(zod.string()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
@@ -1606,9 +1624,114 @@ export const UpdateContactResponse = zod.object({
   "legalName": zod.string(),
   "contactType": zod.enum(['customer', 'supplier', 'both']),
   "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
   "aliases": zod.array(zod.string()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Preview a client-scoped contact merge
+ */
+export const PreviewContactMergeBody = zod.object({
+  "clientId": zod.number(),
+  "survivingContactId": zod.number(),
+  "mergedContactId": zod.number()
+})
+
+export const PreviewContactMergeResponse = zod.object({
+  "clientId": zod.number(),
+  "survivingContact": zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "mergedContact": zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "conflicts": zod.array(zod.object({
+  "alias": zod.string(),
+  "kind": zod.enum(['duplicate_on_survivor', 'belongs_to_other_contact']),
+  "message": zod.string()
+})),
+  "counts": zod.object({
+  "aliases": zod.number(),
+  "statementLines": zod.number(),
+  "journalEntries": zod.number(),
+  "evidenceRecords": zod.number()
+}),
+  "canMerge": zod.boolean()
+})
+
+
+/**
+ * @summary Merge two contacts while preserving client-scoped accounting history
+ */
+export const MergeContactsBody = zod.object({
+  "clientId": zod.number(),
+  "survivingContactId": zod.number(),
+  "mergedContactId": zod.number()
+})
+
+export const MergeContactsResponse = zod.object({
+  "auditId": zod.number(),
+  "survivingContact": zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "mergedContact": zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "duplicateAliases": zod.array(zod.string()),
+  "aliasesReassigned": zod.array(zod.string()),
+  "statementLineIds": zod.array(zod.number()),
+  "journalEntryIds": zod.array(zod.number()),
+  "evidenceIds": zod.array(zod.number()),
+  "mergedAt": zod.coerce.date()
 })
 
 
@@ -1628,6 +1751,9 @@ export const GetContactHistoryResponse = zod.object({
   "legalName": zod.string(),
   "contactType": zod.enum(['customer', 'supplier', 'both']),
   "status": zod.enum(['active', 'archived']),
+  "mergedIntoContactId": zod.number().nullable(),
+  "mergedAt": zod.coerce.date().nullable(),
+  "mergedByUserId": zod.string().nullable(),
   "aliases": zod.array(zod.string()),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date()

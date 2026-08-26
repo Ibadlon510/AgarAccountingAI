@@ -30,7 +30,13 @@ async function request<T>(path: string, init?: RequestInit, userId = ownerId) {
   return { response, body: await response.json() as T };
 }
 
-type Contact = { id: number; displayName: string; status: string; aliases: string[] };
+type Contact = {
+  id: number;
+  displayName: string;
+  status: string;
+  aliases: string[];
+  mergedIntoContactId: number | null;
+};
 type Line = {
   id: number; contactId: number | null; contactName: string | null; accountSuggestion: string | null;
   contactSuggestionStatus: string | null; supportingPatternCount: number; functionalAmount: number | null;
@@ -274,6 +280,126 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   const noMatch = await createLine("ACME BANK AFTER CONTACT ARCHIVE");
   assert.equal(noMatch.contactId, null);
   assert.equal(noMatch.contactSuggestionStatus, null);
+
+  const survivor = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId, displayName: "Merge Vendor", legalName: "Merge Vendor Trading LLC", contactType: "supplier",
+      aliases: ["MERGE VENDOR KEEP"],
+    }),
+  });
+  const duplicate = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId, displayName: "Merge Vendor Duplicate", legalName: "Merge Vendor Duplicate LLC", contactType: "supplier",
+      aliases: ["MERGE VENDOR SOURCE"],
+    }),
+  });
+  assert.equal(survivor.response.status, 201);
+  assert.equal(duplicate.response.status, 201);
+  const confirmedMergeLine = await createLine("MERGE VENDOR SOURCE SOFTWARE");
+  assert.equal(confirmedMergeLine.contactId, duplicate.body.id);
+  await recode(confirmedMergeLine.id, "Software & subscriptions");
+  const confirmedMergeEntry = await entryFor(confirmedMergeLine.id);
+  await approve(confirmedMergeEntry.id);
+  assert.equal((await request(`/agaraccounting/journal-entries/${confirmedMergeEntry.id}/post`, {
+    method: "POST", body: JSON.stringify({ clientId }),
+  })).response.status, 200);
+  const reviewMergeLine = await createLine("MERGE VENDOR SOURCE PENDING");
+  const reviewMergeEntry = await entryFor(reviewMergeLine.id);
+  assert.equal(reviewMergeLine.contactId, duplicate.body.id);
+  assert.equal(reviewMergeEntry.status, "suggested");
+
+  const previewPath = "/agaraccounting/contacts/merge/preview";
+  const mergeInput = {
+    clientId,
+    survivingContactId: survivor.body.id,
+    mergedContactId: duplicate.body.id,
+  };
+  assert.equal((await request(previewPath, {
+    method: "POST", body: JSON.stringify(mergeInput),
+  }, memberId)).response.status, 403);
+  const preview = await request<{
+    canMerge: boolean;
+    conflicts: unknown[];
+    counts: { aliases: number; statementLines: number; journalEntries: number; evidenceRecords: number };
+  }>(previewPath, { method: "POST", body: JSON.stringify(mergeInput) });
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.canMerge, true);
+  assert.deepEqual(preview.body.conflicts, []);
+  assert.equal(preview.body.counts.statementLines, 2);
+  assert.equal(preview.body.counts.journalEntries, 2);
+  assert.equal(preview.body.counts.evidenceRecords, 1);
+  assert.ok(preview.body.counts.aliases >= 3);
+
+  const foreignContact = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: foreignClientId, displayName: "Foreign Merge Vendor", legalName: "Foreign Merge Vendor LLC",
+      contactType: "supplier", aliases: ["FOREIGN MERGE VENDOR"],
+    }),
+  }, foreignId);
+  assert.equal(foreignContact.response.status, 201);
+  assert.equal((await request("/agaraccounting/contacts/merge", {
+    method: "POST",
+    body: JSON.stringify({ ...mergeInput, mergedContactId: foreignContact.body.id }),
+  })).response.status, 404);
+
+  const merged = await request<{
+    auditId: number;
+    survivingContact: Contact;
+    mergedContact: Contact;
+    statementLineIds: number[];
+    journalEntryIds: number[];
+    evidenceIds: number[];
+  }>("/agaraccounting/contacts/merge", {
+    method: "POST", body: JSON.stringify(mergeInput),
+  });
+  assert.equal(merged.response.status, 200);
+  assert.equal(merged.body.survivingContact.id, survivor.body.id);
+  assert.equal(merged.body.mergedContact.status, "archived");
+  assert.equal(merged.body.mergedContact.mergedIntoContactId, survivor.body.id);
+  assert.deepEqual(new Set(merged.body.statementLineIds), new Set([confirmedMergeLine.id, reviewMergeLine.id]));
+  assert.deepEqual(new Set(merged.body.journalEntryIds), new Set([confirmedMergeEntry.id, reviewMergeEntry.id]));
+  assert.equal(merged.body.evidenceIds.length, 1);
+
+  const mergedLines = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.contactId, survivor.body.id));
+  assert.ok(mergedLines.some((line) => line.id === confirmedMergeLine.id && line.status === "posted"));
+  assert.ok(mergedLines.some((line) => line.id === reviewMergeLine.id && line.status === "needs_review"));
+  const mergedEntries = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.contactId, survivor.body.id));
+  assert.ok(mergedEntries.some((entry) =>
+    entry.id === confirmedMergeEntry.id
+    && entry.status === "posted"
+    && entry.debitAccount === "Software & subscriptions",
+  ));
+  assert.ok(mergedEntries.some((entry) => entry.id === reviewMergeEntry.id && entry.status === "suggested"));
+  const mergedEvidence = await database.db.select().from(database.contactClassificationEvidenceTable)
+    .where(eq(database.contactClassificationEvidenceTable.statementLineId, confirmedMergeLine.id));
+  assert.equal(mergedEvidence[0]?.contactId, survivor.body.id);
+  assert.equal(mergedEvidence[0]?.accountSuggestion, "Software & subscriptions");
+  const mergeAudits = await database.db.select().from(database.contactMergeAuditsTable)
+    .where(eq(database.contactMergeAuditsTable.id, merged.body.auditId));
+  assert.equal(mergeAudits.length, 1);
+  assert.deepEqual(new Set(mergeAudits[0]?.statementLineIds), new Set([confirmedMergeLine.id, reviewMergeLine.id]));
+  await assert.rejects(database.db.update(database.contactMergeAuditsTable)
+    .set({ mergedContactName: "Tampered" })
+    .where(eq(database.contactMergeAuditsTable.id, merged.body.auditId)));
+  await assert.rejects(database.db.update(database.contactClassificationEvidenceTable)
+    .set({ contactId: duplicate.body.id })
+    .where(eq(database.contactClassificationEvidenceTable.id, merged.body.evidenceIds[0])));
+
+  assert.equal((await request<Contact>(`/agaraccounting/contacts/${duplicate.body.id}`, {
+    method: "PATCH", body: JSON.stringify({ clientId, status: "active" }),
+  })).response.status, 409);
+  const matchedAfterMerge = await createLine("MERGE VENDOR SOURCE AFTER MERGE");
+  assert.equal(matchedAfterMerge.contactId, survivor.body.id);
+  const historyAfterMerge = await request<{ history: Array<{ statementLineId: number }> }>(
+    `/agaraccounting/clients/${clientId}/contacts/${survivor.body.id}/history`,
+  );
+  assert.equal(historyAfterMerge.response.status, 200);
+  assert.ok(historyAfterMerge.body.history.some((item) => item.statementLineId === confirmedMergeLine.id));
 
   for (const path of [
     `/agaraccounting/contacts?clientId=${foreignClientId}`,

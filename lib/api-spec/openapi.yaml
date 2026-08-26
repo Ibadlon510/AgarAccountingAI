@@ -964,6 +964,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Contact"
+  /agaraccounting/contacts/merge/preview:
+    post:
+      operationId: previewContactMerge
+      tags: [agaraccounting]
+      summary: Preview a client-scoped contact merge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactMergeInput"
+      responses:
+        "200":
+          description: Contact merge preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactMergePreview"
+        "409":
+          description: The contacts cannot be safely merged
+  /agaraccounting/contacts/merge:
+    post:
+      operationId: mergeContacts
+      tags: [agaraccounting]
+      summary: Merge two contacts while preserving client-scoped accounting history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactMergeInput"
+      responses:
+        "200":
+          description: Contacts merged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactMergeResponse"
+        "409":
+          description: The contacts cannot be safely merged
   /agaraccounting/clients/{clientId}/contacts/{id}/history:
     get:
       operationId: getContactHistory
@@ -2522,7 +2562,7 @@ components:
         contactId: { type: ["number", "null"] }
     Contact:
       type: object
-      required: [id, clientId, displayName, legalName, contactType, status, aliases, createdAt, updatedAt]
+      required: [id, clientId, displayName, legalName, contactType, status, mergedIntoContactId, mergedAt, mergedByUserId, aliases, createdAt, updatedAt]
       properties:
         id: { type: number }
         clientId: { type: number }
@@ -2534,6 +2574,9 @@ components:
         status:
           type: string
           enum: [active, archived]
+        mergedIntoContactId: { type: ["number", "null"] }
+        mergedAt: { type: ["string", "null"], format: date-time }
+        mergedByUserId: { type: ["string", "null"] }
         aliases:
           type: array
           items: { type: string }
@@ -2570,6 +2613,64 @@ components:
           type: array
           maxItems: 30
           items: { type: string, minLength: 1, maxLength: 160 }
+    ContactMergeInput:
+      type: object
+      required: [clientId, survivingContactId, mergedContactId]
+      properties:
+        clientId: { type: number }
+        survivingContactId: { type: number }
+        mergedContactId: { type: number }
+    ContactMergeConflict:
+      type: object
+      required: [alias, kind, message]
+      properties:
+        alias: { type: string }
+        kind:
+          type: string
+          enum: [duplicate_on_survivor, belongs_to_other_contact]
+        message: { type: string }
+    ContactMergePreview:
+      type: object
+      required: [clientId, survivingContact, mergedContact, conflicts, counts, canMerge]
+      properties:
+        clientId: { type: number }
+        survivingContact: { $ref: "#/components/schemas/Contact" }
+        mergedContact: { $ref: "#/components/schemas/Contact" }
+        conflicts:
+          type: array
+          items: { $ref: "#/components/schemas/ContactMergeConflict" }
+        counts:
+          type: object
+          required: [aliases, statementLines, journalEntries, evidenceRecords]
+          properties:
+            aliases: { type: number }
+            statementLines: { type: number }
+            journalEntries: { type: number }
+            evidenceRecords: { type: number }
+        canMerge: { type: boolean }
+    ContactMergeResponse:
+      type: object
+      required: [auditId, survivingContact, mergedContact, duplicateAliases, aliasesReassigned, statementLineIds, journalEntryIds, evidenceIds, mergedAt]
+      properties:
+        auditId: { type: number }
+        survivingContact: { $ref: "#/components/schemas/Contact" }
+        mergedContact: { $ref: "#/components/schemas/Contact" }
+        duplicateAliases:
+          type: array
+          items: { type: string }
+        aliasesReassigned:
+          type: array
+          items: { type: string }
+        statementLineIds:
+          type: array
+          items: { type: number }
+        journalEntryIds:
+          type: array
+          items: { type: number }
+        evidenceIds:
+          type: array
+          items: { type: number }
+        mergedAt: { type: string, format: date-time }
     ContactHistoryItem:
       type: object
       required: [statementLineId, journalEntryId, date, description, status, amount, currency, direction, accountTreatment]

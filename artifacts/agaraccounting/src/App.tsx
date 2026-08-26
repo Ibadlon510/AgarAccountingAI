@@ -14,12 +14,12 @@ import {
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
   useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement,
-  useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, useLinkStatementLineContact
+  useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, useLinkStatementLineContact, usePreviewContactMerge, useMergeContacts
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
   Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement,
-  Contact, ContactHistory, StatementLineContactInput, ContactInput
+  Contact, ContactHistory, StatementLineContactInput, ContactInput, ContactMergePreview
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -1383,6 +1383,8 @@ function ContactsPage() {
   const [typeFilter, setTypeFilter] = useState<'customer' | 'supplier' | 'both' | 'all'>('all');
 
   const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
+  const [mergeContactIds, setMergeContactIds] = useState<number[]>([]);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const contactsQuery = useGetContacts({ clientId }, { query: { queryKey: getGetContactsQueryKey({ clientId }), enabled: !!clientId } });
 
@@ -1399,14 +1401,28 @@ function ContactsPage() {
   }, [contactsQuery.data, search, statusFilter, typeFilter]);
 
   const selectedContact = contactsQuery.data?.find(c => c.id === selectedContactId);
+  const selectedMergeContacts = (contactsQuery.data ?? []).filter((contact) => mergeContactIds.includes(contact.id));
   const [addOpen, setAddOpen] = useState(false);
+  useEffect(() => {
+    setMergeContactIds([]);
+    setMergeOpen(false);
+  }, [clientId]);
+
+  const toggleMergeContact = (contactId: number) => {
+    setMergeContactIds((current) => current.includes(contactId)
+      ? current.filter((id) => id !== contactId)
+      : current.length < 2 ? [...current, contactId] : [current[1], contactId]);
+  };
 
   return <div>
     <PageHeading
       eyebrow="Directory"
       title="Contacts"
       description="Manage customers and suppliers. Review confirmed accounting history for confident reconciliation."
-      action={<button data-testid="button-add-contact" onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:-translate-y-0.5 transition-transform"><UserPlus size={14} /> Add contact</button>}
+      action={<div className="flex flex-wrap items-center gap-2">
+        <button data-testid="button-open-merge-contacts" disabled={selectedMergeContacts.length !== 2} onClick={() => setMergeOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-background px-4 py-2.5 text-xs font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-45"><Users size={14} /> Merge selected</button>
+        <button data-testid="button-add-contact" onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm hover:-translate-y-0.5 transition-transform"><UserPlus size={14} /> Add contact</button>
+      </div>}
     />
 
     <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card p-3 md:flex-row md:items-center">
@@ -1436,6 +1452,7 @@ function ContactsPage() {
           <table className="w-full text-left">
             <thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">
               <tr>
+                <th className="w-12 px-4 py-3 font-medium"><span className="sr-only">Select for merge</span></th>
                 <th className="px-4 py-3 font-medium">Display name</th>
                 <th className="px-4 py-3 font-medium">Legal name</th>
                 <th className="px-4 py-3 font-medium">Type</th>
@@ -1450,6 +1467,17 @@ function ContactsPage() {
                   onClick={() => setSelectedContactId(contact.id)}
                   className={`group cursor-pointer transition-colors hover:bg-secondary/30 ${selectedContactId === contact.id ? 'bg-secondary/40' : ''}`}
                 >
+                  <td className="px-4 py-4" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      data-testid={`checkbox-merge-contact-${contact.id}`}
+                      type="checkbox"
+                      aria-label={`Select ${contact.displayName} for merge`}
+                      disabled={contact.status !== 'active' || contact.mergedIntoContactId != null}
+                      checked={mergeContactIds.includes(contact.id)}
+                      onChange={() => toggleMergeContact(contact.id)}
+                      className="size-4 accent-primary disabled:opacity-40"
+                    />
+                  </td>
                   <td className="px-4 py-4 text-xs font-semibold">{contact.displayName}</td>
                   <td className="px-4 py-4 text-xs">{contact.legalName}</td>
                   <td className="px-4 py-4 text-[11px] capitalize text-muted-foreground">{contact.contactType}</td>
@@ -1477,6 +1505,11 @@ function ContactsPage() {
     </div>
 
     {addOpen && <ContactFormDialog onClose={() => setAddOpen(false)} clientId={clientId} />}
+    {mergeOpen && selectedMergeContacts.length === 2 && <ContactMergeDialog contacts={selectedMergeContacts} clientId={clientId} onClose={() => setMergeOpen(false)} onMerged={(survivingContactId) => {
+      setMergeOpen(false);
+      setMergeContactIds([]);
+      setSelectedContactId(survivingContactId);
+    }} />}
   </div>;
 }
 
@@ -1521,7 +1554,7 @@ function ContactDetailsPanel({ contact }: { contact: Contact }) {
           <div className="mt-1 text-xs text-muted-foreground">{contact.legalName}</div>
         </div>
         <div className="flex gap-2">
-          <button data-testid="button-edit-contact" onClick={() => setIsEditing(true)} className="rounded border border-border bg-card px-2 py-1 text-[11px] font-medium hover:bg-muted">Edit</button>
+          {contact.mergedIntoContactId == null && <button data-testid="button-edit-contact" onClick={() => setIsEditing(true)} className="rounded border border-border bg-card px-2 py-1 text-[11px] font-medium hover:bg-muted">Edit</button>}
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-4 rounded-md bg-muted/40 p-3">
@@ -1534,15 +1567,18 @@ function ContactDetailsPanel({ contact }: { contact: Contact }) {
            <div className="mt-1 text-[11px] text-muted-foreground">{contact.aliases.length ? contact.aliases.join(', ') : 'None'}</div>
         </div>
       </div>
+      {contact.mergedIntoContactId != null && <div data-testid="contact-merge-audit-note" className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3 text-[11px] leading-5 text-muted-foreground">
+        This record was merged into contact #{contact.mergedIntoContactId} on {contact.mergedAt ? shortDate(String(contact.mergedAt)) : 'an unknown date'}. It remains archived for audit and cannot be matched or restored.
+      </div>}
       <div className="mt-3 text-right">
-        <button
+        {contact.mergedIntoContactId == null && <button
           data-testid="button-toggle-contact-status"
           disabled={updateMutation.isPending}
           onClick={toggleStatus}
           className={`text-[10px] font-semibold hover:underline ${contact.status === 'active' ? 'text-destructive' : 'text-primary'}`}
         >
           {contact.status === 'active' ? 'Archive contact' : 'Restore contact'}
-        </button>
+        </button>}
       </div>
     </div>
 
@@ -1669,6 +1705,84 @@ function ContactFormDialog({ onClose, clientId }: { onClose: () => void, clientI
       </div>
       <div className="mt-6">
         <ContactForm clientId={clientId} onSaved={onClose} />
+      </div>
+    </div>
+  </div>;
+}
+
+function ContactMergeDialog({ contacts, clientId, onClose, onMerged }: { contacts: Contact[], clientId: number, onClose: () => void, onMerged: (survivingContactId: number) => void }) {
+  const previewMutation = usePreviewContactMerge();
+  const mergeMutation = useMergeContacts();
+  const [survivingContactId, setSurvivingContactId] = useState(contacts[0].id);
+  const [preview, setPreview] = useState<ContactMergePreview | null>(null);
+  const mergedContact = contacts.find((contact) => contact.id !== survivingContactId) ?? contacts[1];
+  const survivingContact = contacts.find((contact) => contact.id === survivingContactId) ?? contacts[0];
+  const input = { clientId, survivingContactId, mergedContactId: mergedContact.id };
+  const blockingConflicts = preview?.conflicts.filter((conflict) => conflict.kind === 'belongs_to_other_contact') ?? [];
+
+  const reviewMerge = () => {
+    setPreview(null);
+    previewMutation.mutate({ data: input }, { onSuccess: setPreview });
+  };
+  const confirmMerge = () => {
+    if (!preview?.canMerge) return;
+    mergeMutation.mutate({ data: input }, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId }) });
+        queryClient.invalidateQueries({ queryKey: getGetContactHistoryQueryKey(clientId, survivingContactId) });
+        queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+        onMerged(survivingContactId);
+      },
+    });
+  };
+
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm">
+    <div className="w-full max-w-xl rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="contact-merge-title">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Controlled merge</div>
+          <h2 id="contact-merge-title" className="mt-2 text-lg font-semibold">Merge duplicate contacts</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Choose the record to keep, review every reassignment and alias conflict, then confirm once.</p>
+        </div>
+        <button data-testid="button-close-contact-merge" onClick={onClose} disabled={mergeMutation.isPending} className="rounded-md p-1 text-muted-foreground hover:bg-muted disabled:opacity-50"><X size={17} /></button>
+      </div>
+
+      <fieldset className="mt-6 grid gap-3 sm:grid-cols-2">
+        <legend className="mb-2 text-xs font-semibold">Surviving record</legend>
+        {contacts.map((contact) => <label key={contact.id} className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 ${survivingContactId === contact.id ? 'border-primary bg-primary/5' : 'border-border'}`}>
+          <input data-testid={`radio-surviving-contact-${contact.id}`} type="radio" name="surviving-contact" checked={survivingContactId === contact.id} onChange={() => { setSurvivingContactId(contact.id); setPreview(null); previewMutation.reset(); mergeMutation.reset(); }} className="mt-0.5 accent-primary" />
+          <span><span className="block text-xs font-semibold">{contact.displayName}</span><span className="mt-1 block text-[10px] text-muted-foreground">{contact.legalName}</span></span>
+        </label>)}
+      </fieldset>
+
+      {!preview && <div className="mt-6 rounded-md border border-border bg-muted/30 p-4 text-xs leading-5 text-muted-foreground">
+        <strong className="text-foreground">{survivingContact.displayName}</strong> will remain active. <strong className="text-foreground">{mergedContact.displayName}</strong> will be archived permanently and retained as a merge audit record.
+      </div>}
+      {preview && <div data-testid="contact-merge-preview" className="mt-6 space-y-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            ['Aliases', preview.counts.aliases],
+            ['Review lines', preview.counts.statementLines],
+            ['Journal links', preview.counts.journalEntries],
+            ['Evidence records', preview.counts.evidenceRecords],
+          ].map(([label, count]) => <div key={String(label)} className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground">{label}</div><div className="mt-1 text-lg font-semibold">{count}</div></div>)}
+        </div>
+        <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-[11px] leading-5 text-muted-foreground">
+          Approved and posted debit/credit treatment will not change. Only the contact identity attached to the existing records is reassigned.
+        </div>
+        {preview.conflicts.length > 0 && <div className={`rounded-md border p-3 ${blockingConflicts.length ? 'border-destructive/25 bg-destructive/5' : 'border-accent/30 bg-accent/10'}`}>
+          <div className="text-xs font-semibold">{blockingConflicts.length ? 'Resolve these alias conflicts first' : 'Alias handling'}</div>
+          <ul className="mt-2 space-y-1.5 text-[11px] leading-5 text-muted-foreground">{preview.conflicts.map((conflict) => <li key={`${conflict.kind}-${conflict.alias}`}>• {conflict.message}</li>)}</ul>
+        </div>}
+      </div>}
+      {(previewMutation.isError || mergeMutation.isError) && <p data-testid="contact-merge-error" className="mt-4 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">The merge could not be completed. Refresh the contacts and review the merge again.</p>}
+
+      <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" onClick={onClose} disabled={mergeMutation.isPending} className="rounded-md border border-border px-4 py-2.5 text-xs font-semibold disabled:opacity-50">Cancel</button>
+        {!preview
+          ? <button data-testid="button-review-contact-merge" type="button" onClick={reviewMerge} disabled={previewMutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{previewMutation.isPending ? 'Reviewing…' : 'Review merge'}</button>
+          : <button data-testid="button-confirm-contact-merge" type="button" onClick={confirmMerge} disabled={!preview.canMerge || mergeMutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-45">{mergeMutation.isPending ? 'Merging…' : `Keep ${survivingContact.displayName} and merge`}</button>}
       </div>
     </div>
   </div>;

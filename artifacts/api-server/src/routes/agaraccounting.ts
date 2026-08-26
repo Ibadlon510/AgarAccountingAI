@@ -95,6 +95,10 @@ import {
   UpdateContactParams,
   UpdateContactBody,
   UpdateContactResponse,
+  PreviewContactMergeBody,
+  PreviewContactMergeResponse,
+  MergeContactsBody,
+  MergeContactsResponse,
   GetContactHistoryParams,
   GetContactHistoryResponse,
   GetUploadedFilesResponse,
@@ -167,6 +171,7 @@ import {
   classificationPatternsTable,
   contactAliasesTable,
   contactClassificationEvidenceTable,
+  contactMergeAuditsTable,
   contactsTable,
   clientWorkspacesTable,
   clientsTable,
@@ -1346,6 +1351,25 @@ async function requireClientAdmin(req: Request, res: Response, clientId: number)
   return membership;
 }
 
+async function requireContactMergeAccess(req: Request, res: Response, clientId: number) {
+  const [membership] = await db.select({ role: clientWorkspacesTable.role })
+    .from(clientWorkspacesTable)
+    .where(and(
+      eq(clientWorkspacesTable.clientId, clientId),
+      eq(clientWorkspacesTable.userId, currentUserId(req)),
+    ))
+    .limit(1);
+  if (!membership) {
+    res.status(403).json({ error: "You do not have access to this client workspace." });
+    return null;
+  }
+  if (!["owner", "admin", "accountant"].includes(membership.role)) {
+    res.status(403).json({ error: "Only workspace owners, admins, or accountants can merge contacts." });
+    return null;
+  }
+  return membership;
+}
+
 async function chartAccountResponses(
   clientId: number,
   accounts: Array<typeof accountClassificationsTable.$inferSelect>,
@@ -1797,6 +1821,104 @@ async function contactResponse(contact: typeof contactsTable.$inferSelect) {
   return {
     ...contact,
     aliases: aliases.map((item) => item.alias),
+  };
+}
+
+type ContactMergeExecutor = Pick<typeof db, "select">;
+
+async function buildContactMergePlan(
+  executor: ContactMergeExecutor,
+  clientId: number,
+  survivingContactId: number,
+  mergedContactId: number,
+) {
+  if (survivingContactId === mergedContactId) return { kind: "same_contact" as const };
+  const contacts = await executor.select().from(contactsTable).where(and(
+    eq(contactsTable.clientId, clientId),
+    inArray(contactsTable.id, [survivingContactId, mergedContactId]),
+  ));
+  const survivingContact = contacts.find((contact) => contact.id === survivingContactId);
+  const mergedContact = contacts.find((contact) => contact.id === mergedContactId);
+  if (!survivingContact || !mergedContact) return { kind: "not_found" as const };
+  if (
+    survivingContact.status !== "active"
+    || mergedContact.status !== "active"
+    || survivingContact.mergedIntoContactId != null
+    || mergedContact.mergedIntoContactId != null
+  ) {
+    return { kind: "inactive" as const, survivingContact, mergedContact };
+  }
+
+  const aliases = await executor.select().from(contactAliasesTable).where(and(
+    eq(contactAliasesTable.clientId, clientId),
+    inArray(contactAliasesTable.contactId, [survivingContactId, mergedContactId]),
+  ));
+  const survivingAliases = aliases.filter((alias) => alias.contactId === survivingContactId);
+  const mergedAliases = aliases.filter((alias) => alias.contactId === mergedContactId);
+  const survivingAliasKeys = new Set(survivingAliases.map((alias) => alias.normalizedAlias));
+  const duplicateAliases = mergedAliases.filter((alias) => survivingAliasKeys.has(alias.normalizedAlias));
+  const aliasesToReassign = mergedAliases.filter((alias) => !survivingAliasKeys.has(alias.normalizedAlias));
+  const otherOwners = mergedAliases.length
+    ? await executor.select().from(contactAliasesTable).where(and(
+      eq(contactAliasesTable.clientId, clientId),
+      inArray(contactAliasesTable.normalizedAlias, mergedAliases.map((alias) => alias.normalizedAlias)),
+      ne(contactAliasesTable.contactId, mergedContactId),
+      ne(contactAliasesTable.contactId, survivingContactId),
+    ))
+    : [];
+  const conflicts = [
+    ...duplicateAliases.map((alias) => ({
+      alias: alias.alias,
+      kind: "duplicate_on_survivor" as const,
+      message: `"${alias.alias}" already identifies ${survivingContact.displayName}; the surviving spelling will be kept.`,
+    })),
+    ...otherOwners.map((alias) => ({
+      alias: alias.alias,
+      kind: "belongs_to_other_contact" as const,
+      message: `"${alias.alias}" belongs to another contact in this client and must be resolved before merging.`,
+    })),
+  ];
+  const statementLines = await executor.select({ id: statementLinesTable.id }).from(statementLinesTable).where(and(
+    eq(statementLinesTable.clientId, clientId),
+    eq(statementLinesTable.contactId, mergedContactId),
+  ));
+  const journalEntries = await executor.select({ id: journalEntriesTable.id }).from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, clientId),
+    eq(journalEntriesTable.contactId, mergedContactId),
+  ));
+  const evidence = await executor.select({ id: contactClassificationEvidenceTable.id })
+    .from(contactClassificationEvidenceTable)
+    .where(and(
+      eq(contactClassificationEvidenceTable.clientId, clientId),
+      eq(contactClassificationEvidenceTable.contactId, mergedContactId),
+    ));
+  return {
+    kind: "ready" as const,
+    survivingContact,
+    mergedContact,
+    duplicateAliases,
+    aliasesToReassign,
+    conflicts,
+    canMerge: !otherOwners.length,
+    statementLineIds: statementLines.map((line) => line.id),
+    journalEntryIds: journalEntries.map((entry) => entry.id),
+    evidenceIds: evidence.map((item) => item.id),
+  };
+}
+
+async function contactMergePreviewResponse(plan: Extract<Awaited<ReturnType<typeof buildContactMergePlan>>, { kind: "ready" }>) {
+  return {
+    clientId: plan.survivingContact.clientId,
+    survivingContact: await contactResponse(plan.survivingContact),
+    mergedContact: await contactResponse(plan.mergedContact),
+    conflicts: plan.conflicts,
+    counts: {
+      aliases: plan.aliasesToReassign.length,
+      statementLines: plan.statementLineIds.length,
+      journalEntries: plan.journalEntryIds.length,
+      evidenceRecords: plan.evidenceIds.length,
+    },
+    canMerge: plan.canMerge,
   };
 }
 
@@ -6698,6 +6820,10 @@ router.patch("/agaraccounting/contacts/:id", async (req, res) => {
     res.status(404).json({ error: "Contact not found for this client." });
     return;
   }
+  if (existing.mergedIntoContactId != null) {
+    res.status(409).json({ error: "A merged contact is retained for audit and cannot be edited or restored." });
+    return;
+  }
   const existingAliases = await db.select({ alias: contactAliasesTable.alias })
     .from(contactAliasesTable)
     .where(and(eq(contactAliasesTable.clientId, client.id), eq(contactAliasesTable.contactId, id)));
@@ -6741,6 +6867,152 @@ router.patch("/agaraccounting/contacts/:id", async (req, res) => {
     return updated;
   });
   res.json(UpdateContactResponse.parse(await contactResponse(contact)));
+});
+
+router.post("/agaraccounting/contacts/merge/preview", async (req, res) => {
+  const body = PreviewContactMergeBody.parse(req.body);
+  const membership = await requireContactMergeAccess(req, res, body.clientId);
+  if (!membership) return;
+  const plan = await buildContactMergePlan(db, body.clientId, body.survivingContactId, body.mergedContactId);
+  if (plan.kind === "same_contact") {
+    res.status(400).json({ error: "Choose two different contacts to merge." });
+    return;
+  }
+  if (plan.kind === "not_found") {
+    res.status(404).json({ error: "Both contacts must belong to this client workspace." });
+    return;
+  }
+  if (plan.kind === "inactive") {
+    res.status(409).json({ error: "Only two active, unmerged contacts can be merged." });
+    return;
+  }
+  res.json(PreviewContactMergeResponse.parse(await contactMergePreviewResponse(plan)));
+});
+
+router.post("/agaraccounting/contacts/merge", async (req, res) => {
+  const body = MergeContactsBody.parse(req.body);
+  const membership = await requireContactMergeAccess(req, res, body.clientId);
+  if (!membership) return;
+  const actorUserId = currentUserId(req);
+  const mergedAt = new Date();
+  let result;
+  try {
+    result = await db.transaction(async (tx) => {
+      const lockedContacts = await tx.select().from(contactsTable).where(and(
+        eq(contactsTable.clientId, body.clientId),
+        inArray(contactsTable.id, [body.survivingContactId, body.mergedContactId]),
+      )).for("update");
+      if (lockedContacts.length !== 2) return { kind: "not_found" as const };
+      const plan = await buildContactMergePlan(
+        tx,
+        body.clientId,
+        body.survivingContactId,
+        body.mergedContactId,
+      );
+      if (plan.kind !== "ready") return plan;
+      if (!plan.canMerge) return { kind: "conflict" as const, plan };
+
+      if (plan.statementLineIds.length) {
+        await tx.update(statementLinesTable).set({ contactId: body.survivingContactId }).where(and(
+          eq(statementLinesTable.clientId, body.clientId),
+          eq(statementLinesTable.contactId, body.mergedContactId),
+        ));
+      }
+      if (plan.journalEntryIds.length) {
+        await tx.update(journalEntriesTable).set({ contactId: body.survivingContactId }).where(and(
+          eq(journalEntriesTable.clientId, body.clientId),
+          eq(journalEntriesTable.contactId, body.mergedContactId),
+        ));
+      }
+      if (plan.evidenceIds.length) {
+        await tx.execute(sql`select set_config('agaraccounting.allow_contact_merge_reparent', 'true', true)`);
+        await tx.update(contactClassificationEvidenceTable).set({ contactId: body.survivingContactId }).where(and(
+          eq(contactClassificationEvidenceTable.clientId, body.clientId),
+          eq(contactClassificationEvidenceTable.contactId, body.mergedContactId),
+        ));
+      }
+      await tx.delete(contactAliasesTable).where(and(
+        eq(contactAliasesTable.clientId, body.clientId),
+        eq(contactAliasesTable.contactId, body.mergedContactId),
+      ));
+      if (plan.aliasesToReassign.length) {
+        await tx.insert(contactAliasesTable).values(plan.aliasesToReassign.map((alias) => ({
+          clientId: body.clientId,
+          contactId: body.survivingContactId,
+          alias: alias.alias,
+          normalizedAlias: alias.normalizedAlias,
+        })));
+      }
+      const [removedContact] = await tx.update(contactsTable).set({
+        status: "archived",
+        mergedIntoContactId: body.survivingContactId,
+        mergedAt,
+        mergedByUserId: actorUserId,
+        updatedAt: mergedAt,
+      }).where(and(
+        eq(contactsTable.id, body.mergedContactId),
+        eq(contactsTable.clientId, body.clientId),
+        eq(contactsTable.status, "active"),
+        isNull(contactsTable.mergedIntoContactId),
+      )).returning();
+      if (!removedContact) return { kind: "inactive" as const };
+      const [audit] = await tx.insert(contactMergeAuditsTable).values({
+        clientId: body.clientId,
+        survivingContactId: body.survivingContactId,
+        mergedContactId: body.mergedContactId,
+        actorUserId,
+        survivingContactName: plan.survivingContact.displayName,
+        mergedContactName: plan.mergedContact.displayName,
+        duplicateAliases: plan.duplicateAliases.map((alias) => alias.alias),
+        aliasesReassigned: plan.aliasesToReassign.map((alias) => alias.alias),
+        statementLineIds: plan.statementLineIds,
+        journalEntryIds: plan.journalEntryIds,
+        evidenceIds: plan.evidenceIds,
+        mergedAt,
+      }).returning();
+      return { kind: "merged" as const, plan, removedContact, audit };
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      res.status(409).json({ error: "An alias changed while this merge was being confirmed. Review the merge again." });
+      return;
+    }
+    throw error;
+  }
+  if (result.kind === "same_contact") {
+    res.status(400).json({ error: "Choose two different contacts to merge." });
+    return;
+  }
+  if (result.kind === "not_found") {
+    res.status(404).json({ error: "Both contacts must belong to this client workspace." });
+    return;
+  }
+  if (result.kind === "inactive") {
+    res.status(409).json({ error: "Only two active, unmerged contacts can be merged." });
+    return;
+  }
+  if (result.kind === "conflict") {
+    res.status(409).json({
+      error: "One or more aliases belong to another contact. Resolve those aliases before confirming the merge.",
+      preview: await contactMergePreviewResponse(result.plan),
+    });
+    return;
+  }
+  const [survivingContact] = await db.select().from(contactsTable).where(and(
+    eq(contactsTable.id, body.survivingContactId),
+    eq(contactsTable.clientId, body.clientId),
+  )).limit(1);
+  res.json(MergeContactsResponse.parse({
+    auditId: result.audit.id,
+    survivingContact: await contactResponse(survivingContact),
+    mergedContact: await contactResponse(result.removedContact),
+    duplicateAliases: result.plan.duplicateAliases.map((alias) => alias.alias),
+    aliasesReassigned: result.plan.aliasesToReassign.map((alias) => alias.alias),
+    statementLineIds: result.plan.statementLineIds,
+    journalEntryIds: result.plan.journalEntryIds,
+    evidenceIds: result.plan.evidenceIds,
+    mergedAt,
+  }));
 });
 
 router.get("/agaraccounting/clients/:clientId/contacts/:id/history", async (req, res) => {
