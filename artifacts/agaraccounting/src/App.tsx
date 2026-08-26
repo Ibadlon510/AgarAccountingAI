@@ -921,6 +921,38 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.primaryEmailAddress?.emailAddress || 'Account';
   const initials = [user.firstName?.[0], user.lastName?.[0]].filter(Boolean).join('').toUpperCase() || displayName.slice(0, 2).toUpperCase();
   const current = nav.find((item) => item.href === location)?.label ?? 'Close overview';
+  const clientVisitStorageKey = `agaraccounting:frequent-clients:${user.externalId ?? user.id}`;
+  const [clientVisitHistory, setClientVisitHistory] = useState<Array<{ id: number; count: number; lastVisited: number }>>(() => {
+    try {
+      const stored = window.localStorage.getItem(clientVisitStorageKey);
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter((entry): entry is { id: number; count: number; lastVisited: number } => (
+        entry && Number.isInteger(entry.id) && entry.id > 0 && Number.isFinite(entry.count) && Number.isFinite(entry.lastVisited)
+      )) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [showAllClients, setShowAllClients] = useState(false);
+  const rankedClients = useMemo(() => {
+    const visitByClient = new Map(clientVisitHistory.map((entry) => [entry.id, entry]));
+    return [...clients].sort((left, right) => {
+      const leftVisit = visitByClient.get(left.id);
+      const rightVisit = visitByClient.get(right.id);
+      if (leftVisit && rightVisit) return rightVisit.count - leftVisit.count || rightVisit.lastVisited - leftVisit.lastVisited;
+      if (leftVisit) return -1;
+      if (rightVisit) return 1;
+      return 0;
+    });
+  }, [clients, clientVisitHistory]);
+  const frequentClients = useMemo(() => {
+    const topClients = rankedClients.slice(0, 5);
+    if (activeClient && !topClients.some((client) => client.id === activeClient.id)) {
+      return [activeClient, ...topClients.slice(0, 4)];
+    }
+    return topClients;
+  }, [activeClient, rankedClients]);
+  const visibleClients = showAllClients ? rankedClients : frequentClients;
   useEffect(() => {
     if (!accountMenuOpen) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -936,6 +968,21 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [accountMenuOpen]);
+  useEffect(() => {
+    if (!accountMenuOpen) setShowAllClients(false);
+  }, [accountMenuOpen]);
+  useEffect(() => {
+    if (!activeClient) return;
+    setClientVisitHistory((currentHistory) => {
+      const existing = currentHistory.find((entry) => entry.id === activeClient.id);
+      const nextHistory = [
+        ...currentHistory.filter((entry) => entry.id !== activeClient.id),
+        { id: activeClient.id, count: (existing?.count ?? 0) + 1, lastVisited: Date.now() },
+      ].sort((left, right) => right.count - left.count || right.lastVisited - left.lastVisited).slice(0, 50);
+      window.localStorage.setItem(clientVisitStorageKey, JSON.stringify(nextHistory));
+      return nextHistory;
+    });
+  }, [activeClient?.id, clientVisitStorageKey]);
   return <div className="min-h-[100dvh] bg-background">
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[78px] items-center border-b border-sidebar-border px-5"><div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center"><img src={brandMarkUrl} alt="" className="size-9 rounded-lg" /></div><div className={`${collapsed ? 'md:hidden' : ''}`}><div className="font-display text-[18px] leading-none tracking-tight text-sidebar-foreground">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/50">Review desk</div></div></div><button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button></div>
@@ -958,7 +1005,11 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                {accountMenuOpen && <div role="menu" aria-label="Account menu" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1.5 shadow-xl">
                  <div className="border-b border-border px-3 py-2.5"><div className="truncate text-xs font-semibold">{displayName}</div><div className="mt-0.5 truncate text-[10px] text-muted-foreground">{user.primaryEmailAddress?.emailAddress ?? 'Account owner'}</div></div>
                  <div className="border-b border-border px-3 py-3">
-                   <label className="block text-[10px] font-mono uppercase tracking-[.14em] text-muted-foreground">Client workspace<select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="mt-1.5 h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-semibold outline-none focus:border-primary">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label>
+                   <div className="flex items-center justify-between"><div className="text-[10px] font-mono uppercase tracking-[.14em] text-muted-foreground">{showAllClients ? 'All client workspaces' : 'Frequent clients'}</div><div className="text-[10px] text-muted-foreground">{clients.length} total</div></div>
+                   <div className={`mt-2 space-y-1 ${showAllClients ? 'max-h-56 overflow-y-auto pr-1' : ''}`} role="group" aria-label={showAllClients ? 'All clients' : 'Frequently visited clients'}>
+                     {visibleClients.map((client) => <button key={client.id} data-testid={`button-client-workspace-${client.id}`} type="button" role="menuitemradio" aria-checked={activeClient?.id === client.id} onClick={() => { setActiveClientId(client.id); setAccountMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${activeClient?.id === client.id ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><span className="min-w-0 truncate font-semibold">{client.name}</span><span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">{client.functionalCurrency}</span></button>)}
+                   </div>
+                   {clients.length > 5 && <button data-testid="button-view-all-clients" type="button" onClick={() => setShowAllClients((visible) => !visible)} className="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-secondary">{showAllClients ? 'Show frequent clients' : `View all ${clients.length} clients`}</button>}
                    <button data-testid="button-add-client" type="button" onClick={() => { setCreateClientOpen(true); setAccountMenuOpen(false); }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />Add client</button>
                  </div>
                  <Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link>
