@@ -982,6 +982,24 @@ export const StatementLineContactSuggestionStatus = {
  * @nullable
  */
 export type StatementLineProposedContactType = typeof StatementLineProposedContactType[keyof typeof StatementLineProposedContactType] | null;
+
+
+export const StatementLineProposedContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export type StatementLineContactReviewDisposition = typeof StatementLineContactReviewDisposition[keyof typeof StatementLineContactReviewDisposition];
+
+
+export const StatementLineContactReviewDisposition = {
+  pending: 'pending',
+  accepted: 'accepted',
+  replaced: 'replaced',
+  dismissed: 'dismissed',
+} as const;
+
 export type StatementLineExchangeRateSourceScope = typeof StatementLineExchangeRateSourceScope[keyof typeof StatementLineExchangeRateSourceScope];
 
 
@@ -1063,6 +1081,24 @@ export interface StatementLineInput {
  * @nullable
  */
 export type StatementLineContactInputProposedContactType = typeof StatementLineContactInputProposedContactType[keyof typeof StatementLineContactInputProposedContactType] | null;
+
+
+export const StatementLineContactInputProposedContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export type StatementLineContactInputContactReviewDisposition = typeof StatementLineContactInputContactReviewDisposition[keyof typeof StatementLineContactInputContactReviewDisposition];
+
+
+export const StatementLineContactInputContactReviewDisposition = {
+  pending: 'pending',
+  accepted: 'accepted',
+  replaced: 'replaced',
+  dismissed: 'dismissed',
+} as const;
+
 export interface StatementLineContactInput {
   clientId: number;
   /** @nullable */
@@ -2195,34 +2231,3 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
-
-
-export type StatementLineContactReviewDisposition = typeof StatementLineContactReviewDisposition[keyof typeof StatementLineContactReviewDisposition];
-
-export const StatementLineContactInputProposedContactType = {
-  customer: 'customer',
-  supplier: 'supplier',
-  both: 'both',
-} as const;
-
-export type StatementLineContactInputContactReviewDisposition = typeof StatementLineContactInputContactReviewDisposition[keyof typeof StatementLineContactInputContactReviewDisposition];
-
-export const StatementLineContactReviewDisposition = {
-  pending: 'pending',
-  accepted: 'accepted',
-  replaced: 'replaced',
-  dismissed: 'dismissed',
-} as const;
-
-export const StatementLineProposedContactType = {
-  customer: 'customer',
-  supplier: 'supplier',
-  both: 'both',
-} as const;
-
-export const StatementLineContactInputContactReviewDisposition = {
-  pending: 'pending',
-  accepted: 'accepted',
-  replaced: 'replaced',
-  dismissed: 'dismissed',
-} as const;

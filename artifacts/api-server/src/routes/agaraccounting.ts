@@ -3415,7 +3415,8 @@ function detectedStatementCurrency(
   const extractedCurrencies = new Set([
     ...(candidate.bankAccount?.currency ? [candidate.bankAccount.currency] : []),
     ...(candidate.lines ?? []).map((line) => line.currency),
-  ].map((currency) => currency.trim().toUpperCase()).filter((currency) => supportedStatementCurrencies.has(currency)));
+  ].map((currency) => typeof currency === "string" ? currency.trim().toUpperCase() : "")
+    .filter((currency) => supportedStatementCurrencies.has(currency)));
   return extractedCurrencies.size === 1 ? [...extractedCurrencies][0] : null;
 }
 
@@ -3727,7 +3728,10 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           evidenceExpiresAt,
           detectedCurrency,
           errorMessage: null,
-        }).where(eq(statementImportsTable.id, existingPendingImport.id)).returning()
+        }).where(and(
+          eq(statementImportsTable.id, existingPendingImport.id),
+          eq(statementImportsTable.clientId, scopedClientId),
+        )).returning()
         : await db.insert(statementImportsTable).values({
           clientId: scopedClientId,
           bankAccountId: selectedBankAccount?.id ?? null,
@@ -3855,7 +3859,10 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       }
       await tx.update(statementImportsTable).set({
         bankAccountId: detectedBankAccount?.id ?? null,
-      }).where(eq(statementImportsTable.id, createdImport.id));
+      }).where(and(
+        eq(statementImportsTable.id, createdImport.id),
+        eq(statementImportsTable.clientId, scopedClientId),
+      ));
       const preparedLines = resolvedLines.map(({ line, currencyValue, conversion }) => {
         const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, line.description);
         const accountSuggestion = workspaceSuggestion?.accountSuggestion
@@ -3956,7 +3963,10 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         }
         inserted.push(insertedLine);
       }
-      await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
+      await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(and(
+        eq(statementImportsTable.id, createdImport.id),
+        eq(statementImportsTable.clientId, scopedClientId),
+      ));
       return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount };
     });
     if (importResult.kind === "invalid_pending") {

@@ -490,7 +490,7 @@ export const assistantTurnsTable = pgTable("agaraccounting_assistant_turns", {
 ]);
 export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  clientId: integer("client_id").notNull().default(1),
+  clientId: integer("client_id").notNull(),
   statementImportId: integer("statement_import_id"),
   bankAccountId: integer("bank_account_id"),
   date: text("date").notNull(),
@@ -572,7 +572,7 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
 
 export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  clientId: integer("client_id").notNull().default(1),
+  clientId: integer("client_id").notNull(),
   statementLineId: integer("statement_line_id").notNull(),
   date: text("date").notNull(),
   memo: text("memo").notNull(),

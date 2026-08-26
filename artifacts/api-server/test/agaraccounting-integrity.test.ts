@@ -7,6 +7,7 @@ import {
   db,
   ensureAgarAccountingIntegrity,
   statementImportsTable,
+  statementLinesTable,
 } from "@workspace/db";
 
 const databaseUrl = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
@@ -98,5 +99,57 @@ test("repairs the legacy statement import hash index and preserves duplicate aud
       await db.delete(statementImportsTable).where(sql`${statementImportsTable.clientId} = ${clientId}`);
       await db.delete(clientsTable).where(sql`${clientsTable.id} = ${clientId}`);
     }
+  }
+});
+
+test("rejects a statement line whose import belongs to another client", {
+  skip: !databaseUrl || !/(^|[_-])test(?:[_-]|$)/i.test(testDatabaseName),
+}, async () => {
+  const suffix = randomUUID();
+  let sourceClientId: number | undefined;
+  let targetClientId: number | undefined;
+  let importId: number | undefined;
+
+  try {
+    await ensureAgarAccountingIntegrity();
+    const [sourceClient, targetClient] = await db.insert(clientsTable).values([
+      { name: `Source ${suffix}`, legalName: "Source integrity client LLC" },
+      { name: `Target ${suffix}`, legalName: "Target integrity client LLC" },
+    ]).returning({ id: clientsTable.id });
+    sourceClientId = sourceClient?.id;
+    targetClientId = targetClient?.id;
+    assert.ok(sourceClientId);
+    assert.ok(targetClientId);
+
+    const [statementImport] = await db.insert(statementImportsTable).values({
+      clientId: sourceClientId,
+      fileName: "cross-client.pdf",
+      mimeType: "application/pdf",
+      fileHash: `cross-client-${suffix}`,
+      outcome: "completed",
+    }).returning({ id: statementImportsTable.id });
+    importId = statementImport?.id;
+    assert.ok(importId);
+
+    await assert.rejects(
+      db.insert(statementLinesTable).values({
+        clientId: targetClientId,
+        statementImportId: importId,
+        date: "2026-08-27",
+        description: "Must not cross client boundaries",
+        currency: "AED",
+        amount: "1.00",
+        direction: "outflow",
+        source: "Integrity test",
+      }),
+      (error: unknown) => {
+        const databaseError = error as { code?: string; cause?: { code?: string } };
+        return databaseError?.code === "23503" || databaseError?.cause?.code === "23503";
+      },
+    );
+  } finally {
+    if (importId) await db.delete(statementImportsTable).where(sql`${statementImportsTable.id} = ${importId}`);
+    if (sourceClientId) await db.delete(clientsTable).where(sql`${clientsTable.id} = ${sourceClientId}`);
+    if (targetClientId) await db.delete(clientsTable).where(sql`${clientsTable.id} = ${targetClientId}`);
   }
 });

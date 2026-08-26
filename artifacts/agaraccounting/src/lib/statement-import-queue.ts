@@ -8,6 +8,9 @@ export type StatementImportQueueStatus =
 
 export type StatementImportQueueItem<TFile, TResult = unknown> = {
   file: TFile;
+  clientId: number;
+  clientName: string;
+  functionalCurrency: string;
   status: StatementImportQueueStatus;
   message?: string;
   result?: TResult;
@@ -25,9 +28,12 @@ export const getStatementFileIdentity = (file: StatementFileIdentity) =>
 export function appendUniqueStatementFiles<TFile extends StatementFileIdentity, TResult>(
   queue: StatementImportQueueItem<TFile, TResult>[],
   files: TFile[],
+  client: { id: number; name: string; functionalCurrency: string },
 ) {
   const identities = new Set(
-    queue.map((item) => getStatementFileIdentity(item.file)),
+    queue
+      .filter((item) => item.clientId === client.id)
+      .map((item) => getStatementFileIdentity(item.file)),
   );
   const additions = files
     .filter((file) => {
@@ -38,6 +44,9 @@ export function appendUniqueStatementFiles<TFile extends StatementFileIdentity, 
     })
     .map((file) => ({
       file,
+      clientId: client.id,
+      clientName: client.name,
+      functionalCurrency: client.functionalCurrency,
       status: 'queued' as const,
     }));
 
