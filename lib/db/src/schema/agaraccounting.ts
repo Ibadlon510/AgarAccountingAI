@@ -323,6 +323,17 @@ export const systemRateAdminsTable = pgTable("agaraccounting_system_rate_admins"
     name: "agaraccounting_system_rate_admins_granted_by_fk",
   }),
 ]);
+
+export const systemRateAdminBootstrapStateTable = pgTable("agaraccounting_system_rate_admin_bootstrap_state", {
+  id: integer("id").primaryKey(),
+  closedByUserId: varchar("closed_by_user_id"),
+  reason: text("reason").notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("agaraccounting_system_rate_admin_bootstrap_singleton_check", sql`${table.id} = 1`),
+  check("agaraccounting_system_rate_admin_bootstrap_reason_check", sql`${table.reason} in ('initial_claim', 'configured_bootstrap', 'explicit_grant', 'existing_admin')`),
+]);
+
 export const aiProviderConfigsTable = pgTable("agaraccounting_ai_provider_configs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),

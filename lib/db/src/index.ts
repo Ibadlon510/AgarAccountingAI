@@ -72,6 +72,32 @@ export async function ensureAgarAccountingIntegrity() {
     await client.query("BEGIN");
     transactionStarted = true;
     await client.query(`
+      CREATE OR REPLACE FUNCTION agaraccounting_close_initial_system_admin_claim()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        INSERT INTO agaraccounting_system_rate_admin_bootstrap_state (id, closed_by_user_id, reason)
+        VALUES (1, NEW.user_id, 'existing_admin')
+        ON CONFLICT (id) DO NOTHING;
+        RETURN NEW;
+      END;
+      $$;
+
+      DROP TRIGGER IF EXISTS agaraccounting_system_rate_admin_closes_initial_claim
+        ON agaraccounting_system_rate_admins;
+      CREATE TRIGGER agaraccounting_system_rate_admin_closes_initial_claim
+        AFTER INSERT ON agaraccounting_system_rate_admins
+        FOR EACH ROW
+        EXECUTE FUNCTION agaraccounting_close_initial_system_admin_claim();
+
+      INSERT INTO agaraccounting_system_rate_admin_bootstrap_state (id, closed_by_user_id, reason)
+      SELECT 1, user_id, 'existing_admin'
+      FROM agaraccounting_system_rate_admins
+      ORDER BY created_at, user_id
+      LIMIT 1
+      ON CONFLICT (id) DO NOTHING;
+
       CREATE OR REPLACE FUNCTION agaraccounting_reject_bulk_transition_audit_mutation()
       RETURNS trigger
       LANGUAGE plpgsql

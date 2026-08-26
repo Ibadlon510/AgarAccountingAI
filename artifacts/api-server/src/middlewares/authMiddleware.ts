@@ -1,6 +1,6 @@
 import { clerkClient, getAuth } from "@clerk/express";
-import { db, systemRateAdminsTable, usersTable, type User as DbUser } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, systemRateAdminBootstrapStateTable, systemRateAdminsTable, usersTable, type User as DbUser } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
 import { type NextFunction, type Request, type Response } from "express";
 import { ensureUserWorkspace } from "../routes/agaraccounting";
 
@@ -28,11 +28,22 @@ async function bootstrapSystemRateAdmin(dbUser: DbUser) {
       .filter(Boolean),
   );
   if (!configuredEmails.has(email)) return;
-  await db.insert(systemRateAdminsTable).values({
-    userId: dbUser.id,
-    status: "active",
-  }).onConflictDoNothing({
-    target: systemRateAdminsTable.userId,
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agaraccounting-system-rate-admin-grant')::bigint)`);
+    const [closedBootstrap] = await tx.insert(systemRateAdminBootstrapStateTable).values({
+      id: 1,
+      closedByUserId: dbUser.id,
+      reason: "configured_bootstrap",
+    }).onConflictDoNothing({
+      target: systemRateAdminBootstrapStateTable.id,
+    }).returning({ id: systemRateAdminBootstrapStateTable.id });
+    if (!closedBootstrap) return;
+    await tx.insert(systemRateAdminsTable).values({
+      userId: dbUser.id,
+      status: "active",
+    }).onConflictDoNothing({
+      target: systemRateAdminsTable.userId,
+    });
   });
 }
 

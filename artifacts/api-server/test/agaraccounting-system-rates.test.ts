@@ -12,7 +12,9 @@ let database: typeof import("@workspace/db") | undefined;
 const systemAdminId = `system-rate-admin-${randomUUID()}`;
 const tenantAdminId = `tenant-admin-${randomUUID()}`;
 const bootstrapAdminId = `bootstrap-system-rate-admin-${randomUUID()}`;
-const userIds = [systemAdminId, tenantAdminId, bootstrapAdminId];
+const initialClaimAdminId = `initial-claim-system-rate-admin-${randomUUID()}`;
+const initialClaimOtherUserId = `initial-claim-other-user-${randomUUID()}`;
+const userIds = [systemAdminId, tenantAdminId, bootstrapAdminId, initialClaimAdminId, initialClaimOtherUserId];
 const clientIds: number[] = [];
 const firmIds: number[] = [];
 
@@ -65,6 +67,7 @@ before(async () => {
 after(async () => {
   try {
     if (database) {
+      await database.db.delete(database.systemRateAdminBootstrapStateTable);
       await database.db.delete(database.systemRateAuditEventsTable)
         .where(inArray(database.systemRateAuditEventsTable.actorUserId, userIds));
       await database.db.delete(database.systemRatesTable)
@@ -98,6 +101,55 @@ after(async () => {
   } finally {
     await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
   }
+});
+
+test("allows only the sole user to claim once and keeps the claim closed after entitlement deletion", async () => {
+  assert.ok(database);
+  assert.equal((await request<Array<{ id: number }>>("/clients", initialClaimAdminId)).response.status, 200);
+  await database.db.insert(database.usersTable).values({ id: initialClaimOtherUserId });
+  const deniedWithMultipleUsers = await request<{ error: string }>(
+    "/agaraccounting/system-admin/claim-initial-access",
+    initialClaimAdminId,
+    { method: "POST" },
+  );
+  assert.equal(deniedWithMultipleUsers.response.status, 409);
+  assert.deepEqual(await database.db.select().from(database.systemRateAdminBootstrapStateTable), []);
+  await database.db.delete(database.usersTable).where(eq(database.usersTable.id, initialClaimOtherUserId));
+
+  const concurrentClaims = await Promise.all([
+    request<{ status?: string; error?: string }>(
+      "/agaraccounting/system-admin/claim-initial-access",
+      initialClaimAdminId,
+      { method: "POST" },
+    ),
+    request<{ status?: string; error?: string }>(
+      "/agaraccounting/system-admin/claim-initial-access",
+      initialClaimAdminId,
+      { method: "POST" },
+    ),
+  ]);
+  assert.deepEqual(concurrentClaims.map(({ response }) => response.status).sort(), [200, 409]);
+  assert.equal((await request<unknown[]>("/agaraccounting/system-rates", initialClaimAdminId)).response.status, 200);
+
+  await database.db.update(database.systemRateAdminsTable)
+    .set({ status: "revoked", revokedAt: new Date() })
+    .where(eq(database.systemRateAdminsTable.userId, initialClaimAdminId));
+  await database.db.delete(database.systemRateAdminsTable)
+    .where(eq(database.systemRateAdminsTable.userId, initialClaimAdminId));
+  const deniedAfterRevocation = await request<{ error: string }>(
+    "/agaraccounting/system-admin/claim-initial-access",
+    initialClaimAdminId,
+    { method: "POST" },
+  );
+  assert.equal(deniedAfterRevocation.response.status, 409);
+  assert.equal((await request<unknown[]>("/agaraccounting/system-rates", initialClaimAdminId)).response.status, 403);
+  const [closedBootstrap] = await database.db.select().from(database.systemRateAdminBootstrapStateTable);
+  assert.equal(closedBootstrap.reason, "initial_claim");
+  assert.equal(closedBootstrap.closedByUserId, initialClaimAdminId);
+
+  const ownedClients = await database.db.select({ id: database.clientsTable.id }).from(database.clientsTable)
+    .where(eq(database.clientsTable.ownerUserId, initialClaimAdminId));
+  clientIds.push(...ownedClients.map(({ id }) => id));
 });
 
 test("protects and applies the system catalog with traceable fallback precedence", async () => {
@@ -292,6 +344,8 @@ test("protects and applies the system catalog with traceable fallback precedence
 
 test("bootstraps a configured verified email once without bypassing later revocation", async () => {
   assert.ok(database);
+  await database.db.delete(database.systemRateAdminsTable);
+  await database.db.delete(database.systemRateAdminBootstrapStateTable);
   const email = `system-admin-${randomUUID()}@example.com`;
   await database.db.insert(database.usersTable).values({ id: bootstrapAdminId, email });
   process.env.AGARACCOUNTING_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS = email;
@@ -301,16 +355,18 @@ test("bootstraps a configured verified email once without bypassing later revoca
     const [entitlement] = await database.db.select().from(database.systemRateAdminsTable)
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
     assert.equal(entitlement.status, "active");
-    const revokedAt = new Date();
+    const [closedBootstrap] = await database.db.select().from(database.systemRateAdminBootstrapStateTable);
+    assert.equal(closedBootstrap.reason, "configured_bootstrap");
     await database.db.update(database.systemRateAdminsTable)
-      .set({ status: "revoked", revokedAt })
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
+    await database.db.delete(database.systemRateAdminsTable)
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
     const deniedAfterRevocation = await request<{ error: string }>("/agaraccounting/system-rates", bootstrapAdminId);
     assert.equal(deniedAfterRevocation.response.status, 403);
-    const [stillRevoked] = await database.db.select().from(database.systemRateAdminsTable)
+    const [recreated] = await database.db.select().from(database.systemRateAdminsTable)
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
-    assert.equal(stillRevoked.status, "revoked");
-    assert.equal(stillRevoked.revokedAt?.getTime(), revokedAt.getTime());
+    assert.equal(recreated, undefined);
     const ownedClients = await database.db.select({ id: database.clientsTable.id }).from(database.clientsTable)
       .where(eq(database.clientsTable.ownerUserId, bootstrapAdminId));
     clientIds.push(...ownedClients.map(({ id }) => id));

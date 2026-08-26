@@ -926,6 +926,18 @@ export interface SystemRateDashboard {
   recentChanges: SystemRateChange[];
 }
 
+export type SystemAdminClaimResultStatus = typeof SystemAdminClaimResultStatus[keyof typeof SystemAdminClaimResultStatus];
+
+
+export const SystemAdminClaimResultStatus = {
+  active: 'active',
+} as const;
+
+export interface SystemAdminClaimResult {
+  status: SystemAdminClaimResultStatus;
+  message: string;
+}
+
 export interface LedgerOverview {
   period: string;
   currencies: string[];

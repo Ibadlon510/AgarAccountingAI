@@ -193,6 +193,8 @@ export * from './statementLineExchangeRateSourceScope';
 export * from './statementLineInput';
 export * from './statementSection';
 export * from './subscriptionLiableParty';
+export * from './systemAdminClaimResult';
+export * from './systemAdminClaimResultStatus';
 export * from './systemRate';
 export * from './systemRateChange';
 export * from './systemRateChangeAction';

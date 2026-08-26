@@ -107,6 +107,7 @@ import type {
   StatementLine,
   StatementLineContactInput,
   StatementLineInput,
+  SystemAdminClaimResult,
   SystemRate,
   SystemRateClearResult,
   SystemRateDashboard,
@@ -2897,6 +2898,78 @@ export function useGetSystemRateDashboard<TData = Awaited<ReturnType<typeof getS
 
 
 
+
+export const getClaimInitialSystemAdminAccessUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/system-admin/claim-initial-access`
+}
+
+/**
+ * Available only when no system administrator record has ever existed and the authenticated requester is the sole user.
+ * @summary Claim the one-time initial system administrator entitlement
+ */
+export const claimInitialSystemAdminAccess = async ( options?: Parameters<typeof customFetch>[1]): Promise<SystemAdminClaimResult> => {
+
+  return customFetch<SystemAdminClaimResult>(getClaimInitialSystemAdminAccessUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getClaimInitialSystemAdminAccessMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimInitialSystemAdminAccess>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof claimInitialSystemAdminAccess>>, TError,void, TContext> => {
+
+const mutationKey = ['claimInitialSystemAdminAccess'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof claimInitialSystemAdminAccess>>, void> = () => {
+
+
+          return  claimInitialSystemAdminAccess(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClaimInitialSystemAdminAccessMutationResult = NonNullable<Awaited<ReturnType<typeof claimInitialSystemAdminAccess>>>
+
+    export type ClaimInitialSystemAdminAccessMutationError = ErrorType<void>
+
+    /**
+ * @summary Claim the one-time initial system administrator entitlement
+ */
+export const useClaimInitialSystemAdminAccess = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof claimInitialSystemAdminAccess>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof claimInitialSystemAdminAccess>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getClaimInitialSystemAdminAccessMutationOptions(options));
+    }
 
 export const getGetSystemRatesUrl = () => {
 

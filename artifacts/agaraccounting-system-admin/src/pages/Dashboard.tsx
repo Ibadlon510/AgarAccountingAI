@@ -1,12 +1,23 @@
-import { useGetSystemRateDashboard } from "@workspace/api-client-react";
+import { useClaimInitialSystemAdminAccess, useGetSystemRateDashboard } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Activity, AlertCircle, Building2, Link2, Coins } from "lucide-react";
+import { Activity, AlertCircle, Building2, Link2, Coins, LoaderCircle, ShieldCheck } from "lucide-react";
 import { format } from "date-fns";
 
 export default function Dashboard() {
-  const { data: dashboard, isLoading, error } = useGetSystemRateDashboard();
+  const { data: dashboard, isLoading, error, refetch } = useGetSystemRateDashboard();
+  const claimMutation = useClaimInitialSystemAdminAccess();
+
+  const claimInitialAccess = async () => {
+    try {
+      await claimMutation.mutateAsync();
+      await refetch();
+    } catch {
+      // The mutation state renders the server-approved failure message below.
+    }
+  };
 
   if (isLoading) {
     return (
@@ -27,7 +38,21 @@ export default function Dashboard() {
           <CardContent className="flex flex-col items-center justify-center p-12 text-destructive">
             <AlertCircle className="h-10 w-10 mb-4" />
             <h2 className="text-xl font-semibold mb-2">{denied ? "System administrator access required" : "Failed to load dashboard"}</h2>
-            <p className="text-sm opacity-80">{denied ? "Your account is signed in but has not been granted the separate system-rate administrator entitlement." : "The system-rate service is unavailable. Try again shortly."}</p>
+            <p className="max-w-xl text-center text-sm opacity-80">{denied ? "Your account is signed in but has not been granted the separate system-rate administrator entitlement." : "The system-rate service is unavailable. Try again shortly."}</p>
+            {denied && <>
+              <div className="mt-6 max-w-lg rounded-md border border-destructive/20 bg-background/70 px-4 py-3 text-center text-xs leading-5 text-foreground">
+                If this is the first Production account, you can claim the initial administrator entitlement once. The claim permanently closes after any administrator record is created.
+              </div>
+              <Button data-testid="button-claim-initial-system-admin" className="mt-4 gap-2" onClick={claimInitialAccess} disabled={claimMutation.isPending}>
+                {claimMutation.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+                {claimMutation.isPending ? "Claiming secure access…" : "Claim initial administrator access"}
+              </Button>
+              {claimMutation.isError && <p data-testid="status-claim-initial-system-admin-error" className="mt-3 max-w-lg text-center text-xs text-destructive">
+                {(claimMutation.error as { status?: number }).status === 409
+                  ? "Initial access is already closed. An active administrator must grant access explicitly."
+                  : "The entitlement could not be claimed. Try again shortly."}
+              </p>}
+            </>}
           </CardContent>
         </Card>
       </div>

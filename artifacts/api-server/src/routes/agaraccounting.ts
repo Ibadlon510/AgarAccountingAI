@@ -149,6 +149,7 @@ import {
   ApproveFirmEngagementMemberResponse,
   RevokeFirmEngagementMemberParams,
   RevokeFirmEngagementParams,
+  ClaimInitialSystemAdminAccessResponse,
   GetSystemRateDashboardResponse,
   GetSystemRatesResponse,
   CreateSystemRateBody,
@@ -187,6 +188,7 @@ import {
   statementImportsTable,
   statementImportUndoAuditsTable,
   statementLinesTable,
+  systemRateAdminBootstrapStateTable,
   systemRateAdminsTable,
   systemRateAuditEventsTable,
   systemRatesTable,
@@ -942,6 +944,58 @@ async function requireSystemRateAdmin(req: Request, res: Response) {
     return null;
   }
   return entitlement;
+}
+
+async function claimInitialSystemRateAdmin(userId: string) {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agaraccounting-system-rate-admin-grant')::bigint)`);
+    await tx.execute(sql`lock table "users" in share mode`);
+    await tx.execute(sql`lock table "agaraccounting_system_rate_admin_bootstrap_state" in share row exclusive mode`);
+    await tx.execute(sql`lock table "agaraccounting_system_rate_admins" in share row exclusive mode`);
+    const [closedBootstrap] = await tx.select({ id: systemRateAdminBootstrapStateTable.id })
+      .from(systemRateAdminBootstrapStateTable)
+      .where(eq(systemRateAdminBootstrapStateTable.id, 1))
+      .limit(1);
+    if (closedBootstrap) return false;
+
+    const [existingAdmin] = await tx.select({ userId: systemRateAdminsTable.userId })
+      .from(systemRateAdminsTable)
+      .limit(1);
+    if (existingAdmin) {
+      await tx.insert(systemRateAdminBootstrapStateTable).values({
+        id: 1,
+        closedByUserId: existingAdmin.userId,
+        reason: "existing_admin",
+      }).onConflictDoNothing({
+        target: systemRateAdminBootstrapStateTable.id,
+      });
+      return false;
+    }
+
+    const users = await tx.select({ id: usersTable.id })
+      .from(usersTable)
+      .orderBy(asc(usersTable.createdAt), asc(usersTable.id))
+      .limit(2);
+    if (users.length !== 1 || users[0]?.id !== userId) return false;
+
+    const [closed] = await tx.insert(systemRateAdminBootstrapStateTable).values({
+      id: 1,
+      closedByUserId: userId,
+      reason: "initial_claim",
+    }).onConflictDoNothing({
+      target: systemRateAdminBootstrapStateTable.id,
+    }).returning({ id: systemRateAdminBootstrapStateTable.id });
+    if (!closed) return false;
+
+    const [entitlement] = await tx.insert(systemRateAdminsTable).values({
+      userId,
+      grantedByUserId: userId,
+      status: "active",
+    }).onConflictDoNothing({
+      target: systemRateAdminsTable.userId,
+    }).returning({ userId: systemRateAdminsTable.userId });
+    return Boolean(entitlement);
+  });
 }
 
 const USAGE_PLAN = {
@@ -5999,6 +6053,19 @@ router.post("/workspace/invitations/:token/accept", async (req, res) => {
   res.json(AcceptWorkspaceInvitationResponse.parse(
     await workspaceMemberResponse(userId, invitation.clientIds, userId),
   ));
+});
+
+router.post("/agaraccounting/system-admin/claim-initial-access", async (req, res): Promise<void> => {
+  const userId = currentUserId(req);
+  if (!await claimInitialSystemRateAdmin(userId)) {
+    res.status(409).json({ error: "Initial system administrator access is no longer available." });
+    return;
+  }
+  req.log?.info({ userId }, "Initial system administrator entitlement claimed");
+  res.json(ClaimInitialSystemAdminAccessResponse.parse({
+    status: "active",
+    message: "System administrator access is active.",
+  }));
 });
 
 router.get("/agaraccounting/system-rates/dashboard", async (req, res) => {

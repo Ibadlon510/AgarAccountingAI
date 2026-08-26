@@ -1153,6 +1153,16 @@ export const GetSystemRateDashboardResponse = zod.object({
 
 
 /**
+ * Available only when no system administrator record has ever existed and the authenticated requester is the sole user.
+ * @summary Claim the one-time initial system administrator entitlement
+ */
+export const ClaimInitialSystemAdminAccessResponse = zod.object({
+  "status": zod.enum(['active']),
+  "message": zod.string()
+})
+
+
+/**
  * @summary List global fallback exchange rates
  */
 export const GetSystemRatesResponseItem = zod.object({

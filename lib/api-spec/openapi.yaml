@@ -634,6 +634,21 @@ paths:
                 $ref: "#/components/schemas/SystemRateDashboard"
         "403":
           description: System administrator entitlement required
+  /agaraccounting/system-admin/claim-initial-access:
+    post:
+      operationId: claimInitialSystemAdminAccess
+      tags: [agaraccounting]
+      summary: Claim the one-time initial system administrator entitlement
+      description: Available only when no system administrator record has ever existed and the authenticated requester is the sole user.
+      responses:
+        "200":
+          description: Initial system administrator entitlement granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemAdminClaimResult"
+        "409":
+          description: Initial system administrator access is no longer available
   /agaraccounting/system-rates:
     get:
       operationId: getSystemRates
@@ -2493,6 +2508,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SystemRateChange"
+    SystemAdminClaimResult:
+      type: object
+      required: [status, message]
+      properties:
+        status: { type: string, enum: [active] }
+        message: { type: string }
     LedgerOverview:
       type: object
       required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies]
