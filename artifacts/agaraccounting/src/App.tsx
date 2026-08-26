@@ -802,9 +802,11 @@ function AddClientDialog({ onClose }: { onClose: () => void }) {
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     mutation.mutate({ data: { ...form, creationMode, ...(creationMode === 'firm_client' ? { firmId } : {}) } }, {
-      onSuccess: (client) => {
-        queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+      onSuccess: async (client) => {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() }),
+          queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }),
+        ]);
         setActiveClientId(client.id);
         onClose();
       },
@@ -1139,6 +1141,66 @@ function ActionCard({ index, title, detail, href, icon: Icon }: { index: string;
   return <Link href={href} data-testid={`link-action-${index}`} className="group flex items-start gap-3 rounded-md border border-border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-secondary/40"><div className="grid size-8 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Icon size={16} /></div><div className="min-w-0"><div className="flex items-center gap-2"><span className="font-mono text-[9px] text-muted-foreground">{index}</span><h3 className="text-[12px] font-semibold">{title}</h3></div><p className="mt-1 text-[11px] leading-4 text-muted-foreground">{detail}</p></div><ArrowRight className="ml-auto mt-1 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" size={14} /></Link>;
 }
 
+type ImportActivityStage = 'uploading' | 'analyzing' | 'confirming';
+const importActivityCopy: Record<ImportActivityStage, { title: string; messages: string[]; step: string }> = {
+  uploading: {
+    title: 'Securing the source document',
+    step: 'Stage 1 of 3',
+    messages: [
+      'Putting the original file somewhere safe.',
+      'Checking the document before the bookkeeping begins.',
+      'Keeping the source evidence attached—always.',
+    ],
+  },
+  analyzing: {
+    title: 'Giving the statement a careful first pass',
+    step: 'Stage 2 of 3',
+    messages: [
+      'Reading the bank’s layout like a careful detective.',
+      'Tidying dates, descriptions, and amounts into reviewable lines.',
+      'Checking that currencies and directions make sense.',
+      'Counting the transactions so nothing sneaks past.',
+    ],
+  },
+  confirming: {
+    title: 'Loading your confirmed lines',
+    step: 'Stage 3 of 3',
+    messages: [
+      'Applying your confirmation—human approval stays in charge.',
+      'Attaching the final source trail to each review line.',
+      'One last tidy-up before the review queue gets the goods.',
+    ],
+  },
+};
+
+function ImportActivity({ stage, fileName, position, total }: { stage: ImportActivityStage | null; fileName?: string; position?: number; total?: number }) {
+  const [messageIndex, setMessageIndex] = useState(0);
+  useEffect(() => {
+    if (!stage) return;
+    setMessageIndex(0);
+    const interval = window.setInterval(() => {
+      setMessageIndex((current) => current + 1);
+    }, 2600);
+    return () => window.clearInterval(interval);
+  }, [stage, fileName]);
+
+  if (!stage) return null;
+  const activity = importActivityCopy[stage];
+  const message = activity.messages[messageIndex % activity.messages.length];
+  const progressWidth = stage === 'uploading' ? 'w-1/4' : stage === 'analyzing' ? 'w-2/3' : 'w-[92%]';
+  return <div data-testid="statement-import-activity" role="status" aria-live="polite" className="mb-5 rounded-md border border-primary/20 bg-primary/5 px-4 py-3">
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><LoaderCircle size={15} className="animate-spin" /></div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-semibold">{activity.title}</div><span className="font-mono text-[9px] uppercase tracking-[.12em] text-primary">{activity.step}</span></div>
+        <p data-testid="statement-import-activity-message" className="mt-1 text-[11px] leading-5 text-muted-foreground">{message}</p>
+        {fileName && <p className="mt-1 truncate font-mono text-[10px] text-primary/75">{fileName}{position != null && total != null ? ` · Document ${position} of ${total}` : ''}</p>}
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-secondary"><div className={`h-full ${progressWidth} animate-pulse rounded-full bg-primary transition-all duration-700`} /></div>
+      </div>
+    </div>
+  </div>;
+}
+
 function ImportStatementPage() {
   const { activeClient } = useClientWorkspace();
   const importMutation = useImportStatement();
@@ -1149,6 +1211,8 @@ function ImportStatementPage() {
   const [selectedCurrency, setSelectedCurrency] = useState('');
   const [message, setMessage] = useState('');
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+  const [activityStage, setActivityStage] = useState<ImportActivityStage | null>(null);
+  const [activeQueueIndex, setActiveQueueIndex] = useState<number | null>(null);
 
   const addFiles = (selectedFiles: File[]) => {
     if (!selectedFiles.length) return;
@@ -1172,6 +1236,8 @@ function ImportStatementPage() {
     if (!item || !activeClient) return;
     const file = item.file;
     setIsProcessingQueue(true);
+    setActiveQueueIndex(index);
+    setActivityStage('uploading');
     setMessage('');
     setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
       ? { ...entry, status: 'analyzing', message: undefined }
@@ -1182,6 +1248,7 @@ function ImportStatementPage() {
       }
       const uploaded = await uploadFile(file, { clientId: activeClient.id });
       if (!uploaded) throw new Error('The private statement upload did not complete. Please try again.');
+      setActivityStage('analyzing');
       const result = await importMutation.mutateAsync({
         data: {
           clientId: activeClient.id,
@@ -1196,6 +1263,8 @@ function ImportStatementPage() {
           ? { ...entry, status: 'loaded', message: result.message ?? 'This statement was not loaded again.', result }
           : entry));
         setMessage(result.message ?? 'This statement was not loaded again.');
+        setActivityStage(null);
+        setActiveQueueIndex(null);
         continueQueue(index);
         return;
       }
@@ -1207,6 +1276,8 @@ function ImportStatementPage() {
         : entry));
       void queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) });
       setIsProcessingQueue(false);
+      setActivityStage(null);
+      setActiveQueueIndex(null);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Statement preview failed.';
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
@@ -1214,6 +1285,8 @@ function ImportStatementPage() {
         : entry));
       setMessage(errorMessage);
       setIsProcessingQueue(false);
+      setActivityStage(null);
+      setActiveQueueIndex(null);
     }
   }
 
@@ -1226,6 +1299,8 @@ function ImportStatementPage() {
     if (!preview || previewIndex == null || !activeClient || !selectedCurrency) return;
     const currentIndex = previewIndex;
     setMessage('');
+    setActiveQueueIndex(currentIndex);
+    setActivityStage('confirming');
     try {
       const result = await importMutation.mutateAsync({
         data: {
@@ -1244,12 +1319,16 @@ function ImportStatementPage() {
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === currentIndex
         ? { ...entry, status: 'loaded', message: result.message ?? `${result.importedCount} statement lines are ready for review.`, result }
         : entry));
+      setActivityStage(null);
+      setActiveQueueIndex(null);
       queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
       queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
       queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) });
       continueQueue(currentIndex);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Statement import failed.');
+      setActivityStage(null);
+      setActiveQueueIndex(null);
     }
   };
 
@@ -1270,6 +1349,7 @@ function ImportStatementPage() {
     const queuePosition = previewIndex == null ? 1 : previewIndex + 1;
     return <div>
       <PageHeading eyebrow={`Document ${queuePosition} of ${queue.length} · review before load`} title="Review parsed statement" description={`AgarAccounting AI has not loaded any rows for ${activeClient?.name ?? 'this client'} yet. Confirm the interpreted currency and transactions before they enter the review queue.`} />
+      <ImportActivity stage={activityStage} fileName={activeQueueIndex == null ? undefined : queue[activeQueueIndex]?.file.name} position={queuePosition} total={queue.length} />
       <section className="rounded-lg border border-card-border bg-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI extraction preview</div><h2 className="mt-2 text-lg font-semibold">{preview.fileName}</h2><p className="mt-1 text-xs text-muted-foreground">{preview.result.lines.length} proposed transaction{preview.result.lines.length === 1 ? '' : 's'} · source and preview saved, no statement lines loaded</p></div>
@@ -1290,6 +1370,7 @@ function ImportStatementPage() {
 
   return <div>
     <PageHeading eyebrow="Client intake / source documents" title="Import bank statements" description={`Choose one or more PDF, CSV, or Excel statements for ${activeClient?.name ?? 'this client'}. AgarAccounting AI analyzes them one at a time and shows every parsed row for approval before it loads anything into review.`} />
+     <ImportActivity stage={activityStage} fileName={activeQueueIndex == null ? undefined : queue[activeQueueIndex]?.file.name} position={activeQueueIndex == null ? undefined : activeQueueIndex + 1} total={queue.length || undefined} />
     <section className="rounded-lg border border-card-border bg-card p-6">
       <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div>
       <h2 className="mt-5 text-lg font-semibold">Statement files</h2>
@@ -1313,7 +1394,7 @@ function ImportStatementPage() {
       {message && <div data-testid="import-statement-result" className="mt-5 rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-xs text-primary">{message}{queue.some((item) => item.status === 'loaded' && item.result?.importedCount) ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}
       <div className="mt-5 flex justify-end">
         <button data-testid="button-parse-statement" type="button" onClick={startQueue} disabled={!queue.some((item) => item.status === 'queued' || item.status === 'failed') || isProcessingQueue || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
-          {isProcessingQueue || isUploading || importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Analyzing next document…</> : <><Sparkles size={14} /> {queue.length > 1 ? `Analyze ${queue.filter((item) => item.status === 'queued' || item.status === 'failed').length} documents one at a time` : 'Analyze with AI'}</>}
+           {isProcessingQueue || isUploading || importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> {activityStage === 'uploading' ? 'Securing document…' : activityStage === 'confirming' ? 'Loading to review…' : 'Reading the statement…'}</> : <><Sparkles size={14} /> {queue.length > 1 ? `Analyze ${queue.filter((item) => item.status === 'queued' || item.status === 'failed').length} documents one at a time` : 'Analyze with AI'}</>}
         </button>
       </div>
     </section>
