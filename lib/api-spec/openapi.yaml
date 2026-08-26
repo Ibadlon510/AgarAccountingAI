@@ -728,6 +728,26 @@ paths:
                 $ref: "#/components/schemas/SystemRateImportResult"
         "403":
           description: System administrator entitlement required
+  /ledgerflow/system-rates/parse:
+    post:
+      operationId: parseSystemRates
+      tags: [ledgerflow]
+      summary: Prepare a global fallback exchange-rate import preview from Excel data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemRateParseInput"
+      responses:
+        "200":
+          description: Detected global exchange-rate mapping and parsed preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExchangeRateParseResult"
+        "403":
+          description: System administrator entitlement required
   /healthz:
     get:
       operationId: healthCheck
@@ -1924,6 +1944,11 @@ components:
           minItems: 1
           items:
             $ref: "#/components/schemas/SystemRateInput"
+    SystemRateParseInput:
+      type: object
+      properties:
+        fileBase64: { type: string, minLength: 1, maxLength: 20000000 }
+        fileName: { type: string }
     SystemRateImportResult:
       type: object
       required: [importedCount, updatedCount, rates]

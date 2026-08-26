@@ -1,5 +1,5 @@
 import { clerkClient, getAuth } from "@clerk/express";
-import { db, usersTable, type User as DbUser } from "@workspace/db";
+import { db, systemRateAdminsTable, usersTable, type User as DbUser } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { type NextFunction, type Request, type Response } from "express";
 import { ensureUserWorkspace } from "../routes/ledgerflow";
@@ -17,6 +17,28 @@ type ClerkIdentity = {
   firstName: string | null;
   lastName: string | null;
 };
+
+async function bootstrapSystemRateAdmin(dbUser: DbUser) {
+  const email = dbUser.email?.trim().toLowerCase();
+  if (!email) return;
+  const configuredEmails = new Set(
+    (process.env.LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  if (!configuredEmails.has(email)) return;
+  await db.insert(systemRateAdminsTable).values({
+    userId: dbUser.id,
+    status: "active",
+  }).onConflictDoUpdate({
+    target: systemRateAdminsTable.userId,
+    set: {
+      status: "active",
+      revokedAt: null,
+    },
+  });
+}
 
 async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Promise<DbUser> {
   let [dbUser] = await db
@@ -67,6 +89,7 @@ async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Pro
   }
 
   await ensureUserWorkspace(dbUser.id);
+  await bootstrapSystemRateAdmin(dbUser);
   return dbUser;
 }
 

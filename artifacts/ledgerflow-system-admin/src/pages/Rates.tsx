@@ -6,15 +6,15 @@ import {
   useUpdateSystemRate, 
   useDeleteSystemRate,
   useImportSystemRates,
+  useParseSystemRates,
   getGetSystemRatesQueryKey,
   getGetSystemRateDashboardQueryKey
 } from "@workspace/api-client-react";
-import type { SystemRate } from "@workspace/api-client-react";
+import type { ExchangeRateInput, ExchangeRateParseResult, SystemRate } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { Plus, Upload, Trash2, Edit2, Search } from "lucide-react";
 import { format } from "date-fns";
@@ -34,6 +34,86 @@ const rateSchema = z.object({
 });
 
 type RateFormValues = z.infer<typeof rateSchema>;
+
+function csvHeaderKey(value: string) {
+  return value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function readCsvRecords(content: string) {
+  const normalized = content.replace(/^\uFEFF/, "");
+  const delimiterSample = normalized.split(/\r?\n/).slice(0, 12).join("\n");
+  const delimiter = [",", ";", "\t"].reduce((best, candidate) => {
+    const count = [...delimiterSample].filter((character) => character === candidate).length;
+    return count > best.count ? { value: candidate, count } : best;
+  }, { value: ",", count: -1 }).value;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    const next = normalized[index + 1];
+    if (character === '"') {
+      if (quoted && next === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && character === delimiter) {
+      row.push(cell.trim());
+      cell = "";
+    } else if (!quoted && (character === "\n" || character === "\r")) {
+      if (character === "\r" && next === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function deterministicSystemRates(content: string): ExchangeRateInput[] {
+  const rows = readCsvRecords(content);
+  const headerIndex = rows.findIndex((row) => row.some((cell) => [
+    "effectivedate", "date", "asof", "valuedate", "ratedate",
+    "sourcecurrency", "fromcurrency", "functionalcurrency", "tocurrency", "rate",
+    "exchangerate", "closingrate",
+  ].includes(csvHeaderKey(cell))));
+  if (headerIndex < 0) return [];
+  const headers = rows[headerIndex].map(csvHeaderKey);
+  const valueAt = (cells: string[], names: string[]) => {
+    const index = headers.findIndex((header) => names.includes(header));
+    return index < 0 ? "" : (cells[index] ?? "").trim();
+  };
+  return rows.slice(headerIndex + 1).map((cells) => ({
+    effectiveDate: valueAt(cells, ["effectivedate", "date", "asof", "valuedate", "ratedate"]),
+    sourceCurrency: valueAt(cells, ["sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom"]).toUpperCase(),
+    functionalCurrency: valueAt(cells, ["functionalcurrency", "tocurrency", "targetcurrency", "quotecurrency"]).toUpperCase(),
+    rate: Number(valueAt(cells, ["rate", "exchangerate", "closingrate", "midrate"]).replaceAll(",", "")),
+    source: valueAt(cells, ["ratesource", "provider", "publisher", "source"]) || "Imported CSV",
+    note: valueAt(cells, ["note", "memo", "comment"]) || null,
+  })).filter((rate) => /^\d{4}-\d{2}-\d{2}$/.test(rate.effectiveDate)
+    && /^[A-Z]{3}$/.test(rate.sourceCurrency)
+    && /^[A-Z]{3}$/.test(rate.functionalCurrency)
+    && Number.isFinite(rate.rate)
+    && rate.rate > 0);
+}
+
+async function fileAsBase64(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const chunkSize = 0x6000;
+  let base64 = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    base64 += btoa(String.fromCharCode(...bytes.subarray(index, index + chunkSize)));
+  }
+  return base64;
+}
 
 export default function Rates() {
   const { data: rates, isLoading } = useGetSystemRates();
@@ -369,70 +449,140 @@ function DeleteRateDialog({ rate }: { rate: SystemRate }) {
 
 function ImportRatesDialog() {
   const [open, setOpen] = useState(false);
-  const [jsonText, setJsonText] = useState("");
+  const [preview, setPreview] = useState<ExchangeRateParseResult | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const importMutation = useImportSystemRates();
+  const parseMutation = useParseSystemRates();
 
-  const handleImport = () => {
+  const refreshRates = () => {
+    queryClient.invalidateQueries({ queryKey: getGetSystemRatesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetSystemRateDashboardQueryKey() });
+  };
+
+  const importParsedRates = async (rates: ExchangeRateInput[]) => {
     try {
-      const parsed = JSON.parse(jsonText);
-      const rates = Array.isArray(parsed) ? parsed : [parsed];
-      
-      // Basic validation
-      const isValid = rates.every(r => r.sourceCurrency && r.functionalCurrency && r.effectiveDate && r.rate);
-      if (!isValid) {
-        throw new Error("Invalid JSON format. Expected array of rates with sourceCurrency, functionalCurrency, effectiveDate, and rate.");
-      }
-
-      importMutation.mutate({ data: { rates } }, {
-        onSuccess: (res) => {
-          toast({ 
-            title: "Import Successful", 
-            description: `Imported ${res.importedCount} rates, updated ${res.updatedCount}.` 
-          });
-          queryClient.invalidateQueries({ queryKey: getGetSystemRatesQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetSystemRateDashboardQueryKey() });
-          setOpen(false);
-          setJsonText("");
-        },
-        onError: (err: any) => {
-          toast({ title: "Import Failed", description: err.message || "Server rejected import", variant: "destructive" });
-        }
+      const result = await importMutation.mutateAsync({ data: { rates } });
+      refreshRates();
+      setPreview(null);
+      setOpen(false);
+      toast({
+        title: "Import successful",
+        description: `Imported ${result.importedCount} rates and updated ${result.updatedCount}.`,
       });
-    } catch (e: any) {
-      toast({ title: "Parsing Error", description: e.message, variant: "destructive" });
+    } catch (error) {
+      toast({
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "The system-rate import was rejected.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const importRateFile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const lowerName = file.name.toLowerCase();
+      const isWorkbook = lowerName.endsWith(".xlsx")
+        || file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      if (isWorkbook) {
+        if (file.size > 15 * 1024 * 1024) {
+          throw new Error("This Excel workbook is too large. Choose a file smaller than 15 MB.");
+        }
+        const parsedPreview = await parseMutation.mutateAsync({
+          data: { fileBase64: await fileAsBase64(file), fileName: file.name },
+        });
+        setPreview(parsedPreview);
+        setOpen(true);
+        return;
+      }
+      const rates = deterministicSystemRates(await file.text());
+      if (!rates.length) {
+        throw new Error("No safe exchange-rate rows were found. Include date, source currency, functional currency, and rate columns.");
+      }
+      await importParsedRates(rates);
+    } catch (error) {
+      toast({
+        title: "Import file could not be read",
+        description: error instanceof Error ? error.message : "Choose a valid CSV or Excel exchange-rate file.",
+        variant: "destructive",
+      });
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm"><Upload className="h-4 w-4 mr-2" /> Import</Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+    <>
+      <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
+        <Upload className="mr-2 h-4 w-4" />
+        {parseMutation.isPending ? "Detecting layout…" : importMutation.isPending ? "Importing…" : "Import CSV or Excel"}
+        <input
+          data-testid="input-system-exchange-rate-import"
+          type="file"
+          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          disabled={parseMutation.isPending || importMutation.isPending}
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.currentTarget.value = "";
+            void importRateFile(file);
+          }}
+        />
+      </label>
+      <Dialog open={open} onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setPreview(null);
+      }}>
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Import System Rates</DialogTitle>
+          <DialogTitle>Review system exchange rates</DialogTitle>
           <DialogDescription>
-            Paste JSON array of rates to import in bulk.
+            Confirm the detected Excel rows before they are added to the global fallback schedule.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 pt-4">
-          <Label>JSON Payload</Label>
-          <textarea
-            className="w-full h-64 font-mono text-sm p-4 rounded-md border border-input bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder={`[\n  {\n    "sourceCurrency": "EUR",\n    "functionalCurrency": "USD",\n    "effectiveDate": "2024-01-01",\n    "rate": 1.09,\n    "source": "ECB"\n  }\n]`}
-            value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
-          />
-        </div>
+        {preview && <div data-testid="card-system-exchange-rate-import-preview" className="space-y-4 pt-4">
+          <div className="rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-sm">
+            <strong>{preview.rates.length} valid rate{preview.rates.length === 1 ? "" : "s"} detected.</strong>
+            <span className="ml-2 text-muted-foreground">Nothing is imported until you confirm.</span>
+          </div>
+          {preview.warnings.length > 0 && <div className="rounded-md border border-amber-500/25 bg-amber-500/5 px-4 py-3 text-xs text-muted-foreground">
+            {preview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+          </div>}
+          <div className="max-h-80 overflow-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Pair</TableHead>
+                  <TableHead className="text-right">Rate</TableHead>
+                  <TableHead>Source</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {preview.rates.slice(0, 50).map((rate, index) => (
+                  <TableRow key={`${rate.sourceCurrency}-${rate.functionalCurrency}-${rate.effectiveDate}-${index}`}>
+                    <TableCell className="font-mono text-xs">{rate.effectiveDate}</TableCell>
+                    <TableCell className="font-medium">{rate.sourceCurrency} / {rate.functionalCurrency}</TableCell>
+                    <TableCell className="text-right font-mono">{rate.rate}</TableCell>
+                    <TableCell>{rate.source ?? "Imported workbook"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {preview.rates.length > 50 && <p className="text-xs text-muted-foreground">Showing the first 50 of {preview.rates.length} rates.</p>}
+        </div>}
         <DialogFooter className="pt-4">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button onClick={handleImport} disabled={importMutation.isPending || !jsonText.trim()}>
-            {importMutation.isPending ? "Importing..." : "Run Import"}
+          <Button
+            data-testid="button-confirm-system-exchange-rate-import"
+            onClick={() => preview && void importParsedRates(preview.rates)}
+            disabled={importMutation.isPending || !preview?.rates.length}
+          >
+            {importMutation.isPending ? "Importing…" : `Confirm ${preview?.rates.length ?? 0} rates`}
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+    </>
   );
 }

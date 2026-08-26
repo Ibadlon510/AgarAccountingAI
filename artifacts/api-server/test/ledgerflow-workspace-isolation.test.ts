@@ -180,6 +180,38 @@ test("provisions isolated starter workspaces and configures only the owner's wor
   assert.equal(first.body[0].legalName, "Legal entity to be configured");
   assert.equal(second.body[0].legalName, "Legal entity to be configured");
   clientIds.push(first.body[0].id, second.body[0].id);
+  assert.ok(database);
+  const starterMemberships = await database.db.select({
+    clientId: database.clientWorkspacesTable.clientId,
+    userId: database.clientWorkspacesTable.userId,
+    role: database.clientWorkspacesTable.role,
+  }).from(database.clientWorkspacesTable).where(inArray(
+    database.clientWorkspacesTable.clientId,
+    [first.body[0].id, second.body[0].id],
+  ));
+  assert.deepEqual(
+    starterMemberships
+      .map(({ clientId, userId, role }) => ({ clientId, userId, role }))
+      .sort((left, right) => left.clientId - right.clientId),
+    [
+      { clientId: first.body[0].id, userId: userIds[0], role: "admin" },
+      { clientId: second.body[0].id, userId: userIds[1], role: "admin" },
+    ].sort((left, right) => left.clientId - right.clientId),
+  );
+  const starterOwners = await database.db.select({
+    id: database.clientsTable.id,
+    ownerUserId: database.clientsTable.ownerUserId,
+  }).from(database.clientsTable).where(inArray(
+    database.clientsTable.id,
+    [first.body[0].id, second.body[0].id],
+  ));
+  assert.deepEqual(
+    new Map(starterOwners.map(({ id, ownerUserId }) => [id, ownerUserId])),
+    new Map([
+      [first.body[0].id, userIds[0]],
+      [second.body[0].id, userIds[1]],
+    ]),
+  );
 
   const failedSetup = await request<{ error: string }>(`/clients/${first.body[0].id}`, userIds[0], {
     method: "PATCH",

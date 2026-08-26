@@ -4,13 +4,15 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { eq, inArray } from "drizzle-orm";
+import * as XLSX from "xlsx";
 
 let server: Server | undefined;
 let baseUrl = "";
 let database: typeof import("@workspace/db") | undefined;
 const systemAdminId = `system-rate-admin-${randomUUID()}`;
 const tenantAdminId = `tenant-admin-${randomUUID()}`;
-const userIds = [systemAdminId, tenantAdminId];
+const bootstrapAdminId = `bootstrap-system-rate-admin-${randomUUID()}`;
+const userIds = [systemAdminId, tenantAdminId, bootstrapAdminId];
 const clientIds: number[] = [];
 const firmIds: number[] = [];
 
@@ -106,11 +108,42 @@ test("protects and applies the system catalog with traceable fallback precedence
   const denied = await request<{ error: string }>("/ledgerflow/system-rates", tenantAdminId);
   assert.equal(denied.response.status, 403);
   assert.match(denied.body.error, /system administrator/i);
+  const deniedPreview = await request<{ error: string }>("/ledgerflow/system-rates/parse", tenantAdminId, {
+    method: "POST",
+    body: JSON.stringify({ fileBase64: "dGVzdA==", fileName: "rates.xlsx" }),
+  });
+  assert.equal(deniedPreview.response.status, 403);
 
   await database.db.insert(database.systemRateAdminsTable).values({
     userId: systemAdminId,
     status: "active",
   });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
+    { effectiveDate: "2026-08-01", sourceCurrency: "CAD", functionalCurrency: "AED", rate: 2.7 },
+    { effectiveDate: "2026-08-02", sourceCurrency: "CHF", functionalCurrency: "AED", rate: 4.5 },
+  ]), "Rates");
+  const preview = await request<{ rates: Array<{ sourceCurrency: string; functionalCurrency: string; rate: number }> }>(
+    "/ledgerflow/system-rates/parse",
+    systemAdminId,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        fileBase64: XLSX.write(workbook, { type: "base64", bookType: "xlsx" }),
+        fileName: "system-rates.xlsx",
+      }),
+    },
+  );
+  assert.equal(preview.response.status, 200);
+  assert.deepEqual(
+    preview.body.rates.map(({ sourceCurrency, functionalCurrency, rate }) => ({ sourceCurrency, functionalCurrency, rate })),
+    [
+      { sourceCurrency: "CAD", functionalCurrency: "AED", rate: 2.7 },
+      { sourceCurrency: "CHF", functionalCurrency: "AED", rate: 4.5 },
+    ],
+  );
+  assert.deepEqual((await request<unknown[]>("/ledgerflow/system-rates", systemAdminId)).body, []);
+
   const systemRates = [
     { sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 3.5, source: "System test" },
     { sourceCurrency: "EUR", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 4.0, source: "System test" },
@@ -233,4 +266,23 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.ok(dashboard.body.workspacesWithFallbackDisabled >= 1);
   assert.ok(dashboard.body.recentChanges.length >= 2);
   assert.doesNotMatch(JSON.stringify(dashboard.body), /functionalAmount|amount/i);
+});
+
+test("bootstraps the configured verified-email account as a system administrator", async () => {
+  assert.ok(database);
+  const email = `system-admin-${randomUUID()}@example.com`;
+  await database.db.insert(database.usersTable).values({ id: bootstrapAdminId, email });
+  process.env.LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS = email;
+  try {
+    const response = await request<unknown[]>("/ledgerflow/system-rates", bootstrapAdminId);
+    assert.equal(response.response.status, 200);
+    const [entitlement] = await database.db.select().from(database.systemRateAdminsTable)
+      .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
+    assert.equal(entitlement.status, "active");
+    const ownedClients = await database.db.select({ id: database.clientsTable.id }).from(database.clientsTable)
+      .where(eq(database.clientsTable.ownerUserId, bootstrapAdminId));
+    clientIds.push(...ownedClients.map(({ id }) => id));
+  } finally {
+    delete process.env.LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS;
+  }
 });

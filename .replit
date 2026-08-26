@@ -57,3 +57,8 @@ externalPort = 80
 
 [objectStorage]
 defaultBucketID = "replit-objstore-a04995c7-f5b6-43d7-8d75-880c6133ccff"
+
+[userenv]
+
+[userenv.production]
+LEDGERFLOW_SYSTEM_RATE_ADMIN_BOOTSTRAP_EMAILS = "cliffordbadlon@gmail.com"

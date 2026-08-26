@@ -147,6 +147,7 @@ export * from './systemRateImportInput';
 export * from './systemRateImportResult';
 export * from './systemRateInput';
 export * from './systemRatePair';
+export * from './systemRateParseInput';
 export * from './systemRateUpdate';
 export * from './trialBalanceRow';
 export * from './unpostJournalEntryInput';

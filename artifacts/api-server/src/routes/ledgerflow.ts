@@ -34,6 +34,8 @@ import {
   ImportExchangeRatesResponse,
   ParseExchangeRatesBody,
   ParseExchangeRatesResponse,
+  ParseSystemRatesBody,
+  ParseSystemRatesResponse,
   ApproveJournalEntryResponse,
   GetLedgerflowUsageResponse,
   UpdateClientParams,
@@ -404,7 +406,7 @@ type ExchangeRatePreviewMapping = {
   note: string | null;
 };
 
-function exchangeRateWorkbookPreview(buffer: Buffer, functionalCurrency: string) {
+function exchangeRateWorkbookPreview(buffer: Buffer, defaultFunctionalCurrency: string | null) {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const rates: Array<ReturnType<typeof normalizeRateInput>> = [];
   const warnings: string[] = [];
@@ -426,13 +428,14 @@ function exchangeRateWorkbookPreview(buffer: Buffer, functionalCurrency: string)
     const column = (names: string[]) => keys.find((key) => names.includes(exchangeRateCsvKey(key)));
     const dateColumn = column(["date", "effectivedate", "ratedate", "asof", "valuedate", "transactiondate", "validfrom", "dateeffective", "fxdate"]);
     const currencyColumn = column(["currency", "sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom", "currencycode", "ccy", "iso", "iso4217"]);
+    const functionalCurrencyColumn = column(["functionalcurrency", "tocurrency", "targetcurrency", "currencyto", "quotecurrency", "reportingcurrency"]);
     const rateColumn = column(["rate", "exchangerate", "exchangeratevalue", "fxrate", "conversionrate", "conversionvalue", "closingrate", "midrate", "spotrate", "ratevalue", "value"]);
     const inverseColumn = column(["exchangerateisinverse", "isinverse", "inverse", "inverserate"]);
     if (!dateColumn || !currencyColumn || !rateColumn) continue;
     mapping = {
       effectiveDate: dateColumn,
       sourceCurrency: currencyColumn,
-      functionalCurrency: null,
+      functionalCurrency: functionalCurrencyColumn ?? null,
       rate: rateColumn,
       source: null,
       note: null,
@@ -455,7 +458,7 @@ function exchangeRateWorkbookPreview(buffer: Buffer, functionalCurrency: string)
         const normalized = normalizeRateInput({
           effectiveDate: effectiveDate ?? "",
           sourceCurrency: String(row[currencyColumn] ?? ""),
-          functionalCurrency,
+          functionalCurrency: String(row[functionalCurrencyColumn ?? ""] ?? defaultFunctionalCurrency ?? ""),
           rate: typeof row[rateColumn] === "number" ? row[rateColumn] : exchangeRateCsvNumber(String(row[rateColumn] ?? "")),
           source: `Imported workbook · ${sheetName}`,
           note: null,
@@ -473,7 +476,7 @@ function exchangeRateWorkbookPreview(buffer: Buffer, functionalCurrency: string)
   }
   if (rates.length) {
     warnings.unshift(`Recognized ${rates.length} valid rate${rates.length === 1 ? "" : "s"} directly from the Excel workbook.`);
-    if (!mapping.functionalCurrency) warnings.push(`The workbook omits a target currency, so ${functionalCurrency} from the workspace settings was used.`);
+    if (!mapping.functionalCurrency && defaultFunctionalCurrency) warnings.push(`The workbook omits a target currency, so ${defaultFunctionalCurrency} from the workspace settings was used.`);
   }
   return { rates, warnings, mapping };
 }
@@ -1481,7 +1484,7 @@ export async function ensureUserWorkspace(userId: string) {
       basis: "IFRS",
       period: "August 2026",
     }).returning();
-    await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "owner" });
+    await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "admin" });
     await tx.update(usersTable)
       .set({
         starterClientId: client.id,
@@ -4105,7 +4108,7 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
       const [starter] = starterId ? await tx.select().from(clientsTable).where(eq(clientsTable.id, starterId)).limit(1) : [];
       if (starter && isPlaceholderStarterWorkspace(starter)) {
         await tx.update(clientsTable).set({ name: body.companyName!.trim(), legalName: body.companyLegalName!.trim(), ownerUserId: userId, firmId: null, ownershipStatus: "company_owned", subscriptionLiableParty: "company", functionalCurrency: body.functionalCurrency ?? starter.functionalCurrency, basis: body.basis ?? starter.basis, period: body.period ?? starter.period }).where(eq(clientsTable.id, starter.id));
-        await tx.insert(clientWorkspacesTable).values({ clientId: starter.id, userId, role: "owner" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "owner" } });
+        await tx.insert(clientWorkspacesTable).values({ clientId: starter.id, userId, role: "admin" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "admin" } });
       }
     }
     if (body.mode === "firm" || body.mode === "both") {
@@ -4183,7 +4186,7 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
       const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, invite.clientId)).for("update");
       if (!client || client.ownershipStatus !== "firm_provisional" || client.firmId !== invite.firmId) return "transfer" as const;
       await tx.update(clientsTable).set({ ownerUserId: userId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", transferredAt: new Date() }).where(eq(clientsTable.id, client.id));
-      await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "owner" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "owner" } });
+      await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "admin" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "admin" } });
       await tx.update(firmCompanyEngagementsTable).set({ status: "active", acceptedByUserId: userId, acceptedAt: new Date() }).where(and(eq(firmCompanyEngagementsTable.firmId, invite.firmId), eq(firmCompanyEngagementsTable.clientId, client.id)));
     }
     await tx.update(organizationInvitationsTable).set({ status: "accepted", acceptedUserId: userId }).where(eq(organizationInvitationsTable.id, invite.id));
@@ -4314,7 +4317,7 @@ router.post("/clients", async (req, res) => {
         period: body.period || "August 2026",
       })
       .returning();
-    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: actorUserId, role: creationMode === "own_company" ? "owner" : "admin" });
+    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: actorUserId, role: "admin" });
     if (firm) await tx.insert(firmCompanyEngagementsTable).values({
       firmId: firm.id, clientId: created.id, status: "provisional", invitedByUserId: actorUserId,
     });
@@ -4878,6 +4881,37 @@ router.post("/ledgerflow/system-rates/import", async (req, res) => {
     ...result,
     rates: result.rates.map(systemRateResponse),
   }));
+});
+
+router.post("/ledgerflow/system-rates/parse", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const parsed = ParseSystemRatesBody.safeParse(req.body);
+  if (!parsed.success || !parsed.data.fileBase64) {
+    return res.status(400).json({ error: "Choose an Excel workbook to prepare a system-rate preview." });
+  }
+  const buffer = Buffer.from(parsed.data.fileBase64, "base64");
+  if (!buffer.length || buffer.length > EXCHANGE_RATE_WORKBOOK_MAX_BYTES) {
+    return res.status(400).json({ error: "Choose an Excel workbook smaller than 15 MB." });
+  }
+  const archiveError = validateXlsxArchive(buffer);
+  if (archiveError) return res.status(422).json({ error: archiveError });
+  try {
+    const workbookPreview = exchangeRateWorkbookPreview(buffer, null);
+    if (!workbookPreview.rates.length) {
+      return res.status(422).json({
+        error: "No safe exchange-rate rows were found. Include dated source currency, functional currency, and rate columns.",
+      });
+    }
+    return res.json(ParseSystemRatesResponse.parse({
+      mapping: workbookPreview.mapping,
+      rates: workbookPreview.rates.map((rate) => ({ ...rate, rate: number(rate.rate) })),
+      warnings: workbookPreview.warnings,
+      unmappedColumns: [],
+      confidence: 1,
+    }));
+  } catch {
+    return res.status(422).json({ error: "This Excel workbook could not be read. Use a workbook with dated currency and rate columns." });
+  }
 });
 
 router.get("/ledgerflow/exchange-rates", async (req, res) => {
