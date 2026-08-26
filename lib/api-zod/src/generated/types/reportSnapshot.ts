@@ -8,6 +8,7 @@
 import type { ReportAmount } from './reportAmount';
 import type { ReportNote } from './reportNote';
 import type { ReportSnapshotTraceability } from './reportSnapshotTraceability';
+import type { UaeCorporateTaxSummary } from './uaeCorporateTaxSummary';
 
 export interface ReportSnapshot {
   entityName: string;
@@ -23,4 +24,5 @@ export interface ReportSnapshot {
   cashFlows: ReportAmount[];
   notes: ReportNote[];
   traceability: ReportSnapshotTraceability;
+  taxSummary: UaeCorporateTaxSummary;
 }

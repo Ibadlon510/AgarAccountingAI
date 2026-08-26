@@ -1327,7 +1327,7 @@ test("filters statement lines by receipts or payments with client, currency, and
   const receipts = await request<Array<{ description: string; direction: string }>>(
     `/agaraccounting/statement-lines?clientId=${clientId}&direction=inflow`,
   );
-  assert.deepEqual(receipts.body.map((line) => line.description), [
+  assert.deepEqual(receipts.body.map((line) => line.description).sort(), [
     "Direction receipt AED",
     "Direction receipt USD",
   ]);
@@ -1336,7 +1336,7 @@ test("filters statement lines by receipts or payments with client, currency, and
   const payments = await request<Array<{ description: string; direction: string }>>(
     `/agaraccounting/statement-lines?clientId=${clientId}&direction=outflow`,
   );
-  assert.deepEqual(payments.body.map((line) => line.description), [
+  assert.deepEqual(payments.body.map((line) => line.description).sort(), [
     "Direction payment AED",
     "Direction payment USD",
   ]);

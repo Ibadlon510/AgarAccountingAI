@@ -64,15 +64,21 @@ import type {
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
   GetLedgerOverviewParams,
+  GetLedgerflowAccountsParams,
   GetReportPacksParams,
   GetStatementImportsParams,
   GetStatementLinesParams,
   GetTrialBalanceParams,
+  GetUaeCorporateTaxSummaryParams,
   GetUploadedFilesParams,
   HealthStatus,
   ImportExchangeRatesParams,
   JournalEntry,
   LedgerOverview,
+  LedgerflowAccount,
+  LedgerflowAccountInput,
+  LedgerflowAccountMutation,
+  LedgerflowAccountUpdate,
   LogoutBrowserSessionParams,
   LogoutSuccess,
   MobileTokenExchangeRequest,
@@ -101,6 +107,7 @@ import type {
   SystemRateParseInput,
   SystemRateUpdate,
   TrialBalanceRow,
+  UaeCorporateTaxSummary,
   UnpostJournalEntryInput,
   UploadUrlRequest,
   UploadUrlResponse,
@@ -6130,6 +6137,461 @@ export function useGetStorageObject<TData = Awaited<ReturnType<typeof getStorage
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetStorageObjectQueryOptions(objectPath,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetLedgerflowAccountsUrl = (params: GetLedgerflowAccountsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/accounts?${stringifiedParams}` : `/api/agaraccounting/accounts`
+}
+
+/**
+ * @summary List the active and archived chart of accounts for a client
+ */
+export const getLedgerflowAccounts = async (params: GetLedgerflowAccountsParams, options?: Parameters<typeof customFetch>[1]): Promise<LedgerflowAccount[]> => {
+
+  return customFetch<LedgerflowAccount[]>(getGetLedgerflowAccountsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLedgerflowAccountsQueryKey = (params?: GetLedgerflowAccountsParams,) => {
+    return [
+    `/api/agaraccounting/accounts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLedgerflowAccountsQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAccounts>>, TError = ErrorType<unknown>>(params: GetLedgerflowAccountsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAccountsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAccounts>>> = ({ signal }) => getLedgerflowAccounts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAccounts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLedgerflowAccountsQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAccounts>>>
+export type GetLedgerflowAccountsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the active and archived chart of accounts for a client
+ */
+
+export function useGetLedgerflowAccounts<TData = Awaited<ReturnType<typeof getLedgerflowAccounts>>, TError = ErrorType<unknown>>(
+ params: GetLedgerflowAccountsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAccounts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLedgerflowAccountsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateLedgerflowAccountUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/accounts`
+}
+
+/**
+ * @summary Add an account to a client chart
+ */
+export const createLedgerflowAccount = async (ledgerflowAccountInput: LedgerflowAccountInput, options?: Parameters<typeof customFetch>[1]): Promise<LedgerflowAccount> => {
+
+  return customFetch<LedgerflowAccount>(getCreateLedgerflowAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ledgerflowAccountInput)
+  }
+);}
+
+
+
+
+
+export const getCreateLedgerflowAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAccount>>, TError,{data: BodyType<LedgerflowAccountInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAccount>>, TError,{data: BodyType<LedgerflowAccountInput>}, TContext> => {
+
+const mutationKey = ['createLedgerflowAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLedgerflowAccount>>, {data: BodyType<LedgerflowAccountInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createLedgerflowAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateLedgerflowAccountMutationResult = NonNullable<Awaited<ReturnType<typeof createLedgerflowAccount>>>
+    export type CreateLedgerflowAccountMutationBody = BodyType<LedgerflowAccountInput>
+    export type CreateLedgerflowAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Add an account to a client chart
+ */
+export const useCreateLedgerflowAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAccount>>, TError,{data: BodyType<LedgerflowAccountInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createLedgerflowAccount>>,
+        TError,
+        {data: BodyType<LedgerflowAccountInput>},
+        TContext
+      > => {
+      return useMutation(getCreateLedgerflowAccountMutationOptions(options));
+    }
+
+export const getUpdateLedgerflowAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/accounts/${id}`
+}
+
+/**
+ * @summary Update a client chart account
+ */
+export const updateLedgerflowAccount = async (id: number,
+    ledgerflowAccountUpdate: LedgerflowAccountUpdate, options?: Parameters<typeof customFetch>[1]): Promise<LedgerflowAccount> => {
+
+  return customFetch<LedgerflowAccount>(getUpdateLedgerflowAccountUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ledgerflowAccountUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateLedgerflowAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountUpdate>}, TContext> => {
+
+const mutationKey = ['updateLedgerflowAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateLedgerflowAccount>>, {id: number;data: BodyType<LedgerflowAccountUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateLedgerflowAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateLedgerflowAccountMutationResult = NonNullable<Awaited<ReturnType<typeof updateLedgerflowAccount>>>
+    export type UpdateLedgerflowAccountMutationBody = BodyType<LedgerflowAccountUpdate>
+    export type UpdateLedgerflowAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a client chart account
+ */
+export const useUpdateLedgerflowAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateLedgerflowAccount>>,
+        TError,
+        {id: number;data: BodyType<LedgerflowAccountUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateLedgerflowAccountMutationOptions(options));
+    }
+
+export const getDeleteLedgerflowAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/accounts/${id}`
+}
+
+/**
+ * @summary Delete an unreferenced client chart account
+ */
+export const deleteLedgerflowAccount = async (id: number,
+    ledgerflowAccountMutation: LedgerflowAccountMutation, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteLedgerflowAccountUrl(id),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ledgerflowAccountMutation)
+  }
+);}
+
+
+
+
+
+export const getDeleteLedgerflowAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountMutation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountMutation>}, TContext> => {
+
+const mutationKey = ['deleteLedgerflowAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteLedgerflowAccount>>, {id: number;data: BodyType<LedgerflowAccountMutation>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  deleteLedgerflowAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteLedgerflowAccountMutationResult = NonNullable<Awaited<ReturnType<typeof deleteLedgerflowAccount>>>
+    export type DeleteLedgerflowAccountMutationBody = BodyType<LedgerflowAccountMutation>
+    export type DeleteLedgerflowAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete an unreferenced client chart account
+ */
+export const useDeleteLedgerflowAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountMutation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteLedgerflowAccount>>,
+        TError,
+        {id: number;data: BodyType<LedgerflowAccountMutation>},
+        TContext
+      > => {
+      return useMutation(getDeleteLedgerflowAccountMutationOptions(options));
+    }
+
+export const getArchiveLedgerflowAccountUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/accounts/${id}/archive`
+}
+
+/**
+ * @summary Archive a client chart account
+ */
+export const archiveLedgerflowAccount = async (id: number,
+    ledgerflowAccountMutation: LedgerflowAccountMutation, options?: Parameters<typeof customFetch>[1]): Promise<LedgerflowAccount> => {
+
+  return customFetch<LedgerflowAccount>(getArchiveLedgerflowAccountUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ledgerflowAccountMutation)
+  }
+);}
+
+
+
+
+
+export const getArchiveLedgerflowAccountMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof archiveLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountMutation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof archiveLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountMutation>}, TContext> => {
+
+const mutationKey = ['archiveLedgerflowAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof archiveLedgerflowAccount>>, {id: number;data: BodyType<LedgerflowAccountMutation>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  archiveLedgerflowAccount(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ArchiveLedgerflowAccountMutationResult = NonNullable<Awaited<ReturnType<typeof archiveLedgerflowAccount>>>
+    export type ArchiveLedgerflowAccountMutationBody = BodyType<LedgerflowAccountMutation>
+    export type ArchiveLedgerflowAccountMutationError = ErrorType<void>
+
+    /**
+ * @summary Archive a client chart account
+ */
+export const useArchiveLedgerflowAccount = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof archiveLedgerflowAccount>>, TError,{id: number;data: BodyType<LedgerflowAccountMutation>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof archiveLedgerflowAccount>>,
+        TError,
+        {id: number;data: BodyType<LedgerflowAccountMutation>},
+        TContext
+      > => {
+      return useMutation(getArchiveLedgerflowAccountMutationOptions(options));
+    }
+
+export const getGetUaeCorporateTaxSummaryUrl = (params: GetUaeCorporateTaxSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/uae-corporate-tax?${stringifiedParams}` : `/api/agaraccounting/uae-corporate-tax`
+}
+
+/**
+ * @summary Calculate an estimated standard UAE Corporate Tax summary from posted entries
+ */
+export const getUaeCorporateTaxSummary = async (params: GetUaeCorporateTaxSummaryParams, options?: Parameters<typeof customFetch>[1]): Promise<UaeCorporateTaxSummary> => {
+
+  return customFetch<UaeCorporateTaxSummary>(getGetUaeCorporateTaxSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetUaeCorporateTaxSummaryQueryKey = (params?: GetUaeCorporateTaxSummaryParams,) => {
+    return [
+    `/api/agaraccounting/uae-corporate-tax`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetUaeCorporateTaxSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>, TError = ErrorType<unknown>>(params: GetUaeCorporateTaxSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetUaeCorporateTaxSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>> = ({ signal }) => getUaeCorporateTaxSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetUaeCorporateTaxSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>>
+export type GetUaeCorporateTaxSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Calculate an estimated standard UAE Corporate Tax summary from posted entries
+ */
+
+export function useGetUaeCorporateTaxSummary<TData = Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>, TError = ErrorType<unknown>>(
+ params: GetUaeCorporateTaxSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getUaeCorporateTaxSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetUaeCorporateTaxSummaryQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

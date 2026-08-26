@@ -8,8 +8,9 @@
     "./schema": "./src/schema/index.ts"
   },
   "scripts": {
-    "push": "drizzle-kit push --config ./drizzle.config.ts && node ./ensure-agaraccounting-integrity.mjs",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts && node ./ensure-agaraccounting-integrity.mjs"
+    "upgrade:agaraccounting": "node ./upgrade-ledgerflow-schema.mjs",
+    "push": "pnpm run upgrade:agaraccounting && drizzle-kit push --config ./drizzle.config.ts && node ./ensure-agaraccounting-integrity.mjs",
+    "push-force": "pnpm run upgrade:agaraccounting && drizzle-kit push --force --config ./drizzle.config.ts && node ./ensure-agaraccounting-integrity.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

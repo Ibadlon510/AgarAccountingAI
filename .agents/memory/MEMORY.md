@@ -24,3 +24,5 @@
 - [Generated Zod constraint ordering](generated-zod-constraint-ordering.md) — repeated constrained schemas can emit constants after first use; validate at the server boundary when this occurs.
 - [System-admin entitlement bootstrap](system-admin-entitlement-bootstrap.md) — bootstrap may add missing access, but sign-in must never reactivate a revoked administrator.
 - [Copilot accounting result integrity](copilot-accounting-result-integrity.md) — grounded answers must reuse canonical report rules and never combine native-currency amounts.
+- [Chart history identity](chart-history-identity.md) — referenced account identity and reporting classification are immutable; archive instead, while accountant tax treatment may change.
+- [Product namespace database renames](product-namespace-database-renames.md) — preserve data with an idempotent pre-push dev rename; production renames stay in Replit’s Publish confirmation flow.

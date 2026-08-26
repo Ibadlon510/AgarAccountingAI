@@ -1,4 +1,5 @@
 import type { accountClassificationsTable, clientsTable, journalEntriesTable } from "@workspace/db";
+import { calculateUaeCorporateTaxSummary } from "./clientChart";
 
 export type ReportAmount = {
   label: string;
@@ -58,6 +59,7 @@ export type ReportSnapshot = {
   cashFlows: ReportAmount[];
   notes: ReportNote[];
   traceability: { postedEntryCount: number; postedLineCount: number; sourceImportCount: number };
+  taxSummary: ReturnType<typeof calculateUaeCorporateTaxSummary>;
 };
 
 type Entry = typeof journalEntriesTable.$inferSelect;
@@ -447,6 +449,12 @@ export function buildReportPack(input: {
       postedLineCount: new Set(currentEntries.map((entry) => entry.statementLineId)).size,
       sourceImportCount: input.sourceImportCount,
     },
+    taxSummary: calculateUaeCorporateTaxSummary(
+      input.entries,
+      input.classifications,
+      periods.periodEnd,
+      input.presentationCurrency,
+    ),
   };
 
   return {

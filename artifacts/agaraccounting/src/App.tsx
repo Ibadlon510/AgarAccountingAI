@@ -8,16 +8,16 @@ import {
   Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X
 } from 'lucide-react';
 import {
-  getGetBankAccountsQueryKey, getGetBulkTransitionAuditsQueryKey, getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey,
+  getGetBankAccountsQueryKey, getGetBulkTransitionAuditsQueryKey, getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetLedgerflowAccountsQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey, getGetUaeCorporateTaxSummaryQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetAgarAccountingUsageQueryKey, getGetFirmProfileQueryKey, useApproveJournalEntry,
-  useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
+  useArchiveLedgerflowAccount, useCreateClient, useCreateLedgerflowAccount, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetLedgerflowAccounts, useGetReportPack, useGetReportPacks, useGetUaeCorporateTaxSummary,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
-  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
+  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
   useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement
+  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -42,12 +42,6 @@ const nav = [
   { href: '/trial-balance', label: 'Trial balance', icon: BarChart3 },
   { href: '/financial-statements', label: 'Financial statements', icon: FileSpreadsheet },
   { href: '/client-settings', label: 'Client settings', icon: Settings2 },
-];
-
-const classificationAccounts = [
-  'Revenue', 'Other income', 'Travel & entertainment', 'Software & subscriptions',
-  'Office expenses', 'Communication expenses', 'Rent expense', 'Payroll', 'Bank charges', 'General expenses',
-  'Inter-account transfer',
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
 const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
@@ -292,6 +286,17 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
   );
 }
 
+type ChartAccountForm = {
+  accountCode: string;
+  accountName: string;
+  displayName: string;
+  statementSection: LedgerflowAccount['statementSection'];
+  currentNonCurrent: LedgerflowAccount['currentNonCurrent'];
+  cashFlowCategory: LedgerflowAccount['cashFlowCategory'];
+  taxTreatment: LedgerflowAccount['taxTreatment'];
+  taxTreatmentReason: string;
+  sortOrder: number;
+};
 function ClientSettingsPage() {
   const { activeClient } = useClientWorkspace();
   const [, setLocation] = useLocation();
@@ -463,6 +468,7 @@ function ClientSettingsPage() {
         <div id="ai-connection" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <AIProviderSettingsPanel clientId={activeClient.id} />
         </div>
+        <ChartAccountsSection clientId={activeClient.id} />
         {false && <><section id="administration" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <div className="flex items-start justify-between gap-4"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Workspace administration</div><h2 className="mt-2 text-base font-semibold">More controls for your team</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">These are the next places to manage how your firm uses AgarAccounting AI System. They are shown here so the workspace has one clear home for operational settings.</p></div><Settings2 className="shrink-0 text-muted-foreground" size={18} /></div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -1486,12 +1492,20 @@ function StatementRow({ line }: { line: StatementLine }) {
 }
 
 function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onApproveAndPost, onPost, onUnpost, onConfirmClassification }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: boolean; onToggle: () => void; onToggleSelected: () => void; onApproveAndPost: (entry: JournalEntry) => void; onPost: (entry: JournalEntry) => void; onUnpost: (entry: JournalEntry) => void; onConfirmClassification: (line: StatementLine, accountSuggestion: string) => void }) {
+  const { activeClient } = useClientWorkspace();
+  const accountParams = { clientId: activeClient?.id ?? 0 };
+  const accountQuery = useGetLedgerflowAccounts(accountParams, { query: { queryKey: getGetLedgerflowAccountsQueryKey(accountParams) } });
+  const accounts = accountQuery.data ?? [];
   const positive = line.direction.toLowerCase().includes('credit') || line.direction.toLowerCase().includes('in');
   const confidence = line.confidence == null ? null : Math.round(line.confidence * 100);
   const approved = entry?.status.toLowerCase() === 'approved';
   const posted = line.status.toLowerCase() === 'posted';
   const canConfirmClassification = !posted && entry?.status.toLowerCase() === 'suggested';
-  const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion && classificationAccounts.includes(line.accountSuggestion) ? line.accountSuggestion : 'General expenses');
+  const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion ?? '');
+  useEffect(() => {
+    if (accounts.some((account) => account.accountName === line.accountSuggestion)) setSelectedAccount(line.accountSuggestion ?? '');
+    else if (!accounts.some((account) => account.accountName === selectedAccount)) setSelectedAccount(accounts[0]?.accountName ?? '');
+  }, [accounts, line.accountSuggestion, selectedAccount]);
   const debitLine = entry?.lines.find((item) => item.debit > 0);
   const creditLine = entry?.lines.find((item) => item.credit > 0);
   const sourceAmount = debitLine?.debit ?? creditLine?.credit ?? line.amount;
@@ -1561,10 +1575,11 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <label className="block text-[11px] font-semibold">Classification decision
               <select data-testid={`select-account-suggestion-${line.id}`} value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary">
-                {classificationAccounts.map((account) => <option key={account} value={account}>{account}</option>)}
+                {!accounts.length && <option value="">No active accounts available</option>}
+                {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
               </select>
             </label>
-            <button data-testid={`button-confirm-classification-${line.id}`} onClick={() => onConfirmClassification(line, selectedAccount)} disabled={processing} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary/30 bg-background px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50">
+            <button data-testid={`button-confirm-classification-${line.id}`} onClick={() => onConfirmClassification(line, selectedAccount)} disabled={processing || !selectedAccount} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary/30 bg-background px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50">
               <Check size={13} /> {(line as any).suggestionSource === 'workspace_learning' && selectedAccount === line.accountSuggestion ? 'Confirm learned account' : 'Confirm account'}
             </button>
           </div>
@@ -1641,8 +1656,22 @@ function ReportRows({ rows, currency, level = 0 }: { rows: ReportAmount[]; curre
   return <>{rows.map((row) => <div key={`${level}-${row.label}`} className={`report-row ${row.children?.length ? 'report-row-total' : ''}`}><div className="min-w-0"><span className={level ? 'pl-4 text-[11px]' : 'text-[12px] font-semibold'}>{row.label}</span>{row.noteRef !== '—' && <span className="ml-1.5 font-mono text-[9px] text-muted-foreground">({row.noteRef})</span>}</div><div className="text-right font-mono text-[10px]">{money(row.current, currency)}</div><div className="text-right font-mono text-[10px] text-muted-foreground">{money(row.comparative, currency)}</div>{row.children?.length ? <div className="col-span-3 border-l border-border/60 pl-3"><ReportRows rows={row.children} currency={currency} level={level + 1} /></div> : null}</div>)}</>;
 }
 
+function UaeTaxSummaryPanel({ currency }: { currency: string }) {
+  const { activeClient } = useClientWorkspace();
+  const params = { clientId: activeClient?.id ?? 0, period: activeClient?.period };
+  const query = useGetUaeCorporateTaxSummary(params, { query: { queryKey: getGetUaeCorporateTaxSummaryQueryKey(params), enabled: !!activeClient } });
+  const summary = query.data;
+  if (!summary) return <section className="report-statement"><p className="text-xs text-muted-foreground">{query.isLoading ? 'Calculating the UAE Corporate Tax estimate…' : 'The UAE Corporate Tax estimate is unavailable.'}</p></section>;
+  return <section className="report-statement" data-testid="uae-corporate-tax-summary">
+    <div className="text-center"><h3 className="font-display text-[26px] leading-none">Estimated UAE Corporate Tax summary</h3><p className="mt-2 text-[10px] text-muted-foreground">{summary.estimateLabel}</p></div>
+    <div className="mt-6 grid gap-2 text-[11px] sm:grid-cols-2">
+      {[['Accounting profit before tax', summary.accountingProfitBeforeTax], ['Mapped deductible expenses', summary.mappedDeductibleExpenses], ['Entertainment accounting cost', summary.entertainmentAccountingCost], ['Entertainment permitted deduction (50%)', summary.entertainmentPermittedDeduction], ['Entertainment add-back (50%)', summary.entertainmentAddBack], ['Other non-deductible add-backs', summary.addBacks - summary.entertainmentAddBack], ['Accountant-review amount', summary.reviewRequiredAmount], ['Estimated taxable income', summary.estimatedTaxableIncome], ['0% band', summary.thresholdAed], ['Standard 9% estimate on excess', summary.standardEstimatedLiability]].map(([label, amount]) => <div key={String(label)} className="flex items-center justify-between gap-4 border-b border-border/60 py-2"><span>{label}</span><span className="font-mono">{money(Number(amount), currency)}</span></div>)}
+    </div>
+    <div className="mt-5 rounded-md border border-accent/25 bg-accent/10 p-3 text-[10px] leading-5 text-accent-foreground"><strong>Assumptions and exclusions.</strong> {summary.assumptions.join(' ')} Excluded: {summary.excludedReliefs.join(', ')}.</div>
+  </section>;
+}
 function ReportStatement({ title, rows, currency }: { title: string; rows: ReportAmount[]; currency: string }) {
-  return <section className="report-statement"><div className="text-center"><h3 className="font-display text-[26px] leading-none">{title}</h3><p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · Current year / comparative year</p></div><div className="mt-6 border-y border-foreground/20 py-2"><div className="report-row font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span>Statement line</span><span className="text-right">Current</span><span className="text-right">Comparative</span></div></div><div><ReportRows rows={rows} currency={currency} /></div></section>;
+  return <><section className="report-statement"><div className="text-center"><h3 className="font-display text-[26px] leading-none">{title}</h3><p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · Current year / comparative year</p></div><div className="mt-6 border-y border-foreground/20 py-2"><div className="report-row font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span>Statement line</span><span className="text-right">Current</span><span className="text-right">Comparative</span></div></div><div><ReportRows rows={rows} currency={currency} /></div></section>{title.startsWith('Statement of cash flows') && <UaeTaxSummaryPanel currency={currency} />}</>;
 }
 
 function ReportNotesEditor({ notes, onChange }: { notes: ReportNote[]; onChange: (notes: ReportNote[]) => void }) {
@@ -2425,8 +2454,17 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
   onCancel: () => void;
   onConfirm: (accountSuggestion?: string) => void;
 }) {
+  const { activeClient } = useClientWorkspace();
+  const accountParams = { clientId: activeClient?.id ?? 0 };
+  const accountQuery = useGetLedgerflowAccounts(accountParams, { query: { queryKey: getGetLedgerflowAccountsQueryKey(accountParams), enabled: !!activeClient } });
+  const accounts = accountQuery.data ?? [];
   const isRecode = action.type === 'recode_lines';
-  const [accountSuggestion, setAccountSuggestion] = useState(classificationAccounts[0]);
+  const [accountSuggestion, setAccountSuggestion] = useState(accounts[0]?.accountName ?? '');
+  useEffect(() => {
+    if (!accounts.some((account) => account.accountName === accountSuggestion)) {
+      setAccountSuggestion(accounts[0]?.accountName ?? '');
+    }
+  }, [accounts, accountSuggestion]);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const transition = action.type === 'bulk_approve_entries'
     ? { from: 'suggested', to: 'approved', verb: 'approve', label: 'approval' }
@@ -2450,7 +2488,8 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
       </AlertDialogDescription>
       {isRecode && <label className="block text-xs font-semibold">Supported account
         <select data-testid="select-bulk-recode-account" value={accountSuggestion} onChange={(event) => setAccountSuggestion(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-normal outline-none focus:border-primary">
-          {classificationAccounts.map((account) => <option key={account} value={account}>{account}</option>)}
+          {!accounts.length && <option value="">No active accounts available</option>}
+          {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
         </select>
       </label>}
       <div className="mt-4 rounded-md border border-border bg-muted/35 p-3">
@@ -2465,7 +2504,7 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
       {error != null && <div data-testid="status-bulk-action-error" className="mt-4 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs text-destructive"><CircleAlert size={15} className="mt-0.5 shrink-0" /><span>{mutationErrorMessage(error)}</span></div>}
       <AlertDialogFooter className="mt-2 gap-2 sm:space-x-0">
         <button data-testid="button-cancel-bulk-action-footer" onClick={onCancel} disabled={pending} className="rounded-md border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
-        <button data-testid={`button-confirm-${isRecode ? 'bulk-recode' : transition.verb === 'approve' ? 'bulk-approval' : 'bulk-posting'}`} onClick={() => onConfirm(isRecode ? accountSuggestion : undefined)} disabled={pending} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+        <button data-testid={`button-confirm-${isRecode ? 'bulk-recode' : transition.verb === 'approve' ? 'bulk-approval' : 'bulk-posting'}`} onClick={() => onConfirm(isRecode ? accountSuggestion : undefined)} disabled={pending || (isRecode && !accountSuggestion)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
           {pending && <LoaderCircle size={13} className="animate-spin" />}{pending ? 'Applying…' : `Confirm ${transition.verb}`}
         </button>
       </AlertDialogFooter>
@@ -2518,4 +2557,73 @@ function StatementSourcePreview({ source, onClose }: { source: StatementImport; 
       <button data-testid={`button-close-statement-source-preview-${source.id}`} type="button" onClick={onClose} className="h-9 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Close preview</button>
     </DialogFooter>
   </DialogContent>;
+}
+
+const emptyChartAccountForm: ChartAccountForm = {
+  accountCode: '',
+  accountName: '',
+  displayName: '',
+  statementSection: 'expense' as const,
+  currentNonCurrent: 'not_applicable' as const,
+  cashFlowCategory: 'operating' as const,
+  taxTreatment: 'review_required' as const,
+  taxTreatmentReason: '',
+  sortOrder: 1000,
+};
+
+function ChartAccountsSection({ clientId }: { clientId: number }) {
+  const params = { clientId, includeArchived: true };
+  const query = useGetLedgerflowAccounts(params, { query: { queryKey: getGetLedgerflowAccountsQueryKey(params) } });
+  const create = useCreateLedgerflowAccount();
+  const update = useUpdateLedgerflowAccount();
+  const archive = useArchiveLedgerflowAccount();
+  const [filter, setFilter] = useState('');
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState(emptyChartAccountForm);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getGetLedgerflowAccountsQueryKey() });
+  const reset = () => { setEditingId(null); setForm(emptyChartAccountForm); };
+  const edit = (account: LedgerflowAccount) => {
+    setEditingId(account.id);
+    setForm({
+      accountCode: account.accountCode,
+      accountName: account.accountName,
+      displayName: account.displayName,
+      statementSection: account.statementSection,
+      currentNonCurrent: account.currentNonCurrent,
+      cashFlowCategory: account.cashFlowCategory,
+      taxTreatment: account.taxTreatment,
+      taxTreatmentReason: account.taxTreatmentReason ?? '',
+      sortOrder: account.sortOrder,
+    });
+  };
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const data = { clientId, ...form, taxTreatmentReason: form.taxTreatmentReason || null };
+    const options = { onSuccess: () => { reset(); refresh(); } };
+    if (editingId) update.mutate({ id: editingId, data }, options);
+    else create.mutate({ data }, options);
+  };
+  const rows = (query.data ?? []).filter((account) =>
+    `${account.accountCode} ${account.displayName} ${account.statementSection} ${account.taxTreatment}`.toLowerCase().includes(filter.toLowerCase()),
+  );
+  const pending = create.isPending || update.isPending;
+  return <section id="chart-of-accounts" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
+    <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client accounting / UAE tax mapping</div>
+    <h2 className="mt-2 text-base font-semibold">Chart of accounts</h2>
+    <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">Active accounts appear in review and bulk recoding. Tax treatments are decision-support mappings controlled by the accountant; business purpose, evidence, apportionment, and current Ministry of Finance or Federal Tax Authority guidance still govern.</p>
+    <form onSubmit={submit} className="mt-5 grid gap-3 rounded-md border border-border bg-background p-4 md:grid-cols-2 xl:grid-cols-4">
+      <label className="text-xs font-medium">Code<input required value={form.accountCode} disabled={Boolean(editingId && query.data?.find((account) => account.id === editingId)?.isSystem)} onChange={(e) => setForm({ ...form, accountCode: e.target.value })} className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60" /></label>
+      <label className="text-xs font-medium">Account name<input required value={form.accountName} disabled={Boolean(editingId && query.data?.find((account) => account.id === editingId)?.isSystem)} onChange={(e) => setForm({ ...form, accountName: e.target.value })} className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60" /></label>
+      <label className="text-xs font-medium">Display name<input required value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm" /></label>
+      <label className="text-xs font-medium">Account type<select value={form.statementSection} disabled={Boolean(editingId && query.data?.find((account) => account.id === editingId)?.isSystem)} onChange={(e) => setForm({ ...form, statementSection: e.target.value as typeof form.statementSection })} className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"><option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity</option><option value="revenue">Revenue</option><option value="expense">Expense</option><option value="oci">OCI</option></select></label>
+      <label className="text-xs font-medium xl:col-span-2">UAE Corporate Tax treatment<select value={form.taxTreatment} onChange={(e) => setForm({ ...form, taxTreatment: e.target.value as typeof form.taxTreatment })} className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm"><option value="ordinary_deductible">Ordinary deductible business expense</option><option value="entertainment_limited">Entertainment — 50% limitation</option><option value="fully_non_deductible">Fully non-deductible</option><option value="review_required">Accountant review required</option></select></label>
+      <label className="text-xs font-medium xl:col-span-2">Treatment reason<input value={form.taxTreatmentReason} onChange={(e) => setForm({ ...form, taxTreatmentReason: e.target.value })} placeholder="State the intended treatment and evidence assumption" className="mt-1.5 h-9 w-full rounded-md border border-input bg-card px-3 text-sm" /></label>
+      <div className="flex gap-2 md:col-span-2 xl:col-span-4"><button disabled={pending} className="rounded-md bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{editingId ? 'Save account' : 'Add account'}</button>{editingId && <button type="button" onClick={reset} className="rounded-md border border-input px-4 py-2 text-xs font-semibold">Cancel</button>}</div>
+    </form>
+    <div className="mt-5"><div className="relative max-w-md"><Search className="absolute left-3 top-2.5 text-muted-foreground" size={14} /><input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter by code, account, type, or treatment" className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-xs" /></div></div>
+    <div className="mt-4 overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-[820px] text-left text-xs"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Code</th><th className="px-3 py-2">Account</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Tax treatment</th><th className="px-3 py-2">State</th><th className="px-3 py-2 text-right">Actions</th></tr></thead>
+      <tbody className="divide-y divide-border">{query.isLoading ? <tr><td colSpan={6} className="p-4 text-muted-foreground">Loading chart…</td></tr> : rows.length ? rows.map((account) => <tr key={account.id} className={!account.isActive ? 'opacity-60' : ''}><td className="px-3 py-3 font-mono">{account.accountCode}</td><td className="px-3 py-3"><div className="font-semibold">{account.displayName}</div><div className="mt-1 text-[10px] text-muted-foreground">{account.taxTreatmentReason || 'No treatment note'}{account.referenced ? ' · referenced by ledger history' : ''}</div></td><td className="px-3 py-3 capitalize">{account.statementSection}</td><td className="px-3 py-3">{account.taxTreatment.replaceAll('_', ' ')}</td><td className="px-3 py-3">{account.isActive ? 'Active' : 'Archived'}{account.isSystem ? ' · protected' : ''}</td><td className="px-3 py-3 text-right"><button type="button" onClick={() => edit(account)} className="font-semibold text-primary hover:underline">Edit</button>{account.isActive && !account.isSystem && <button type="button" onClick={() => { if (window.confirm(`Archive ${account.displayName}? Historical references will remain intact.`)) archive.mutate({ id: account.id, data: { clientId } }, { onSuccess: refresh }); }} className="ml-3 font-semibold text-destructive hover:underline">Archive</button>}</td></tr>) : <tr><td colSpan={6} className="p-4 text-muted-foreground">No chart accounts match this filter.</td></tr>}</tbody></table>
+    </div>
+  </section>;
 }

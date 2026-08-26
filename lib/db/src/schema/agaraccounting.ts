@@ -490,6 +490,7 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   status: text("status").notNull().default("needs_review"),
   source: text("source").notNull().default("Bank statement"),
   accountSuggestion: text("account_suggestion"),
+  accountClassificationId: integer("account_classification_id"),
   confidence: numeric("confidence", { precision: 5, scale: 2 }),
   importDedupeKey: text("import_dedupe_key"),
   functionalCurrency: varchar("functional_currency", { length: 3 }),
@@ -530,6 +531,8 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   confidence: numeric("confidence", { precision: 5, scale: 2 }).notNull(),
   debitAccount: text("debit_account").notNull(),
   creditAccount: text("credit_account").notNull(),
+  debitAccountClassificationId: integer("debit_account_classification_id"),
+  creditAccountClassificationId: integer("credit_account_classification_id"),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
   functionalCurrency: varchar("functional_currency", { length: 3 }),
   functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
@@ -555,6 +558,7 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
 export const accountClassificationsTable = pgTable("agaraccounting_account_classifications", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
+  accountCode: text("account_code"),
   accountName: text("account_name").notNull(),
   displayName: text("display_name").notNull(),
   statementSection: text("statement_section").notNull(),
@@ -563,16 +567,22 @@ export const accountClassificationsTable = pgTable("agaraccounting_account_class
   oci: text("oci").notNull().default("no"),
   relatedPartyCategory: text("related_party_category").notNull().default("none"),
   taxCategory: text("tax_category").notNull().default("not_assessed"),
+  taxTreatment: text("tax_treatment").notNull().default("review_required"),
+  taxTreatmentReason: text("tax_treatment_reason"),
+  isActive: boolean("is_active").notNull().default(true),
+  isSystem: boolean("is_system").notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(1000),
   noteNumber: integer("note_number"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull().$onUpdate(() => new Date()),
 }, (table) => ({
   clientAccountUnique: uniqueIndex("agaraccounting_account_classifications_client_account_idx").on(table.clientId, table.accountName),
+  clientAccountCodeUnique: uniqueIndex("agaraccounting_account_classifications_client_code_idx").on(table.clientId, table.accountCode),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
     name: "agaraccounting_account_classifications_client_fk",
-  }),
+  }).onDelete("cascade"),
 }));
 
 export const reportPacksTable = pgTable("agaraccounting_report_packs", {

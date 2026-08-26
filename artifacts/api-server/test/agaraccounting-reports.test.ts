@@ -321,9 +321,11 @@ test("posting can be reversed without rewriting reports or accountability eviden
       body: JSON.stringify({ clientId: lifecycleClientId }),
     })).response.status, 200);
 
-    const [beforeTrialBalance, beforeStatements, firstPost, repeatedPost] = await Promise.all([
+    const [beforeTrialBalance, beforeStatements] = await Promise.all([
       request<TrialBalanceRow[]>(`/agaraccounting/trial-balance?clientId=${lifecycleClientId}`),
       request<FinancialStatements>(`/agaraccounting/financial-statements?clientId=${lifecycleClientId}`),
+    ]);
+    const [firstPost, repeatedPost] = await Promise.all([
       request<{ status: string }>(`/agaraccounting/journal-entries/${entry.id}/post`, {
         method: "POST",
         body: JSON.stringify({ clientId: lifecycleClientId }),

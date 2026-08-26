@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { StatementSection } from './statementSection';
+import type { UaeCorporateTaxSummary } from './uaeCorporateTaxSummary';
 
 export interface FinancialStatements {
   period: string;
@@ -15,6 +16,7 @@ export interface FinancialStatements {
   includedPostedEntryCount: number;
   excludedUnpostedCount: number;
   outsideReportingPeriodCount: number;
+  taxSummary: UaeCorporateTaxSummary;
   incomeStatement: StatementSection[];
   balanceSheet: StatementSection[];
   cashFlow: StatementSection[];

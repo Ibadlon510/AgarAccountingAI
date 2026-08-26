@@ -29,6 +29,20 @@ import {
   CreateWorkspaceInvitationResponse,
   CreateBankAccountBody,
   CreateBankAccountResponse,
+  GetLedgerflowAccountsQueryParams,
+  GetLedgerflowAccountsResponse,
+  CreateLedgerflowAccountBody,
+  CreateLedgerflowAccountResponse,
+  UpdateLedgerflowAccountParams,
+  UpdateLedgerflowAccountBody,
+  UpdateLedgerflowAccountResponse,
+  ArchiveLedgerflowAccountParams,
+  ArchiveLedgerflowAccountBody,
+  ArchiveLedgerflowAccountResponse,
+  DeleteLedgerflowAccountParams,
+  DeleteLedgerflowAccountBody,
+  GetUaeCorporateTaxSummaryQueryParams,
+  GetUaeCorporateTaxSummaryResponse,
   CreateExchangeRateBody,
   CreateExchangeRateResponse,
   ClearSystemRatesResponse,
@@ -196,6 +210,7 @@ import {
   type ReportValidation,
   eligibleReportProfiles,
 } from "../lib/reportPack";
+import { calculateUaeCorporateTaxSummary, ensureClientChart } from "../lib/clientChart";
 import { buildReportPdf } from "../lib/reportPdf";
 
 const router: IRouter = Router();
@@ -1074,6 +1089,7 @@ async function getOwnedClient(req: Request, requestedClientId?: number) {
     .limit(1);
   if (!membership) return null;
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, membership.clientId));
+  if (client) await ensureClientChart(client.id);
   return client ?? null;
 }
 
@@ -1313,6 +1329,36 @@ async function requireClientAdmin(req: Request, res: Response, clientId: number)
   return membership;
 }
 
+async function chartAccountResponses(
+  clientId: number,
+  accounts: Array<typeof accountClassificationsTable.$inferSelect>,
+) {
+  const [lines, entries] = await Promise.all([
+    db.select({ accountSuggestion: statementLinesTable.accountSuggestion })
+      .from(statementLinesTable)
+      .where(and(eq(statementLinesTable.clientId, clientId), isNotNull(statementLinesTable.accountSuggestion))),
+    db.select({ debitAccount: journalEntriesTable.debitAccount, creditAccount: journalEntriesTable.creditAccount })
+      .from(journalEntriesTable)
+      .where(eq(journalEntriesTable.clientId, clientId)),
+  ]);
+  const referencedNames = new Set<string>();
+  for (const line of lines) if (line.accountSuggestion) referencedNames.add(line.accountSuggestion);
+  for (const entry of entries) {
+    referencedNames.add(entry.debitAccount);
+    referencedNames.add(entry.creditAccount);
+  }
+  return accounts.map((account) => ({
+    ...account,
+    accountCode: account.accountCode ?? `LEGACY-${account.id}`,
+    referenced: referencedNames.has(account.accountName),
+    reviewRequired: account.taxTreatment === "review_required",
+  }));
+}
+
+async function chartAccountResponse(account: typeof accountClassificationsTable.$inferSelect) {
+  return (await chartAccountResponses(account.clientId, [account]))[0];
+}
+
 async function preserveClientAdminCoverage(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   targetUserId: string,
@@ -1437,7 +1483,7 @@ async function workspaceMemberResponse(userId: string, clientIds: number[], curr
 }
 
 export async function ensureUserWorkspace(userId: string) {
-  await db.transaction(async (tx) => {
+  const clientId = await db.transaction(async (tx) => {
     const [user] = await tx.select({
       starterClientId: usersTable.starterClientId,
       remediatedLegacyClientId: usersTable.remediatedLegacyClientId,
@@ -1450,7 +1496,7 @@ export async function ensureUserWorkspace(userId: string) {
       .where(eq(usersTable.id, userId))
       .for("update");
     if (!user) throw new Error("Cannot create a workspace for an unknown user.");
-    if (user.onboardingMode === "firm") return;
+    if (user.onboardingMode === "firm") return null;
     const [existingWorkspace] = await tx.select({ clientId: clientWorkspacesTable.clientId })
       .from(clientWorkspacesTable)
       .where(eq(clientWorkspacesTable.userId, userId))
@@ -1466,7 +1512,7 @@ export async function ensureUserWorkspace(userId: string) {
           .set({ starterClientId: existingClientId })
           .where(eq(usersTable.id, userId));
       }
-      return;
+      return existingClientId;
     }
     if (user.email) {
       const [pendingInvitation] = await tx.select({ id: workspaceInvitationsTable.id })
@@ -1483,7 +1529,7 @@ export async function ensureUserWorkspace(userId: string) {
           eq(organizationInvitationsTable.status, "pending"),
         ))
         .limit(1);
-      if (pendingInvitation || pendingOrganizationInvitation) return;
+      if (pendingInvitation || pendingOrganizationInvitation) return null;
     }
     const accountName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
       || user.email?.split("@")[0]?.trim()
@@ -1506,7 +1552,9 @@ export async function ensureUserWorkspace(userId: string) {
         remediatedLegacyClientId: remediatingLegacyDemo ? existingClientId : user.remediatedLegacyClientId,
       })
       .where(eq(usersTable.id, userId));
+    return client.id;
   });
+  if (clientId) await ensureClientChart(clientId);
 }
 
 async function isUntouchedLegacyDemoWorkspace(
@@ -1625,6 +1673,15 @@ function ledgerAccountCategory(account: string, side: "debit" | "credit") {
   return "Expenses";
 }
 
+function chartAccountCategory(section: string) {
+  if (section === "asset") return "Assets";
+  if (section === "liability") return "Liabilities";
+  if (section === "revenue") return "Income";
+  if (section === "expense") return "Expenses";
+  if (section === "oci") return "Other comprehensive income";
+  return "Equity";
+}
+
 function suggestAccount(description: string, direction: string) {
   const text = description.toLowerCase();
   if (/\b(?:internal|inter[\s-]?account|own[-\s]?account)\s+transfer\b|\b(?:transfer|xfer).*\b(?:savings|current|operating|reserve|wallet|own account)\b/.test(text)) {
@@ -1634,7 +1691,11 @@ function suggestAccount(description: string, direction: string) {
     if (/stripe|retainer|client|invoice|sale|sales|payment|payout|customer/.test(text)) return "Revenue";
     return "Other income";
   }
-  if (/emirates|airline|flight|hotel|taxi|uber|careem|travel/.test(text)) return "Travel & entertainment";
+  if (/(?:customer|client|supplier|vendor).*(?:meal|dinner|lunch|entertainment|hospitality)|(?:meal|dinner|lunch|entertainment|hospitality).*(?:customer|client|supplier|vendor)/.test(text)) {
+    return "Entertainment & hospitality";
+  }
+  if (/emirates|airline|flight|business trip|client site|conference travel|taxi|uber|careem/.test(text)) return "Business travel";
+  if (/hotel|travel|restaurant|catering|event/.test(text)) return "Mixed or unsupported purpose";
   if (/aws|azure|google cloud|software|subscription|saas|adobe|microsoft|hosting/.test(text)) return "Software & subscriptions";
   if (/office|stationery|supplies|printer/.test(text)) return "Office expenses";
   if (/telecom|etisalat|du\\b|internet|phone|mobile/.test(text)) return "Communication expenses";
@@ -1644,19 +1705,12 @@ function suggestAccount(description: string, direction: string) {
   return "General expenses";
 }
 
-const classificationAccounts = new Set([
-  "Revenue",
-  "Other income",
-  "Travel & entertainment",
-  "Software & subscriptions",
-  "Office expenses",
-  "Communication expenses",
-  "Rent expense",
-  "Payroll",
-  "Bank charges",
-  "General expenses",
-  interAccountTransferAccount,
-]);
+async function activeClientAccountNames(clientId: number) {
+  const accounts = await db.select({ accountName: accountClassificationsTable.accountName })
+    .from(accountClassificationsTable)
+    .where(and(eq(accountClassificationsTable.clientId, clientId), eq(accountClassificationsTable.isActive, true)));
+  return new Set(accounts.map((account) => account.accountName));
+}
 
 function journalAccountsForSuggestion(direction: string, accountSuggestion: string) {
   return direction === "inflow"
@@ -1749,7 +1803,7 @@ async function recordClassificationPattern(
 ) {
   const normalizedVendor = normalizeVendor(description);
   const normalizedAccount = accountSuggestion.trim().slice(0, 160);
-  if (!normalizedVendor || !classificationAccounts.has(normalizedAccount)) return;
+  if (!normalizedVendor || !normalizedAccount) return;
   const confirmedConfidence = Math.min(0.99, Math.max(0.85, Number(confidence) || 0.85));
   await executor.insert(classificationPatternsTable).values({
     userId,
@@ -1842,6 +1896,16 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
   exchangeRateStatus?: string | null;
 }) {
   const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
+  const chartAccounts = await tx.select({
+    id: accountClassificationsTable.id,
+    accountName: accountClassificationsTable.accountName,
+  }).from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, line.clientId),
+    inArray(accountClassificationsTable.accountName, [account, "Bank / cash"]),
+    eq(accountClassificationsTable.isActive, true),
+  ));
+  const selectedAccountId = chartAccounts.find((item) => item.accountName === account)?.id ?? null;
+  const bankAccountId = chartAccounts.find((item) => item.accountName === "Bank / cash")?.id ?? null;
   await tx.insert(journalEntriesTable).values({
     statementLineId: line.id,
     clientId: line.clientId,
@@ -1851,6 +1915,8 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
     status: "suggested",
     confidence: line.confidence ?? "0.80",
     ...journalAccountsForSuggestion(line.direction, account),
+    debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
+    creditAccountClassificationId: line.direction === "inflow" ? selectedAccountId : bankAccountId,
     amount: line.amount,
     functionalCurrency: line.functionalCurrency,
     functionalAmount: line.functionalAmount,
@@ -1957,20 +2023,6 @@ type AICopilotRecommendation = {
   requiresConfirmation: boolean;
 };
 
-const suggestedAccounts = [
-  "Revenue",
-  "Other income",
-  "Travel & entertainment",
-  "Software & subscriptions",
-  "Office expenses",
-  "Communication expenses",
-  "Rent expense",
-  "Payroll",
-  "Bank charges",
-  "General expenses",
-  interAccountTransferAccount,
-];
-
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -2050,9 +2102,9 @@ function lineMatchesDescriptionScopes(
   return descriptionScopes.some((scope) => normalizeDescription(line.description).includes(scope));
 }
 
-function classificationAccountFromMessage(message: string) {
+function classificationAccountFromMessage(message: string, accountNames: Set<string>) {
   const normalized = message.toLowerCase();
-  return [...classificationAccounts]
+  return [...accountNames]
     .sort((left, right) => right.length - left.length)
     .find((account) => new RegExp(`\\b${escapeRegExp(account.toLowerCase())}\\b`, "i").test(normalized))
     ?? null;
@@ -2063,8 +2115,8 @@ function asksForDescriptionClassification(message: string) {
     || /\b(?:must|should|need(?:s)?)\s+be\s+(?:classified|recorded|posted)\s+as\b/i.test(message);
 }
 
-function asksForLedgerTransition(message: string) {
-  const accountNames = [...classificationAccounts].map(escapeRegExp).join("|");
+function asksForLedgerTransition(message: string, clientAccountNames: Set<string>) {
+  const accountNames = [...clientAccountNames].map(escapeRegExp).join("|");
   const withoutClassificationClause = message.replace(
     new RegExp(`\\b(?:must|should|need(?:s)?)\\s+be\\s+posted\\s+as\\s+(?:an?\\s+)?(?:${accountNames})\\b`, "gi"),
     "",
@@ -2077,10 +2129,11 @@ function prepareDescriptionRecodeRecommendation(
   clientId: number,
   entries: Array<typeof journalEntriesTable.$inferSelect>,
   lines: Array<typeof statementLinesTable.$inferSelect>,
+  accountNames: Set<string>,
 ): { recommendation?: AICopilotRecommendation; error?: string } | null {
   if (!asksForDescriptionClassification(message)) return null;
   const descriptionScope = descriptionScopeFromMessage(message);
-  const accountSuggestion = classificationAccountFromMessage(message);
+  const accountSuggestion = classificationAccountFromMessage(message, accountNames);
   if (!descriptionScope || !accountSuggestion) return null;
 
   const matchingLines = lines.filter((line) =>
@@ -2189,6 +2242,7 @@ function collectAICopilotRecommendations(
   rawRecommendations: unknown,
   pendingLines: Array<typeof statementLinesTable.$inferSelect>,
   clientId: number,
+  accountNames: Set<string>,
 ): AICopilotRecommendation[] {
   const validLineIds = new Set(pendingLines.map((line) => line.id));
   if (!Array.isArray(rawRecommendations)) return [];
@@ -2204,7 +2258,7 @@ function collectAICopilotRecommendations(
 
     if (type === "recode_lines") {
       const accountSuggestion = safeText(candidate.accountSuggestion, "");
-      if (!accountSuggestion || !classificationAccounts.has(accountSuggestion) || lineIds.length === 0) continue;
+      if (!accountSuggestion || !accountNames.has(accountSuggestion) || lineIds.length === 0) continue;
       const confidence = Number(candidate.confidence);
       recommendations.push({
         id: `recode-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
@@ -2818,9 +2872,10 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     aiActivityId = aiActivity?.id;
     let candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     let usingDeterministicFallback = false;
+    const extractionAccountNames = [...await activeClientAccountNames(scopedClientId)];
     try {
       const completion = await completeAI(scopedClientId, [
-          { role: "system", content: "Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only: {\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null,\"lines\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"string\",\"amount\":123.45,\"direction\":\"inflow|outflow\",\"currency\":\"AED\",\"accountSuggestion\":\"Revenue|Other income|Travel & entertainment|Software & subscriptions|Office expenses|Communication expenses|Rent expense|Payroll|Bank charges|General expenses\",\"confidence\":0.0}]}. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. For accountSuggestion, choose the closest account from the list and use General expenses or Other income when uncertain. Set confidence between 0 and 1." },
+          { role: "system", content: `Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only with bankAccount and lines containing date, description, amount, direction, currency, accountSuggestion, and confidence. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. accountSuggestion must exactly match one active account in this client chart: ${extractionAccountNames.join(" | ")}. Use Business travel only for clear business-purpose travel; use Entertainment & hospitality for clear customer or supplier entertainment; use Mixed or unsupported purpose when facts or evidence are uncertain. Set confidence between 0 and 1.` },
           { role: "user", content: `File: ${fileName}\nInfer the statement currency from the document rather than assuming one.\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
         ], { json: true, maxTokens: 8192 });
       if (aiActivityId !== undefined) {
@@ -2870,7 +2925,9 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
       });
     }
-    const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
+    const activeAccountNames = await activeClientAccountNames(scopedClientId);
+    const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
+      .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
     const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
       eq(bankAccountsTable.id, Number(bankAccountId)),
       eq(bankAccountsTable.clientId, scopedClientId),
@@ -4049,13 +4106,16 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
       updatedAt: new Date(),
     }).where(eq(assistantThreadsTable.id, thread.id));
   });
-  const [lines, entries, bankAccounts, imports, workspacePatterns] = await Promise.all([
+  const [lines, entries, bankAccounts, imports, unfilteredWorkspacePatterns, clientAccountNames] = await Promise.all([
     db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id)),
     db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id)),
     db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id)),
     db.select().from(statementImportsTable).where(eq(statementImportsTable.clientId, client.id)).orderBy(desc(statementImportsTable.createdAt)),
     getWorkspacePatterns(currentUserId(req)),
+    activeClientAccountNames(client.id),
   ]);
+  const workspacePatterns = unfilteredWorkspacePatterns
+    .filter((pattern) => clientAccountNames.has(pattern.accountSuggestion));
   const lineSuggestions = new Map(lines.map((line) => [line.id, lineSuggestion(line, workspacePatterns)]));
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
@@ -4087,9 +4147,9 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
     await pruneAssistantTurns(thread.id);
     res.json(response);
   };
-  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines);
+  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines, clientAccountNames);
   const asksToClassify = asksForDescriptionClassification(message);
-  const asksToTransition = asksForLedgerTransition(message);
+  const asksToTransition = asksForLedgerTransition(message, clientAccountNames);
   if (asksToClassify && asksToTransition) {
     await sendChatResponse({
       answer: "Classification and ledger posting are separate steps. Confirm the classification card first, then ask me to prepare either an approval or a posting confirmation for the eligible entries.",
@@ -4183,7 +4243,7 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
       aiCompletionRecorded = true;
     }
     const raw = JSON.parse(completion.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
-      const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId);
+      const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId, clientAccountNames);
       const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
         .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
       if (learnedRecommendation && !recommendations.some((recommendation) => recommendation.suggestionSource === "workspace_learning")) {
@@ -4475,9 +4535,18 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
   if (!lineIds.length || !accountSuggestion) {
     return res.status(400).json({ error: "Select at least one line and a proposed account before confirming a recode." });
   }
-  if (!classificationAccounts.has(accountSuggestion)) {
-    return res.status(400).json({ error: "Choose one of AgarAccounting AI System's supported accounts before confirming a classification." });
+  const [selectedAccount] = await db.select().from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, client.id),
+    eq(accountClassificationsTable.accountName, accountSuggestion),
+    eq(accountClassificationsTable.isActive, true),
+  )).limit(1);
+  if (!selectedAccount) {
+    return res.status(400).json({ error: "Choose an active account from this client's chart before confirming a classification." });
   }
+  const [bankAccountClassification] = await db.select().from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, client.id),
+    eq(accountClassificationsTable.accountName, "Bank / cash"),
+  )).limit(1);
   const confidence = Number.isFinite(Number(body.confidence)) && Number(body.confidence) >= 0 && Number(body.confidence) <= 1
     ? Number(body.confidence).toFixed(2)
     : "0.75";
@@ -4512,6 +4581,8 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         const [updatedEntry] = await tx.update(journalEntriesTable).set({
           confidence,
           ...journalAccountsForSuggestion(line.direction, accountSuggestion),
+          debitAccountClassificationId: line.direction === "inflow" ? bankAccountClassification?.id ?? null : selectedAccount.id,
+          creditAccountClassificationId: line.direction === "inflow" ? selectedAccount.id : bankAccountClassification?.id ?? null,
         }).where(and(
           eq(journalEntriesTable.clientId, client.id),
           eq(journalEntriesTable.statementLineId, line.id),
@@ -4520,7 +4591,11 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         if (!updatedEntry) throw new RecodeConflictError("A selected journal entry changed while its classification was being confirmed.");
       }
 
-      const updatedLines = await tx.update(statementLinesTable).set({ accountSuggestion, confidence }).where(and(
+      const updatedLines = await tx.update(statementLinesTable).set({
+        accountSuggestion,
+        accountClassificationId: selectedAccount.id,
+        confidence,
+      }).where(and(
         eq(statementLinesTable.clientId, client.id),
         inArray(statementLinesTable.id, lineIds),
         ne(statementLinesTable.status, "posted"),
@@ -4652,10 +4727,160 @@ router.get("/clients", async (req, res) => {
   const legacyDemoClientIds = new Set(
     user?.remediatedLegacyClientId != null ? [user.remediatedLegacyClientId] : [],
   );
+  await Promise.all(clients.map((client) => ensureClientChart(client.id)));
   res.json(clients.map((client) => {
     const legacyDemo = legacyDemoClientIds.has(client.id);
     return clientResponse(client, legacyDemo, legacyDemo ? "legacy_demo" : undefined);
   }));
+});
+
+router.get("/agaraccounting/accounts", async (req, res) => {
+  const { clientId, includeArchived } = GetLedgerflowAccountsQueryParams.parse(req.query);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const accounts = await db.select().from(accountClassificationsTable)
+    .where(includeArchived
+      ? eq(accountClassificationsTable.clientId, client.id)
+      : and(eq(accountClassificationsTable.clientId, client.id), eq(accountClassificationsTable.isActive, true)))
+    .orderBy(asc(accountClassificationsTable.sortOrder), asc(accountClassificationsTable.accountCode), asc(accountClassificationsTable.displayName));
+  return res.json(GetLedgerflowAccountsResponse.parse(await chartAccountResponses(client.id, accounts)));
+});
+
+router.post("/agaraccounting/accounts", async (req, res) => {
+  const body = CreateLedgerflowAccountBody.parse(req.body);
+  if (!await requireClientAdmin(req, res, body.clientId)) return;
+  await ensureClientChart(body.clientId);
+  const normalizedCode = body.accountCode.trim().toUpperCase();
+  const normalizedName = body.accountName.trim();
+  if (!normalizedCode || !normalizedName || !body.displayName.trim()) {
+    return res.status(400).json({ error: "Account code, name, and display name are required." });
+  }
+  try {
+    const [account] = await db.insert(accountClassificationsTable).values({
+      clientId: body.clientId,
+      accountCode: normalizedCode,
+      accountName: normalizedName,
+      displayName: body.displayName.trim(),
+      statementSection: body.statementSection,
+      currentNonCurrent: body.currentNonCurrent ?? "not_applicable",
+      cashFlowCategory: body.cashFlowCategory ?? "operating",
+      oci: body.oci ?? "no",
+      relatedPartyCategory: body.relatedPartyCategory ?? "none",
+      taxCategory: body.taxCategory ?? body.taxTreatment,
+      taxTreatment: body.taxTreatment,
+      taxTreatmentReason: body.taxTreatmentReason ?? null,
+      noteNumber: body.noteNumber ?? null,
+      sortOrder: body.sortOrder ?? 1000,
+      isActive: true,
+      isSystem: false,
+    }).returning();
+    return res.status(201).json(CreateLedgerflowAccountResponse.parse(await chartAccountResponse(account)));
+  } catch (error) {
+    if (databaseError(error)?.code === "23505") {
+      return res.status(409).json({ error: "That account code or name is already in use for this client." });
+    }
+    throw error;
+  }
+});
+
+router.patch("/agaraccounting/accounts/:id", async (req, res) => {
+  const { id } = UpdateLedgerflowAccountParams.parse(req.params);
+  const body = UpdateLedgerflowAccountBody.parse(req.body);
+  if (!await requireClientAdmin(req, res, body.clientId)) return;
+  await ensureClientChart(body.clientId);
+  const [existing] = await db.select().from(accountClassificationsTable)
+    .where(and(eq(accountClassificationsTable.id, id), eq(accountClassificationsTable.clientId, body.clientId)))
+    .limit(1);
+  if (!existing) return res.status(404).json({ error: "Account not found in this client chart." });
+  const existingResponse = await chartAccountResponse(existing);
+  if (existingResponse.referenced && (
+    body.accountCode.trim().toUpperCase() !== existing.accountCode
+    || body.accountName.trim() !== existing.accountName
+    || body.statementSection !== existing.statementSection
+    || (body.currentNonCurrent ?? "not_applicable") !== existing.currentNonCurrent
+    || (body.cashFlowCategory ?? "operating") !== existing.cashFlowCategory
+    || (body.oci ?? "no") !== existing.oci
+  )) {
+    return res.status(409).json({ error: "Referenced account identity and reporting classification cannot be changed. Edit its display or tax treatment, or archive it for future use." });
+  }
+  if (existing.isSystem && (
+    body.accountCode.trim().toUpperCase() !== existing.accountCode
+    || body.accountName.trim() !== existing.accountName
+    || body.statementSection !== existing.statementSection
+  )) {
+    return res.status(409).json({ error: "Protected system account identity and reporting section cannot be changed." });
+  }
+  try {
+    const [account] = await db.update(accountClassificationsTable).set({
+      accountCode: body.accountCode.trim().toUpperCase(),
+      accountName: body.accountName.trim(),
+      displayName: body.displayName.trim(),
+      statementSection: body.statementSection,
+      currentNonCurrent: body.currentNonCurrent ?? "not_applicable",
+      cashFlowCategory: body.cashFlowCategory ?? "operating",
+      oci: body.oci ?? "no",
+      relatedPartyCategory: body.relatedPartyCategory ?? "none",
+      taxCategory: body.taxCategory ?? body.taxTreatment,
+      taxTreatment: body.taxTreatment,
+      taxTreatmentReason: body.taxTreatmentReason ?? null,
+      noteNumber: body.noteNumber ?? null,
+      sortOrder: body.sortOrder ?? existing.sortOrder,
+    }).where(and(eq(accountClassificationsTable.id, id), eq(accountClassificationsTable.clientId, body.clientId)))
+      .returning();
+    return res.json(UpdateLedgerflowAccountResponse.parse(await chartAccountResponse(account)));
+  } catch (error) {
+    if (databaseError(error)?.code === "23505") {
+      return res.status(409).json({ error: "That account code or name is already in use for this client." });
+    }
+    throw error;
+  }
+});
+
+router.post("/agaraccounting/accounts/:id/archive", async (req, res) => {
+  const { id } = ArchiveLedgerflowAccountParams.parse(req.params);
+  const { clientId } = ArchiveLedgerflowAccountBody.parse(req.body);
+  if (!await requireClientAdmin(req, res, clientId)) return;
+  await ensureClientChart(clientId);
+  const [existing] = await db.select().from(accountClassificationsTable)
+    .where(and(eq(accountClassificationsTable.id, id), eq(accountClassificationsTable.clientId, clientId)))
+    .limit(1);
+  if (!existing) return res.status(404).json({ error: "Account not found in this client chart." });
+  if (existing.isSystem) return res.status(409).json({ error: "Protected system accounts cannot be archived." });
+  const [account] = await db.update(accountClassificationsTable).set({ isActive: false })
+    .where(and(eq(accountClassificationsTable.id, id), eq(accountClassificationsTable.clientId, clientId)))
+    .returning();
+  return res.json(ArchiveLedgerflowAccountResponse.parse(await chartAccountResponse(account)));
+});
+
+router.delete("/agaraccounting/accounts/:id", async (req, res) => {
+  const { id } = DeleteLedgerflowAccountParams.parse(req.params);
+  const { clientId } = DeleteLedgerflowAccountBody.parse(req.body);
+  if (!await requireClientAdmin(req, res, clientId)) return;
+  await ensureClientChart(clientId);
+  const [existing] = await db.select().from(accountClassificationsTable)
+    .where(and(eq(accountClassificationsTable.id, id), eq(accountClassificationsTable.clientId, clientId)))
+    .limit(1);
+  if (!existing) return res.status(404).json({ error: "Account not found in this client chart." });
+  const response = await chartAccountResponse(existing);
+  if (existing.isSystem || response.referenced) {
+    return res.status(409).json({ error: "Protected or referenced accounts cannot be deleted. Archive eligible custom accounts instead." });
+  }
+  await db.delete(accountClassificationsTable)
+    .where(and(eq(accountClassificationsTable.id, id), eq(accountClassificationsTable.clientId, clientId)));
+  return res.status(204).end();
+});
+
+router.get("/agaraccounting/uae-corporate-tax", async (req, res) => {
+  const { clientId, period } = GetUaeCorporateTaxSummaryQueryParams.parse(req.query);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const periodLabel = period ?? client.period;
+  const eligibility = reportingEligibility(entries, client.functionalCurrency, reportingPeriodEnd(periodLabel));
+  const accounts = await db.select().from(accountClassificationsTable)
+    .where(eq(accountClassificationsTable.clientId, client.id));
+  const summary = calculateUaeCorporateTaxSummary(eligibility.eligibleEntries, accounts, periodLabel, client.functionalCurrency);
+  return res.json(GetUaeCorporateTaxSummaryResponse.parse(summary));
 });
 
 router.patch("/agaraccounting/account-profile", async (req, res): Promise<void> => {
@@ -5010,6 +5235,7 @@ router.post("/clients", async (req, res) => {
     });
     return created;
   });
+  await ensureClientChart(client.id);
   return res.status(201).json(clientResponse(client));
 });
 
@@ -5921,7 +6147,9 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
   const parsed = result.data;
   const client = await requireOwnedClient(req, res, parsed.clientId);
   if (!client) return;
-  const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
+  const activeAccountNames = await activeClientAccountNames(client.id);
+  const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
+    .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
   const lines = await db.select().from(statementLinesTable).where(and(
     eq(statementLinesTable.clientId, client.id),
     parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
@@ -5945,7 +6173,9 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
       .limit(1);
     if (!bankAccount) return res.status(400).json({ error: "Selected bank account was not found for this client." });
   }
-  const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
+  const activeAccountNames = await activeClientAccountNames(client.id);
+  const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
+    .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
   const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, body.description);
   await getRateProfileForClient(client);
   const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
@@ -6164,16 +6394,21 @@ router.get("/agaraccounting/trial-balance", async (req, res) => {
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
   const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const classifications = await db.select().from(accountClassificationsTable)
+    .where(eq(accountClassificationsTable.clientId, client.id));
+  const accountMetadata = new Map(classifications.map((classification) => [classification.accountName, classification]));
   const accounts = new Map<string, { debit: number; credit: number; category: string }>();
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
   const eligibility = reportingEligibility(entries, functionalCurrency);
   const missingRateCurrencies = [...new Set(eligibility.missingRateEntries.map((entry) => entry.currency))];
   for (const entry of eligibility.eligibleEntries) {
     const amount = reportingAmount(entry, functionalCurrency)!;
-    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: ledgerAccountCategory(entry.debitAccount, "debit") };
+    const debitMeta = accountMetadata.get(entry.debitAccount);
+    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: debitMeta ? chartAccountCategory(debitMeta.statementSection) : ledgerAccountCategory(entry.debitAccount, "debit") };
     debit.debit += amount;
     accounts.set(entry.debitAccount, debit);
-    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: ledgerAccountCategory(entry.creditAccount, "credit") };
+    const creditMeta = accountMetadata.get(entry.creditAccount);
+    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: creditMeta ? chartAccountCategory(creditMeta.statementSection) : ledgerAccountCategory(entry.creditAccount, "credit") };
     credit.credit += amount;
     accounts.set(entry.creditAccount, credit);
   }
@@ -6207,6 +6442,9 @@ router.get("/agaraccounting/financial-statements", async (req, res) => {
   const revenueAccounts = new Map<string, number>();
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
   const eligibility = reportingEligibility(entries, functionalCurrency, reportingPeriodEnd(period));
+  const classifications = await db.select().from(accountClassificationsTable)
+    .where(eq(accountClassificationsTable.clientId, client.id));
+  const accountMetadata = new Map(classifications.map((classification) => [classification.accountName, classification]));
   const missingRateCurrencies = [...new Set(eligibility.missingRateEntries.map((entry) => entry.currency))];
   let cash = 0;
   let transferClearing = 0;
@@ -6220,8 +6458,12 @@ router.get("/agaraccounting/financial-statements", async (req, res) => {
     if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
     if (entry.debitAccount === "Bank / cash") operatingCash += amount;
     if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
-    if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
-    if (entry.creditAccount !== "Bank / cash") revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
+    const debitMeta = accountMetadata.get(entry.debitAccount);
+    const creditMeta = accountMetadata.get(entry.creditAccount);
+    if (debitMeta?.statementSection === "expense" || (!debitMeta && entry.debitAccount !== "Bank / cash")) expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
+    if (debitMeta?.statementSection === "revenue") revenueAccounts.set(entry.debitAccount, (revenueAccounts.get(entry.debitAccount) ?? 0) - amount);
+    if (creditMeta?.statementSection === "revenue" || (!creditMeta && entry.creditAccount !== "Bank / cash")) revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
+    if (creditMeta?.statementSection === "expense") expenseAccounts.set(entry.creditAccount, (expenseAccounts.get(entry.creditAccount) ?? 0) - amount);
   }
   const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
   const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);
@@ -6234,6 +6476,12 @@ router.get("/agaraccounting/financial-statements", async (req, res) => {
     includedPostedEntryCount: eligibility.eligibleEntries.length,
     excludedUnpostedCount: eligibility.excludedUnpostedCount,
     outsideReportingPeriodCount: eligibility.outsideReportingPeriodCount,
+    taxSummary: calculateUaeCorporateTaxSummary(
+      eligibility.eligibleEntries,
+      classifications,
+      period ?? client.period,
+      functionalCurrency,
+    ),
     incomeStatement: [
       { label: "Revenue", amount: totalRevenue, children: [...revenueAccounts.entries()].map(([label, amount]) => ({ label, amount })) },
       { label: "Operating expenses", amount: -totalExpenses, children: [...expenseAccounts.entries()].map(([label, amount]) => ({ label, amount: -amount })) },

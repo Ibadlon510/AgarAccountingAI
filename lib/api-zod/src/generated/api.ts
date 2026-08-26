@@ -2194,6 +2194,36 @@ export const GetFinancialStatementsResponse = zod.object({
   "includedPostedEntryCount": zod.number(),
   "excludedUnpostedCount": zod.number(),
   "outsideReportingPeriodCount": zod.number(),
+  "taxSummary": zod.object({
+  "jurisdiction": zod.enum(['UAE']),
+  "estimateLabel": zod.string(),
+  "period": zod.string(),
+  "functionalCurrency": zod.string(),
+  "accountingProfitBeforeTax": zod.number(),
+  "mappedDeductibleExpenses": zod.number(),
+  "entertainmentAccountingCost": zod.number(),
+  "entertainmentPermittedDeduction": zod.number(),
+  "entertainmentAddBack": zod.number(),
+  "addBacks": zod.number(),
+  "otherAdjustments": zod.number(),
+  "estimatedTaxableIncome": zod.number(),
+  "thresholdAed": zod.number(),
+  "rate": zod.number(),
+  "standardEstimatedLiability": zod.number(),
+  "reviewRequiredAmount": zod.number(),
+  "unmappedAmount": zod.number(),
+  "post2023Period": zod.boolean(),
+  "assumptions": zod.array(zod.string()),
+  "excludedReliefs": zod.array(zod.string()),
+  "adjustments": zod.array(zod.object({
+  "label": zod.string(),
+  "treatment": zod.string(),
+  "accountingCost": zod.number(),
+  "permittedDeduction": zod.number(),
+  "addBack": zod.number(),
+  "reviewAmount": zod.number()
+}))
+}),
   "incomeStatement": zod.array(zod.object({
   "label": zod.string(),
   "amount": zod.number(),
@@ -2322,6 +2352,36 @@ export const CreateReportPackResponse = zod.object({
   "postedEntryCount": zod.number(),
   "postedLineCount": zod.number(),
   "sourceImportCount": zod.number()
+}),
+  "taxSummary": zod.object({
+  "jurisdiction": zod.enum(['UAE']),
+  "estimateLabel": zod.string(),
+  "period": zod.string(),
+  "functionalCurrency": zod.string(),
+  "accountingProfitBeforeTax": zod.number(),
+  "mappedDeductibleExpenses": zod.number(),
+  "entertainmentAccountingCost": zod.number(),
+  "entertainmentPermittedDeduction": zod.number(),
+  "entertainmentAddBack": zod.number(),
+  "addBacks": zod.number(),
+  "otherAdjustments": zod.number(),
+  "estimatedTaxableIncome": zod.number(),
+  "thresholdAed": zod.number(),
+  "rate": zod.number(),
+  "standardEstimatedLiability": zod.number(),
+  "reviewRequiredAmount": zod.number(),
+  "unmappedAmount": zod.number(),
+  "post2023Period": zod.boolean(),
+  "assumptions": zod.array(zod.string()),
+  "excludedReliefs": zod.array(zod.string()),
+  "adjustments": zod.array(zod.object({
+  "label": zod.string(),
+  "treatment": zod.string(),
+  "accountingCost": zod.number(),
+  "permittedDeduction": zod.number(),
+  "addBack": zod.number(),
+  "reviewAmount": zod.number()
+}))
 })
 }),
   "validation": zod.object({
@@ -2442,6 +2502,36 @@ export const GetReportPackResponse = zod.object({
   "postedEntryCount": zod.number(),
   "postedLineCount": zod.number(),
   "sourceImportCount": zod.number()
+}),
+  "taxSummary": zod.object({
+  "jurisdiction": zod.enum(['UAE']),
+  "estimateLabel": zod.string(),
+  "period": zod.string(),
+  "functionalCurrency": zod.string(),
+  "accountingProfitBeforeTax": zod.number(),
+  "mappedDeductibleExpenses": zod.number(),
+  "entertainmentAccountingCost": zod.number(),
+  "entertainmentPermittedDeduction": zod.number(),
+  "entertainmentAddBack": zod.number(),
+  "addBacks": zod.number(),
+  "otherAdjustments": zod.number(),
+  "estimatedTaxableIncome": zod.number(),
+  "thresholdAed": zod.number(),
+  "rate": zod.number(),
+  "standardEstimatedLiability": zod.number(),
+  "reviewRequiredAmount": zod.number(),
+  "unmappedAmount": zod.number(),
+  "post2023Period": zod.boolean(),
+  "assumptions": zod.array(zod.string()),
+  "excludedReliefs": zod.array(zod.string()),
+  "adjustments": zod.array(zod.object({
+  "label": zod.string(),
+  "treatment": zod.string(),
+  "accountingCost": zod.number(),
+  "permittedDeduction": zod.number(),
+  "addBack": zod.number(),
+  "reviewAmount": zod.number()
+}))
 })
 }),
   "validation": zod.object({
@@ -2590,6 +2680,36 @@ export const UpdateReportPackResponse = zod.object({
   "postedEntryCount": zod.number(),
   "postedLineCount": zod.number(),
   "sourceImportCount": zod.number()
+}),
+  "taxSummary": zod.object({
+  "jurisdiction": zod.enum(['UAE']),
+  "estimateLabel": zod.string(),
+  "period": zod.string(),
+  "functionalCurrency": zod.string(),
+  "accountingProfitBeforeTax": zod.number(),
+  "mappedDeductibleExpenses": zod.number(),
+  "entertainmentAccountingCost": zod.number(),
+  "entertainmentPermittedDeduction": zod.number(),
+  "entertainmentAddBack": zod.number(),
+  "addBacks": zod.number(),
+  "otherAdjustments": zod.number(),
+  "estimatedTaxableIncome": zod.number(),
+  "thresholdAed": zod.number(),
+  "rate": zod.number(),
+  "standardEstimatedLiability": zod.number(),
+  "reviewRequiredAmount": zod.number(),
+  "unmappedAmount": zod.number(),
+  "post2023Period": zod.boolean(),
+  "assumptions": zod.array(zod.string()),
+  "excludedReliefs": zod.array(zod.string()),
+  "adjustments": zod.array(zod.object({
+  "label": zod.string(),
+  "treatment": zod.string(),
+  "accountingCost": zod.number(),
+  "permittedDeduction": zod.number(),
+  "addBack": zod.number(),
+  "reviewAmount": zod.number()
+}))
 })
 }),
   "validation": zod.object({
@@ -2673,3 +2793,227 @@ export const GetStorageObjectParams = zod.object({
 export const GetStorageObjectResponse = zod.unknown()
 
 
+/**
+ * @summary List the active and archived chart of accounts for a client
+ */
+export const GetLedgerflowAccountsQueryParams = zod.object({
+  "clientId": zod.coerce.number(),
+  "includeArchived": zod.coerce.boolean().optional()
+})
+
+export const GetLedgerflowAccountsResponseItem = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "accountCode": zod.string(),
+  "accountName": zod.string(),
+  "displayName": zod.string(),
+  "statementSection": zod.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'oci']),
+  "currentNonCurrent": zod.enum(['current', 'non_current', 'not_applicable']),
+  "cashFlowCategory": zod.enum(['operating', 'investing', 'financing', 'non_cash']),
+  "oci": zod.enum(['yes', 'no']).optional(),
+  "relatedPartyCategory": zod.string().optional(),
+  "taxCategory": zod.string().optional(),
+  "taxTreatment": zod.enum(['ordinary_deductible', 'entertainment_limited', 'fully_non_deductible', 'review_required']),
+  "taxTreatmentReason": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "isSystem": zod.boolean(),
+  "sortOrder": zod.number(),
+  "noteNumber": zod.number().nullish(),
+  "referenced": zod.boolean(),
+  "reviewRequired": zod.boolean().optional()
+})
+export const GetLedgerflowAccountsResponse = zod.array(GetLedgerflowAccountsResponseItem)
+
+
+/**
+ * @summary Add an account to a client chart
+ */
+export const createLedgerflowAccountBodyAccountCodeMax = 40;
+
+export const createLedgerflowAccountBodyAccountNameMax = 160;
+
+export const createLedgerflowAccountBodyDisplayNameMax = 160;
+
+
+
+export const CreateLedgerflowAccountBody = zod.object({
+  "clientId": zod.number(),
+  "accountCode": zod.string().min(1).max(createLedgerflowAccountBodyAccountCodeMax),
+  "accountName": zod.string().min(1).max(createLedgerflowAccountBodyAccountNameMax),
+  "displayName": zod.string().min(1).max(createLedgerflowAccountBodyDisplayNameMax),
+  "statementSection": zod.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'oci']),
+  "currentNonCurrent": zod.enum(['current', 'non_current', 'not_applicable']).optional(),
+  "cashFlowCategory": zod.enum(['operating', 'investing', 'financing', 'non_cash']).optional(),
+  "oci": zod.enum(['yes', 'no']).optional(),
+  "relatedPartyCategory": zod.string().optional(),
+  "taxCategory": zod.string().optional(),
+  "taxTreatment": zod.enum(['ordinary_deductible', 'entertainment_limited', 'fully_non_deductible', 'review_required']),
+  "taxTreatmentReason": zod.string().nullish(),
+  "noteNumber": zod.number().nullish(),
+  "sortOrder": zod.number().optional()
+})
+
+export const CreateLedgerflowAccountResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "accountCode": zod.string(),
+  "accountName": zod.string(),
+  "displayName": zod.string(),
+  "statementSection": zod.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'oci']),
+  "currentNonCurrent": zod.enum(['current', 'non_current', 'not_applicable']),
+  "cashFlowCategory": zod.enum(['operating', 'investing', 'financing', 'non_cash']),
+  "oci": zod.enum(['yes', 'no']).optional(),
+  "relatedPartyCategory": zod.string().optional(),
+  "taxCategory": zod.string().optional(),
+  "taxTreatment": zod.enum(['ordinary_deductible', 'entertainment_limited', 'fully_non_deductible', 'review_required']),
+  "taxTreatmentReason": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "isSystem": zod.boolean(),
+  "sortOrder": zod.number(),
+  "noteNumber": zod.number().nullish(),
+  "referenced": zod.boolean(),
+  "reviewRequired": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Update a client chart account
+ */
+export const UpdateLedgerflowAccountParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateLedgerflowAccountBodyOneAccountCodeMax = 40;
+
+export const updateLedgerflowAccountBodyOneAccountNameMax = 160;
+
+export const updateLedgerflowAccountBodyOneDisplayNameMax = 160;
+
+
+
+export const UpdateLedgerflowAccountBody = zod.object({
+  "clientId": zod.number(),
+  "accountCode": zod.string().min(1).max(updateLedgerflowAccountBodyOneAccountCodeMax),
+  "accountName": zod.string().min(1).max(updateLedgerflowAccountBodyOneAccountNameMax),
+  "displayName": zod.string().min(1).max(updateLedgerflowAccountBodyOneDisplayNameMax),
+  "statementSection": zod.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'oci']),
+  "currentNonCurrent": zod.enum(['current', 'non_current', 'not_applicable']).optional(),
+  "cashFlowCategory": zod.enum(['operating', 'investing', 'financing', 'non_cash']).optional(),
+  "oci": zod.enum(['yes', 'no']).optional(),
+  "relatedPartyCategory": zod.string().optional(),
+  "taxCategory": zod.string().optional(),
+  "taxTreatment": zod.enum(['ordinary_deductible', 'entertainment_limited', 'fully_non_deductible', 'review_required']),
+  "taxTreatmentReason": zod.string().nullish(),
+  "noteNumber": zod.number().nullish(),
+  "sortOrder": zod.number().optional()
+})
+
+export const UpdateLedgerflowAccountResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "accountCode": zod.string(),
+  "accountName": zod.string(),
+  "displayName": zod.string(),
+  "statementSection": zod.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'oci']),
+  "currentNonCurrent": zod.enum(['current', 'non_current', 'not_applicable']),
+  "cashFlowCategory": zod.enum(['operating', 'investing', 'financing', 'non_cash']),
+  "oci": zod.enum(['yes', 'no']).optional(),
+  "relatedPartyCategory": zod.string().optional(),
+  "taxCategory": zod.string().optional(),
+  "taxTreatment": zod.enum(['ordinary_deductible', 'entertainment_limited', 'fully_non_deductible', 'review_required']),
+  "taxTreatmentReason": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "isSystem": zod.boolean(),
+  "sortOrder": zod.number(),
+  "noteNumber": zod.number().nullish(),
+  "referenced": zod.boolean(),
+  "reviewRequired": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Delete an unreferenced client chart account
+ */
+export const DeleteLedgerflowAccountParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteLedgerflowAccountBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const DeleteLedgerflowAccountResponse = zod.void()
+
+
+/**
+ * @summary Archive a client chart account
+ */
+export const ArchiveLedgerflowAccountParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ArchiveLedgerflowAccountBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const ArchiveLedgerflowAccountResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "accountCode": zod.string(),
+  "accountName": zod.string(),
+  "displayName": zod.string(),
+  "statementSection": zod.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'oci']),
+  "currentNonCurrent": zod.enum(['current', 'non_current', 'not_applicable']),
+  "cashFlowCategory": zod.enum(['operating', 'investing', 'financing', 'non_cash']),
+  "oci": zod.enum(['yes', 'no']).optional(),
+  "relatedPartyCategory": zod.string().optional(),
+  "taxCategory": zod.string().optional(),
+  "taxTreatment": zod.enum(['ordinary_deductible', 'entertainment_limited', 'fully_non_deductible', 'review_required']),
+  "taxTreatmentReason": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "isSystem": zod.boolean(),
+  "sortOrder": zod.number(),
+  "noteNumber": zod.number().nullish(),
+  "referenced": zod.boolean(),
+  "reviewRequired": zod.boolean().optional()
+})
+
+
+/**
+ * @summary Calculate an estimated standard UAE Corporate Tax summary from posted entries
+ */
+export const GetUaeCorporateTaxSummaryQueryParams = zod.object({
+  "clientId": zod.coerce.number(),
+  "period": zod.coerce.string().optional()
+})
+
+export const GetUaeCorporateTaxSummaryResponse = zod.object({
+  "jurisdiction": zod.enum(['UAE']),
+  "estimateLabel": zod.string(),
+  "period": zod.string(),
+  "functionalCurrency": zod.string(),
+  "accountingProfitBeforeTax": zod.number(),
+  "mappedDeductibleExpenses": zod.number(),
+  "entertainmentAccountingCost": zod.number(),
+  "entertainmentPermittedDeduction": zod.number(),
+  "entertainmentAddBack": zod.number(),
+  "addBacks": zod.number(),
+  "otherAdjustments": zod.number(),
+  "estimatedTaxableIncome": zod.number(),
+  "thresholdAed": zod.number(),
+  "rate": zod.number(),
+  "standardEstimatedLiability": zod.number(),
+  "reviewRequiredAmount": zod.number(),
+  "unmappedAmount": zod.number(),
+  "post2023Period": zod.boolean(),
+  "assumptions": zod.array(zod.string()),
+  "excludedReliefs": zod.array(zod.string()),
+  "adjustments": zod.array(zod.object({
+  "label": zod.string(),
+  "treatment": zod.string(),
+  "accountingCost": zod.number(),
+  "permittedDeduction": zod.number(),
+  "addBack": zod.number(),
+  "reviewAmount": zod.number()
+}))
+})

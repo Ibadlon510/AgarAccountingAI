@@ -1486,6 +1486,139 @@ paths:
           description: Object access denied
         "404":
           description: Object not found
+  /agaraccounting/accounts:
+    get:
+      operationId: getLedgerflowAccounts
+      tags: [agaraccounting]
+      summary: List the active and archived chart of accounts for a client
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+        - name: includeArchived
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Client chart of accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LedgerflowAccount"
+    post:
+      operationId: createLedgerflowAccount
+      tags: [agaraccounting]
+      summary: Add an account to a client chart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerflowAccountInput"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerflowAccount"
+        "409":
+          description: Account code or name is already in use
+  /agaraccounting/accounts/{id}:
+    patch:
+      operationId: updateLedgerflowAccount
+      tags: [agaraccounting]
+      summary: Update a client chart account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerflowAccountUpdate"
+      responses:
+        "200":
+          description: Account updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerflowAccount"
+        "409":
+          description: Referenced or protected account cannot be changed destructively
+    delete:
+      operationId: deleteLedgerflowAccount
+      tags: [agaraccounting]
+      summary: Delete an unreferenced client chart account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerflowAccountMutation"
+      responses:
+        "204":
+          description: Account deleted
+        "409":
+          description: Protected or referenced accounts must be archived instead
+  /agaraccounting/accounts/{id}/archive:
+    post:
+      operationId: archiveLedgerflowAccount
+      tags: [agaraccounting]
+      summary: Archive a client chart account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerflowAccountMutation"
+      responses:
+        "200":
+          description: Archived account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LedgerflowAccount"
+        "409":
+          description: Protected account cannot be archived
+  /agaraccounting/uae-corporate-tax:
+    get:
+      operationId: getUaeCorporateTaxSummary
+      tags: [agaraccounting]
+      summary: Calculate an estimated standard UAE Corporate Tax summary from posted entries
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+        - name: period
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Decision-support UAE Corporate Tax estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UaeCorporateTaxSummary"
 components:
   parameters:
     RateScopeClientId:
@@ -1531,6 +1664,101 @@ components:
       properties:
         firstName: { type: string, minLength: 1 }
         lastName: { type: string, minLength: 1 }
+    LedgerflowAccount:
+      type: object
+      required: [id, clientId, accountCode, accountName, displayName, statementSection, currentNonCurrent, cashFlowCategory, taxTreatment, isActive, isSystem, sortOrder, referenced]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        accountCode: { type: string }
+        accountName: { type: string }
+        displayName: { type: string }
+        statementSection: { type: string, enum: [asset, liability, equity, revenue, expense, oci] }
+        currentNonCurrent: { type: string, enum: [current, non_current, not_applicable] }
+        cashFlowCategory: { type: string, enum: [operating, investing, financing, non_cash] }
+        oci: { type: string, enum: [yes, no] }
+        relatedPartyCategory: { type: string }
+        taxCategory: { type: string }
+        taxTreatment:
+          type: string
+          enum: [ordinary_deductible, entertainment_limited, fully_non_deductible, review_required]
+        taxTreatmentReason: { type: ["string", "null"] }
+        isActive: { type: boolean }
+        isSystem: { type: boolean }
+        sortOrder: { type: number }
+        noteNumber: { type: ["number", "null"] }
+        referenced: { type: boolean }
+        reviewRequired: { type: boolean }
+    LedgerflowAccountInput:
+      type: object
+      required: [clientId, accountCode, accountName, displayName, statementSection, taxTreatment]
+      properties:
+        clientId: { type: number }
+        accountCode: { type: string, minLength: 1, maxLength: 40 }
+        accountName: { type: string, minLength: 1, maxLength: 160 }
+        displayName: { type: string, minLength: 1, maxLength: 160 }
+        statementSection: { type: string, enum: [asset, liability, equity, revenue, expense, oci] }
+        currentNonCurrent: { type: string, enum: [current, non_current, not_applicable] }
+        cashFlowCategory: { type: string, enum: [operating, investing, financing, non_cash] }
+        oci: { type: string, enum: [yes, no] }
+        relatedPartyCategory: { type: string }
+        taxCategory: { type: string }
+        taxTreatment:
+          type: string
+          enum: [ordinary_deductible, entertainment_limited, fully_non_deductible, review_required]
+        taxTreatmentReason: { type: ["string", "null"] }
+        noteNumber: { type: ["number", "null"] }
+        sortOrder: { type: number }
+    LedgerflowAccountUpdate:
+      allOf:
+        - $ref: "#/components/schemas/LedgerflowAccountInput"
+    LedgerflowAccountMutation:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+    UaeCorporateTaxAdjustment:
+      type: object
+      required: [label, treatment, accountingCost, permittedDeduction, addBack, reviewAmount]
+      properties:
+        label: { type: string }
+        treatment: { type: string }
+        accountingCost: { type: number }
+        permittedDeduction: { type: number }
+        addBack: { type: number }
+        reviewAmount: { type: number }
+    UaeCorporateTaxSummary:
+      type: object
+      required: [jurisdiction, estimateLabel, period, functionalCurrency, accountingProfitBeforeTax, mappedDeductibleExpenses, entertainmentAccountingCost, entertainmentPermittedDeduction, entertainmentAddBack, addBacks, otherAdjustments, estimatedTaxableIncome, thresholdAed, rate, standardEstimatedLiability, reviewRequiredAmount, unmappedAmount, post2023Period, assumptions, excludedReliefs, adjustments]
+      properties:
+        jurisdiction: { type: string, enum: [UAE] }
+        estimateLabel: { type: string }
+        period: { type: string }
+        functionalCurrency: { type: string }
+        accountingProfitBeforeTax: { type: number }
+        mappedDeductibleExpenses: { type: number }
+        entertainmentAccountingCost: { type: number }
+        entertainmentPermittedDeduction: { type: number }
+        entertainmentAddBack: { type: number }
+        addBacks: { type: number }
+        otherAdjustments: { type: number }
+        estimatedTaxableIncome: { type: number }
+        thresholdAed: { type: number }
+        rate: { type: number }
+        standardEstimatedLiability: { type: number }
+        reviewRequiredAmount: { type: number }
+        unmappedAmount: { type: number }
+        post2023Period: { type: boolean }
+        assumptions:
+          type: array
+          items: { type: string }
+        excludedReliefs:
+          type: array
+          items: { type: string }
+        adjustments:
+          type: array
+          items:
+            $ref: "#/components/schemas/UaeCorporateTaxAdjustment"
     FirmProfile:
       type: object
       required: [id, name, legalName, systemRatesEnabled]
@@ -2663,7 +2891,7 @@ components:
           items: { $ref: "#/components/schemas/StatementSection" }
     FinancialStatements:
       type: object
-      required: [period, incomeStatement, balanceSheet, cashFlow, functionalCurrency, missingRateCount, missingRateCurrencies, includedPostedEntryCount, excludedUnpostedCount, outsideReportingPeriodCount]
+      required: [period, incomeStatement, balanceSheet, cashFlow, functionalCurrency, missingRateCount, missingRateCurrencies, includedPostedEntryCount, excludedUnpostedCount, outsideReportingPeriodCount, taxSummary]
       properties:
         period: { type: string }
         functionalCurrency: { type: string }
@@ -2674,6 +2902,8 @@ components:
         includedPostedEntryCount: { type: number }
         excludedUnpostedCount: { type: number }
         outsideReportingPeriodCount: { type: number }
+        taxSummary:
+          $ref: "#/components/schemas/UaeCorporateTaxSummary"
         incomeStatement:
           type: array
           items: { $ref: "#/components/schemas/StatementSection" }
@@ -2776,7 +3006,7 @@ components:
         authorizationDate: { type: ["string", "null"], format: date }
     ReportSnapshot:
       type: object
-      required: [entityName, legalName, periodEnd, comparativePeriodEnd, presentationCurrency, reportingBasis, presentationProfile, statementOfFinancialPosition, profitOrLossAndOci, changesInEquity, cashFlows, notes, traceability]
+      required: [entityName, legalName, periodEnd, comparativePeriodEnd, presentationCurrency, reportingBasis, presentationProfile, statementOfFinancialPosition, profitOrLossAndOci, changesInEquity, cashFlows, notes, traceability, taxSummary]
       properties:
         entityName: { type: string }
         legalName: { type: string }
@@ -2807,6 +3037,8 @@ components:
             postedEntryCount: { type: number }
             postedLineCount: { type: number }
             sourceImportCount: { type: number }
+        taxSummary:
+          $ref: "#/components/schemas/UaeCorporateTaxSummary"
     ReportPack:
       type: object
       required: [id, clientId, periodStart, periodEnd, comparativePeriodStart, comparativePeriodEnd, reportingBasis, presentationProfile, presentationCurrency, roundingPolicy, status, snapshot, validation, notes, checklist, signatory, createdAt, updatedAt, finalizedAt]

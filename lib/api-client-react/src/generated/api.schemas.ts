@@ -35,6 +35,205 @@ export interface AccountProfileInput {
   lastName: string;
 }
 
+export type LedgerflowAccountStatementSection = typeof LedgerflowAccountStatementSection[keyof typeof LedgerflowAccountStatementSection];
+
+
+export const LedgerflowAccountStatementSection = {
+  asset: 'asset',
+  liability: 'liability',
+  equity: 'equity',
+  revenue: 'revenue',
+  expense: 'expense',
+  oci: 'oci',
+} as const;
+
+export type LedgerflowAccountCurrentNonCurrent = typeof LedgerflowAccountCurrentNonCurrent[keyof typeof LedgerflowAccountCurrentNonCurrent];
+
+
+export const LedgerflowAccountCurrentNonCurrent = {
+  current: 'current',
+  non_current: 'non_current',
+  not_applicable: 'not_applicable',
+} as const;
+
+export type LedgerflowAccountCashFlowCategory = typeof LedgerflowAccountCashFlowCategory[keyof typeof LedgerflowAccountCashFlowCategory];
+
+
+export const LedgerflowAccountCashFlowCategory = {
+  operating: 'operating',
+  investing: 'investing',
+  financing: 'financing',
+  non_cash: 'non_cash',
+} as const;
+
+export type LedgerflowAccountOci = typeof LedgerflowAccountOci[keyof typeof LedgerflowAccountOci];
+
+
+export const LedgerflowAccountOci = {
+  yes: 'yes',
+  no: 'no',
+} as const;
+
+export type LedgerflowAccountTaxTreatment = typeof LedgerflowAccountTaxTreatment[keyof typeof LedgerflowAccountTaxTreatment];
+
+
+export const LedgerflowAccountTaxTreatment = {
+  ordinary_deductible: 'ordinary_deductible',
+  entertainment_limited: 'entertainment_limited',
+  fully_non_deductible: 'fully_non_deductible',
+  review_required: 'review_required',
+} as const;
+
+export interface LedgerflowAccount {
+  id: number;
+  clientId: number;
+  accountCode: string;
+  accountName: string;
+  displayName: string;
+  statementSection: LedgerflowAccountStatementSection;
+  currentNonCurrent: LedgerflowAccountCurrentNonCurrent;
+  cashFlowCategory: LedgerflowAccountCashFlowCategory;
+  oci?: LedgerflowAccountOci;
+  relatedPartyCategory?: string;
+  taxCategory?: string;
+  taxTreatment: LedgerflowAccountTaxTreatment;
+  /** @nullable */
+  taxTreatmentReason?: string | null;
+  isActive: boolean;
+  isSystem: boolean;
+  sortOrder: number;
+  /** @nullable */
+  noteNumber?: number | null;
+  referenced: boolean;
+  reviewRequired?: boolean;
+}
+
+export type LedgerflowAccountInputStatementSection = typeof LedgerflowAccountInputStatementSection[keyof typeof LedgerflowAccountInputStatementSection];
+
+
+export const LedgerflowAccountInputStatementSection = {
+  asset: 'asset',
+  liability: 'liability',
+  equity: 'equity',
+  revenue: 'revenue',
+  expense: 'expense',
+  oci: 'oci',
+} as const;
+
+export type LedgerflowAccountInputCurrentNonCurrent = typeof LedgerflowAccountInputCurrentNonCurrent[keyof typeof LedgerflowAccountInputCurrentNonCurrent];
+
+
+export const LedgerflowAccountInputCurrentNonCurrent = {
+  current: 'current',
+  non_current: 'non_current',
+  not_applicable: 'not_applicable',
+} as const;
+
+export type LedgerflowAccountInputCashFlowCategory = typeof LedgerflowAccountInputCashFlowCategory[keyof typeof LedgerflowAccountInputCashFlowCategory];
+
+
+export const LedgerflowAccountInputCashFlowCategory = {
+  operating: 'operating',
+  investing: 'investing',
+  financing: 'financing',
+  non_cash: 'non_cash',
+} as const;
+
+export type LedgerflowAccountInputOci = typeof LedgerflowAccountInputOci[keyof typeof LedgerflowAccountInputOci];
+
+
+export const LedgerflowAccountInputOci = {
+  yes: 'yes',
+  no: 'no',
+} as const;
+
+export type LedgerflowAccountInputTaxTreatment = typeof LedgerflowAccountInputTaxTreatment[keyof typeof LedgerflowAccountInputTaxTreatment];
+
+
+export const LedgerflowAccountInputTaxTreatment = {
+  ordinary_deductible: 'ordinary_deductible',
+  entertainment_limited: 'entertainment_limited',
+  fully_non_deductible: 'fully_non_deductible',
+  review_required: 'review_required',
+} as const;
+
+export interface LedgerflowAccountInput {
+  clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 40
+     */
+  accountCode: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  accountName: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  displayName: string;
+  statementSection: LedgerflowAccountInputStatementSection;
+  currentNonCurrent?: LedgerflowAccountInputCurrentNonCurrent;
+  cashFlowCategory?: LedgerflowAccountInputCashFlowCategory;
+  oci?: LedgerflowAccountInputOci;
+  relatedPartyCategory?: string;
+  taxCategory?: string;
+  taxTreatment: LedgerflowAccountInputTaxTreatment;
+  /** @nullable */
+  taxTreatmentReason?: string | null;
+  /** @nullable */
+  noteNumber?: number | null;
+  sortOrder?: number;
+}
+
+export type LedgerflowAccountUpdate = LedgerflowAccountInput;
+
+export interface LedgerflowAccountMutation {
+  clientId: number;
+}
+
+export interface UaeCorporateTaxAdjustment {
+  label: string;
+  treatment: string;
+  accountingCost: number;
+  permittedDeduction: number;
+  addBack: number;
+  reviewAmount: number;
+}
+
+export type UaeCorporateTaxSummaryJurisdiction = typeof UaeCorporateTaxSummaryJurisdiction[keyof typeof UaeCorporateTaxSummaryJurisdiction];
+
+
+export const UaeCorporateTaxSummaryJurisdiction = {
+  UAE: 'UAE',
+} as const;
+
+export interface UaeCorporateTaxSummary {
+  jurisdiction: UaeCorporateTaxSummaryJurisdiction;
+  estimateLabel: string;
+  period: string;
+  functionalCurrency: string;
+  accountingProfitBeforeTax: number;
+  mappedDeductibleExpenses: number;
+  entertainmentAccountingCost: number;
+  entertainmentPermittedDeduction: number;
+  entertainmentAddBack: number;
+  addBacks: number;
+  otherAdjustments: number;
+  estimatedTaxableIncome: number;
+  thresholdAed: number;
+  rate: number;
+  standardEstimatedLiability: number;
+  reviewRequiredAmount: number;
+  unmappedAmount: number;
+  post2023Period: boolean;
+  assumptions: string[];
+  excludedReliefs: string[];
+  adjustments: UaeCorporateTaxAdjustment[];
+}
+
 export interface FirmProfile {
   id: number;
   name: string;
@@ -1375,6 +1574,7 @@ export interface FinancialStatements {
   includedPostedEntryCount: number;
   excludedUnpostedCount: number;
   outsideReportingPeriodCount: number;
+  taxSummary: UaeCorporateTaxSummary;
   incomeStatement: StatementSection[];
   balanceSheet: StatementSection[];
   cashFlow: StatementSection[];
@@ -1540,6 +1740,7 @@ export interface ReportSnapshot {
   cashFlows: ReportAmount[];
   notes: ReportNote[];
   traceability: ReportSnapshotTraceability;
+  taxSummary: UaeCorporateTaxSummary;
 }
 
 export type ReportPackStatus = typeof ReportPackStatus[keyof typeof ReportPackStatus];
@@ -1700,3 +1901,12 @@ export type GetReportPacksParams = {
 clientId: number;
 };
 
+export type GetLedgerflowAccountsParams = {
+clientId: number;
+includeArchived?: boolean;
+};
+
+export type GetUaeCorporateTaxSummaryParams = {
+clientId: number;
+period?: string;
+};
