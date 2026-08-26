@@ -460,11 +460,24 @@ type ExchangeRatePreviewMapping = {
   note: string | null;
 };
 
+function exchangeRateWorkbookDate(value: unknown) {
+  if (value instanceof Date) return calendarDate(value);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (!parsed) return null;
+    const candidate = `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+    return isIsoDate(candidate) ? candidate : null;
+  }
+  return typeof value === "string" ? exchangeRateCsvDate(value) : null;
+}
+
 function exchangeRateWorkbookPreview(buffer: Buffer, defaultFunctionalCurrency: string | null) {
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
   const rates: Array<ReturnType<typeof normalizeRateInput>> = [];
   const warnings: string[] = [];
+  const issues = new Map<string, number>();
   const uniqueKeys = new Set<string>();
+  let sheetsWithRecognizedColumns = 0;
   let mapping: ExchangeRatePreviewMapping = {
     effectiveDate: null,
     sourceCurrency: null,
@@ -476,63 +489,104 @@ function exchangeRateWorkbookPreview(buffer: Buffer, defaultFunctionalCurrency: 
   for (const sheetName of workbook.SheetNames.slice(0, 20)) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "", raw: true });
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      defval: "",
+      raw: true,
+    });
     if (!rows.length) continue;
-    const keys = Object.keys(rows[0] ?? {});
-    const column = (names: string[]) => keys.find((key) => names.includes(exchangeRateCsvKey(key)));
+    const headerIndex = rows.slice(0, 25).findIndex((candidate) => {
+      const keys = candidate.map((value) => exchangeRateCsvKey(String(value ?? "")));
+      const has = (names: string[]) => keys.some((key) => names.includes(key));
+      return has(["date", "effectivedate", "ratedate", "asof", "valuedate", "transactiondate", "validfrom", "dateeffective", "fxdate"])
+        && has(["currency", "sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom", "currencycode", "currencyname", "ccy", "iso", "iso4217"])
+        && has(["rate", "exchangerate", "exchangeratevalue", "fxrate", "conversionrate", "conversionvalue", "closingrate", "midrate", "spotrate", "ratevalue", "value"]);
+    });
+    if (headerIndex < 0) continue;
+    sheetsWithRecognizedColumns += 1;
+    const headers = rows[headerIndex]!.map((value) => String(value ?? "").trim());
+    const keys = headers.map(exchangeRateCsvKey);
+    const column = (names: string[]) => keys.findIndex((key) => names.includes(key));
     const dateColumn = column(["date", "effectivedate", "ratedate", "asof", "valuedate", "transactiondate", "validfrom", "dateeffective", "fxdate"]);
-    const currencyColumn = column(["currency", "sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom", "currencycode", "ccy", "iso", "iso4217"]);
+    const currencyColumn = column(["currency", "sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom", "currencycode", "currencyname", "ccy", "iso", "iso4217"]);
     const functionalCurrencyColumn = column(["functionalcurrency", "tocurrency", "targetcurrency", "currencyto", "quotecurrency", "reportingcurrency"]);
     const rateColumn = column(["rate", "exchangerate", "exchangeratevalue", "fxrate", "conversionrate", "conversionvalue", "closingrate", "midrate", "spotrate", "ratevalue", "value"]);
     const inverseColumn = column(["exchangerateisinverse", "isinverse", "inverse", "inverserate"]);
-    if (!dateColumn || !currencyColumn || !rateColumn) continue;
+    const sourceColumn = column(["source", "ratesource", "provider", "publisher"]);
+    const noteColumn = column(["note", "notes", "comment", "comments", "description"]);
     mapping = {
-      effectiveDate: dateColumn,
-      sourceCurrency: currencyColumn,
-      functionalCurrency: functionalCurrencyColumn ?? null,
-      rate: rateColumn,
-      source: null,
-      note: null,
+      effectiveDate: headers[dateColumn] ?? null,
+      sourceCurrency: headers[currencyColumn] ?? null,
+      functionalCurrency: functionalCurrencyColumn >= 0 ? headers[functionalCurrencyColumn] ?? null : null,
+      rate: headers[rateColumn] ?? null,
+      source: sourceColumn >= 0 ? headers[sourceColumn] ?? null : null,
+      note: noteColumn >= 0 ? headers[noteColumn] ?? null : null,
     };
     let inverseRows = 0;
-    for (const row of rows) {
-      const inverseValue = inverseColumn ? row[inverseColumn] : false;
+    for (const row of rows.slice(headerIndex + 1)) {
+      if (!row.some((value) => String(value ?? "").trim())) continue;
+      const inverseValue = inverseColumn >= 0 ? row[inverseColumn] : false;
       const isInverse = inverseValue === true || /^true$/i.test(String(inverseValue));
       if (isInverse) {
         inverseRows += 1;
         continue;
       }
-      const dateValue = row[dateColumn];
-      const effectiveDate = dateValue instanceof Date
-        ? calendarDate(dateValue)
-        : typeof dateValue === "string"
-          ? exchangeRateCsvDate(dateValue)
-          : null;
+      const effectiveDate = exchangeRateWorkbookDate(row[dateColumn]);
+      const sourceCurrency = normalizeCurrency(String(row[currencyColumn] ?? ""));
+      const functionalCurrency = normalizeCurrency(String(
+        functionalCurrencyColumn >= 0 ? row[functionalCurrencyColumn] ?? "" : defaultFunctionalCurrency ?? "",
+      ));
+      const rate = typeof row[rateColumn] === "number"
+        ? row[rateColumn]
+        : exchangeRateCsvNumber(String(row[rateColumn] ?? ""));
+      const issue = !effectiveDate
+        ? "date values could not be recognized"
+        : !/^[A-Z]{3}$/.test(sourceCurrency)
+          ? "source currency values were not recognized as ISO codes or supported currency names"
+          : !/^[A-Z]{3}$/.test(functionalCurrency)
+            ? "the target currency was missing or unrecognized"
+            : sourceCurrency === functionalCurrency
+              ? "the source and target currencies were the same"
+              : !Number.isFinite(rate) || rate <= 0
+                ? "rate values were missing, zero, negative, or non-numeric"
+                : null;
+      if (issue) {
+        issues.set(issue, (issues.get(issue) ?? 0) + 1);
+        continue;
+      }
       try {
         const normalized = normalizeRateInput({
           effectiveDate: effectiveDate ?? "",
-          sourceCurrency: String(row[currencyColumn] ?? ""),
-          functionalCurrency: String(row[functionalCurrencyColumn ?? ""] ?? defaultFunctionalCurrency ?? ""),
-          rate: typeof row[rateColumn] === "number" ? row[rateColumn] : exchangeRateCsvNumber(String(row[rateColumn] ?? "")),
-          source: `Imported workbook · ${sheetName}`,
-          note: null,
+          sourceCurrency,
+          functionalCurrency,
+          rate,
+          source: sourceColumn >= 0 ? String(row[sourceColumn] ?? "") : `Imported workbook · ${sheetName}`,
+          note: noteColumn >= 0 ? String(row[noteColumn] ?? "") : null,
         });
         const key = `${normalized.sourceCurrency}|${normalized.functionalCurrency}|${normalized.effectiveDate}`;
         if (!uniqueKeys.has(key)) {
           rates.push(normalized);
           uniqueKeys.add(key);
+        } else {
+          issues.set("duplicate currency-pair dates were ignored", (issues.get("duplicate currency-pair dates were ignored") ?? 0) + 1);
         }
       } catch {
-        // Invalid workbook rows are omitted; the preview only exposes rates that passed the same import validation.
+        issues.set("rows failed final exchange-rate validation", (issues.get("rows failed final exchange-rate validation") ?? 0) + 1);
       }
     }
     if (inverseRows) warnings.push(`${inverseRows} inverse-rate row${inverseRows === 1 ? "" : "s"} on "${sheetName}" were skipped because their direction needs review.`);
+  }
+  for (const [issue, count] of issues) {
+    warnings.push(`${count} row${count === 1 ? "" : "s"} skipped because ${issue}.`);
   }
   if (rates.length) {
     warnings.unshift(`Recognized ${rates.length} valid rate${rates.length === 1 ? "" : "s"} directly from the Excel workbook.`);
     if (!mapping.functionalCurrency && defaultFunctionalCurrency) warnings.push(`The workbook omits a target currency, so ${defaultFunctionalCurrency} from the workspace settings was used.`);
   }
-  return { rates, warnings, mapping };
+  const failureReasons = sheetsWithRecognizedColumns === 0
+    ? ["No sheet contained recognizable date, source-currency, and rate headers within its first 25 rows."]
+    : warnings;
+  return { rates, warnings, mapping, failureReasons };
 }
 
 function exchangeRateWorkbookCsv(buffer: Buffer) {
@@ -547,8 +601,33 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
 
+const currencyNameAliases: Record<string, string> = {
+  USDOLLAR: "USD",
+  UNITEDSTATESDOLLAR: "USD",
+  UNITEDSTATESDOLLARS: "USD",
+  AMERICANDOLLAR: "USD",
+  EURO: "EUR",
+  EUROS: "EUR",
+  BRITISHPOUND: "GBP",
+  POUNDSTERLING: "GBP",
+  UNITEDKINGDOMPOUND: "GBP",
+  UAEDIRHAM: "AED",
+  EMIRATIDIRHAM: "AED",
+  UNITEDARABEMIRATESDIRHAM: "AED",
+  SAUDIRIYAL: "SAR",
+  QATARIRIYAL: "QAR",
+  JAPANESEYEN: "JPY",
+  CHINESEYUAN: "CNY",
+  CANADIANDOLLAR: "CAD",
+  AUSTRALIANDOLLAR: "AUD",
+  SWISSFRANC: "CHF",
+  INDIANRUPEE: "INR",
+};
+
 function normalizeCurrency(value: string) {
-  return value.trim().toUpperCase();
+  const normalized = value.trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(normalized)) return normalized;
+  return currencyNameAliases[normalized.replace(/[^A-Z0-9]/g, "")] ?? normalized;
 }
 
 function normalizeRateInput(input: {
@@ -6567,16 +6646,23 @@ router.post("/agaraccounting/system-rates/parse", async (req, res) => {
     );
     if (!workbookPreview.rates.length) {
       return res.status(422).json({
-        error: "No safe exchange-rate rows were found. Include dated source currency, functional currency, and rate columns.",
+        error: `No safe exchange-rate rows were found. ${workbookPreview.failureReasons.join(" ")}`,
       });
     }
-    return res.json(ParseSystemRatesResponse.parse({
+    const response = ParseSystemRatesResponse.parse({
       mapping: workbookPreview.mapping,
       rates: workbookPreview.rates.map((rate) => ({ ...rate, rate: number(rate.rate) })),
       warnings: workbookPreview.warnings,
       unmappedColumns: [],
       confidence: 1,
-    }));
+    });
+    return res.json({
+      ...response,
+      rates: response.rates.map((rate) => ({
+        ...rate,
+        effectiveDate: calendarDate(rate.effectiveDate),
+      })),
+    });
   } catch {
     return res.status(422).json({ error: "This Excel workbook could not be read. Use a workbook with dated currency and rate columns." });
   }

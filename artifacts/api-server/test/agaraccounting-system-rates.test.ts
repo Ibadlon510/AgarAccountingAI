@@ -195,6 +195,52 @@ test("protects and applies the system catalog with traceable fallback precedence
       { sourceCurrency: "CHF", functionalCurrency: "AED", rate: 4.5 },
     ],
   );
+  const namedCurrencySheet = XLSX.utils.aoa_to_sheet([
+    ["Date", "Currency", "Rate"],
+    [new Date("2025-01-01T00:00:00.000Z"), "US Dollar", 3.6725],
+    [new Date("2025-01-02T00:00:00.000Z"), "US Dollar", 3.6725],
+  ]);
+  namedCurrencySheet.A2!.z = "m/d/yy";
+  namedCurrencySheet.A3!.z = "m/d/yy";
+  const namedCurrencyWorkbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(namedCurrencyWorkbook, namedCurrencySheet, "2025 Consolidated");
+  const namedCurrencyPreview = await request<{
+    mapping: { functionalCurrency: string | null };
+    rates: Array<{ sourceCurrency: string; functionalCurrency: string; effectiveDate: string; rate: number }>;
+    warnings: string[];
+  }>("/agaraccounting/system-rates/parse", systemAdminId, {
+    method: "POST",
+    body: JSON.stringify({
+      fileBase64: XLSX.write(namedCurrencyWorkbook, { type: "base64", bookType: "xlsx" }),
+      fileName: "2025_Consolidated_USD_Rates.xlsx",
+    }),
+  });
+  assert.equal(namedCurrencyPreview.response.status, 200);
+  assert.equal(namedCurrencyPreview.body.mapping.functionalCurrency, null);
+  assert.deepEqual(namedCurrencyPreview.body.rates.map((rate) => ({
+    sourceCurrency: rate.sourceCurrency,
+    functionalCurrency: rate.functionalCurrency,
+    effectiveDate: rate.effectiveDate,
+    rate: rate.rate,
+  })), [
+    { sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2025-01-01", rate: 3.6725 },
+    { sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2025-01-02", rate: 3.6725 },
+  ]);
+  assert.match(namedCurrencyPreview.body.warnings.join(" "), /AED/i);
+  const invalidCurrencyWorkbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(invalidCurrencyWorkbook, XLSX.utils.aoa_to_sheet([
+    ["Date", "Currency", "Rate"],
+    ["2025-01-01", "Unknown Credits", 3.6725],
+  ]), "Rates");
+  const invalidCurrencyPreview = await request<{ error: string }>("/agaraccounting/system-rates/parse", systemAdminId, {
+    method: "POST",
+    body: JSON.stringify({
+      fileBase64: XLSX.write(invalidCurrencyWorkbook, { type: "base64", bookType: "xlsx" }),
+      fileName: "invalid-currency-rates.xlsx",
+    }),
+  });
+  assert.equal(invalidCurrencyPreview.response.status, 422);
+  assert.match(invalidCurrencyPreview.body.error, /source currency values were not recognized/i);
   assert.deepEqual((await request<unknown[]>("/agaraccounting/system-rates", systemAdminId)).body, []);
 
   const systemRates = [
