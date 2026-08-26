@@ -29,7 +29,7 @@ class MemoryStorage {
   }
 }
 
-test('clears client and journal data when identities switch in one runtime', () => {
+test('clears cached client data while preserving each user’s last client choice', () => {
   const queryClient = new QueryClient();
   const storage = new MemoryStorage();
   const firstUserId = 'bookkeeper-a';
@@ -49,13 +49,16 @@ test('clears client and journal data when identities switch in one runtime', () 
     firstJournal,
   );
 
-  clearUserScopedState(queryClient, firstUserId, storage);
+  clearUserScopedState(queryClient);
 
   assert.notEqual(
     getActiveWorkspaceStorageKey(firstUserId),
     getActiveWorkspaceStorageKey(secondUserId),
   );
-  assert.equal(storage.getItem(getActiveWorkspaceStorageKey(firstUserId)), null);
+  assert.equal(
+    storage.getItem(getActiveWorkspaceStorageKey(firstUserId)),
+    String(firstClientId),
+  );
   assert.equal(
     storage.getItem(getActiveWorkspaceStorageKey(secondUserId)),
     String(secondClientId),

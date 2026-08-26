@@ -2591,6 +2591,10 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
 
   const workspaceLoadState = getWorkspaceLoadState(orgQuery.isLoading || clientsQuery.isLoading, orgQuery.isError || clientsQuery.isError, clients);
   const storageKey = getActiveWorkspaceStorageKey(user.externalId ?? user.id);
+  const workspaceQueriesReady = !orgQuery.isLoading
+    && !clientsQuery.isLoading
+    && !orgQuery.isFetching
+    && !clientsQuery.isFetching;
   const [activeClientId, setActiveClientId] = useState<number | null>(() => {
     const saved = Number(window.localStorage.getItem(storageKey));
     return Number.isFinite(saved) && saved > 0 ? saved : null;
@@ -2599,6 +2603,7 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
   const [, setLocation] = useLocation();
   const selectedClient = selectWorkspaceForSession(clients, activeClientId, allowLegacyDemoSelection);
   useEffect(() => {
+    if (!workspaceQueriesReady) return;
     if (!clients.length) {
       if (activeClientId !== null) setActiveClientId(null);
       return;
@@ -2608,13 +2613,14 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
       setActiveClientId(selectedClient.id);
     }
     if (selectedClient) window.localStorage.setItem(storageKey, String(selectedClient.id));
-  }, [activeClientId, clients.length, selectedClient, storageKey]);
+  }, [activeClientId, clients.length, selectedClient, storageKey, workspaceQueriesReady]);
 
   const chooseClient = (id: number) => {
     const client = clients.find((candidate) => candidate.id === id);
     if (client) {
       setAllowLegacyDemoSelection(client.legacyDemo);
       setActiveClientId(client.id);
+      window.localStorage.setItem(storageKey, String(client.id));
     }
   };
 
@@ -2646,7 +2652,7 @@ function AuthBoundary() {
 
   useLayoutEffect(() => {
     if (cacheReadyForUserId !== currentUserId) {
-      clearUserScopedState(queryClient, cacheReadyForUserId, window.localStorage);
+      clearUserScopedState(queryClient);
       setCacheReadyForUserId(currentUserId);
     }
   }, [cacheReadyForUserId, currentUserId]);
@@ -2657,7 +2663,7 @@ function AuthBoundary() {
   if (location === "/" && !inviteToken && !orgToken) return <Redirect to="/user-portal" />;
 
   const handleLogout = () => {
-    clearUserScopedState(queryClient, currentUserId, window.localStorage);
+    clearUserScopedState(queryClient);
     void signOut({ redirectUrl: basePath || "/" });
   };
   return <InviteAcceptanceGate><AgarAccountingApp key={currentUserId} user={user} profileUser={user} onLogout={handleLogout} /></InviteAcceptanceGate>;

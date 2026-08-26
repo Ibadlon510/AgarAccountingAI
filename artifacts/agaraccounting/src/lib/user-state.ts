@@ -1,10 +1,6 @@
 export const getActiveWorkspaceStorageKey = (userId: string) =>
   `agaraccounting-active-client-id:${userId}`;
 
-export interface UserStateStorage {
-  removeItem: (key: string) => void;
-}
-
 export interface UserStateCache {
   clear: () => void;
 }
@@ -30,13 +26,8 @@ export function selectWorkspaceForSession<T extends WorkspaceSelection>(
 
 export function clearUserScopedState(
   cache: UserStateCache,
-  previousUserId: string | null,
-  storage: UserStateStorage,
 ) {
   cache.clear();
-  if (previousUserId) {
-    storage.removeItem(getActiveWorkspaceStorageKey(previousUserId));
-  }
 }
 
 export function requiresWorkspaceOnboarding<T extends WorkspaceSelection & { workspaceState: WorkspaceState }>(
