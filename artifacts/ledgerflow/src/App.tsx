@@ -750,7 +750,7 @@ function FirmSettingsPage() {
 function stripBase(path: string): string {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || "/" : path;
 }
-type LedgerFlowUser = {
+type AgarAccountingUser = {
   id: string;
   externalId?: string | null;
   primaryEmailAddress?: { emailAddress: string } | null;
@@ -897,7 +897,7 @@ function HelpDialog({ onClose }: { onClose: () => void }) {
 function AuthLoadingState({ label = 'Checking your AgarAccounting AI System session' }: { label?: string }) {
   return <div className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="flex items-center gap-3 rounded-lg border border-card-border bg-card px-5 py-4 text-sm shadow-sm" role="status" aria-live="polite"><LoaderCircle className="animate-spin text-primary" size={18} /><span>{label}…</span></div></div>;
 }
-function Shell({ children, user, onLogout }: { children: React.ReactNode; user: LedgerFlowUser; onLogout: () => void }) {
+function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AgarAccountingUser; onLogout: () => void }) {
   const { activeClient, clients, setActiveClientId } = useClientWorkspace();
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -1594,7 +1594,7 @@ function exportTrialBalance(rows: Array<{ account: string; category: string; deb
     ['Account', 'Category', 'Debit', 'Credit', 'Balance'],
     ...rows.map((row) => [row.account, row.category, row.debit.toFixed(2), row.credit.toFixed(2), row.balance.toFixed(2)]),
   ].map((row) => row.map(escape).join(',')).join('\r\n');
-  const fileName = `${clientName.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-').replaceAll(/(^-|-$)/g, '') || 'ledgerflow'}-trial-balance.csv`;
+  const fileName = `${clientName.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-').replaceAll(/(^-|-$)/g, '') || 'agaraccounting-ai'}-trial-balance.csv`;
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const link = document.createElement('a');
   link.href = url;
@@ -1892,7 +1892,7 @@ function CompanyOnboarding({ user, onComplete, onLogout }: { user: CompanyOnboar
     {(validationMessage || error) && <div data-testid="onboarding-error" className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive sm:col-span-2"><CircleAlert className="mt-0.5 shrink-0" size={14} /><span>{validationMessage || 'Account setup could not be saved. Check the details and try again.'}</span></div>}<div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] leading-5 text-muted-foreground"></p><button data-testid="button-submit-onboarding" disabled={pending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">{pending ? <><LoaderCircle size={14} className="animate-spin" /> Saving account…</> : <><Check size={14} /> Save and open workspace</>}</button></div></form></section></div></main>;
 }
 
-function LedgerFlowApp({ user, profileUser, onLogout }: { user: LedgerFlowUser; profileUser: CompanyOnboardingUser; onLogout: () => void }) {
+function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccountingUser; profileUser: CompanyOnboardingUser; onLogout: () => void }) {
   const orgQuery = useGetOrganizationContext({ query: { queryKey: getGetOrganizationContextQueryKey() } });
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   
@@ -1970,7 +1970,7 @@ function AuthBoundary() {
     clearUserScopedState(queryClient, currentUserId, window.localStorage);
     void signOut({ redirectUrl: basePath || "/" });
   };
-  return <InviteAcceptanceGate><LedgerFlowApp key={currentUserId} user={user} profileUser={user} onLogout={handleLogout} /></InviteAcceptanceGate>;
+  return <InviteAcceptanceGate><AgarAccountingApp key={currentUserId} user={user} profileUser={user} onLogout={handleLogout} /></InviteAcceptanceGate>;
 }
 
 function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {

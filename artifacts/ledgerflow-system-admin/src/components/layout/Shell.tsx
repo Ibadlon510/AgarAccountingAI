@@ -15,7 +15,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <aside className="w-64 border-r bg-sidebar shrink-0 flex flex-col">
         <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
           <div className="font-bold text-lg tracking-tight text-sidebar-foreground">
-            LedgerFlow<span className="text-primary ml-1">Admin</span>
+            AgarAccounting AI<span className="text-primary ml-1">Admin</span>
           </div>
         </div>
         <nav className="flex-1 p-4 space-y-1">

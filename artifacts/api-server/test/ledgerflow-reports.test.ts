@@ -14,10 +14,10 @@ let clientId: number | undefined;
 
 function testDatabaseUrl() {
   const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
-  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for LedgerFlow integration tests.");
+  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
-    throw new Error("The LedgerFlow integration test database name must contain 'test'.");
+    throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
   }
   return value;
 }

@@ -4,7 +4,7 @@ const testDatabaseNamePattern = /(^|[_-])test(?:[_-]|$)/i;
 
 function testDatabaseTarget() {
   const source = process.env.DATABASE_URL;
-  if (!source) throw new Error("DATABASE_URL is required to provision the LedgerFlow integration test database.");
+  if (!source) throw new Error("DATABASE_URL is required to provision the AgarAccounting AI System integration test database.");
 
   const sourceUrl = new URL(source);
   const sourceDatabaseName = decodeURIComponent(sourceUrl.pathname).replace(/^\/+/, "");
@@ -14,7 +14,7 @@ function testDatabaseTarget() {
     ? sourceDatabaseName
     : `${sourceDatabaseName.replace(/[^a-z0-9_]/gi, "_")}_test`;
   if (!testDatabaseNamePattern.test(testDatabaseName)) {
-    throw new Error("The LedgerFlow integration test database name must contain 'test'.");
+    throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
   }
 
   sourceUrl.pathname = `/${encodeURIComponent(testDatabaseName)}`;

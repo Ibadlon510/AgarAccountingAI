@@ -184,7 +184,7 @@ import {
 import { buildReportPdf } from "../lib/reportPdf";
 
 const router: IRouter = Router();
-type LedgerflowTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type AccountingTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
@@ -778,7 +778,7 @@ function reportingPeriodEnd(period?: string) {
 }
 
 async function recordJournalTransitionAudit(
-  tx: LedgerflowTransaction,
+  tx: AccountingTransaction,
   req: Request,
   input: {
     clientId: number;
@@ -1484,7 +1484,7 @@ export async function ensureUserWorkspace(userId: string) {
       basis: "IFRS",
       period: "August 2026",
     }).returning();
-    await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "admin" });
+    await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "owner" });
     await tx.update(usersTable)
       .set({
         starterClientId: client.id,
@@ -1495,7 +1495,7 @@ export async function ensureUserWorkspace(userId: string) {
 }
 
 async function isUntouchedLegacyDemoWorkspace(
-  tx: LedgerflowTransaction,
+  tx: AccountingTransaction,
   userId: string,
   clientId: number,
 ) {
@@ -1809,7 +1809,7 @@ async function ensureSuggestedAccounts() {
   }
 }
 
-async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
+async function createSuggestedEntry(tx: AccountingTransaction, line: {
   id: number;
   clientId: number;
   date: string;
@@ -1847,7 +1847,7 @@ async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
 }
 
 async function createStatementLineAndJournal(
-  tx: LedgerflowTransaction,
+  tx: AccountingTransaction,
   draft: typeof statementLinesTable.$inferInsert,
   options?: { ignoreExistingImportDedupeKey?: boolean },
 ) {
@@ -4108,7 +4108,7 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
       const [starter] = starterId ? await tx.select().from(clientsTable).where(eq(clientsTable.id, starterId)).limit(1) : [];
       if (starter && isPlaceholderStarterWorkspace(starter)) {
         await tx.update(clientsTable).set({ name: body.companyName!.trim(), legalName: body.companyLegalName!.trim(), ownerUserId: userId, firmId: null, ownershipStatus: "company_owned", subscriptionLiableParty: "company", functionalCurrency: body.functionalCurrency ?? starter.functionalCurrency, basis: body.basis ?? starter.basis, period: body.period ?? starter.period }).where(eq(clientsTable.id, starter.id));
-        await tx.insert(clientWorkspacesTable).values({ clientId: starter.id, userId, role: "admin" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "admin" } });
+        await tx.insert(clientWorkspacesTable).values({ clientId: starter.id, userId, role: "owner" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "owner" } });
       }
     }
     if (body.mode === "firm" || body.mode === "both") {
@@ -4186,7 +4186,7 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
       const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, invite.clientId)).for("update");
       if (!client || client.ownershipStatus !== "firm_provisional" || client.firmId !== invite.firmId) return "transfer" as const;
       await tx.update(clientsTable).set({ ownerUserId: userId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", transferredAt: new Date() }).where(eq(clientsTable.id, client.id));
-      await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "admin" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "admin" } });
+      await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "owner" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "owner" } });
       await tx.update(firmCompanyEngagementsTable).set({ status: "active", acceptedByUserId: userId, acceptedAt: new Date() }).where(and(eq(firmCompanyEngagementsTable.firmId, invite.firmId), eq(firmCompanyEngagementsTable.clientId, client.id)));
     }
     await tx.update(organizationInvitationsTable).set({ status: "accepted", acceptedUserId: userId }).where(eq(organizationInvitationsTable.id, invite.id));
@@ -4317,7 +4317,7 @@ router.post("/clients", async (req, res) => {
         period: body.period || "August 2026",
       })
       .returning();
-    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: actorUserId, role: "admin" });
+    await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: actorUserId, role: creationMode === "own_company" ? "owner" : "admin" });
     if (firm) await tx.insert(firmCompanyEngagementsTable).values({
       firmId: firm.id, clientId: created.id, status: "provisional", invitedByUserId: actorUserId,
     });

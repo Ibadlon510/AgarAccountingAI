@@ -22,4 +22,4 @@
 - [Managed AI cost estimates](managed-ai-cost-estimates.md) — never invent a local Replit-managed model price; distinguish no activity, missing metadata, and Replit-tracked billing.
 - [Release test isolation](release-test-isolation.md) — reset the dedicated test schema per run and close local HTTP connections so append-only evidence cannot contaminate or stall CI.
 - [Generated Zod constraint ordering](generated-zod-constraint-ordering.md) — repeated constrained schemas can emit constants after first use; validate at the server boundary when this occurs.
-- [System-admin entitlement bootstrap](system-admin-entitlement-bootstrap.md) — production system-rate admins are bootstrapped from a production-only verified-email allowlist on authenticated access.
+- [System-admin entitlement bootstrap](system-admin-entitlement-bootstrap.md) — bootstrap may add missing access, but sign-in must never reactivate a revoked administrator.

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "brand:audit": "tsx ./src/brand-audit.ts",
     "test:clerk-smoke": "tsx ./src/clerk-auth-smoke.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

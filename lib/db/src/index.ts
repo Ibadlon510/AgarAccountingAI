@@ -133,7 +133,7 @@ export async function ensureLedgerflowIntegrity() {
     }
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `LedgerFlow database integrity bootstrap failed before the API could accept traffic. Verify that ledgerflow_statement_imports has at most one completed row for each client and file hash, then rerun the release. ${detail}`,
+      `AgarAccounting AI database integrity bootstrap failed before the API could accept traffic. Verify that ledgerflow_statement_imports has at most one completed row for each client and file hash, then rerun the release. ${detail}`,
       { cause: error },
     );
   } finally {

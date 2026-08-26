@@ -1,6 +1,6 @@
-# LedgerFlow
+# AgarAccounting AI System
 
-LedgerFlow is an AI-assisted bookkeeping workspace that takes multi-currency bank activity through journal-entry review to core financial statements.
+AgarAccounting AI System is an AI-assisted bookkeeping workspace that takes multi-currency bank activity through journal-entry review to core financial statements.
 
 ## Run & Operate
 
@@ -27,7 +27,7 @@ LedgerFlow is an AI-assisted bookkeeping workspace that takes multi-currency ban
 - `lib/api-spec/openapi.yaml` — API contract and generated client source.
 - `lib/db/src/schema/` — PostgreSQL schema for statement lines and journal entries.
 - `artifacts/api-server/src/routes/ledgerflow.ts` — workflow API, seeded demo data, and report outputs.
-- `artifacts/ledgerflow/src/App.tsx` — LedgerFlow user interface and route shell.
+- `artifacts/ledgerflow/src/App.tsx` — AgarAccounting AI System user interface and route shell.
 - `artifacts/ledgerflow/src/index.css` — product theme and visual tokens.
 
 ## Architecture decisions
@@ -48,7 +48,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- AgarAccounting AI System keeps compatibility-sensitive technical identifiers such as `/api/ledgerflow`, `@workspace/ledgerflow`, and `LEDGERFLOW_*`; do not rename them for cosmetic reasons.
 
 ## Pointers
 

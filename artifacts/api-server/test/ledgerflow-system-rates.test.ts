@@ -18,10 +18,10 @@ const firmIds: number[] = [];
 
 function testDatabaseUrl() {
   const value = process.env.LEDGERFLOW_TEST_DATABASE_URL;
-  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for LedgerFlow integration tests.");
+  if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for AgarAccounting AI System integration tests.");
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
-    throw new Error("The LedgerFlow integration test database name must contain 'test'.");
+    throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
   }
   return value;
 }
@@ -71,6 +71,10 @@ after(async () => {
         .where(inArray(database.systemRatesTable.createdByUserId, userIds));
       await database.db.delete(database.systemRateAdminsTable)
         .where(inArray(database.systemRateAdminsTable.userId, userIds));
+      const ownedClients = await database.db.select({ id: database.clientsTable.id })
+        .from(database.clientsTable)
+        .where(inArray(database.clientsTable.ownerUserId, userIds));
+      clientIds.push(...ownedClients.map(({ id }) => id));
       if (clientIds.length) {
         await database.db.delete(database.journalEntriesTable)
           .where(inArray(database.journalEntriesTable.clientId, clientIds));
@@ -268,7 +272,7 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.doesNotMatch(JSON.stringify(dashboard.body), /functionalAmount|amount/i);
 });
 
-test("bootstraps the configured verified-email account as a system administrator", async () => {
+test("bootstraps a configured verified email once without bypassing later revocation", async () => {
   assert.ok(database);
   const email = `system-admin-${randomUUID()}@example.com`;
   await database.db.insert(database.usersTable).values({ id: bootstrapAdminId, email });
@@ -279,6 +283,16 @@ test("bootstraps the configured verified-email account as a system administrator
     const [entitlement] = await database.db.select().from(database.systemRateAdminsTable)
       .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
     assert.equal(entitlement.status, "active");
+    const revokedAt = new Date();
+    await database.db.update(database.systemRateAdminsTable)
+      .set({ status: "revoked", revokedAt })
+      .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
+    const deniedAfterRevocation = await request<{ error: string }>("/ledgerflow/system-rates", bootstrapAdminId);
+    assert.equal(deniedAfterRevocation.response.status, 403);
+    const [stillRevoked] = await database.db.select().from(database.systemRateAdminsTable)
+      .where(eq(database.systemRateAdminsTable.userId, bootstrapAdminId));
+    assert.equal(stillRevoked.status, "revoked");
+    assert.equal(stillRevoked.revokedAt?.getTime(), revokedAt.getTime());
     const ownedClients = await database.db.select({ id: database.clientsTable.id }).from(database.clientsTable)
       .where(eq(database.clientsTable.ownerUserId, bootstrapAdminId));
     clientIds.push(...ownedClients.map(({ id }) => id));

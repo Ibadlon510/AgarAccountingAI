@@ -22,7 +22,7 @@ function testDatabaseUrl() {
   if (!value) throw new Error("LEDGERFLOW_TEST_DATABASE_URL is required for report-pack integration tests.");
   const databaseName = decodeURIComponent(new URL(value).pathname).replace(/^\/+/, "");
   if (!/(^|[_-])test(?:[_-]|$)/i.test(databaseName)) {
-    throw new Error("The LedgerFlow integration test database name must contain 'test'.");
+    throw new Error("The AgarAccounting AI System integration test database name must contain 'test'.");
   }
   return value;
 }

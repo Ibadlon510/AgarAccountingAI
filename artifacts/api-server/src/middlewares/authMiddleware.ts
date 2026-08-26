@@ -31,12 +31,8 @@ async function bootstrapSystemRateAdmin(dbUser: DbUser) {
   await db.insert(systemRateAdminsTable).values({
     userId: dbUser.id,
     status: "active",
-  }).onConflictDoUpdate({
+  }).onConflictDoNothing({
     target: systemRateAdminsTable.userId,
-    set: {
-      status: "active",
-      revokedAt: null,
-    },
   });
 }
 

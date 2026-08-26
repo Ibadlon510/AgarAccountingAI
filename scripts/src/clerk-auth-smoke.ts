@@ -13,7 +13,7 @@ if (typeof baseUrl !== "string" || typeof clerkSecretKey !== "string" || typeof 
 const requiredPassword = smokePassword;
 
 const clerkApiUrl = "https://api.clerk.com/v1";
-const email = `ledgerflow-smoke-${Date.now()}@example.com`;
+const email = `agaraccounting-smoke-${Date.now()}@example.com`;
 let userId: string | undefined;
 let browser: Browser | undefined;
 let context: BrowserContext | undefined;
@@ -35,7 +35,7 @@ async function createSmokeUser(): Promise<string> {
     body: JSON.stringify({
       email_address: [email],
       password: requiredPassword,
-      first_name: "LedgerFlow",
+      first_name: "AgarAccounting",
       last_name: "Smoke",
       skip_password_checks: true,
       skip_password_requirement: false,

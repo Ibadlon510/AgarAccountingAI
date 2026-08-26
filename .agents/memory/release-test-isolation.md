@@ -7,4 +7,4 @@ Every API release-test run must start with a fresh, dedicated test schema, and t
 
 **Why:** LedgerFlow's transition-audit records are intentionally append-only, so ordinary relational cleanup can leave records behind or fail. Retained HTTP keep-alive connections can also prevent a test process from exiting even after all assertions pass.
 
-**How to apply:** Provision only a database whose name is explicitly recognized as a test database, reset its schema before migrations, and keep API tests serial. In test teardown, always close active server connections and pools; do not weaken audit immutability merely to make cleanup succeed.
+**How to apply:** Hold the workspace-wide API CI lock across schema reset, migrations, and tests so concurrent task validations cannot drop each other's tables. Provision only a database whose name is explicitly recognized as a test database, keep API tests serial, and close active server connections and pools during teardown.

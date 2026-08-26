@@ -1,10 +1,10 @@
 ---
 name: System-admin entitlement bootstrap
-description: Why production system-rate administrator access is activated through a verified-email bootstrap allowlist.
+description: The authorization boundary between initial system-admin bootstrap and explicit revocation.
 ---
 
-Production system-rate administrator access may be bootstrapped from a production-only email allowlist. A matching account is granted or reactivated only after an authenticated request supplies its verified identity; normal authorization still depends on the persisted entitlement row.
+An allowlisted identity may create a missing system-administrator entitlement, but authenticated access must never reactivate an existing revoked entitlement.
 
-**Why:** Production database access available to agents is read-only, while system administration must remain separate from ordinary workspace roles. The bootstrap creates the explicit entitlement through the application without hardcoding an individual identity in source or weakening the authorization check.
+**Why:** Revocation must remain authoritative. A login-time upsert that resets status would let a revoked administrator regain global access merely by signing in again.
 
-**How to apply:** Keep the allowlist production-specific and limited to intended administrators. Removing an address does not revoke an already persisted entitlement; revocation must update the entitlement status separately.
+**How to apply:** Insert only when no entitlement exists and leave conflicts untouched. Reactivation requires a separate explicit administrative action. Keep allowlist values in environment secrets or deployment configuration, never tracked source.

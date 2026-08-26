@@ -31,6 +31,6 @@ async function start() {
 }
 
 void start().catch((err) => {
-  logger.error({ err }, "Could not install LedgerFlow integrity protections");
+  logger.error({ err }, "Could not install AgarAccounting AI integrity protections");
   process.exit(1);
 });
