@@ -7067,7 +7067,14 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     }
   }
 
-  const result = await db.transaction(async (tx) => {
+  let result:
+    | { kind: "not_found" }
+    | { kind: "locked" }
+    | { kind: "invalid_disposition" }
+    | { kind: "invalid_proposal" }
+    | { kind: "updated"; line: typeof statementLinesTable.$inferSelect };
+  try {
+    result = await db.transaction(async (tx) => {
     const [line] = await tx.select().from(statementLinesTable).where(and(
       eq(statementLinesTable.id, id),
       eq(statementLinesTable.clientId, client.id),
@@ -7162,8 +7169,18 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
       eq(journalEntriesTable.clientId, client.id),
       eq(journalEntriesTable.status, "suggested"),
     ));
-    return { kind: "updated" as const, line: updatedLine };
-  });
+    const materialized = body.contactId == null && contactReviewDisposition === "accepted"
+      ? await materializeProposedContact(tx, updatedLine, entry)
+      : { line: updatedLine };
+    return { kind: "updated" as const, line: materialized.line };
+    });
+  } catch (error) {
+    if (error instanceof ContactMaterializationError) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    throw error;
+  }
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Statement line not found for this client." });
     return;

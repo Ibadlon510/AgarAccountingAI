@@ -2268,7 +2268,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
            </div>
            {hasTemporaryProposal && <div data-testid={`contact-proposal-editor-${line.id}`} className="mt-3 rounded-md border border-accent/25 bg-accent/5 p-3">
              <div className="flex flex-wrap items-start justify-between gap-2">
-               <div><div className="text-[11px] font-semibold">Temporary contact proposal</div><p className="mt-1 text-[10px] text-muted-foreground">Review these client-scoped details. Approval creates nothing; posting creates or reuses the matching profile.</p></div>
+                <div><div className="text-[11px] font-semibold">Suggested contact profile</div><p className="mt-1 text-[10px] text-muted-foreground">Review these client-scoped details. Accepting creates and links the profile; posting remains a separate accounting action.</p></div>
                <span className="rounded-full bg-accent/15 px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] text-accent-foreground">{line.contactReviewDisposition === 'accepted' ? 'Accepted for posting' : 'Review pending'}</span>
              </div>
              <div className="mt-3 grid gap-2 md:grid-cols-3">
@@ -2278,7 +2278,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
              </div>
              {canEditContact && <div className="mt-3 flex flex-wrap gap-2">
                <button data-testid={`button-save-contact-proposal-${line.id}`} onClick={() => reviewProposal('pending')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[10px] font-semibold text-primary disabled:opacity-50">Save edits</button>
-               <button data-testid={`button-accept-contact-proposal-${line.id}`} onClick={() => reviewProposal('accepted')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground disabled:opacity-50">Accept for posting</button>
+                <button data-testid={`button-accept-contact-proposal-${line.id}`} onClick={() => reviewProposal('accepted')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground disabled:opacity-50">Accept & create profile</button>
                <button data-testid={`button-dismiss-contact-proposal-${line.id}`} onClick={() => reviewProposal('dismissed')} disabled={linkContact.isPending} className="rounded-md border border-border px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground disabled:opacity-50">Keep unlinked</button>
              </div>}
            </div>}
