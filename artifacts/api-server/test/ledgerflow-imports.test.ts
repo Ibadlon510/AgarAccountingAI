@@ -1062,6 +1062,59 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(postingConfirmation.body.updatedLineCount, 2);
 });
 
+test("filters statement lines by receipts or payments with client, currency, and status scopes", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Statement direction filters ${randomUUID()}`);
+  const lines = [
+    { description: "Direction receipt AED", currency: "AED", amount: 100, direction: "inflow" },
+    { description: "Direction payment AED", currency: "AED", amount: 200, direction: "outflow" },
+    { description: "Direction payment USD", currency: "USD", amount: 300, direction: "outflow" },
+    { description: "Direction receipt USD", currency: "USD", amount: 400, direction: "inflow" },
+  ];
+  for (const line of lines) {
+    const created = await request<{ id: number }>("/ledgerflow/statement-lines", {
+      method: "POST",
+      body: JSON.stringify({ clientId, date: "2026-08-26", ...line }),
+    });
+    assert.equal(created.response.status, 201);
+  }
+
+  const receipts = await request<Array<{ description: string; direction: string }>>(
+    `/ledgerflow/statement-lines?clientId=${clientId}&direction=inflow`,
+  );
+  assert.deepEqual(receipts.body.map((line) => line.description), [
+    "Direction receipt AED",
+    "Direction receipt USD",
+  ]);
+  assert.ok(receipts.body.every((line) => line.direction === "inflow"));
+
+  const payments = await request<Array<{ description: string; direction: string }>>(
+    `/ledgerflow/statement-lines?clientId=${clientId}&direction=outflow`,
+  );
+  assert.deepEqual(payments.body.map((line) => line.description), [
+    "Direction payment AED",
+    "Direction payment USD",
+  ]);
+  assert.ok(payments.body.every((line) => line.direction === "outflow"));
+
+  const combined = await request<Array<{ description: string; currency: string; status: string }>>(
+    `/ledgerflow/statement-lines?clientId=${clientId}&direction=outflow&currency=USD&status=needs_review`,
+  );
+  assert.deepEqual(combined.body.map((line) => line.description), ["Direction payment USD"]);
+  assert.ok(combined.body.every((line) => line.currency === "USD" && line.status === "needs_review"));
+
+  const empty = await request<unknown[]>(
+    `/ledgerflow/statement-lines?clientId=${clientId}&direction=inflow&currency=GBP`,
+  );
+  assert.deepEqual(empty.body, []);
+
+  const invalid = await fetch(
+    `${baseUrl}/ledgerflow/statement-lines?clientId=${clientId}&direction=refund`,
+    { headers: { "x-test-user-id": primaryUserId } },
+  );
+  assert.equal(invalid.status, 400);
+});
+
 test("resends a pending invitation with its approved scope and invalidates the earlier link", async () => {
   const suffix = randomUUID();
   const client = await request<{ id: number; name: string }>("/clients", {

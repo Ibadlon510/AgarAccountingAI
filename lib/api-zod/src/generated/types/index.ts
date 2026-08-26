@@ -75,6 +75,7 @@ export * from './getLedgerflowAISettingsParams';
 export * from './getLedgerOverviewParams';
 export * from './getReportPacksParams';
 export * from './getStatementImportsParams';
+export * from './getStatementLinesDirection';
 export * from './getStatementLinesParams';
 export * from './getTrialBalanceParams';
 export * from './getUploadedFilesParams';

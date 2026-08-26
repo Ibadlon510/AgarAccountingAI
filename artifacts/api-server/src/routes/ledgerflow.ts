@@ -5224,7 +5224,9 @@ router.get("/ledgerflow/overview", async (req, res) => {
 });
 
 router.get("/ledgerflow/statement-lines", async (req, res) => {
-  const parsed = GetStatementLinesQueryParams.parse(req.query);
+  const result = GetStatementLinesQueryParams.safeParse(req.query);
+  if (!result.success) return res.status(400).json({ error: "Statement line filters are invalid." });
+  const parsed = result.data;
   const client = await requireOwnedClient(req, res, parsed.clientId);
   if (!client) return;
   const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
@@ -5232,8 +5234,9 @@ router.get("/ledgerflow/statement-lines", async (req, res) => {
     eq(statementLinesTable.clientId, client.id),
     parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
     parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
+    parsed.direction ? eq(statementLinesTable.direction, parsed.direction) : undefined,
   )).orderBy(asc(statementLinesTable.date));
-  res.json(GetStatementLinesResponse.parse(lines.map((line) => statementLineResponse(line, workspacePatterns))));
+  return res.json(GetStatementLinesResponse.parse(lines.map((line) => statementLineResponse(line, workspacePatterns))));
 });
 
 router.post("/ledgerflow/statement-lines", async (req, res) => {

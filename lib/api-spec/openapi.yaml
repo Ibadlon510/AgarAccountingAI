@@ -834,6 +834,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: direction
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [inflow, outflow]
       responses:
         "200":
           description: Bank statement lines

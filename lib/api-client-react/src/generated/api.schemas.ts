@@ -1528,8 +1528,10 @@ export type GetStatementLinesParams = {
 clientId?: number;
 currency?: string;
 status?: string;
+direction?: GetStatementLinesDirection;
 };
 
+export type GetStatementLinesDirection = typeof GetStatementLinesDirection[keyof typeof GetStatementLinesDirection];
 export type GetStatementImportsParams = {
 clientId: number;
 };
@@ -1563,3 +1565,8 @@ export type GetReportPacksParams = {
 clientId: number;
 };
 
+
+export const GetStatementLinesDirection = {
+  inflow: 'inflow',
+  outflow: 'outflow',
+} as const;

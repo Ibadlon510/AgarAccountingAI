@@ -5,9 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GetStatementLinesDirection } from './getStatementLinesDirection';
 
 export type GetStatementLinesParams = {
 clientId?: number;
 currency?: string;
 status?: string;
+direction?: GetStatementLinesDirection;
 };

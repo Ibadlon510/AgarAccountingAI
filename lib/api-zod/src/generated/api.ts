@@ -27,8 +27,6 @@ export const GetCurrentAuthUserResponse = zod.object({
  */
 
 
-
-
 export const UpdateLedgerflowAccountProfileBody = zod.object({
   "firstName": zod.string().min(1),
   "lastName": zod.string().min(1)
@@ -55,8 +53,6 @@ export const GetFirmProfileResponse = zod.object({
 /**
  * @summary Update the bookkeeping firm's shared identity
  */
-
-
 
 
 export const UpdateFirmProfileBody = zod.object({
@@ -146,8 +142,6 @@ export const GetOrganizationContextResponse = zod.object({
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
-
-
 
 
 export const CompleteOrganizationOnboardingBody = zod.object({
@@ -519,11 +513,6 @@ export const LogoutBrowserSessionResponse = zod.void()
  */
 
 
-
-
-
-
-
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -678,8 +667,6 @@ export const UpdateWorkspaceMemberParams = zod.object({
 })
 
 
-
-
 export const UpdateWorkspaceMemberBody = zod.object({
   "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
   "clientIds": zod.array(zod.number()).min(1)
@@ -716,7 +703,6 @@ export const createWorkspaceInvitationBodyEmailMin = 3;
 
 
 export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
-
 
 
 export const CreateWorkspaceInvitationBody = zod.object({
@@ -899,7 +885,6 @@ export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 export const getExchangeRatesResponseRateExclusiveMin = 0;
 
 
-
 export const GetExchangeRatesResponseItem = zod.object({
   "id": zod.number(),
   "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
@@ -929,7 +914,6 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
 
-
 export const CreateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
@@ -946,7 +930,6 @@ export const createExchangeRateResponseFunctionalCurrencyMin = 3;
 export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
-
 
 
 export const CreateExchangeRateResponse = zod.object({
@@ -976,7 +959,6 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
 
-
 export const UpdateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
@@ -993,7 +975,6 @@ export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
 export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
-
 
 
 export const UpdateExchangeRateResponse = zod.object({
@@ -1034,8 +1015,6 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
 
-
-
 export const ImportExchangeRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
@@ -1054,7 +1033,6 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
-
 
 
 export const ImportExchangeRatesResponse = zod.object({
@@ -1080,7 +1058,6 @@ export const parseExchangeRatesBodyContentMax = 120000;
 export const parseExchangeRatesBodyFileBase64Max = 20000000;
 
 
-
 export const ParseExchangeRatesBody = zod.object({
   "clientId": zod.number(),
   "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
@@ -1098,7 +1075,6 @@ export const parseExchangeRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseExchangeRatesResponseConfidenceMin = 0;
 export const parseExchangeRatesResponseConfidenceMax = 1;
-
 
 
 export const ParseExchangeRatesResponse = zod.object({
@@ -1238,7 +1214,6 @@ export const DeleteSystemRateResponse = zod.void()
  */
 
 
-
 export const ImportSystemRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string(),
@@ -1295,7 +1270,6 @@ export const parseSystemRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseSystemRatesResponseConfidenceMin = 0;
 export const parseSystemRatesResponseConfidenceMax = 1;
-
 
 
 export const ParseSystemRatesResponse = zod.object({
@@ -1378,7 +1352,6 @@ export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
 
 
-
 export const CreateBankAccountBody = zod.object({
   "clientId": zod.number(),
   "name": zod.string().min(1),
@@ -1403,7 +1376,8 @@ export const CreateBankAccountResponse = zod.object({
 export const GetStatementLinesQueryParams = zod.object({
   "clientId": zod.coerce.number().optional(),
   "currency": zod.coerce.string().optional(),
-  "status": zod.coerce.string().optional()
+  "status": zod.coerce.string().optional(),
+  "direction": zod.enum(['inflow', 'outflow']).optional()
 })
 
 export const GetStatementLinesResponseItem = zod.object({
@@ -1683,7 +1657,6 @@ export const GetLedgerflowAISettingsResponse = zod.object({
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
-
 
 
 export const UpdateLedgerflowAISettingsBody = zod.object({
@@ -2065,7 +2038,6 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
  */
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
-
 
 
 export const CreateReportPackBody = zod.object({
@@ -2497,5 +2469,4 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
-
 
