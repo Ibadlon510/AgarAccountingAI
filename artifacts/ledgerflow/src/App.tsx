@@ -29,6 +29,7 @@ import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { useUpload } from '@workspace/object-storage-web';
 import { clearUserScopedState, getActiveWorkspaceStorageKey, getWorkspaceLoadState, requiresWorkspaceOnboarding, selectWorkspaceForSession } from './lib/user-state';
+import { appendUniqueStatementFiles, findNextStatementQueueIndex, type StatementImportQueueItem } from './lib/statement-import-queue';
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const brandMarkUrl = `${basePath}/mark.svg`;
@@ -1024,21 +1025,43 @@ function ImportStatementPage() {
   const { activeClient } = useClientWorkspace();
   const importMutation = useImportStatement();
   const { uploadFile, isUploading } = useUpload();
-  const [file, setFile] = useState<File | null>(null);
+  const [queue, setQueue] = useState<StatementImportQueueItem<File, StatementImportResult>[]>([]);
   const [preview, setPreview] = useState<{ fileName: string; mimeType: string; objectPath: string; result: StatementImportResult } | null>(null);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [selectedCurrency, setSelectedCurrency] = useState('');
-  const [completed, setCompleted] = useState<StatementImportResult | null>(null);
   const [message, setMessage] = useState('');
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
 
-  const previewStatement = async () => {
-    if (!file || !activeClient) return;
-    if (file.size > MAX_IMPORT_FILE_SIZE) {
-      setMessage('Statement file is too large. Please choose a file no larger than 50 MB.');
+  const addFiles = (selectedFiles: File[]) => {
+    if (!selectedFiles.length) return;
+    setQueue((current) => appendUniqueStatementFiles(current, selectedFiles));
+    setMessage('');
+  };
+
+  function continueQueue(currentIndex: number) {
+    const nextIndex = findNextStatementQueueIndex(queue, currentIndex);
+    if (nextIndex < 0) {
+      setIsProcessingQueue(false);
       return;
     }
+    window.setTimeout(() => {
+      void analyzeQueueItem(nextIndex);
+    }, 0);
+  }
+
+  async function analyzeQueueItem(index: number) {
+    const item = queue[index];
+    if (!item || !activeClient) return;
+    const file = item.file;
+    setIsProcessingQueue(true);
     setMessage('');
-    setCompleted(null);
+    setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
+      ? { ...entry, status: 'analyzing', message: undefined }
+      : entry));
     try {
+      if (file.size > MAX_IMPORT_FILE_SIZE) {
+        throw new Error('Statement file is too large. Please choose a file no larger than 50 MB.');
+      }
       const uploaded = await uploadFile(file, { clientId: activeClient.id });
       if (!uploaded) throw new Error('The private statement upload did not complete. Please try again.');
       const result = await importMutation.mutateAsync({
@@ -1051,19 +1074,38 @@ function ImportStatementPage() {
         },
       });
       if (result.importStatus !== 'preview') {
-        setCompleted(result);
+        setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
+          ? { ...entry, status: 'loaded', message: result.message ?? 'This statement was not loaded again.', result }
+          : entry));
         setMessage(result.message ?? 'This statement was not loaded again.');
+        continueQueue(index);
         return;
       }
       setSelectedCurrency(result.detectedCurrency ?? activeClient.functionalCurrency);
       setPreview({ fileName: file.name, mimeType: file.type || 'application/octet-stream', objectPath: uploaded.objectPath, result });
+      setPreviewIndex(index);
+      setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
+        ? { ...entry, status: 'ready', result }
+        : entry));
+      setIsProcessingQueue(false);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Statement preview failed.');
+      const errorMessage = error instanceof Error ? error.message : 'Statement preview failed.';
+      setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
+        ? { ...entry, status: 'failed', message: errorMessage }
+        : entry));
+      setMessage(errorMessage);
+      setIsProcessingQueue(false);
     }
+  }
+
+  const startQueue = () => {
+    const firstQueued = findNextStatementQueueIndex(queue, -1, true);
+    if (firstQueued >= 0) void analyzeQueueItem(firstQueued);
   };
 
   const confirmImport = async () => {
-    if (!preview || !activeClient || !selectedCurrency) return;
+    if (!preview || previewIndex == null || !activeClient || !selectedCurrency) return;
+    const currentIndex = previewIndex;
     setMessage('');
     try {
       const result = await importMutation.mutateAsync({
@@ -1077,23 +1119,40 @@ function ImportStatementPage() {
         },
       });
       setPreview(null);
-      setCompleted(result);
+      setPreviewIndex(null);
       setMessage(result.message ?? `${result.importedCount} statement lines are ready for review.`);
+      setQueue((current) => current.map((entry, entryIndex) => entryIndex === currentIndex
+        ? { ...entry, status: 'loaded', message: result.message ?? `${result.importedCount} statement lines are ready for review.`, result }
+        : entry));
       queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
       queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+      continueQueue(currentIndex);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Statement import failed.');
     }
   };
 
+  const skipPreview = () => {
+    if (previewIndex == null) return;
+    const currentIndex = previewIndex;
+    setPreview(null);
+    setPreviewIndex(null);
+    setQueue((current) => current.map((entry, entryIndex) => entryIndex === currentIndex
+      ? { ...entry, status: 'skipped', message: 'Skipped before loading into review.' }
+      : entry));
+    setMessage('This statement was skipped and nothing was loaded into review.');
+    continueQueue(currentIndex);
+  };
+
   if (preview) {
     const isCurrencyUncertain = !preview.result.detectedCurrency;
+    const queuePosition = previewIndex == null ? 1 : previewIndex + 1;
     return <div>
-      <PageHeading eyebrow="Client intake / review before load" title="Review parsed statement" description={`AgarAccounting AI has not loaded any rows for ${activeClient?.name ?? 'this client'} yet. Confirm the interpreted currency and transactions before they enter the review queue.`} />
+      <PageHeading eyebrow={`Document ${queuePosition} of ${queue.length} · review before load`} title="Review parsed statement" description={`AgarAccounting AI has not loaded any rows for ${activeClient?.name ?? 'this client'} yet. Confirm the interpreted currency and transactions before they enter the review queue.`} />
       <section className="rounded-lg border border-card-border bg-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI extraction preview</div><h2 className="mt-2 text-lg font-semibold">{preview.fileName}</h2><p className="mt-1 text-xs text-muted-foreground">{preview.result.lines.length} proposed transaction{preview.result.lines.length === 1 ? '' : 's'} · nothing has been saved</p></div>
-          <button type="button" onClick={() => { setPreview(null); setMessage(''); }} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Choose another file</button>
+          <button type="button" onClick={skipPreview} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button>
         </div>
         <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
           <div className="text-xs font-semibold">{isCurrencyUncertain ? 'Currency needs your confirmation' : `AI understood the statement currency as ${preview.result.detectedCurrency}`}</div>
@@ -1103,14 +1162,40 @@ function ImportStatementPage() {
         <div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[660px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Suggested account</th></tr></thead><tbody className="divide-y divide-border">{preview.result.lines.slice(0, 25).map((line) => <tr key={line.id}><td className="px-3 py-2.5 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2.5 font-medium">{line.description}</td><td className="px-3 py-2.5 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2.5 text-right font-mono">{money(line.amount, selectedCurrency || line.currency)}</td><td className="px-3 py-2.5 text-muted-foreground">{line.accountSuggestion ?? 'Review needed'}</td></tr>)}</tbody></table></div>
         {preview.result.lines.length > 25 && <p className="mt-3 text-[11px] text-muted-foreground">Showing the first 25 of {preview.result.lines.length} parsed transactions. All rows will be loaded only after you confirm.</p>}
         {message && <p className="mt-4 text-xs text-destructive">{message}</p>}
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => { setPreview(null); setMessage(''); }} className="h-10 rounded-md border border-border px-4 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={!selectedCurrency || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to review</>}</button></div>
+         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={skipPreview} className="h-10 rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={!selectedCurrency || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to review</>}</button></div>
       </section>
     </div>;
   }
 
   return <div>
-    <PageHeading eyebrow="Client intake / source document" title="Import a bank statement" description={`Choose a PDF, CSV, or Excel statement for ${activeClient?.name ?? 'this client'}. AgarAccounting AI detects the currency and shows every parsed row for approval before it loads anything into review.`} />
-    <section className="rounded-lg border border-card-border bg-card p-6"><div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div><h2 className="mt-5 text-lg font-semibold">Statement file</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Keep the original bank export intact—AgarAccounting AI will infer the source currency from the document and prepare a review preview.</p><label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60"><UploadCloud className="text-primary" size={24} /><span className="mt-3 text-sm font-semibold">{file ? file.name : 'Choose a bank statement'}</span><span className="mt-1 text-[11px] text-muted-foreground">{file ? `${Math.round(file.size / 1024).toLocaleString()} KB ready to analyze` : 'PDF, CSV, XLS, or XLSX · one statement at a time'}</span><input data-testid="input-statement-file" type="file" accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setMessage(''); setCompleted(null); }} /></label><div className="mt-5 flex justify-end"><button data-testid="button-parse-statement" type="button" onClick={previewStatement} disabled={!file || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{isUploading || importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Analyzing statement…</> : <><Sparkles size={14} /> Analyze with AI</>}</button></div>{message && <div data-testid="import-statement-result" className={`mt-5 rounded-md border px-4 py-3 text-xs ${completed?.duplicateCount ? 'border-accent/25 bg-accent/10 text-accent-foreground' : 'border-primary/25 bg-primary/5 text-primary'}`}>{message}{completed?.importedCount ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}</section>
+    <PageHeading eyebrow="Client intake / source documents" title="Import bank statements" description={`Choose one or more PDF, CSV, or Excel statements for ${activeClient?.name ?? 'this client'}. AgarAccounting AI analyzes them one at a time and shows every parsed row for approval before it loads anything into review.`} />
+    <section className="rounded-lg border border-card-border bg-card p-6">
+      <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><UploadCloud size={21} /></div>
+      <h2 className="mt-5 text-lg font-semibold">Statement files</h2>
+      <p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">Accepted formats: PDF, CSV, XLS, and XLSX. Drop multiple documents here; each one keeps its own source evidence and review confirmation.</p>
+      <label
+        className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/35 bg-secondary/30 px-6 py-10 text-center transition-colors hover:bg-secondary/60 ${isProcessingQueue ? 'cursor-not-allowed opacity-60' : ''}`}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => { event.preventDefault(); if (!isProcessingQueue) addFiles(Array.from(event.dataTransfer.files)); }}
+      >
+        <UploadCloud className="text-primary" size={24} />
+        <span className="mt-3 text-sm font-semibold">{queue.length ? `${queue.length} document${queue.length === 1 ? '' : 's'} selected` : 'Choose or drop bank statements'}</span>
+        <span className="mt-1 text-[11px] text-muted-foreground">{isProcessingQueue ? 'Analyzing documents one at a time…' : 'PDF, CSV, XLS, or XLSX · select multiple documents'}</span>
+        <input data-testid="input-statement-file" type="file" multiple accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" disabled={isProcessingQueue} onChange={(event) => { addFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ''; }} />
+      </label>
+      {queue.length > 0 && <div data-testid="statement-import-queue" className="mt-5 divide-y divide-border rounded-md border border-border">
+        {queue.map((item, index) => <div key={`${item.file.name}-${item.file.lastModified}-${index}`} className="flex flex-col gap-2 px-3 py-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0"><div className="truncate font-semibold">{item.file.name}</div><div className="mt-1 text-[10px] text-muted-foreground">{Math.round(item.file.size / 1024).toLocaleString()} KB · Document {index + 1}</div></div>
+          <span className={`shrink-0 rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${item.status === 'loaded' ? 'bg-primary/10 text-primary' : item.status === 'failed' ? 'bg-destructive/10 text-destructive' : item.status === 'ready' ? 'bg-accent/15 text-accent-foreground' : item.status === 'analyzing' ? 'bg-secondary text-primary' : 'bg-muted text-muted-foreground'}`}>{item.status === 'ready' ? 'Needs review' : item.status === 'loaded' ? 'Loaded to review' : item.status === 'analyzing' ? 'Analyzing' : item.status}{item.message && item.status === 'failed' ? ` · ${item.message}` : ''}</span>
+        </div>)}
+      </div>}
+      {message && <div data-testid="import-statement-result" className="mt-5 rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-xs text-primary">{message}{queue.some((item) => item.status === 'loaded' && item.result?.importedCount) ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}
+      <div className="mt-5 flex justify-end">
+        <button data-testid="button-parse-statement" type="button" onClick={startQueue} disabled={!queue.some((item) => item.status === 'queued' || item.status === 'failed') || isProcessingQueue || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+          {isProcessingQueue || isUploading || importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Analyzing next document…</> : <><Sparkles size={14} /> {queue.length > 1 ? `Analyze ${queue.filter((item) => item.status === 'queued' || item.status === 'failed').length} documents one at a time` : 'Analyze with AI'}</>}
+        </button>
+      </div>
+    </section>
     <StatementImportHistory />
   </div>;
 }
