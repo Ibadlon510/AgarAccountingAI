@@ -2534,7 +2534,7 @@ components:
           items: { type: string }
     StatementLine:
       type: object
-      required: [id, date, description, currency, amount, direction, status, source]
+      required: [id, date, description, currency, amount, direction, status, source, contactReviewDisposition]
       properties:
         id: { type: number }
         bankAccountId: { type: ["number", "null"] }
@@ -2549,8 +2549,14 @@ components:
         contactName: { type: ["string", "null"] }
         contactType: { type: ["string", "null"], enum: [customer, supplier, both, null] }
         contactMatchConfidence: { type: ["number", "null"] }
-        contactSuggestionStatus: { type: ["string", "null"], enum: [supported, weak, conflicting, no_safe_treatment, no_history, null] }
+        contactSuggestionStatus: { type: ["string", "null"], enum: [supported, weak, conflicting, no_safe_treatment, no_history, temporary_proposal, null] }
         contactSuggestionReason: { type: ["string", "null"] }
+        proposedContactName: { type: ["string", "null"] }
+        proposedContactType: { type: ["string", "null"], enum: [customer, supplier, both, null] }
+        proposedContactAlias: { type: ["string", "null"] }
+        proposedContactConfidence: { type: ["number", "null"] }
+        proposedContactSource: { type: ["string", "null"] }
+        contactReviewDisposition: { type: string, enum: [pending, accepted, replaced, dismissed] }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
         suggestionSource: { type: ["string", "null"] }
@@ -2581,6 +2587,14 @@ components:
       properties:
         clientId: { type: number }
         contactId: { type: ["number", "null"] }
+        proposedContactName: { type: ["string", "null"], minLength: 1, maxLength: 160 }
+        proposedContactType:
+          type: ["string", "null"]
+          enum: [customer, supplier, both, null]
+        proposedContactAlias: { type: ["string", "null"], minLength: 1, maxLength: 160 }
+        contactReviewDisposition:
+          type: string
+          enum: [pending, accepted, replaced, dismissed]
     Contact:
       type: object
       required: [id, clientId, displayName, legalName, contactType, status, mergedIntoContactId, mergedAt, mergedByUserId, aliases, createdAt, updatedAt]

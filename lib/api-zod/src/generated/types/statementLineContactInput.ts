@@ -5,9 +5,26 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineContactInputContactReviewDisposition } from './statementLineContactInputContactReviewDisposition';
+import type { StatementLineContactInputProposedContactType } from './statementLineContactInputProposedContactType';
 
 export interface StatementLineContactInput {
   clientId: number;
   /** @nullable */
   contactId?: number | null;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactName?: string | null;
+  /** @nullable */
+  proposedContactType?: StatementLineContactInputProposedContactType;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactAlias?: string | null;
+  contactReviewDisposition?: StatementLineContactInputContactReviewDisposition;
 }

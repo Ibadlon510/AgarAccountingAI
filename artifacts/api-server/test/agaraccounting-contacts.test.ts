@@ -40,6 +40,8 @@ type Contact = {
 type Line = {
   id: number; contactId: number | null; contactName: string | null; accountSuggestion: string | null;
   contactSuggestionStatus: string | null; supportingPatternCount: number; functionalAmount: number | null;
+  proposedContactName: string | null; proposedContactType: string | null; proposedContactAlias: string | null;
+  proposedContactConfidence: number | null; proposedContactSource: string | null; contactReviewDisposition: string;
 };
 
 async function createLine(description: string, currency = "AED", amount = 100): Promise<Line> {
@@ -83,6 +85,12 @@ async function approve(entryId: number) {
   });
   assert.equal(result.response.status, 200);
   assert.equal(result.body.status, "approved");
+}
+
+async function post(entryId: number) {
+  return request<{ status: string }>(`/agaraccounting/journal-entries/${entryId}/post`, {
+    method: "POST", body: JSON.stringify({ clientId }),
+  });
 }
 
 before(async () => {
@@ -163,6 +171,139 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   const listed = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`, undefined, memberId);
   assert.equal(listed.response.status, 200);
   assert.equal(listed.body[0]?.id, contact.body.id);
+
+  const temporary = await createLine("CARD PAYMENT NOVA OFFICE SUPPLY INV 9001");
+  assert.equal(temporary.contactId, null);
+  assert.equal(temporary.contactSuggestionStatus, "temporary_proposal");
+  assert.equal(temporary.proposedContactType, "supplier");
+  assert.equal(temporary.proposedContactSource, "heuristic_description");
+  assert.ok(temporary.proposedContactName);
+  assert.ok(temporary.proposedContactAlias);
+  assert.equal((await request(`/agaraccounting/statement-lines/${temporary.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: contact.body.id, contactReviewDisposition: "dismissed" }),
+  })).response.status, 400);
+  assert.equal((await request(`/agaraccounting/statement-lines/${temporary.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "replaced" }),
+  })).response.status, 400);
+  const replacementCandidate = await createLine("CARD PAYMENT REPLACE THIS PROPOSAL");
+  const replacedProposal = await request<Line>(`/agaraccounting/statement-lines/${replacementCandidate.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: contact.body.id, contactReviewDisposition: "replaced" }),
+  });
+  assert.equal(replacedProposal.response.status, 200);
+  assert.equal(replacedProposal.body.contactId, contact.body.id);
+  assert.equal(replacedProposal.body.proposedContactName, null);
+  assert.equal(replacedProposal.body.proposedContactAlias, null);
+  assert.equal(replacedProposal.body.proposedContactType, null);
+  const editedTemporary = await request<Line>(`/agaraccounting/statement-lines/${temporary.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      clientId,
+      contactId: null,
+      proposedContactName: "Nova Office Supply",
+      proposedContactAlias: "NOVA OFFICE SUPPLY",
+      proposedContactType: "supplier",
+      contactReviewDisposition: "accepted",
+    }),
+  });
+  assert.equal(editedTemporary.response.status, 200);
+  assert.equal(editedTemporary.body.contactReviewDisposition, "accepted");
+  const contactsBeforeApproval = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
+  const temporaryEntry = await entryFor(temporary.id);
+  await approve(temporaryEntry.id);
+  const contactsAfterApproval = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
+  assert.equal(contactsAfterApproval.body.length, contactsBeforeApproval.body.length);
+  assert.equal(contactsAfterApproval.body.some((item) => item.displayName === "Nova Office Supply"), false);
+  const temporaryPost = await post(temporaryEntry.id);
+  assert.equal(temporaryPost.response.status, 200);
+  const contactsAfterPost = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
+  const materialized = contactsAfterPost.body.find((item) => item.displayName === "Nova Office Supply");
+  assert.ok(materialized);
+  assert.ok(materialized.aliases.includes("NOVA OFFICE SUPPLY"));
+  const [materializedLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, temporary.id));
+  const [materializedEntry] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.id, temporaryEntry.id));
+  assert.equal(materializedLine?.contactId, materialized.id);
+  assert.equal(materializedLine?.proposedContactName, null);
+  assert.equal(materializedLine?.proposedContactAlias, null);
+  assert.equal(materializedEntry?.contactId, materialized.id);
+  assert.equal(materializedEntry?.status, "posted");
+  assert.equal((await database.db.select().from(database.contactClassificationEvidenceTable)
+    .where(eq(database.contactClassificationEvidenceTable.statementLineId, temporary.id))).length, 1);
+  const reusedTemporary = await createLine("NOVA OFFICE SUPPLY MONTHLY ORDER");
+  assert.equal(reusedTemporary.contactId, materialized.id);
+
+  const dismissed = await createLine("CARD PAYMENT OPT OUT LABS");
+  const dismissedReview = await request<Line>(`/agaraccounting/statement-lines/${dismissed.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  });
+  assert.equal(dismissedReview.response.status, 200);
+  assert.equal(dismissedReview.body.contactReviewDisposition, "dismissed");
+  const dismissedEntry = await entryFor(dismissed.id);
+  await approve(dismissedEntry.id);
+  assert.equal((await post(dismissedEntry.id)).response.status, 200);
+  const [postedDismissed] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, dismissed.id));
+  assert.equal(postedDismissed?.contactId, null);
+
+  const concurrentLines = await Promise.all([
+    createLine("CARD PAYMENT PARALLEL VENDOR INVOICE A"),
+    createLine("CARD PAYMENT PARALLEL VENDOR INVOICE B"),
+  ]);
+  for (const concurrentLine of concurrentLines) {
+    const reviewed = await request<Line>(`/agaraccounting/statement-lines/${concurrentLine.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        clientId,
+        contactId: null,
+        proposedContactName: "Parallel Vendor",
+        proposedContactAlias: "PARALLEL VENDOR",
+        proposedContactType: "supplier",
+        contactReviewDisposition: "accepted",
+      }),
+    });
+    assert.equal(reviewed.response.status, 200);
+  }
+  const concurrentEntries = await Promise.all(concurrentLines.map(async (line) => entryFor(line.id)));
+  await Promise.all(concurrentEntries.map((entry) => approve(entry.id)));
+  const concurrentPosts = await Promise.all(concurrentEntries.map((entry) => post(entry.id)));
+  assert.deepEqual(concurrentPosts.map((result) => result.response.status), [200, 200]);
+  const parallelContacts = (await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`)).body
+    .filter((item) => item.aliases.includes("PARALLEL VENDOR"));
+  assert.equal(parallelContacts.length, 1);
+  const concurrentPostedLines = await database.db.select().from(database.statementLinesTable);
+  assert.deepEqual(
+    new Set(concurrentPostedLines.filter((line) => concurrentLines.some((candidate) => candidate.id === line.id)).map((line) => line.contactId)),
+    new Set([parallelContacts[0].id]),
+  );
+
+  const bulkProposalLines = await Promise.all([
+    createLine("CARD PAYMENT BULK ALPHA SERVICES"),
+    createLine("CARD PAYMENT BULK BETA SERVICES"),
+  ]);
+  const bulkProposalEntries = await Promise.all(bulkProposalLines.map(async (line) => entryFor(line.id)));
+  await Promise.all(bulkProposalEntries.map((entry) => approve(entry.id)));
+  const bulkPost = await request<{ entryCount: number; lineCount: number }>("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "bulk_post_entries",
+      entryIds: bulkProposalEntries.map((entry) => entry.id),
+      statementLineIds: bulkProposalLines.map((line) => line.id),
+    }),
+  });
+  assert.equal(bulkPost.response.status, 200);
+  assert.equal(bulkPost.body.entryCount, 2);
+  assert.equal(bulkPost.body.lineCount, 2);
+  const bulkMaterialized = await database.db.select().from(database.statementLinesTable);
+  assert.ok(bulkProposalLines.every((line) => {
+    const postedLine = bulkMaterialized.find((candidate) => candidate.id === line.id);
+    return postedLine?.status === "posted" && postedLine.contactId != null;
+  }));
 
   const first = await createLine("CARD PAYMENT ACME BANK INV 1001");
   assert.equal(first.contactId, contact.body.id);
@@ -279,7 +420,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(archived.response.status, 200);
   const noMatch = await createLine("ACME BANK AFTER CONTACT ARCHIVE");
   assert.equal(noMatch.contactId, null);
-  assert.equal(noMatch.contactSuggestionStatus, null);
+  assert.equal(noMatch.contactSuggestionStatus, "temporary_proposal");
 
   const survivor = await request<Contact>("/agaraccounting/contacts", {
     method: "POST",

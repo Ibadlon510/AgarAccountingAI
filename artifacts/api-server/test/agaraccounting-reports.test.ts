@@ -311,6 +311,10 @@ test("posting can be reversed without rewriting reports or accountability eviden
       }),
     });
     assert.equal(line.response.status, 201);
+    assert.equal((await request(`/agaraccounting/statement-lines/${line.body.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({ clientId: lifecycleClientId, contactId: null, contactReviewDisposition: "dismissed" }),
+    })).response.status, 200);
     const entries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
       `/agaraccounting/journal-entries?clientId=${lifecycleClientId}`,
     );
@@ -439,6 +443,10 @@ test("posting can be reversed without rewriting reports or accountability eviden
         direction: "outflow",
       }),
     });
+    assert.equal((await request(`/agaraccounting/statement-lines/${foreignLine.body.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({ clientId: lifecycleClientId, contactId: null, contactReviewDisposition: "dismissed" }),
+    })).response.status, 200);
     const foreignEntries = await request<Array<{ id: number; statementLineId: number }>>(`/agaraccounting/journal-entries?clientId=${lifecycleClientId}`);
     const foreignEntry = foreignEntries.body.find((candidate) => candidate.statementLineId === foreignLine.body.id);
     assert.ok(foreignEntry);

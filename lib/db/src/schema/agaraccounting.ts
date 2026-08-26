@@ -503,6 +503,12 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   accountSuggestion: text("account_suggestion"),
   contactId: integer("contact_id"),
   contactSuggestionEvidenceCount: integer("contact_suggestion_evidence_count"),
+  proposedContactName: text("proposed_contact_name"),
+  proposedContactType: text("proposed_contact_type"),
+  proposedContactAlias: text("proposed_contact_alias"),
+  proposedContactConfidence: numeric("proposed_contact_confidence", { precision: 5, scale: 2 }),
+  proposedContactSource: text("proposed_contact_source"),
+  contactReviewDisposition: text("contact_review_disposition").notNull().default("pending"),
   accountClassificationId: integer("account_classification_id"),
   confidence: numeric("confidence", { precision: 5, scale: 2 }),
   importDedupeKey: text("import_dedupe_key"),
@@ -517,6 +523,36 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   importDedupeKeyUnique: uniqueIndex("agaraccounting_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
   idClientUnique: uniqueIndex("agaraccounting_statement_lines_id_client_idx").on(table.id, table.clientId),
   statementImportIndex: index("agaraccounting_statement_lines_import_idx").on(table.statementImportId),
+  proposedContactTypeCheck: check(
+    "agaraccounting_statement_lines_proposed_contact_type_check",
+    sql`${table.proposedContactType} is null or ${table.proposedContactType} in ('customer', 'supplier', 'both')`,
+  ),
+  contactReviewDispositionCheck: check(
+    "agaraccounting_statement_lines_contact_review_disposition_check",
+    sql`${table.contactReviewDisposition} in ('pending', 'accepted', 'replaced', 'dismissed')`,
+  ),
+  proposedContactShapeCheck: check(
+    "agaraccounting_statement_lines_proposed_contact_shape_check",
+    sql`(
+      (${table.proposedContactName} is null and ${table.proposedContactType} is null and ${table.proposedContactAlias} is null)
+      or
+      (${table.proposedContactName} is not null and ${table.proposedContactType} is not null and ${table.proposedContactAlias} is not null)
+    )`,
+  ),
+  proposedContactConfidenceCheck: check(
+    "agaraccounting_statement_lines_proposed_contact_confidence_check",
+    sql`${table.proposedContactConfidence} is null or (${table.proposedContactConfidence} >= 0 and ${table.proposedContactConfidence} <= 1)`,
+  ),
+  linkedContactProposalCheck: check(
+    "agaraccounting_statement_lines_linked_contact_proposal_check",
+    sql`${table.contactId} is null or (
+      ${table.proposedContactName} is null
+      and ${table.proposedContactType} is null
+      and ${table.proposedContactAlias} is null
+      and ${table.proposedContactConfidence} is null
+      and ${table.proposedContactSource} is null
+    )`,
+  ),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],

@@ -5,9 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineContactReviewDisposition } from './statementLineContactReviewDisposition';
 import type { StatementLineContactSuggestionStatus } from './statementLineContactSuggestionStatus';
 import type { StatementLineContactType } from './statementLineContactType';
 import type { StatementLineExchangeRateSourceScope } from './statementLineExchangeRateSourceScope';
+import type { StatementLineProposedContactType } from './statementLineProposedContactType';
 
 export interface StatementLine {
   id: number;
@@ -32,6 +34,17 @@ export interface StatementLine {
   contactSuggestionStatus?: StatementLineContactSuggestionStatus;
   /** @nullable */
   contactSuggestionReason?: string | null;
+  /** @nullable */
+  proposedContactName?: string | null;
+  /** @nullable */
+  proposedContactType?: StatementLineProposedContactType;
+  /** @nullable */
+  proposedContactAlias?: string | null;
+  /** @nullable */
+  proposedContactConfidence?: number | null;
+  /** @nullable */
+  proposedContactSource?: string | null;
+  contactReviewDisposition: StatementLineContactReviewDisposition;
   /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */

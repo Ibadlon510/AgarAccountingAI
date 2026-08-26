@@ -975,8 +975,13 @@ export const StatementLineContactSuggestionStatus = {
   conflicting: 'conflicting',
   no_safe_treatment: 'no_safe_treatment',
   no_history: 'no_history',
+  temporary_proposal: 'temporary_proposal',
 } as const;
 
+/**
+ * @nullable
+ */
+export type StatementLineProposedContactType = typeof StatementLineProposedContactType[keyof typeof StatementLineProposedContactType] | null;
 export type StatementLineExchangeRateSourceScope = typeof StatementLineExchangeRateSourceScope[keyof typeof StatementLineExchangeRateSourceScope];
 
 
@@ -1011,6 +1016,17 @@ export interface StatementLine {
   /** @nullable */
   contactSuggestionReason?: string | null;
   /** @nullable */
+  proposedContactName?: string | null;
+  /** @nullable */
+  proposedContactType?: StatementLineProposedContactType;
+  /** @nullable */
+  proposedContactAlias?: string | null;
+  /** @nullable */
+  proposedContactConfidence?: number | null;
+  /** @nullable */
+  proposedContactSource?: string | null;
+  contactReviewDisposition: StatementLineContactReviewDisposition;
+  /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
@@ -1043,10 +1059,29 @@ export interface StatementLineInput {
   contactId?: number | null;
 }
 
+/**
+ * @nullable
+ */
+export type StatementLineContactInputProposedContactType = typeof StatementLineContactInputProposedContactType[keyof typeof StatementLineContactInputProposedContactType] | null;
 export interface StatementLineContactInput {
   clientId: number;
   /** @nullable */
   contactId?: number | null;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactName?: string | null;
+  /** @nullable */
+  proposedContactType?: StatementLineContactInputProposedContactType;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactAlias?: string | null;
+  contactReviewDisposition?: StatementLineContactInputContactReviewDisposition;
 }
 
 export type ContactContactType = typeof ContactContactType[keyof typeof ContactContactType];
@@ -2161,3 +2196,33 @@ clientId: number;
 period?: string;
 };
 
+
+export type StatementLineContactReviewDisposition = typeof StatementLineContactReviewDisposition[keyof typeof StatementLineContactReviewDisposition];
+
+export const StatementLineContactInputProposedContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export type StatementLineContactInputContactReviewDisposition = typeof StatementLineContactInputContactReviewDisposition[keyof typeof StatementLineContactInputContactReviewDisposition];
+
+export const StatementLineContactReviewDisposition = {
+  pending: 'pending',
+  accepted: 'accepted',
+  replaced: 'replaced',
+  dismissed: 'dismissed',
+} as const;
+
+export const StatementLineProposedContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export const StatementLineContactInputContactReviewDisposition = {
+  pending: 'pending',
+  accepted: 'accepted',
+  replaced: 'replaced',
+  dismissed: 'dismissed',
+} as const;

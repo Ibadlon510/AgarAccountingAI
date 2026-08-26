@@ -1851,11 +1851,82 @@ type ContactSuggestion = {
   contactName: string | null;
   contactType: "customer" | "supplier" | "both" | null;
   contactMatchConfidence: number | null;
-  contactSuggestionStatus: "supported" | "weak" | "conflicting" | "no_safe_treatment" | "no_history" | null;
+  contactSuggestionStatus: "supported" | "weak" | "conflicting" | "no_safe_treatment" | "no_history" | "temporary_proposal" | null;
   contactSuggestionReason: string | null;
+  proposedContactName: string | null;
+  proposedContactType: "customer" | "supplier" | "both" | null;
+  proposedContactAlias: string | null;
+  proposedContactConfidence: number | null;
+  proposedContactSource: string | null;
   accountSuggestion: string | null;
   supportingPatternCount: number;
 };
+
+type StoredContactProposal = {
+  proposedContactName?: string | null;
+  proposedContactType?: string | null;
+  proposedContactAlias?: string | null;
+  proposedContactConfidence?: string | number | null;
+  proposedContactSource?: string | null;
+  contactReviewDisposition?: string | null;
+};
+
+type InferredContactProposal = {
+  proposedContactName: string;
+  proposedContactType: "customer" | "supplier" | "both";
+  proposedContactAlias: string;
+  proposedContactConfidence: number;
+  proposedContactSource: string;
+};
+
+function titleCaseContactName(value: string) {
+  return value.split(" ").map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : word).join(" ");
+}
+
+function inferContactProposal(description: string, direction: string) {
+  const alias = normalizeVendor(description);
+  if (!alias || alias.length < 2) return null;
+  const contactType = direction === "inflow" ? "customer" as const : "supplier" as const;
+  const name = titleCaseContactName(alias);
+  return {
+    proposedContactName: name,
+    proposedContactType: contactType,
+    proposedContactAlias: name,
+    proposedContactConfidence: 0.68,
+    proposedContactSource: "heuristic_description",
+  };
+}
+
+function temporaryContactSuggestion(proposal: InferredContactProposal | null): ContactSuggestion {
+  if (!proposal) {
+    return {
+      contactId: null,
+      contactName: null,
+      contactType: null,
+      contactMatchConfidence: null,
+      contactSuggestionStatus: null,
+      contactSuggestionReason: null,
+      proposedContactName: null,
+      proposedContactType: null,
+      proposedContactAlias: null,
+      proposedContactConfidence: null,
+      proposedContactSource: null,
+      accountSuggestion: null,
+      supportingPatternCount: 0,
+    };
+  }
+  return {
+    contactId: null,
+    contactName: null,
+    contactType: null,
+    contactMatchConfidence: null,
+    contactSuggestionStatus: "temporary_proposal",
+    contactSuggestionReason: `Temporary proposal from the transaction description. ${proposal.proposedContactName} will become a client contact only when this entry is posted.`,
+    ...proposal,
+    accountSuggestion: null,
+    supportingPatternCount: 0,
+  };
+}
 
 async function contactResponse(contact: typeof contactsTable.$inferSelect) {
   const aliases = await db.select({ alias: contactAliasesTable.alias })
@@ -1975,7 +2046,11 @@ async function resolveContactSuggestion(
   description: string,
   direction: string,
   explicitContactId?: number | null,
+  storedProposal?: StoredContactProposal,
 ): Promise<ContactSuggestion> {
+  if (explicitContactId == null && storedProposal?.contactReviewDisposition === "dismissed") {
+    return temporaryContactSuggestion(null);
+  }
   const contacts = await executor.select().from(contactsTable).where(and(
     eq(contactsTable.clientId, clientId),
     eq(contactsTable.status, "active"),
@@ -1992,6 +2067,11 @@ async function resolveContactSuggestion(
       contactMatchConfidence: null,
       contactSuggestionStatus: "no_safe_treatment",
       contactSuggestionReason: "The selected contact is not active in this client workspace.",
+      proposedContactName: null,
+      proposedContactType: null,
+      proposedContactAlias: null,
+      proposedContactConfidence: null,
+      proposedContactSource: null,
       accountSuggestion: null,
       supportingPatternCount: 0,
     };
@@ -2014,16 +2094,16 @@ async function resolveContactSuggestion(
   }
 
   if (!contact) {
-    return {
-      contactId: null,
-      contactName: null,
-      contactType: null,
-      contactMatchConfidence: null,
-      contactSuggestionStatus: null,
-      contactSuggestionReason: null,
-      accountSuggestion: null,
-      supportingPatternCount: 0,
-    };
+    const stored = storedProposal?.proposedContactName && storedProposal.proposedContactAlias
+      ? {
+        proposedContactName: storedProposal.proposedContactName,
+        proposedContactType: (storedProposal.proposedContactType as ContactSuggestion["proposedContactType"]) ?? (direction === "inflow" ? "customer" : "supplier"),
+        proposedContactAlias: storedProposal.proposedContactAlias,
+        proposedContactConfidence: storedProposal.proposedContactConfidence == null ? 0.68 : Number(storedProposal.proposedContactConfidence),
+        proposedContactSource: storedProposal.proposedContactSource ?? "heuristic_description",
+      }
+      : inferContactProposal(description, direction);
+    return temporaryContactSuggestion(stored);
   }
 
   const evidence = await executor.select({
@@ -2049,6 +2129,11 @@ async function resolveContactSuggestion(
       contactMatchConfidence: matchConfidence,
       contactSuggestionStatus: "no_history",
       contactSuggestionReason: `Matched ${contact.displayName}, but there is no approved or posted ${direction} history yet.`,
+      proposedContactName: null,
+      proposedContactType: null,
+      proposedContactAlias: null,
+      proposedContactConfidence: null,
+      proposedContactSource: null,
       accountSuggestion: null,
       supportingPatternCount: 0,
     };
@@ -2065,6 +2150,11 @@ async function resolveContactSuggestion(
       contactMatchConfidence: matchConfidence,
       contactSuggestionStatus: "conflicting",
       contactSuggestionReason: `${contact.displayName} has confirmed history across ${ranked.length} different account treatments. Review is required.`,
+      proposedContactName: null,
+      proposedContactType: null,
+      proposedContactAlias: null,
+      proposedContactConfidence: null,
+      proposedContactSource: null,
       accountSuggestion: null,
       supportingPatternCount: evidence.length,
     };
@@ -2087,6 +2177,11 @@ async function resolveContactSuggestion(
       contactMatchConfidence: matchConfidence,
       contactSuggestionStatus: "no_safe_treatment",
       contactSuggestionReason: `${contact.displayName}'s prior treatment is no longer active in this client's chart.`,
+      proposedContactName: null,
+      proposedContactType: null,
+      proposedContactAlias: null,
+      proposedContactConfidence: null,
+      proposedContactSource: null,
       accountSuggestion: null,
       supportingPatternCount,
     };
@@ -2101,6 +2196,11 @@ async function resolveContactSuggestion(
     contactSuggestionReason: weak
       ? `Matched ${contact.displayName}. One approved treatment supports ${accountSuggestion}; review before approval.`
       : `Matched ${contact.displayName}. ${supportingPatternCount} approved or posted items consistently used ${accountSuggestion}.`,
+    proposedContactName: null,
+    proposedContactType: null,
+    proposedContactAlias: null,
+    proposedContactConfidence: null,
+    proposedContactSource: null,
     accountSuggestion,
     supportingPatternCount,
   };
@@ -2127,6 +2227,105 @@ async function recordContactEvidence(
     entryStatus: entry.status,
     confirmedByUserId: userId,
   }).onConflictDoNothing({ target: contactClassificationEvidenceTable.statementLineId });
+}
+
+class ContactMaterializationError extends Error {}
+
+async function materializeProposedContact(
+  tx: AccountingTransaction,
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect,
+) {
+  if (line.contactId != null || line.contactReviewDisposition === "dismissed") {
+    return { line, entry, createdContact: false };
+  }
+  const displayName = line.proposedContactName?.trim().replace(/\s+/g, " ").slice(0, 160);
+  const alias = line.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160);
+  const normalizedAlias = alias ? normalizeContactAlias(alias) : "";
+  const contactType = line.proposedContactType;
+  if (!displayName || !alias || !normalizedAlias || !["customer", "supplier", "both"].includes(contactType ?? "")) {
+    return { line, entry, createdContact: false };
+  }
+
+  const findAliasOwner = async () => {
+    const [ownedAlias] = await tx.select().from(contactAliasesTable).where(and(
+      eq(contactAliasesTable.clientId, line.clientId),
+      eq(contactAliasesTable.normalizedAlias, normalizedAlias),
+    )).limit(1).for("update");
+    if (!ownedAlias) return null;
+    const [owner] = await tx.select().from(contactsTable).where(and(
+      eq(contactsTable.id, ownedAlias.contactId),
+      eq(contactsTable.clientId, line.clientId),
+    )).limit(1).for("update");
+    if (!owner || owner.status !== "active" || owner.mergedIntoContactId != null) {
+      throw new ContactMaterializationError("The proposed alias belongs to a contact that is no longer active.");
+    }
+    return owner;
+  };
+
+  let contact = await findAliasOwner();
+  let createdContact = false;
+  if (!contact) {
+    const [created] = await tx.insert(contactsTable).values({
+      clientId: line.clientId,
+      displayName,
+      legalName: displayName,
+      contactType: contactType as "customer" | "supplier" | "both",
+    }).onConflictDoNothing({
+      target: [contactsTable.clientId, contactsTable.legalName],
+    }).returning();
+    if (created) {
+      contact = created;
+      createdContact = true;
+    } else {
+      const [matchingName] = await tx.select().from(contactsTable).where(and(
+        eq(contactsTable.clientId, line.clientId),
+        eq(contactsTable.legalName, displayName),
+      )).limit(1).for("update");
+      if (!matchingName || matchingName.status !== "active" || matchingName.mergedIntoContactId != null) {
+        throw new ContactMaterializationError("A matching contact name exists but cannot be reused safely.");
+      }
+      contact = matchingName;
+    }
+
+    await tx.insert(contactAliasesTable).values({
+      clientId: line.clientId,
+      contactId: contact.id,
+      alias,
+      normalizedAlias,
+    }).onConflictDoNothing({
+      target: [contactAliasesTable.clientId, contactAliasesTable.normalizedAlias],
+    });
+    const owner = await findAliasOwner();
+    if (!owner || owner.id !== contact.id) {
+      throw new ContactMaterializationError("The proposed alias was claimed by another contact. Review the contact before posting.");
+    }
+  }
+
+  const [linkedLine] = await tx.update(statementLinesTable).set({
+    contactId: contact.id,
+    proposedContactName: null,
+    proposedContactType: null,
+    proposedContactAlias: null,
+    proposedContactConfidence: null,
+    proposedContactSource: null,
+    contactReviewDisposition: "accepted",
+  }).where(and(
+    eq(statementLinesTable.id, line.id),
+    eq(statementLinesTable.clientId, line.clientId),
+    isNull(statementLinesTable.contactId),
+  )).returning();
+  const [linkedEntry] = await tx.update(journalEntriesTable).set({
+    contactId: contact.id,
+  }).where(and(
+    eq(journalEntriesTable.id, entry.id),
+    eq(journalEntriesTable.clientId, line.clientId),
+    isNull(journalEntriesTable.contactId),
+  )).returning();
+  if (!linkedLine || !linkedEntry) {
+    throw new ContactMaterializationError("The contact proposal changed while posting. Refresh and review the entry.");
+  }
+  return { line: linkedLine, entry: linkedEntry, createdContact };
 }
 
 async function validateCurrentContactTreatment(
@@ -2162,6 +2361,7 @@ async function validateCurrentContactTreatment(
       line.description,
       line.direction,
       line.contactId,
+      line,
     );
     if (
       !currentSuggestion.accountSuggestion
@@ -2296,6 +2496,13 @@ function statementLineResponse(
     contactMatchConfidence: contactSuggestion?.contactMatchConfidence ?? null,
     contactSuggestionStatus: contactSuggestion?.contactSuggestionStatus ?? null,
     contactSuggestionReason: contactSuggestion?.contactSuggestionReason ?? null,
+    proposedContactName: contactSuggestion ? contactSuggestion.proposedContactName : line.proposedContactName ?? null,
+    proposedContactType: contactSuggestion ? contactSuggestion.proposedContactType : line.proposedContactType ?? null,
+    proposedContactAlias: contactSuggestion ? contactSuggestion.proposedContactAlias : line.proposedContactAlias ?? null,
+    proposedContactConfidence: contactSuggestion
+      ? contactSuggestion.proposedContactConfidence
+      : line.proposedContactConfidence == null ? null : number(line.proposedContactConfidence),
+    proposedContactSource: contactSuggestion ? contactSuggestion.proposedContactSource : line.proposedContactSource ?? null,
     accountSuggestion: contactAccount ?? suggestion.accountSuggestion,
     confidence: contactAccount ? (contactSuggestion?.contactSuggestionStatus === "supported" ? 0.94 : 0.85) : suggestion.confidence,
     suggestionSource: contactAccount ? "contact_history" : suggestion.suggestionSource,
@@ -2386,12 +2593,19 @@ async function createStatementLineAndJournal(
     draft.description,
     draft.direction,
     draft.contactId,
+    draft,
   );
   const contactAccount = contactSuggestion.accountSuggestion;
   const enrichedDraft = {
     ...draft,
     contactId: contactSuggestion.contactId ?? draft.contactId ?? null,
     contactSuggestionEvidenceCount: contactAccount ? contactSuggestion.supportingPatternCount : null,
+    proposedContactName: contactSuggestion.proposedContactName,
+    proposedContactType: contactSuggestion.proposedContactType,
+    proposedContactAlias: contactSuggestion.proposedContactAlias,
+    proposedContactConfidence: contactSuggestion.proposedContactConfidence?.toFixed(2) ?? null,
+    proposedContactSource: contactSuggestion.proposedContactSource,
+    contactReviewDisposition: draft.contactReviewDisposition ?? "pending",
     accountSuggestion: contactAccount ?? draft.accountSuggestion,
     confidence: contactAccount
       ? (contactSuggestion.contactSuggestionStatus === "supported" ? "0.94" : "0.85")
@@ -3471,6 +3685,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           direction: line.direction,
           status: "needs_review",
           source: `Preview: ${fileName}`,
+          contactReviewDisposition: "pending",
           accountSuggestion: line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction),
           confidence: Number(line.confidence ?? 0.75),
           suggestionSource: null,
@@ -4881,13 +5096,13 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         const entries = await tx.select().from(journalEntriesTable).where(and(
           eq(journalEntriesTable.clientId, body.clientId),
           inArray(journalEntriesTable.id, entryIds),
-        ));
+        )).for("update");
         if (entries.length !== entryIds.length) throw new BulkActionValidationError("not_found");
 
         const lines = await tx.select().from(statementLinesTable).where(and(
           eq(statementLinesTable.clientId, body.clientId),
           inArray(statementLinesTable.id, statementLineIds),
-        ));
+        )).for("update");
         if (lines.length !== statementLineIds.length) throw new BulkActionValidationError("not_found");
 
         const entryLineIds = entries.map((entry) => entry.statementLineId);
@@ -4920,6 +5135,18 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           throw new BulkActionValidationError("missing_exchange_rate");
         }
 
+        let postingLines = lines;
+        if (body.type === "bulk_post_entries") {
+          const materializedLines: Array<typeof statementLinesTable.$inferSelect> = [];
+          for (const line of lines) {
+            const entry = entries.find((candidate) => candidate.statementLineId === line.id);
+            if (!entry) throw new BulkActionValidationError("invalid_scope");
+            const materialized = await materializeProposedContact(tx, line, entry);
+            materializedLines.push(materialized.line);
+          }
+          postingLines = materializedLines;
+        }
+
         const updatedEntries = await tx.update(journalEntriesTable)
           .set({ status: resultingStatus })
           .where(and(
@@ -4939,6 +5166,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             ))
             .returning();
           if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
+          postingLines = updatedLines;
         }
 
         await tx.insert(bulkTransitionAuditsTable).values({
@@ -4953,13 +5181,16 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           statementLineIds,
         });
         for (const updatedEntry of updatedEntries) {
-          const line = lines.find((candidate) => candidate.id === updatedEntry.statementLineId);
+          const line = postingLines.find((candidate) => candidate.id === updatedEntry.statementLineId);
           if (line) await recordContactEvidence(tx, currentUserId(req), line, updatedEntry);
         }
 
         return { entries: updatedEntries, expectedStatus, resultingStatus };
       });
     } catch (error) {
+      if (error instanceof ContactMaterializationError) {
+        return res.status(409).json({ error: `${error.message} No entries were posted.` });
+      }
       if (error instanceof BulkActionValidationError) {
         if (error.kind === "not_found") {
           return res.status(404).json({ error: "One or more selected journal entries or statement lines are not available in this client." });
@@ -6663,7 +6894,7 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
   const responses = await Promise.all(lines.map(async (line) => statementLineResponse(
     line,
     workspacePatterns,
-    await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId),
+    await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line),
   )));
   return res.json(GetStatementLinesResponse.parse(responses));
 });
@@ -6719,7 +6950,7 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
     exchangeRateStatus: conversion.exchangeRateStatus,
   }));
   if (!line) throw new Error("Manual statement line was not created.");
-  const contactSuggestion = await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId);
+  const contactSuggestion = await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line);
   return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns, contactSuggestion)));
 });
 
@@ -6753,9 +6984,38 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     if (!entry) return { kind: "not_found" as const };
     if (entry.status !== "suggested" || line.status === "posted") return { kind: "locked" as const };
 
+    const contactReviewDisposition = body.contactReviewDisposition
+      ?? (body.contactId == null ? "dismissed" : "replaced");
+    if (
+      (body.contactId != null && (
+        contactReviewDisposition !== "replaced"
+        || body.proposedContactName != null
+        || body.proposedContactAlias != null
+        || body.proposedContactType != null
+      ))
+      || (body.contactId == null && contactReviewDisposition === "replaced")
+    ) {
+      return { kind: "invalid_disposition" as const };
+    }
+    const proposedContactName = body.contactId != null
+      ? null
+      : body.proposedContactName?.trim().replace(/\s+/g, " ").slice(0, 160) ?? line.proposedContactName;
+    const proposedContactAlias = body.contactId != null
+      ? null
+      : body.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160) ?? line.proposedContactAlias;
+    const proposedContactType = body.contactId != null
+      ? null
+      : body.proposedContactType ?? line.proposedContactType;
+    if (
+      body.contactId == null
+      && contactReviewDisposition !== "dismissed"
+      && (!proposedContactName || !proposedContactAlias || !["customer", "supplier", "both"].includes(proposedContactType ?? ""))
+    ) {
+      return { kind: "invalid_proposal" as const };
+    }
     const contactSuggestion = body.contactId == null
       ? null
-      : await resolveContactSuggestion(tx, client.id, line.description, line.direction, body.contactId);
+      : await resolveContactSuggestion(tx, client.id, line.description, line.direction, body.contactId, line);
     const accountSuggestion = contactSuggestion?.accountSuggestion ?? line.accountSuggestion;
     const confidence = contactSuggestion?.accountSuggestion
       ? (contactSuggestion.contactSuggestionStatus === "supported" ? "0.94" : "0.85")
@@ -6773,6 +7033,16 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     const bankAccountId = chartAccounts.find((item) => item.accountName === "Bank / cash")?.id ?? null;
     const [updatedLine] = await tx.update(statementLinesTable).set({
       contactId: body.contactId ?? null,
+      proposedContactName,
+      proposedContactAlias,
+      proposedContactType,
+      proposedContactConfidence: body.contactId != null ? null : line.proposedContactConfidence ?? "0.68",
+      proposedContactSource: body.contactId != null
+        ? null
+        : body.proposedContactName != null || body.proposedContactAlias != null || body.proposedContactType != null
+          ? "accountant_override"
+          : line.proposedContactSource,
+      contactReviewDisposition,
       contactSuggestionEvidenceCount: contactSuggestion?.accountSuggestion
         ? contactSuggestion.supportingPatternCount
         : null,
@@ -6806,6 +7076,14 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     res.status(409).json({ error: "Approved or posted accounting activity cannot be relinked. Correct it with an explicit reversing or correcting entry so the confirmed history remains intact." });
     return;
   }
+  if (result.kind === "invalid_proposal") {
+    res.status(400).json({ error: "A temporary contact proposal needs a name, type, and alias." });
+    return;
+  }
+  if (result.kind === "invalid_disposition") {
+    res.status(400).json({ error: "Contact review disposition does not match the selected contact or temporary proposal." });
+    return;
+  }
   const activeAccountNames = await activeClientAccountNames(client.id);
   const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
     .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
@@ -6815,6 +7093,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     result.line.description,
     result.line.direction,
     result.line.contactId,
+    result.line,
   );
   res.json(LinkStatementLineContactResponse.parse(statementLineResponse(result.line, workspacePatterns, contactSuggestion)));
 });
@@ -7213,50 +7492,61 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
 
-  const result = await db.transaction(async (tx) => {
-    const [entry] = await tx.select().from(journalEntriesTable).where(and(
-      eq(journalEntriesTable.id, id),
-      eq(journalEntriesTable.clientId, client.id),
-    )).for("update");
-    if (!entry) return { kind: "not_found" as const };
-    if (entry.status !== "approved") return { kind: "not_approved" as const };
+  let result;
+  try {
+    result = await db.transaction(async (tx) => {
+      const [entry] = await tx.select().from(journalEntriesTable).where(and(
+        eq(journalEntriesTable.id, id),
+        eq(journalEntriesTable.clientId, client.id),
+      )).for("update");
+      if (!entry) return { kind: "not_found" as const };
+      if (entry.status !== "approved") return { kind: "not_approved" as const };
 
-    const [line] = await tx.select().from(statementLinesTable).where(and(
-      eq(statementLinesTable.id, entry.statementLineId),
-      eq(statementLinesTable.clientId, client.id),
-    )).for("update");
-    if (!line) return { kind: "not_found" as const };
-    if (line.status === "posted") return { kind: "line_conflict" as const };
-    const treatmentValidation = await validateCurrentContactTreatment(tx, client.id, line, entry, false);
-    if (treatmentValidation) return { kind: treatmentValidation };
-    if (isMissingExchangeRate(entry, client.functionalCurrency)
-      || isMissingExchangeRate(line, client.functionalCurrency)) {
-      return { kind: "missing_exchange_rate" as const, entry, line };
-    }
+      const [line] = await tx.select().from(statementLinesTable).where(and(
+        eq(statementLinesTable.id, entry.statementLineId),
+        eq(statementLinesTable.clientId, client.id),
+      )).for("update");
+      if (!line) return { kind: "not_found" as const };
+      if (line.status === "posted") return { kind: "line_conflict" as const };
+      const treatmentValidation = await validateCurrentContactTreatment(tx, client.id, line, entry, false);
+      if (treatmentValidation) return { kind: treatmentValidation };
+      if (isMissingExchangeRate(entry, client.functionalCurrency)
+        || isMissingExchangeRate(line, client.functionalCurrency)) {
+        return { kind: "missing_exchange_rate" as const, entry, line };
+      }
 
-    const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
-      eq(journalEntriesTable.id, entry.id),
-      eq(journalEntriesTable.clientId, client.id),
-      eq(journalEntriesTable.status, "approved"),
-    )).returning();
-    if (!postedEntry) return { kind: "not_approved" as const };
+      const materialized = await materializeProposedContact(tx, line, entry);
+      const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
+        eq(journalEntriesTable.id, materialized.entry.id),
+        eq(journalEntriesTable.clientId, client.id),
+        eq(journalEntriesTable.status, "approved"),
+      )).returning();
+      if (!postedEntry) return { kind: "not_approved" as const };
 
-    const [postedLine] = await tx.update(statementLinesTable).set({ status: "posted" }).where(and(
-      eq(statementLinesTable.id, line.id),
-      eq(statementLinesTable.clientId, client.id),
-      ne(statementLinesTable.status, "posted"),
-    )).returning();
-    if (!postedLine) throw new Error("The linked statement line could not be posted.");
-    await recordJournalTransitionAudit(tx, req, {
-      clientId: client.id,
-      transition: "post_entry",
-      fromStatus: "approved",
-      toStatus: "posted",
-      entryId: postedEntry.id,
-      statementLineId: postedLine.id,
+      const [postedLine] = await tx.update(statementLinesTable).set({ status: "posted" }).where(and(
+        eq(statementLinesTable.id, materialized.line.id),
+        eq(statementLinesTable.clientId, client.id),
+        ne(statementLinesTable.status, "posted"),
+      )).returning();
+      if (!postedLine) throw new Error("The linked statement line could not be posted.");
+      await recordContactEvidence(tx, currentUserId(req), postedLine, postedEntry);
+      await recordJournalTransitionAudit(tx, req, {
+        clientId: client.id,
+        transition: "post_entry",
+        fromStatus: "approved",
+        toStatus: "posted",
+        entryId: postedEntry.id,
+        statementLineId: postedLine.id,
+      });
+      return { kind: "posted" as const, entry: postedEntry };
     });
-    return { kind: "posted" as const, entry: postedEntry };
-  });
+  } catch (error) {
+    if (error instanceof ContactMaterializationError) {
+      res.status(409).json({ error: `${error.message} The entry was not posted.` });
+      return;
+    }
+    throw error;
+  }
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Journal entry not found for this client" });
     return;
