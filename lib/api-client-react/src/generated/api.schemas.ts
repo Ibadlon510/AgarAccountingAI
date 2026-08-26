@@ -2148,3 +2148,4 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
+
