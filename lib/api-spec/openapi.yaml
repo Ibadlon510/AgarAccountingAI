@@ -1949,6 +1949,11 @@ components:
       properties:
         fileBase64: { type: string, minLength: 1, maxLength: 20000000 }
         fileName: { type: string }
+        functionalCurrency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          pattern: "^[A-Za-z]{3}$"
     SystemRateImportResult:
       type: object
       required: [importedCount, updatedCount, rates]

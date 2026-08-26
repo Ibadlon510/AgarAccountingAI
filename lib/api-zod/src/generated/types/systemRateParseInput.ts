@@ -13,4 +13,10 @@ export interface SystemRateParseInput {
      */
   fileBase64?: string;
   fileName?: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     * @pattern ^[A-Za-z]{3}$
+     */
+  functionalCurrency?: string;
 }

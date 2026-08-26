@@ -34,6 +34,7 @@ const rateSchema = z.object({
 });
 
 type RateFormValues = z.infer<typeof rateSchema>;
+const DEFAULT_FUNCTIONAL_CURRENCY = "AED";
 
 function csvHeaderKey(value: string) {
   return value.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z]/g, "");
@@ -78,7 +79,7 @@ function readCsvRecords(content: string) {
   return rows;
 }
 
-function deterministicSystemRates(content: string): ExchangeRateInput[] {
+function deterministicSystemRates(content: string, defaultFunctionalCurrency: string): ExchangeRateInput[] {
   const rows = readCsvRecords(content);
   const headerIndex = rows.findIndex((row) => row.some((cell) => [
     "effectivedate", "date", "asof", "valuedate", "ratedate",
@@ -94,7 +95,10 @@ function deterministicSystemRates(content: string): ExchangeRateInput[] {
   return rows.slice(headerIndex + 1).map((cells) => ({
     effectiveDate: valueAt(cells, ["effectivedate", "date", "asof", "valuedate", "ratedate"]),
     sourceCurrency: valueAt(cells, ["sourcecurrency", "fromcurrency", "basecurrency", "currencyfrom"]).toUpperCase(),
-    functionalCurrency: valueAt(cells, ["functionalcurrency", "tocurrency", "targetcurrency", "quotecurrency"]).toUpperCase(),
+    functionalCurrency: (
+      valueAt(cells, ["functionalcurrency", "tocurrency", "targetcurrency", "quotecurrency"])
+      || defaultFunctionalCurrency
+    ).toUpperCase(),
     rate: Number(valueAt(cells, ["rate", "exchangerate", "closingrate", "midrate"]).replaceAll(",", "")),
     source: valueAt(cells, ["ratesource", "provider", "publisher", "source"]) || "Imported CSV",
     note: valueAt(cells, ["note", "memo", "comment"]) || null,
@@ -103,6 +107,14 @@ function deterministicSystemRates(content: string): ExchangeRateInput[] {
     && /^[A-Z]{3}$/.test(rate.functionalCurrency)
     && Number.isFinite(rate.rate)
     && rate.rate > 0);
+}
+
+function mostCommonFunctionalCurrency(rates: SystemRate[]) {
+  const counts = new Map<string, number>();
+  for (const rate of rates) {
+    counts.set(rate.functionalCurrency, (counts.get(rate.functionalCurrency) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "";
 }
 
 async function fileAsBase64(file: File) {
@@ -134,7 +146,7 @@ export default function Rates() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ImportRatesDialog />
+          <ImportRatesDialog defaultFunctionalCurrency={mostCommonFunctionalCurrency(rates ?? []) || DEFAULT_FUNCTIONAL_CURRENCY} />
           <RateDialog mode="create" />
         </div>
       </div>
@@ -224,7 +236,7 @@ function RateDialog({ mode, rate }: { mode: "create" | "edit", rate?: SystemRate
     resolver: zodResolver(rateSchema),
     defaultValues: {
       sourceCurrency: rate?.sourceCurrency || "",
-      functionalCurrency: rate?.functionalCurrency || "",
+      functionalCurrency: rate?.functionalCurrency || DEFAULT_FUNCTIONAL_CURRENCY,
       effectiveDate: rate?.effectiveDate || format(new Date(), "yyyy-MM-dd"),
       rate: rate?.rate || 0,
       source: rate?.source || "System Admin",
@@ -246,7 +258,7 @@ function RateDialog({ mode, rate }: { mode: "create" | "edit", rate?: SystemRate
     } else if (!rate && open) {
       form.reset({
         sourceCurrency: "",
-        functionalCurrency: "",
+        functionalCurrency: DEFAULT_FUNCTIONAL_CURRENCY,
         effectiveDate: format(new Date(), "yyyy-MM-dd"),
         rate: 0,
         source: "System Admin",
@@ -324,7 +336,7 @@ function RateDialog({ mode, rate }: { mode: "create" | "edit", rate?: SystemRate
                   <FormItem>
                     <FormLabel>Functional Currency</FormLabel>
                     <FormControl>
-                      <Input placeholder="USD" {...field} />
+                      <Input placeholder={DEFAULT_FUNCTIONAL_CURRENCY} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -447,13 +459,18 @@ function DeleteRateDialog({ rate }: { rate: SystemRate }) {
   );
 }
 
-function ImportRatesDialog() {
+function ImportRatesDialog({ defaultFunctionalCurrency }: { defaultFunctionalCurrency: string }) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState<ExchangeRateParseResult | null>(null);
+  const [functionalCurrency, setFunctionalCurrency] = useState(defaultFunctionalCurrency);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const importMutation = useImportSystemRates();
   const parseMutation = useParseSystemRates();
+
+  useEffect(() => {
+    if (!open) setFunctionalCurrency(defaultFunctionalCurrency);
+  }, [defaultFunctionalCurrency, open]);
 
   const refreshRates = () => {
     queryClient.invalidateQueries({ queryKey: getGetSystemRatesQueryKey() });
@@ -482,6 +499,10 @@ function ImportRatesDialog() {
   const importRateFile = async (file: File | undefined) => {
     if (!file) return;
     try {
+      const normalizedFunctionalCurrency = functionalCurrency.trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(normalizedFunctionalCurrency)) {
+        throw new Error("Enter the three-letter functional currency represented by rates that omit a target currency.");
+      }
       const lowerName = file.name.toLowerCase();
       const isWorkbook = lowerName.endsWith(".xlsx")
         || file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -490,13 +511,16 @@ function ImportRatesDialog() {
           throw new Error("This Excel workbook is too large. Choose a file smaller than 15 MB.");
         }
         const parsedPreview = await parseMutation.mutateAsync({
-          data: { fileBase64: await fileAsBase64(file), fileName: file.name },
+          data: {
+            fileBase64: await fileAsBase64(file),
+            fileName: file.name,
+            functionalCurrency: normalizedFunctionalCurrency,
+          },
         });
         setPreview(parsedPreview);
-        setOpen(true);
         return;
       }
-      const rates = deterministicSystemRates(await file.text());
+      const rates = deterministicSystemRates(await file.text(), normalizedFunctionalCurrency);
       if (!rates.length) {
         throw new Error("No safe exchange-rate rows were found. Include date, source currency, functional currency, and rate columns.");
       }
@@ -511,34 +535,60 @@ function ImportRatesDialog() {
   };
 
   return (
-    <>
-      <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
-        <Upload className="mr-2 h-4 w-4" />
-        {parseMutation.isPending ? "Detecting layout…" : importMutation.isPending ? "Importing…" : "Import CSV or Excel"}
-        <input
-          data-testid="input-system-exchange-rate-import"
-          type="file"
-          accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          disabled={parseMutation.isPending || importMutation.isPending}
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.currentTarget.value = "";
-            void importRateFile(file);
-          }}
-        />
-      </label>
-      <Dialog open={open} onOpenChange={(nextOpen) => {
+    <Dialog open={open} onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
         if (!nextOpen) setPreview(null);
       }}>
+      <DialogTrigger asChild>
+        <Button variant="outline">
+          <Upload className="mr-2 h-4 w-4" />
+          Import CSV or Excel
+        </Button>
+      </DialogTrigger>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>Review system exchange rates</DialogTitle>
+          <DialogTitle>{preview ? "Review system exchange rates" : "Import system exchange rates"}</DialogTitle>
           <DialogDescription>
-            Confirm the detected Excel rows before they are added to the global fallback schedule.
+            {preview
+              ? "Confirm the detected Excel rows before they are added to the global fallback schedule."
+              : "Set the target currency used when the file omits it, then choose the same CSV or Excel schedule accepted by firm imports."}
           </DialogDescription>
         </DialogHeader>
+        {!preview && <div className="space-y-4 pt-4">
+          <div className="space-y-2">
+            <label htmlFor="system-rate-functional-currency" className="text-sm font-medium">
+              Functional currency fallback
+            </label>
+            <Input
+              id="system-rate-functional-currency"
+              data-testid="input-system-exchange-rate-functional-currency"
+              value={functionalCurrency}
+              onChange={(event) => setFunctionalCurrency(event.target.value.toUpperCase().slice(0, 3))}
+              placeholder="AED"
+              maxLength={3}
+              className="max-w-32 font-mono uppercase"
+            />
+            <p className="text-xs text-muted-foreground">
+              Used only for rows without an explicit functional or target currency column.
+            </p>
+          </div>
+          <label className="inline-flex h-9 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground">
+            <Upload className="mr-2 h-4 w-4" />
+            {parseMutation.isPending ? "Detecting layout…" : importMutation.isPending ? "Importing…" : "Choose CSV or Excel file"}
+            <input
+              data-testid="input-system-exchange-rate-import"
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              disabled={parseMutation.isPending || importMutation.isPending}
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.currentTarget.value = "";
+                void importRateFile(file);
+              }}
+            />
+          </label>
+        </div>}
         {preview && <div data-testid="card-system-exchange-rate-import-preview" className="space-y-4 pt-4">
           <div className="rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-sm">
             <strong>{preview.rates.length} valid rate{preview.rates.length === 1 ? "" : "s"} detected.</strong>
@@ -573,16 +623,15 @@ function ImportRatesDialog() {
         </div>}
         <DialogFooter className="pt-4">
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button
+          {preview && <Button
             data-testid="button-confirm-system-exchange-rate-import"
             onClick={() => preview && void importParsedRates(preview.rates)}
             disabled={importMutation.isPending || !preview?.rates.length}
           >
             {importMutation.isPending ? "Importing…" : `Confirm ${preview?.rates.length ?? 0} rates`}
-          </Button>
+          </Button>}
         </DialogFooter>
       </DialogContent>
-      </Dialog>
-    </>
+    </Dialog>
   );
 }

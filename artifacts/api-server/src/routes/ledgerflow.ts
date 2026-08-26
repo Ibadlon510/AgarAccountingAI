@@ -4896,7 +4896,12 @@ router.post("/ledgerflow/system-rates/parse", async (req, res) => {
   const archiveError = validateXlsxArchive(buffer);
   if (archiveError) return res.status(422).json({ error: archiveError });
   try {
-    const workbookPreview = exchangeRateWorkbookPreview(buffer, null);
+    const workbookPreview = exchangeRateWorkbookPreview(
+      buffer,
+      parsed.data.functionalCurrency
+        ? normalizeCurrency(parsed.data.functionalCurrency)
+        : "AED",
+    );
     if (!workbookPreview.rates.length) {
       return res.status(422).json({
         error: "No safe exchange-rate rows were found. Include dated source currency, functional currency, and rate columns.",

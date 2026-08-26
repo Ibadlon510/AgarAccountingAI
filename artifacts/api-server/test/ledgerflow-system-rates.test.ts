@@ -120,8 +120,8 @@ test("protects and applies the system catalog with traceable fallback precedence
   });
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet([
-    { effectiveDate: "2026-08-01", sourceCurrency: "CAD", functionalCurrency: "AED", rate: 2.7 },
-    { effectiveDate: "2026-08-02", sourceCurrency: "CHF", functionalCurrency: "AED", rate: 4.5 },
+    { effectiveDate: "2026-08-01", sourceCurrency: "CAD", rate: 2.7 },
+    { effectiveDate: "2026-08-02", sourceCurrency: "CHF", rate: 4.5 },
   ]), "Rates");
   const preview = await request<{ rates: Array<{ sourceCurrency: string; functionalCurrency: string; rate: number }> }>(
     "/ledgerflow/system-rates/parse",

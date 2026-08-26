@@ -1272,11 +1272,17 @@ export const ImportSystemRatesResponse = zod.object({
  */
 export const parseSystemRatesBodyFileBase64Max = 20000000;
 
+export const parseSystemRatesBodyFunctionalCurrencyMin = 3;
+export const parseSystemRatesBodyFunctionalCurrencyMax = 3;
+
+
+export const parseSystemRatesBodyFunctionalCurrencyRegExp = new RegExp('^[A-Za-z]{3}$');
 
 
 export const ParseSystemRatesBody = zod.object({
   "fileBase64": zod.string().min(1).max(parseSystemRatesBodyFileBase64Max).optional(),
-  "fileName": zod.string().optional()
+  "fileName": zod.string().optional(),
+  "functionalCurrency": zod.string().min(parseSystemRatesBodyFunctionalCurrencyMin).max(parseSystemRatesBodyFunctionalCurrencyMax).regex(parseSystemRatesBodyFunctionalCurrencyRegExp).optional()
 })
 
 export const parseSystemRatesResponseRatesItemSourceCurrencyMin = 3;
