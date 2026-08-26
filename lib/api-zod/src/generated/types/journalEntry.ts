@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { JournalEntryExchangeRateSourceScope } from './journalEntryExchangeRateSourceScope';
 import type { JournalLine } from './journalLine';
 
 export interface JournalEntry {
@@ -24,5 +25,6 @@ export interface JournalEntry {
   exchangeRate?: number | null;
   /** @nullable */
   exchangeRateEffectiveDate?: Date | null;
+  exchangeRateSourceScope?: JournalEntryExchangeRateSourceScope;
   exchangeRateStatus?: string;
 }

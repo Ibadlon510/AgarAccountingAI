@@ -760,6 +760,7 @@ test("does not remediate an exact demo-shaped workspace that is intentionally sh
     firmId: null,
     ownershipStatus: "company_owned",
     subscriptionLiableParty: "company",
+        systemRatesEnabled: true,
     legacyDemo: false,
     workspaceState: "configured",
   }]);

@@ -21,3 +21,4 @@
 - [Firm exchange-rate schedules](firm-exchange-rate-schedules.md) — exchange-rate schedules are firm-owned and shared across that firm’s clients.
 - [Managed AI cost estimates](managed-ai-cost-estimates.md) — never invent a local Replit-managed model price; distinguish no activity, missing metadata, and Replit-tracked billing.
 - [Release test isolation](release-test-isolation.md) — reset the dedicated test schema per run and close local HTTP connections so append-only evidence cannot contaminate or stall CI.
+- [Generated Zod constraint ordering](generated-zod-constraint-ordering.md) — repeated constrained schemas can emit constants after first use; validate at the server boundary when this occurs.

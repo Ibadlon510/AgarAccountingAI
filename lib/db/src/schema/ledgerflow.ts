@@ -1,4 +1,4 @@
-import { bigint, check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const usersTable = pgTable("users", {
@@ -30,6 +30,7 @@ export const firmProfilesTable = pgTable("ledgerflow_firm_profiles", {
   name: text("name").notNull(),
   legalName: text("legal_name").notNull(),
   profileKind: text("profile_kind").notNull().default("accounting_firm"),
+  systemRatesEnabled: boolean("system_rates_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
@@ -77,6 +78,7 @@ export const clientsTable = pgTable("ledgerflow_clients", {
   functionalCurrency: text("functional_currency").notNull().default("AED"),
   basis: text("basis").notNull().default("IFRS"),
   period: text("period").notNull().default("August 2026"),
+  systemRatesEnabled: boolean("system_rates_enabled").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   transferredAt: timestamp("transferred_at", { withTimezone: true }),
 }, (table) => [
@@ -300,6 +302,27 @@ export const exchangeRatesTable = pgTable("ledgerflow_exchange_rates", {
     name: "ledgerflow_exchange_rates_firm_fk",
   }),
 }));
+
+export const systemRateAdminsTable = pgTable("ledgerflow_system_rate_admins", {
+  userId: varchar("user_id").primaryKey(),
+  grantedByUserId: varchar("granted_by_user_id"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => [
+  index("ledgerflow_system_rate_admins_status_idx").on(table.status),
+  check("ledgerflow_system_rate_admins_status_check", sql`status in ('active', 'revoked')`),
+  foreignKey({
+    columns: [table.userId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_system_rate_admins_user_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.grantedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_system_rate_admins_granted_by_fk",
+  }),
+]);
 export const aiProviderConfigsTable = pgTable("ledgerflow_ai_provider_configs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
@@ -431,6 +454,7 @@ export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
   exchangeRate: numeric("exchange_rate", { precision: 20, scale: 10 }),
   exchangeRateEffectiveDate: date("exchange_rate_effective_date", { mode: "string" }),
+  exchangeRateSourceScope: text("exchange_rate_source_scope").notNull().default("none"),
   exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
@@ -469,6 +493,7 @@ export const journalEntriesTable = pgTable("ledgerflow_journal_entries", {
   functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
   exchangeRate: numeric("exchange_rate", { precision: 20, scale: 10 }),
   exchangeRateEffectiveDate: date("exchange_rate_effective_date", { mode: "string" }),
+  exchangeRateSourceScope: text("exchange_rate_source_scope").notNull().default("none"),
   exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
@@ -579,3 +604,46 @@ export type BulkTransitionAudit = typeof bulkTransitionAuditsTable.$inferSelect;
 export type StatementImportUndoAudit = typeof statementImportUndoAuditsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;
 export type UpsertUser = typeof usersTable.$inferInsert;
+
+export const systemRatesTable = pgTable("ledgerflow_system_rates", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  sourceCurrency: varchar("source_currency", { length: 3 }).notNull(),
+  functionalCurrency: varchar("functional_currency", { length: 3 }).notNull(),
+  effectiveDate: date("effective_date", { mode: "string" }).notNull(),
+  rate: numeric("rate", { precision: 20, scale: 10 }).notNull(),
+  source: text("source").notNull().default("Manual"),
+  note: text("note"),
+  createdByUserId: varchar("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("ledgerflow_system_rates_pair_date_idx").on(table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  index("ledgerflow_system_rates_lookup_idx").on(table.sourceCurrency, table.functionalCurrency, table.effectiveDate),
+  foreignKey({
+    columns: [table.createdByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_system_rates_creator_fk",
+  }),
+]);
+
+export const systemRateAuditEventsTable = pgTable("ledgerflow_system_rate_audit_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  actorUserId: varchar("actor_user_id").notNull(),
+  systemRateId: integer("system_rate_id"),
+  action: text("action").notNull(),
+  summary: text("summary").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ledgerflow_system_rate_audit_events_created_idx").on(table.createdAt),
+  check("ledgerflow_system_rate_audit_events_action_check", sql`action in ('created', 'updated', 'deleted', 'imported')`),
+  foreignKey({
+    columns: [table.actorUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_system_rate_audit_events_actor_fk",
+  }),
+  foreignKey({
+    columns: [table.systemRateId],
+    foreignColumns: [systemRatesTable.id],
+    name: "ledgerflow_system_rate_audit_events_rate_fk",
+  }).onDelete("set null"),
+]);

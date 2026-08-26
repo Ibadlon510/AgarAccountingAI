@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineExchangeRateSourceScope } from './statementLineExchangeRateSourceScope';
 
 export interface StatementLine {
   id: number;
@@ -33,5 +34,6 @@ export interface StatementLine {
   exchangeRate?: number | null;
   /** @nullable */
   exchangeRateEffectiveDate?: Date | null;
+  exchangeRateSourceScope?: StatementLineExchangeRateSourceScope;
   exchangeRateStatus?: string;
 }

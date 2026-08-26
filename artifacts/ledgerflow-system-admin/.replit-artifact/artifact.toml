@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/system-admin/"
+title = "LedgerFlow System Admin"
+description = "Private internal console for aggregated exchange-rate health and controlled global fallback-rate administration."
+version = "1.0.0"
+id = "artifacts/ledgerflow-system-admin"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/system-admin/" ]
+localPort = 24883
+
+[services.development]
+run = "pnpm --filter @workspace/ledgerflow-system-admin run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/ledgerflow-system-admin", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/ledgerflow-system-admin/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24883"
+BASE_PATH = "/system-admin/"

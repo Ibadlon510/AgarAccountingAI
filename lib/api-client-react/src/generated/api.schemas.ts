@@ -39,6 +39,8 @@ export interface FirmProfile {
   id: number;
   name: string;
   legalName: string;
+  /** Whether the system catalog may supply a fallback rate for this firm's clients. */
+  systemRatesEnabled: boolean;
 }
 
 export interface FirmProfileInput {
@@ -46,41 +48,42 @@ export interface FirmProfileInput {
   name: string;
   /** @minLength 1 */
   legalName: string;
+  systemRatesEnabled?: boolean;
 }
 
-export type OrganizationMode = typeof OrganizationMode[keyof typeof OrganizationMode];
-
+export type OrganizationMode =
+  (typeof OrganizationMode)[keyof typeof OrganizationMode];
 
 export const OrganizationMode = {
-  company: 'company',
-  firm: 'firm',
-  both: 'both',
+  company: "company",
+  firm: "firm",
+  both: "both",
 } as const;
 
-export type OrganizationRole = typeof OrganizationRole[keyof typeof OrganizationRole];
-
+export type OrganizationRole =
+  (typeof OrganizationRole)[keyof typeof OrganizationRole];
 
 export const OrganizationRole = {
-  owner: 'owner',
-  admin: 'admin',
-  accountant: 'accountant',
-  bookkeeper: 'bookkeeper',
+  owner: "owner",
+  admin: "admin",
+  accountant: "accountant",
+  bookkeeper: "bookkeeper",
 } as const;
 
-export type OwnershipStatus = typeof OwnershipStatus[keyof typeof OwnershipStatus];
-
+export type OwnershipStatus =
+  (typeof OwnershipStatus)[keyof typeof OwnershipStatus];
 
 export const OwnershipStatus = {
-  company_owned: 'company_owned',
-  firm_provisional: 'firm_provisional',
+  company_owned: "company_owned",
+  firm_provisional: "firm_provisional",
 } as const;
 
-export type SubscriptionLiableParty = typeof SubscriptionLiableParty[keyof typeof SubscriptionLiableParty];
-
+export type SubscriptionLiableParty =
+  (typeof SubscriptionLiableParty)[keyof typeof SubscriptionLiableParty];
 
 export const SubscriptionLiableParty = {
-  company: 'company',
-  firm: 'firm',
+  company: "company",
+  firm: "firm",
 } as const;
 
 export interface OrganizationOnboardingInput {
@@ -98,54 +101,54 @@ export interface OrganizationOnboardingInput {
   period?: string;
 }
 
-export type OrganizationInviteInputRole = typeof OrganizationInviteInputRole[keyof typeof OrganizationInviteInputRole];
-
+export type OrganizationInviteInputRole =
+  (typeof OrganizationInviteInputRole)[keyof typeof OrganizationInviteInputRole];
 
 export const OrganizationInviteInputRole = {
-  admin: 'admin',
-  accountant: 'accountant',
-  bookkeeper: 'bookkeeper',
+  admin: "admin",
+  accountant: "accountant",
+  bookkeeper: "bookkeeper",
 } as const;
 
 export interface OrganizationInviteInput {
   /**
-     * @minLength 3
-     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
-     */
+   * @minLength 3
+   * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+   */
   email: string;
   role?: OrganizationInviteInputRole;
 }
 
-export type FirmEngagementInviteInputRole = typeof FirmEngagementInviteInputRole[keyof typeof FirmEngagementInviteInputRole];
-
+export type FirmEngagementInviteInputRole =
+  (typeof FirmEngagementInviteInputRole)[keyof typeof FirmEngagementInviteInputRole];
 
 export const FirmEngagementInviteInputRole = {
-  admin: 'admin',
+  admin: "admin",
 } as const;
 
 export interface FirmEngagementInviteInput {
   /**
-     * @minLength 3
-     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
-     */
+   * @minLength 3
+   * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+   */
   email: string;
   firmId: number;
   role?: FirmEngagementInviteInputRole;
 }
 
-export type FirmNominationInputRole = typeof FirmNominationInputRole[keyof typeof FirmNominationInputRole];
-
+export type FirmNominationInputRole =
+  (typeof FirmNominationInputRole)[keyof typeof FirmNominationInputRole];
 
 export const FirmNominationInputRole = {
-  accountant: 'accountant',
-  bookkeeper: 'bookkeeper',
+  accountant: "accountant",
+  bookkeeper: "bookkeeper",
 } as const;
 
 export interface FirmNominationInput {
   /**
-     * @minLength 3
-     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
-     */
+   * @minLength 3
+   * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+   */
   email: string;
   role: FirmNominationInputRole;
 }
@@ -159,21 +162,21 @@ export interface FirmMembership {
   role: OrganizationRole;
 }
 
-export type FirmEngagementMemberRole = typeof FirmEngagementMemberRole[keyof typeof FirmEngagementMemberRole];
-
+export type FirmEngagementMemberRole =
+  (typeof FirmEngagementMemberRole)[keyof typeof FirmEngagementMemberRole];
 
 export const FirmEngagementMemberRole = {
-  accountant: 'accountant',
-  bookkeeper: 'bookkeeper',
+  accountant: "accountant",
+  bookkeeper: "bookkeeper",
 } as const;
 
-export type FirmEngagementMemberStatus = typeof FirmEngagementMemberStatus[keyof typeof FirmEngagementMemberStatus];
-
+export type FirmEngagementMemberStatus =
+  (typeof FirmEngagementMemberStatus)[keyof typeof FirmEngagementMemberStatus];
 
 export const FirmEngagementMemberStatus = {
-  nominated: 'nominated',
-  approved: 'approved',
-  revoked: 'revoked',
+  nominated: "nominated",
+  approved: "approved",
+  revoked: "revoked",
 } as const;
 
 export interface FirmEngagementMember {
@@ -184,13 +187,13 @@ export interface FirmEngagementMember {
   status: FirmEngagementMemberStatus;
 }
 
-export type FirmEngagementStatus = typeof FirmEngagementStatus[keyof typeof FirmEngagementStatus];
-
+export type FirmEngagementStatus =
+  (typeof FirmEngagementStatus)[keyof typeof FirmEngagementStatus];
 
 export const FirmEngagementStatus = {
-  provisional: 'provisional',
-  active: 'active',
-  revoked: 'revoked',
+  provisional: "provisional",
+  active: "active",
+  revoked: "revoked",
 } as const;
 
 export interface FirmEngagement {
@@ -205,23 +208,23 @@ export interface FirmEngagement {
   members: FirmEngagementMember[];
 }
 
-export type OrganizationInvitationKind = typeof OrganizationInvitationKind[keyof typeof OrganizationInvitationKind];
-
+export type OrganizationInvitationKind =
+  (typeof OrganizationInvitationKind)[keyof typeof OrganizationInvitationKind];
 
 export const OrganizationInvitationKind = {
-  firm_member: 'firm_member',
-  firm_engagement: 'firm_engagement',
-  company_transfer: 'company_transfer',
+  firm_member: "firm_member",
+  firm_engagement: "firm_engagement",
+  company_transfer: "company_transfer",
 } as const;
 
-export type OrganizationInvitationStatus = typeof OrganizationInvitationStatus[keyof typeof OrganizationInvitationStatus];
-
+export type OrganizationInvitationStatus =
+  (typeof OrganizationInvitationStatus)[keyof typeof OrganizationInvitationStatus];
 
 export const OrganizationInvitationStatus = {
-  pending: 'pending',
-  accepted: 'accepted',
-  revoked: 'revoked',
-  expired: 'expired',
+  pending: "pending",
+  accepted: "accepted",
+  revoked: "revoked",
+  expired: "expired",
 } as const;
 
 export interface OrganizationInvitation {
@@ -243,13 +246,13 @@ export interface OrganizationInvitation {
 /**
  * Configuration state for this workspace. Missing memberships are represented by an empty response.
  */
-export type ClientWorkspaceState = typeof ClientWorkspaceState[keyof typeof ClientWorkspaceState];
-
+export type ClientWorkspaceState =
+  (typeof ClientWorkspaceState)[keyof typeof ClientWorkspaceState];
 
 export const ClientWorkspaceState = {
-  starter: 'starter',
-  configured: 'configured',
-  legacy_demo: 'legacy_demo',
+  starter: "starter",
+  configured: "configured",
+  legacy_demo: "legacy_demo",
 } as const;
 
 export interface Client {
@@ -265,6 +268,8 @@ export interface Client {
   firmId?: number | null;
   ownershipStatus: OwnershipStatus;
   subscriptionLiableParty: SubscriptionLiableParty;
+  /** Whether the system catalog may supply a fallback rate for this company. */
+  systemRatesEnabled: boolean;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
   /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
@@ -308,12 +313,12 @@ export interface HealthStatus {
   status: string;
 }
 
-export type ClientInputCreationMode = typeof ClientInputCreationMode[keyof typeof ClientInputCreationMode];
-
+export type ClientInputCreationMode =
+  (typeof ClientInputCreationMode)[keyof typeof ClientInputCreationMode];
 
 export const ClientInputCreationMode = {
-  own_company: 'own_company',
-  firm_client: 'firm_client',
+  own_company: "own_company",
+  firm_client: "firm_client",
 } as const;
 
 export interface ClientInput {
@@ -332,25 +337,25 @@ export interface ClientUpdateInput {
   functionalCurrency: string;
   basis: string;
   period: string;
+  systemRatesEnabled?: boolean;
 }
 
-export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
-
+export type WorkspaceRole = (typeof WorkspaceRole)[keyof typeof WorkspaceRole];
 
 export const WorkspaceRole = {
-  owner: 'owner',
-  admin: 'admin',
-  accountant: 'accountant',
-  bookkeeper: 'bookkeeper',
+  owner: "owner",
+  admin: "admin",
+  accountant: "accountant",
+  bookkeeper: "bookkeeper",
 } as const;
 
-export type WorkspaceAssignableRole = typeof WorkspaceAssignableRole[keyof typeof WorkspaceAssignableRole];
-
+export type WorkspaceAssignableRole =
+  (typeof WorkspaceAssignableRole)[keyof typeof WorkspaceAssignableRole];
 
 export const WorkspaceAssignableRole = {
-  admin: 'admin',
-  accountant: 'accountant',
-  bookkeeper: 'bookkeeper',
+  admin: "admin",
+  accountant: "accountant",
+  bookkeeper: "bookkeeper",
 } as const;
 
 export interface WorkspaceMembershipClient {
@@ -358,11 +363,11 @@ export interface WorkspaceMembershipClient {
   name: string;
 }
 
-export type WorkspaceMemberStatus = typeof WorkspaceMemberStatus[keyof typeof WorkspaceMemberStatus];
-
+export type WorkspaceMemberStatus =
+  (typeof WorkspaceMemberStatus)[keyof typeof WorkspaceMemberStatus];
 
 export const WorkspaceMemberStatus = {
-  active: 'active',
+  active: "active",
 } as const;
 
 export interface WorkspaceMember {
@@ -375,14 +380,14 @@ export interface WorkspaceMember {
   isCurrentUser: boolean;
 }
 
-export type WorkspaceInvitationStatus = typeof WorkspaceInvitationStatus[keyof typeof WorkspaceInvitationStatus];
-
+export type WorkspaceInvitationStatus =
+  (typeof WorkspaceInvitationStatus)[keyof typeof WorkspaceInvitationStatus];
 
 export const WorkspaceInvitationStatus = {
-  pending: 'pending',
-  accepted: 'accepted',
-  revoked: 'revoked',
-  expired: 'expired',
+  pending: "pending",
+  accepted: "accepted",
+  revoked: "revoked",
+  expired: "expired",
 } as const;
 
 export interface WorkspaceInvitation {
@@ -409,9 +414,9 @@ export interface WorkspaceMembers {
 
 export interface WorkspaceInvitationInput {
   /**
-     * @minLength 3
-     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
-     */
+   * @minLength 3
+   * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+   */
   email: string;
   role: WorkspaceAssignableRole;
   /** @minItems 1 */
@@ -424,13 +429,13 @@ export interface WorkspaceMemberUpdate {
   clientIds: number[];
 }
 
-export type UsageMetricStatus = typeof UsageMetricStatus[keyof typeof UsageMetricStatus];
-
+export type UsageMetricStatus =
+  (typeof UsageMetricStatus)[keyof typeof UsageMetricStatus];
 
 export const UsageMetricStatus = {
-  healthy: 'healthy',
-  approaching: 'approaching',
-  at_limit: 'at_limit',
+  healthy: "healthy",
+  approaching: "approaching",
+  at_limit: "at_limit",
 } as const;
 
 export interface UsageMetric {
@@ -440,13 +445,13 @@ export interface UsageMetric {
   status: UsageMetricStatus;
 }
 
-export type EvidenceUsageStatus = typeof EvidenceUsageStatus[keyof typeof EvidenceUsageStatus];
-
+export type EvidenceUsageStatus =
+  (typeof EvidenceUsageStatus)[keyof typeof EvidenceUsageStatus];
 
 export const EvidenceUsageStatus = {
-  healthy: 'healthy',
-  approaching: 'approaching',
-  at_limit: 'at_limit',
+  healthy: "healthy",
+  approaching: "approaching",
+  at_limit: "at_limit",
 } as const;
 
 export interface EvidenceUsage {
@@ -511,14 +516,14 @@ export interface WorkspaceUsage {
 export interface ExchangeRate {
   id: number;
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   sourceCurrency: string;
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   functionalCurrency: string;
   effectiveDate: string;
   /** @exclusiveMinimum 0 */
@@ -530,14 +535,14 @@ export interface ExchangeRate {
 
 export interface ExchangeRateInput {
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   sourceCurrency: string;
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   functionalCurrency: string;
   effectiveDate: string;
   /** @exclusiveMinimum 0 */
@@ -549,14 +554,14 @@ export interface ExchangeRateInput {
 
 export interface ExchangeRateUpdate {
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   sourceCurrency: string;
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   functionalCurrency: string;
   effectiveDate: string;
   /** @exclusiveMinimum 0 */
@@ -580,14 +585,14 @@ export interface ExchangeRateImportResult {
 export interface ExchangeRateParseInput {
   clientId: number;
   /**
-     * @minLength 1
-     * @maxLength 120000
-     */
+   * @minLength 1
+   * @maxLength 120000
+   */
   content?: string;
   /**
-     * @minLength 1
-     * @maxLength 20000000
-     */
+   * @minLength 1
+   * @maxLength 20000000
+   */
   fileBase64?: string;
   fileName?: string;
 }
@@ -613,10 +618,93 @@ export interface ExchangeRateParseResult {
   warnings: string[];
   unmappedColumns: string[];
   /**
-     * @minimum 0
-     * @maximum 1
-     */
+   * @minimum 0
+   * @maximum 1
+   */
   confidence: number;
+}
+
+export interface SystemRate {
+  id: number;
+  sourceCurrency: string;
+  functionalCurrency: string;
+  effectiveDate: string;
+  rate: number;
+  source: string;
+  /** @nullable */
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SystemRateInput {
+  sourceCurrency: string;
+  functionalCurrency: string;
+  effectiveDate: string;
+  rate: number;
+  source?: string;
+  /** @nullable */
+  note?: string | null;
+}
+
+export type SystemRateUpdate = SystemRateInput;
+
+export interface SystemRateImportInput {
+  /** @minItems 1 */
+  rates: SystemRateInput[];
+}
+
+export interface SystemRateImportResult {
+  importedCount: number;
+  updatedCount: number;
+  rates: SystemRate[];
+}
+
+export interface SystemRatePair {
+  sourceCurrency: string;
+  functionalCurrency: string;
+  latestEffectiveDate: string;
+  rateCount: number;
+}
+
+export type SystemRateCoverageGapKind =
+  (typeof SystemRateCoverageGapKind)[keyof typeof SystemRateCoverageGapKind];
+
+export const SystemRateCoverageGapKind = {
+  missing: "missing",
+  stale: "stale",
+} as const;
+
+export interface SystemRateCoverageGap {
+  sourceCurrency: string;
+  functionalCurrency: string;
+  workspaces: number;
+  kind: SystemRateCoverageGapKind;
+}
+
+export type SystemRateChangeAction =
+  (typeof SystemRateChangeAction)[keyof typeof SystemRateChangeAction];
+
+export const SystemRateChangeAction = {
+  created: "created",
+  updated: "updated",
+  deleted: "deleted",
+  imported: "imported",
+} as const;
+
+export interface SystemRateChange {
+  id: number;
+  action: SystemRateChangeAction;
+  summary: string;
+  createdAt: string;
+}
+
+export interface SystemRateDashboard {
+  availablePairs: SystemRatePair[];
+  workspacesUsingFallback: number;
+  workspacesWithFallbackDisabled: number;
+  missingOrStaleCoverage: SystemRateCoverageGap[];
+  recentChanges: SystemRateChange[];
 }
 
 export interface LedgerOverview {
@@ -631,6 +719,16 @@ export interface LedgerOverview {
   missingRateCount: number;
   missingRateCurrencies: string[];
 }
+
+export type StatementLineExchangeRateSourceScope =
+  (typeof StatementLineExchangeRateSourceScope)[keyof typeof StatementLineExchangeRateSourceScope];
+
+export const StatementLineExchangeRateSourceScope = {
+  none: "none",
+  client: "client",
+  firm: "firm",
+  system: "system",
+} as const;
 
 export interface StatementLine {
   id: number;
@@ -659,6 +757,7 @@ export interface StatementLine {
   exchangeRate?: number | null;
   /** @nullable */
   exchangeRateEffectiveDate?: string | null;
+  exchangeRateSourceScope?: StatementLineExchangeRateSourceScope;
   exchangeRateStatus?: string;
 }
 
@@ -687,23 +786,23 @@ export interface StatementImportInput {
   confirmed: boolean;
 }
 
-export type StatementImportResultImportStatus = typeof StatementImportResultImportStatus[keyof typeof StatementImportResultImportStatus];
-
+export type StatementImportResultImportStatus =
+  (typeof StatementImportResultImportStatus)[keyof typeof StatementImportResultImportStatus];
 
 export const StatementImportResultImportStatus = {
-  preview: 'preview',
-  imported: 'imported',
-  imported_with_duplicates: 'imported_with_duplicates',
-  duplicates_found: 'duplicates_found',
-  duplicate_file: 'duplicate_file',
+  preview: "preview",
+  imported: "imported",
+  imported_with_duplicates: "imported_with_duplicates",
+  duplicates_found: "duplicates_found",
+  duplicate_file: "duplicate_file",
 } as const;
 
-export type StatementImportDuplicateReason = typeof StatementImportDuplicateReason[keyof typeof StatementImportDuplicateReason];
-
+export type StatementImportDuplicateReason =
+  (typeof StatementImportDuplicateReason)[keyof typeof StatementImportDuplicateReason];
 
 export const StatementImportDuplicateReason = {
-  already_imported: 'already_imported',
-  duplicate_in_file: 'duplicate_in_file',
+  already_imported: "already_imported",
+  duplicate_in_file: "duplicate_in_file",
 } as const;
 
 export interface StatementImportDuplicate {
@@ -744,15 +843,15 @@ export interface StatementImportResult {
   bankAccount?: BankAccount | null;
 }
 
-export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof StatementImportOutcome];
-
+export type StatementImportOutcome =
+  (typeof StatementImportOutcome)[keyof typeof StatementImportOutcome];
 
 export const StatementImportOutcome = {
-  pending_confirmation: 'pending_confirmation',
-  completed: 'completed',
-  duplicate: 'duplicate',
-  failed: 'failed',
-  undone: 'undone',
+  pending_confirmation: "pending_confirmation",
+  completed: "completed",
+  duplicate: "duplicate",
+  failed: "failed",
+  undone: "undone",
 } as const;
 
 export interface StatementImport {
@@ -776,11 +875,11 @@ export interface StatementImportUndoInput {
   clientId: number;
 }
 
-export type StatementImportUndoResultOutcome = typeof StatementImportUndoResultOutcome[keyof typeof StatementImportUndoResultOutcome];
-
+export type StatementImportUndoResultOutcome =
+  (typeof StatementImportUndoResultOutcome)[keyof typeof StatementImportUndoResultOutcome];
 
 export const StatementImportUndoResultOutcome = {
-  undone: 'undone',
+  undone: "undone",
 } as const;
 
 export interface StatementImportUndoResult {
@@ -793,21 +892,21 @@ export interface StatementImportUndoResult {
   message: string;
 }
 
-export type UploadedFileOutcome = typeof UploadedFileOutcome[keyof typeof UploadedFileOutcome];
-
+export type UploadedFileOutcome =
+  (typeof UploadedFileOutcome)[keyof typeof UploadedFileOutcome];
 
 export const UploadedFileOutcome = {
-  completed: 'completed',
-  duplicate: 'duplicate',
+  completed: "completed",
+  duplicate: "duplicate",
 } as const;
 
-export type UploadedFileSourceStatus = typeof UploadedFileSourceStatus[keyof typeof UploadedFileSourceStatus];
-
+export type UploadedFileSourceStatus =
+  (typeof UploadedFileSourceStatus)[keyof typeof UploadedFileSourceStatus];
 
 export const UploadedFileSourceStatus = {
-  available: 'available',
-  expired: 'expired',
-  unavailable: 'unavailable',
+  available: "available",
+  expired: "expired",
+  unavailable: "unavailable",
 } as const;
 
 export interface UploadedFile {
@@ -848,14 +947,14 @@ export interface BankAccountInput {
   /** @nullable */
   bankName?: string | null;
   /**
-     * @nullable
-     * @pattern ^[0-9]{4}$
-     */
+   * @nullable
+   * @pattern ^[0-9]{4}$
+   */
   accountNumberLast4?: string | null;
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   currency: string;
 }
 
@@ -878,16 +977,16 @@ export type AIChatResponseContext = {
   postedLines: number;
 };
 
-export type AICopilotRecommendationType = typeof AICopilotRecommendationType[keyof typeof AICopilotRecommendationType];
-
+export type AICopilotRecommendationType =
+  (typeof AICopilotRecommendationType)[keyof typeof AICopilotRecommendationType];
 
 export const AICopilotRecommendationType = {
-  next_step: 'next_step',
-  review_group: 'review_group',
-  recode_lines: 'recode_lines',
-  create_bank_account: 'create_bank_account',
-  bulk_approve_entries: 'bulk_approve_entries',
-  bulk_post_entries: 'bulk_post_entries',
+  next_step: "next_step",
+  review_group: "review_group",
+  recode_lines: "recode_lines",
+  create_bank_account: "create_bank_account",
+  bulk_approve_entries: "bulk_approve_entries",
+  bulk_post_entries: "bulk_post_entries",
 } as const;
 
 export interface BankAccountDraft {
@@ -895,9 +994,9 @@ export interface BankAccountDraft {
   /** @nullable */
   bankName?: string | null;
   /**
-     * @nullable
-     * @pattern ^[0-9]{4}$
-     */
+   * @nullable
+   * @pattern ^[0-9]{4}$
+   */
   accountNumberLast4?: string | null;
   currency: string;
 }
@@ -939,31 +1038,29 @@ export interface AIChatResponse {
   context: AIChatResponseContext;
 }
 
-export type AIProvider = typeof AIProvider[keyof typeof AIProvider];
-
+export type AIProvider = (typeof AIProvider)[keyof typeof AIProvider];
 
 export const AIProvider = {
-  managed_openai: 'managed_openai',
-  openai: 'openai',
-  anthropic: 'anthropic',
+  managed_openai: "managed_openai",
+  openai: "openai",
+  anthropic: "anthropic",
 } as const;
 
-export type AICredentialStatus = typeof AICredentialStatus[keyof typeof AICredentialStatus];
-
+export type AICredentialStatus =
+  (typeof AICredentialStatus)[keyof typeof AICredentialStatus];
 
 export const AICredentialStatus = {
-  not_configured: 'not_configured',
-  configured: 'configured',
-  invalid: 'invalid',
-  unavailable: 'unavailable',
+  not_configured: "not_configured",
+  configured: "configured",
+  invalid: "invalid",
+  unavailable: "unavailable",
 } as const;
 
-export type AIModelStatus = typeof AIModelStatus[keyof typeof AIModelStatus];
-
+export type AIModelStatus = (typeof AIModelStatus)[keyof typeof AIModelStatus];
 
 export const AIModelStatus = {
-  active: 'active',
-  retired: 'retired',
+  active: "active",
+  retired: "retired",
 } as const;
 
 export interface AIModelOption {
@@ -981,9 +1078,9 @@ export interface AIProviderSettings {
   model: string;
   credentialStatus: AICredentialStatus;
   /**
-     * Last four characters only; never the API credential.
-     * @nullable
-     */
+   * Last four characters only; never the API credential.
+   * @nullable
+   */
   credentialLast4: string | null;
   /** @nullable */
   credentialUpdatedAt: string | null;
@@ -1005,14 +1102,14 @@ export interface AIProviderSettingsTestInput {
   clientId: number;
 }
 
-export type AICopilotActionInputType = typeof AICopilotActionInputType[keyof typeof AICopilotActionInputType];
-
+export type AICopilotActionInputType =
+  (typeof AICopilotActionInputType)[keyof typeof AICopilotActionInputType];
 
 export const AICopilotActionInputType = {
-  recode_lines: 'recode_lines',
-  create_bank_account: 'create_bank_account',
-  bulk_approve_entries: 'bulk_approve_entries',
-  bulk_post_entries: 'bulk_post_entries',
+  recode_lines: "recode_lines",
+  create_bank_account: "create_bank_account",
+  bulk_approve_entries: "bulk_approve_entries",
+  bulk_post_entries: "bulk_post_entries",
 } as const;
 
 export interface AICopilotActionInput {
@@ -1037,6 +1134,16 @@ export interface JournalLine {
   credit: number;
 }
 
+export type JournalEntryExchangeRateSourceScope =
+  (typeof JournalEntryExchangeRateSourceScope)[keyof typeof JournalEntryExchangeRateSourceScope];
+
+export const JournalEntryExchangeRateSourceScope = {
+  none: "none",
+  client: "client",
+  firm: "firm",
+  system: "system",
+} as const;
+
 export interface JournalEntry {
   id: number;
   statementLineId: number;
@@ -1054,6 +1161,7 @@ export interface JournalEntry {
   exchangeRate?: number | null;
   /** @nullable */
   exchangeRateEffectiveDate?: string | null;
+  exchangeRateSourceScope?: JournalEntryExchangeRateSourceScope;
   exchangeRateStatus?: string;
 }
 
@@ -1071,14 +1179,14 @@ export interface AICopilotActionResult {
   bankAccount: BankAccount | null;
 }
 
-export type BulkTransitionAuditTransition = typeof BulkTransitionAuditTransition[keyof typeof BulkTransitionAuditTransition];
-
+export type BulkTransitionAuditTransition =
+  (typeof BulkTransitionAuditTransition)[keyof typeof BulkTransitionAuditTransition];
 
 export const BulkTransitionAuditTransition = {
-  bulk_approve_entries: 'bulk_approve_entries',
-  bulk_post_entries: 'bulk_post_entries',
-  post_entry: 'post_entry',
-  unpost_entry: 'unpost_entry',
+  bulk_approve_entries: "bulk_approve_entries",
+  bulk_post_entries: "bulk_post_entries",
+  post_entry: "post_entry",
+  unpost_entry: "unpost_entry",
 } as const;
 
 export interface BulkTransitionAuditActor {
@@ -1130,29 +1238,29 @@ export interface FinancialStatements {
   cashFlow: StatementSection[];
 }
 
-export type ReportPackInputReportingBasis = typeof ReportPackInputReportingBasis[keyof typeof ReportPackInputReportingBasis];
-
+export type ReportPackInputReportingBasis =
+  (typeof ReportPackInputReportingBasis)[keyof typeof ReportPackInputReportingBasis];
 
 export const ReportPackInputReportingBasis = {
-  IFRS: 'IFRS',
-  IFRS_for_SMEs: 'IFRS for SMEs',
+  IFRS: "IFRS",
+  IFRS_for_SMEs: "IFRS for SMEs",
 } as const;
 
-export type ReportPackInputPresentationProfile = typeof ReportPackInputPresentationProfile[keyof typeof ReportPackInputPresentationProfile];
-
+export type ReportPackInputPresentationProfile =
+  (typeof ReportPackInputPresentationProfile)[keyof typeof ReportPackInputPresentationProfile];
 
 export const ReportPackInputPresentationProfile = {
-  IAS_1: 'IAS 1',
-  IFRS_18: 'IFRS 18',
-  IFRS_for_SMEs: 'IFRS for SMEs',
+  IAS_1: "IAS 1",
+  IFRS_18: "IFRS 18",
+  IFRS_for_SMEs: "IFRS for SMEs",
 } as const;
 
-export type ReportPackInputRoundingPolicy = typeof ReportPackInputRoundingPolicy[keyof typeof ReportPackInputRoundingPolicy];
-
+export type ReportPackInputRoundingPolicy =
+  (typeof ReportPackInputRoundingPolicy)[keyof typeof ReportPackInputRoundingPolicy];
 
 export const ReportPackInputRoundingPolicy = {
-  Nearest_whole_unit: 'Nearest whole unit',
-  Nearest_2_decimals: 'Nearest 2 decimals',
+  Nearest_whole_unit: "Nearest whole unit",
+  Nearest_2_decimals: "Nearest 2 decimals",
 } as const;
 
 export interface ReportPackInput {
@@ -1161,19 +1269,19 @@ export interface ReportPackInput {
   reportingBasis?: ReportPackInputReportingBasis;
   presentationProfile?: ReportPackInputPresentationProfile;
   /**
-     * @minLength 3
-     * @maxLength 3
-     */
+   * @minLength 3
+   * @maxLength 3
+   */
   presentationCurrency?: string;
   roundingPolicy?: ReportPackInputRoundingPolicy;
 }
 
-export type ReportPackSummaryStatus = typeof ReportPackSummaryStatus[keyof typeof ReportPackSummaryStatus];
-
+export type ReportPackSummaryStatus =
+  (typeof ReportPackSummaryStatus)[keyof typeof ReportPackSummaryStatus];
 
 export const ReportPackSummaryStatus = {
-  draft: 'draft',
-  finalized: 'finalized',
+  draft: "draft",
+  finalized: "finalized",
 } as const;
 
 export interface ReportPackSummary {
@@ -1213,21 +1321,21 @@ export interface ReportNote {
   tables: ReportNoteTablesItem[];
 }
 
-export type ReportValidationStatus = typeof ReportValidationStatus[keyof typeof ReportValidationStatus];
-
+export type ReportValidationStatus =
+  (typeof ReportValidationStatus)[keyof typeof ReportValidationStatus];
 
 export const ReportValidationStatus = {
-  pass: 'pass',
-  blocked: 'blocked',
+  pass: "pass",
+  blocked: "blocked",
 } as const;
 
-export type ReportValidationChecksItemStatus = typeof ReportValidationChecksItemStatus[keyof typeof ReportValidationChecksItemStatus];
-
+export type ReportValidationChecksItemStatus =
+  (typeof ReportValidationChecksItemStatus)[keyof typeof ReportValidationChecksItemStatus];
 
 export const ReportValidationChecksItemStatus = {
-  pass: 'pass',
-  error: 'error',
-  warning: 'warning',
+  pass: "pass",
+  error: "error",
+  warning: "warning",
 } as const;
 
 export type ReportValidationChecksItem = {
@@ -1244,15 +1352,15 @@ export interface ReportValidation {
   checks: ReportValidationChecksItem[];
 }
 
-export type ReportChecklistItemStatus = typeof ReportChecklistItemStatus[keyof typeof ReportChecklistItemStatus];
-
+export type ReportChecklistItemStatus =
+  (typeof ReportChecklistItemStatus)[keyof typeof ReportChecklistItemStatus];
 
 export const ReportChecklistItemStatus = {
-  applicable: 'applicable',
-  not_applicable: 'not_applicable',
-  immaterial: 'immaterial',
-  satisfied: 'satisfied',
-  requires_accountant_input: 'requires_accountant_input',
+  applicable: "applicable",
+  not_applicable: "not_applicable",
+  immaterial: "immaterial",
+  satisfied: "satisfied",
+  requires_accountant_input: "requires_accountant_input",
 } as const;
 
 export interface ReportChecklistItem {
@@ -1292,12 +1400,12 @@ export interface ReportSnapshot {
   traceability: ReportSnapshotTraceability;
 }
 
-export type ReportPackStatus = typeof ReportPackStatus[keyof typeof ReportPackStatus];
-
+export type ReportPackStatus =
+  (typeof ReportPackStatus)[keyof typeof ReportPackStatus];
 
 export const ReportPackStatus = {
-  draft: 'draft',
-  finalized: 'finalized',
+  draft: "draft",
+  finalized: "finalized",
 } as const;
 
 export interface ReportPack {
@@ -1323,12 +1431,12 @@ export interface ReportPack {
   finalizedAt: string | null;
 }
 
-export type ReportPackUpdateAction = typeof ReportPackUpdateAction[keyof typeof ReportPackUpdateAction];
-
+export type ReportPackUpdateAction =
+  (typeof ReportPackUpdateAction)[keyof typeof ReportPackUpdateAction];
 
 export const ReportPackUpdateAction = {
-  update_inputs: 'update_inputs',
-  finalize: 'finalize',
+  update_inputs: "update_inputs",
+  finalize: "finalize",
 } as const;
 
 export interface ReportPackUpdate {
@@ -1350,90 +1458,89 @@ export type RateScopeClientIdParameter = number;
 export type RateScopeFirmIdParameter = number;
 
 export type BeginBrowserLoginParams = {
-returnTo?: string;
+  returnTo?: string;
 };
 
 export type LogoutBrowserSessionParams = {
-returnTo?: string;
+  returnTo?: string;
 };
 
 export type GetExchangeRatesParams = {
-/**
- * Company ledger whose persisted rate profile is being managed.
- */
-clientId?: RateScopeClientIdParameter;
-/**
- * Accounting firm whose shared rate profile is being managed.
- */
-firmId?: RateScopeFirmIdParameter;
+  /**
+   * Company ledger whose persisted rate profile is being managed.
+   */
+  clientId?: RateScopeClientIdParameter;
+  /**
+   * Accounting firm whose shared rate profile is being managed.
+   */
+  firmId?: RateScopeFirmIdParameter;
 };
 
 export type CreateExchangeRateParams = {
-/**
- * Company ledger whose persisted rate profile is being managed.
- */
-clientId?: RateScopeClientIdParameter;
-/**
- * Accounting firm whose shared rate profile is being managed.
- */
-firmId?: RateScopeFirmIdParameter;
+  /**
+   * Company ledger whose persisted rate profile is being managed.
+   */
+  clientId?: RateScopeClientIdParameter;
+  /**
+   * Accounting firm whose shared rate profile is being managed.
+   */
+  firmId?: RateScopeFirmIdParameter;
 };
 
 export type ImportExchangeRatesParams = {
-/**
- * Company ledger whose persisted rate profile is being managed.
- */
-clientId?: RateScopeClientIdParameter;
-/**
- * Accounting firm whose shared rate profile is being managed.
- */
-firmId?: RateScopeFirmIdParameter;
+  /**
+   * Company ledger whose persisted rate profile is being managed.
+   */
+  clientId?: RateScopeClientIdParameter;
+  /**
+   * Accounting firm whose shared rate profile is being managed.
+   */
+  firmId?: RateScopeFirmIdParameter;
 };
 
 export type GetLedgerOverviewParams = {
-clientId?: number;
+  clientId?: number;
 };
 
 export type GetBankAccountsParams = {
-clientId: number;
+  clientId: number;
 };
 
 export type GetStatementLinesParams = {
-clientId?: number;
-currency?: string;
-status?: string;
+  clientId?: number;
+  currency?: string;
+  status?: string;
 };
 
 export type GetStatementImportsParams = {
-clientId: number;
+  clientId: number;
 };
 
 export type GetUploadedFilesParams = {
-clientId: number;
+  clientId: number;
 };
 
 export type GetLedgerflowAISettingsParams = {
-clientId: number;
+  clientId: number;
 };
 
 export type GetBulkTransitionAuditsParams = {
-clientId?: number;
+  clientId?: number;
 };
 
 export type GetJournalEntriesParams = {
-clientId?: number;
+  clientId?: number;
 };
 
 export type GetTrialBalanceParams = {
-clientId?: number;
+  clientId?: number;
 };
 
 export type GetFinancialStatementsParams = {
-clientId?: number;
-period?: string;
+  clientId?: number;
+  period?: string;
 };
 
 export type GetReportPacksParams = {
-clientId: number;
+  clientId: number;
 };
-

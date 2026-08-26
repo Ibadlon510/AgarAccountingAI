@@ -12,4 +12,5 @@ export interface ClientUpdateInput {
   functionalCurrency: string;
   basis: string;
   period: string;
+  systemRatesEnabled?: boolean;
 }

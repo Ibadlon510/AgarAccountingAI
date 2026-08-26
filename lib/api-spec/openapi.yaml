@@ -619,6 +619,115 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ExchangeRateParseResult"
+  /ledgerflow/system-rates/dashboard:
+    get:
+      operationId: getSystemRateDashboard
+      tags: [ledgerflow]
+      summary: Get aggregated system exchange-rate health
+      description: Restricted to explicitly entitled system administrators. This response contains aggregate coverage metrics only.
+      responses:
+        "200":
+          description: Aggregated system-rate health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemRateDashboard"
+        "403":
+          description: System administrator entitlement required
+  /ledgerflow/system-rates:
+    get:
+      operationId: getSystemRates
+      tags: [ledgerflow]
+      summary: List global fallback exchange rates
+      responses:
+        "200":
+          description: Global fallback exchange rates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SystemRate"
+        "403":
+          description: System administrator entitlement required
+    post:
+      operationId: createSystemRate
+      tags: [ledgerflow]
+      summary: Add a global fallback exchange rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemRateInput"
+      responses:
+        "201":
+          description: Global fallback exchange rate created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemRate"
+        "403":
+          description: System administrator entitlement required
+  /ledgerflow/system-rates/{id}:
+    patch:
+      operationId: updateSystemRate
+      tags: [ledgerflow]
+      summary: Edit a global fallback exchange rate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemRateUpdate"
+      responses:
+        "200":
+          description: Global fallback exchange rate updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemRate"
+        "403":
+          description: System administrator entitlement required
+    delete:
+      operationId: deleteSystemRate
+      tags: [ledgerflow]
+      summary: Remove a global fallback exchange rate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Global fallback exchange rate deleted
+        "403":
+          description: System administrator entitlement required
+  /ledgerflow/system-rates/import:
+    post:
+      operationId: importSystemRates
+      tags: [ledgerflow]
+      summary: Import dated global fallback exchange rates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemRateImportInput"
+      responses:
+        "200":
+          description: Global fallback exchange rates imported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemRateImportResult"
+        "403":
+          description: System administrator entitlement required
   /healthz:
     get:
       operationId: healthCheck
@@ -1297,17 +1406,21 @@ components:
         lastName: { type: string, minLength: 1 }
     FirmProfile:
       type: object
-      required: [id, name, legalName]
+      required: [id, name, legalName, systemRatesEnabled]
       properties:
         id: { type: number }
         name: { type: string }
         legalName: { type: string }
+        systemRatesEnabled:
+          type: boolean
+          description: Whether the system catalog may supply a fallback rate for this firm's clients.
     FirmProfileInput:
       type: object
       required: [name, legalName]
       properties:
         name: { type: string, minLength: 1 }
         legalName: { type: string, minLength: 1 }
+        systemRatesEnabled: { type: boolean }
     OrganizationMode:
       type: string
       enum: [company, firm, both]
@@ -1478,7 +1591,7 @@ components:
         - status
     Client:
       type: object
-      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty]
+      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty, systemRatesEnabled]
       properties:
         id: { type: number }
         name: { type: string }
@@ -1490,6 +1603,9 @@ components:
         firmId: { type: ["number", "null"] }
         ownershipStatus: { $ref: "#/components/schemas/OwnershipStatus" }
         subscriptionLiableParty: { $ref: "#/components/schemas/SubscriptionLiableParty" }
+        systemRatesEnabled:
+          type: boolean
+          description: Whether the system catalog may supply a fallback rate for this company.
         legacyDemo:
           type: boolean
           description: True only for an untouched legacy demo workspace retained for reference.
@@ -1519,6 +1635,7 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+        systemRatesEnabled: { type: boolean }
     WorkspaceRole:
       type: string
       enum: [owner, admin, accountant, bookkeeper]
@@ -1772,6 +1889,95 @@ components:
           type: array
           items: { type: string }
         confidence: { type: number, minimum: 0, maximum: 1 }
+    SystemRate:
+      type: object
+      required: [id, sourceCurrency, functionalCurrency, effectiveDate, rate, source, note, createdAt, updatedAt]
+      properties:
+        id: { type: number }
+        sourceCurrency: { type: string }
+        functionalCurrency: { type: string }
+        effectiveDate: { type: string }
+        rate: { type: number }
+        source: { type: string }
+        note: { type: ["string", "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SystemRateInput:
+      type: object
+      required: [sourceCurrency, functionalCurrency, effectiveDate, rate]
+      properties:
+        sourceCurrency: { type: string }
+        functionalCurrency: { type: string }
+        effectiveDate: { type: string }
+        rate: { type: number }
+        source: { type: string }
+        note: { type: ["string", "null"] }
+    SystemRateUpdate:
+      allOf:
+        - $ref: "#/components/schemas/SystemRateInput"
+    SystemRateImportInput:
+      type: object
+      required: [rates]
+      properties:
+        rates:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SystemRateInput"
+    SystemRateImportResult:
+      type: object
+      required: [importedCount, updatedCount, rates]
+      properties:
+        importedCount: { type: number }
+        updatedCount: { type: number }
+        rates:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemRate"
+    SystemRatePair:
+      type: object
+      required: [sourceCurrency, functionalCurrency, latestEffectiveDate, rateCount]
+      properties:
+        sourceCurrency: { type: string }
+        functionalCurrency: { type: string }
+        latestEffectiveDate: { type: string }
+        rateCount: { type: number }
+    SystemRateCoverageGap:
+      type: object
+      required: [sourceCurrency, functionalCurrency, workspaces, kind]
+      properties:
+        sourceCurrency: { type: string }
+        functionalCurrency: { type: string }
+        workspaces: { type: number }
+        kind:
+          type: string
+          enum: [missing, stale]
+    SystemRateChange:
+      type: object
+      required: [id, action, summary, createdAt]
+      properties:
+        id: { type: number }
+        action: { type: string, enum: [created, updated, deleted, imported] }
+        summary: { type: string }
+        createdAt: { type: string, format: date-time }
+    SystemRateDashboard:
+      type: object
+      required: [availablePairs, workspacesUsingFallback, workspacesWithFallbackDisabled, missingOrStaleCoverage, recentChanges]
+      properties:
+        availablePairs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemRatePair"
+        workspacesUsingFallback: { type: number }
+        workspacesWithFallbackDisabled: { type: number }
+        missingOrStaleCoverage:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemRateCoverageGap"
+        recentChanges:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemRateChange"
     LedgerOverview:
       type: object
       required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies]
@@ -1811,6 +2017,9 @@ components:
         functionalAmount: { type: ["number", "null"] }
         exchangeRate: { type: ["number", "null"] }
         exchangeRateEffectiveDate: { type: ["string", "null"], format: date }
+        exchangeRateSourceScope:
+          type: string
+          enum: [none, client, firm, system]
         exchangeRateStatus: { type: string }
     StatementLineInput:
       type: object
@@ -2180,6 +2389,9 @@ components:
         functionalAmount: { type: ["number", "null"] }
         exchangeRate: { type: ["number", "null"] }
         exchangeRateEffectiveDate: { type: ["string", "null"], format: date }
+        exchangeRateSourceScope:
+          type: string
+          enum: [none, client, firm, system]
         exchangeRateStatus: { type: string }
     TrialBalanceRow:
       type: object

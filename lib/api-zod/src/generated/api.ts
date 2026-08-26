@@ -5,496 +5,575 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import * as zod from 'zod';
-
+import * as zod from "zod";
 
 /**
  * @summary Get the currently authenticated user
  */
 export const GetCurrentAuthUserResponse = zod.object({
-  "user": zod.union([zod.object({
-  "id": zod.string(),
-  "email": zod.string().nullable(),
-  "firstName": zod.string().nullable(),
-  "lastName": zod.string().nullable(),
-  "profileImageUrl": zod.string().nullable()
-}),zod.null()])
-})
-
+  user: zod.union([
+    zod.object({
+      id: zod.string(),
+      email: zod.string().nullable(),
+      firstName: zod.string().nullable(),
+      lastName: zod.string().nullable(),
+      profileImageUrl: zod.string().nullable(),
+    }),
+    zod.null(),
+  ]),
+});
 
 /**
  * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
 
-
-
-
 export const UpdateLedgerflowAccountProfileBody = zod.object({
-  "firstName": zod.string().min(1),
-  "lastName": zod.string().min(1)
-})
+  firstName: zod.string().min(1),
+  lastName: zod.string().min(1),
+});
 
 export const UpdateLedgerflowAccountProfileResponse = zod.object({
-  "email": zod.string().nullable(),
-  "firstName": zod.string(),
-  "lastName": zod.string()
-})
-
+  email: zod.string().nullable(),
+  firstName: zod.string(),
+  lastName: zod.string(),
+});
 
 /**
  * @summary Get the bookkeeping firm's shared profile
  */
 export const GetFirmProfileResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  legalName: zod.string(),
+  systemRatesEnabled: zod
+    .boolean()
+    .describe(
+      "Whether the system catalog may supply a fallback rate for this firm's clients.",
+    ),
+});
 
 /**
  * @summary Update the bookkeeping firm's shared identity
  */
 
-
-
-
 export const UpdateFirmProfileBody = zod.object({
-  "name": zod.string().min(1),
-  "legalName": zod.string().min(1)
-})
+  name: zod.string().min(1),
+  legalName: zod.string().min(1),
+  systemRatesEnabled: zod.boolean().optional(),
+});
 
 export const UpdateFirmProfileResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string()
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  legalName: zod.string(),
+  systemRatesEnabled: zod
+    .boolean()
+    .describe(
+      "Whether the system catalog may supply a fallback rate for this firm's clients.",
+    ),
+});
 
 /**
  * @summary Get the authenticated user's company and accounting-firm context
  */
 export const GetOrganizationContextResponse = zod.object({
-  "onboardingRequired": zod.boolean(),
-  "mode": zod.union([zod.enum(['company', 'firm', 'both']),zod.null()]),
-  "firms": zod.array(zod.object({
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
-})),
-  "firmMembers": zod.array(zod.object({
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
-})),
-  "companies": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
-  "ownerUserId": zod.string().nullish(),
-  "firmId": zod.number().nullish(),
-  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
-  "subscriptionLiableParty": zod.enum(['company', 'firm']),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
-  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
-})),
-  "managedCompanyIds": zod.array(zod.number()),
-  "engagements": zod.array(zod.object({
-  "id": zod.number(),
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "clientId": zod.number(),
-  "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
-  "canManageFirm": zod.boolean(),
-  "canManageCompany": zod.boolean(),
-  "members": zod.array(zod.object({
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['accountant', 'bookkeeper']),
-  "status": zod.enum(['nominated', 'approved', 'revoked'])
-}))
-})),
-  "invitations": zod.array(zod.object({
-  "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
-  "email": zod.string(),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clientId": zod.number().nullish(),
-  "firmId": zod.number().nullish(),
-  "role": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
-}))
-})
-
+  onboardingRequired: zod.boolean(),
+  mode: zod.union([zod.enum(["company", "firm", "both"]), zod.null()]),
+  firms: zod.array(
+    zod.object({
+      firmId: zod.number(),
+      firmName: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+    }),
+  ),
+  firmMembers: zod.array(
+    zod.object({
+      firmId: zod.number(),
+      firmName: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+    }),
+  ),
+  companies: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      legalName: zod.string(),
+      functionalCurrency: zod.string(),
+      basis: zod.string(),
+      period: zod.string(),
+      ownerUserId: zod.string().nullish(),
+      firmId: zod.number().nullish(),
+      ownershipStatus: zod.enum(["company_owned", "firm_provisional"]),
+      subscriptionLiableParty: zod.enum(["company", "firm"]),
+      systemRatesEnabled: zod
+        .boolean()
+        .describe(
+          "Whether the system catalog may supply a fallback rate for this company.",
+        ),
+      legacyDemo: zod
+        .boolean()
+        .describe(
+          "True only for an untouched legacy demo workspace retained for reference.",
+        ),
+      workspaceState: zod
+        .enum(["starter", "configured", "legacy_demo"])
+        .describe(
+          "Configuration state for this workspace. Missing memberships are represented by an empty response.",
+        ),
+    }),
+  ),
+  managedCompanyIds: zod.array(zod.number()),
+  engagements: zod.array(
+    zod.object({
+      id: zod.number(),
+      firmId: zod.number(),
+      firmName: zod.string(),
+      clientId: zod.number(),
+      companyName: zod.string(),
+      status: zod.enum(["provisional", "active", "revoked"]),
+      canManageFirm: zod.boolean(),
+      canManageCompany: zod.boolean(),
+      members: zod.array(
+        zod.object({
+          userId: zod.string(),
+          name: zod.string(),
+          email: zod.string(),
+          role: zod.enum(["accountant", "bookkeeper"]),
+          status: zod.enum(["nominated", "approved", "revoked"]),
+        }),
+      ),
+    }),
+  ),
+  invitations: zod.array(
+    zod.object({
+      id: zod.number(),
+      kind: zod.enum(["firm_member", "firm_engagement", "company_transfer"]),
+      email: zod.string(),
+      status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+      clientId: zod.number().nullish(),
+      firmId: zod.number().nullish(),
+      role: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      createdAt: zod.coerce.date(),
+      inviteLink: zod.string().optional(),
+    }),
+  ),
+});
 
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
 
-
-
-
 export const CompleteOrganizationOnboardingBody = zod.object({
-  "mode": zod.enum(['company', 'firm', 'both']),
-  "firstName": zod.string().min(1),
-  "lastName": zod.string().min(1),
-  "companyName": zod.string().optional(),
-  "companyLegalName": zod.string().optional(),
-  "firmName": zod.string().optional(),
-  "firmLegalName": zod.string().optional(),
-  "functionalCurrency": zod.string().optional(),
-  "basis": zod.string().optional(),
-  "period": zod.string().optional()
-})
+  mode: zod.enum(["company", "firm", "both"]),
+  firstName: zod.string().min(1),
+  lastName: zod.string().min(1),
+  companyName: zod.string().optional(),
+  companyLegalName: zod.string().optional(),
+  firmName: zod.string().optional(),
+  firmLegalName: zod.string().optional(),
+  functionalCurrency: zod.string().optional(),
+  basis: zod.string().optional(),
+  period: zod.string().optional(),
+});
 
 export const CompleteOrganizationOnboardingResponse = zod.object({
-  "onboardingRequired": zod.boolean(),
-  "mode": zod.union([zod.enum(['company', 'firm', 'both']),zod.null()]),
-  "firms": zod.array(zod.object({
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
-})),
-  "firmMembers": zod.array(zod.object({
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
-})),
-  "companies": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
-  "ownerUserId": zod.string().nullish(),
-  "firmId": zod.number().nullish(),
-  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
-  "subscriptionLiableParty": zod.enum(['company', 'firm']),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
-  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
-})),
-  "managedCompanyIds": zod.array(zod.number()),
-  "engagements": zod.array(zod.object({
-  "id": zod.number(),
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "clientId": zod.number(),
-  "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
-  "canManageFirm": zod.boolean(),
-  "canManageCompany": zod.boolean(),
-  "members": zod.array(zod.object({
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['accountant', 'bookkeeper']),
-  "status": zod.enum(['nominated', 'approved', 'revoked'])
-}))
-})),
-  "invitations": zod.array(zod.object({
-  "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
-  "email": zod.string(),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clientId": zod.number().nullish(),
-  "firmId": zod.number().nullish(),
-  "role": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
-}))
-})
-
+  onboardingRequired: zod.boolean(),
+  mode: zod.union([zod.enum(["company", "firm", "both"]), zod.null()]),
+  firms: zod.array(
+    zod.object({
+      firmId: zod.number(),
+      firmName: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+    }),
+  ),
+  firmMembers: zod.array(
+    zod.object({
+      firmId: zod.number(),
+      firmName: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+    }),
+  ),
+  companies: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      legalName: zod.string(),
+      functionalCurrency: zod.string(),
+      basis: zod.string(),
+      period: zod.string(),
+      ownerUserId: zod.string().nullish(),
+      firmId: zod.number().nullish(),
+      ownershipStatus: zod.enum(["company_owned", "firm_provisional"]),
+      subscriptionLiableParty: zod.enum(["company", "firm"]),
+      systemRatesEnabled: zod
+        .boolean()
+        .describe(
+          "Whether the system catalog may supply a fallback rate for this company.",
+        ),
+      legacyDemo: zod
+        .boolean()
+        .describe(
+          "True only for an untouched legacy demo workspace retained for reference.",
+        ),
+      workspaceState: zod
+        .enum(["starter", "configured", "legacy_demo"])
+        .describe(
+          "Configuration state for this workspace. Missing memberships are represented by an empty response.",
+        ),
+    }),
+  ),
+  managedCompanyIds: zod.array(zod.number()),
+  engagements: zod.array(
+    zod.object({
+      id: zod.number(),
+      firmId: zod.number(),
+      firmName: zod.string(),
+      clientId: zod.number(),
+      companyName: zod.string(),
+      status: zod.enum(["provisional", "active", "revoked"]),
+      canManageFirm: zod.boolean(),
+      canManageCompany: zod.boolean(),
+      members: zod.array(
+        zod.object({
+          userId: zod.string(),
+          name: zod.string(),
+          email: zod.string(),
+          role: zod.enum(["accountant", "bookkeeper"]),
+          status: zod.enum(["nominated", "approved", "revoked"]),
+        }),
+      ),
+    }),
+  ),
+  invitations: zod.array(
+    zod.object({
+      id: zod.number(),
+      kind: zod.enum(["firm_member", "firm_engagement", "company_transfer"]),
+      email: zod.string(),
+      status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+      clientId: zod.number().nullish(),
+      firmId: zod.number().nullish(),
+      role: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      createdAt: zod.coerce.date(),
+      inviteLink: zod.string().optional(),
+    }),
+  ),
+});
 
 /**
  * @summary Invite a member to an accounting firm
  */
 export const InviteFirmMemberParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const inviteFirmMemberBodyEmailMin = 3;
 
-
-export const inviteFirmMemberBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
-
+export const inviteFirmMemberBodyEmailRegExp = new RegExp(
+  "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+);
 
 export const InviteFirmMemberBody = zod.object({
-  "email": zod.string().min(inviteFirmMemberBodyEmailMin).regex(inviteFirmMemberBodyEmailRegExp),
-  "role": zod.enum(['admin', 'accountant', 'bookkeeper']).optional()
-})
+  email: zod
+    .string()
+    .min(inviteFirmMemberBodyEmailMin)
+    .regex(inviteFirmMemberBodyEmailRegExp),
+  role: zod.enum(["admin", "accountant", "bookkeeper"]).optional(),
+});
 
 export const InviteFirmMemberResponse = zod.object({
-  "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
-  "email": zod.string(),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clientId": zod.number().nullish(),
-  "firmId": zod.number().nullish(),
-  "role": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
-})
-
+  id: zod.number(),
+  kind: zod.enum(["firm_member", "firm_engagement", "company_transfer"]),
+  email: zod.string(),
+  status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+  clientId: zod.number().nullish(),
+  firmId: zod.number().nullish(),
+  role: zod.string().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  inviteLink: zod.string().optional(),
+});
 
 /**
  * @summary Invite an accounting firm administrator to serve a company
  */
 export const InviteAccountingFirmParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const inviteAccountingFirmBodyEmailMin = 3;
 
-
-export const inviteAccountingFirmBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
-
+export const inviteAccountingFirmBodyEmailRegExp = new RegExp(
+  "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+);
 
 export const InviteAccountingFirmBody = zod.object({
-  "email": zod.string().min(inviteAccountingFirmBodyEmailMin).regex(inviteAccountingFirmBodyEmailRegExp),
-  "firmId": zod.number(),
-  "role": zod.enum(['admin']).optional()
-})
+  email: zod
+    .string()
+    .min(inviteAccountingFirmBodyEmailMin)
+    .regex(inviteAccountingFirmBodyEmailRegExp),
+  firmId: zod.number(),
+  role: zod.enum(["admin"]).optional(),
+});
 
 export const InviteAccountingFirmResponse = zod.object({
-  "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
-  "email": zod.string(),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clientId": zod.number().nullish(),
-  "firmId": zod.number().nullish(),
-  "role": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
-})
-
+  id: zod.number(),
+  kind: zod.enum(["firm_member", "firm_engagement", "company_transfer"]),
+  email: zod.string(),
+  status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+  clientId: zod.number().nullish(),
+  firmId: zod.number().nullish(),
+  role: zod.string().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  inviteLink: zod.string().optional(),
+});
 
 /**
  * @summary Invite a client owner to accept a firm-created company
  */
 export const InviteCompanyOwnerTransferParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const inviteCompanyOwnerTransferBodyEmailMin = 3;
 
-
-export const inviteCompanyOwnerTransferBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
-
+export const inviteCompanyOwnerTransferBodyEmailRegExp = new RegExp(
+  "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+);
 
 export const InviteCompanyOwnerTransferBody = zod.object({
-  "email": zod.string().min(inviteCompanyOwnerTransferBodyEmailMin).regex(inviteCompanyOwnerTransferBodyEmailRegExp),
-  "role": zod.enum(['admin', 'accountant', 'bookkeeper']).optional()
-})
+  email: zod
+    .string()
+    .min(inviteCompanyOwnerTransferBodyEmailMin)
+    .regex(inviteCompanyOwnerTransferBodyEmailRegExp),
+  role: zod.enum(["admin", "accountant", "bookkeeper"]).optional(),
+});
 
 export const InviteCompanyOwnerTransferResponse = zod.object({
-  "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
-  "email": zod.string(),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clientId": zod.number().nullish(),
-  "firmId": zod.number().nullish(),
-  "role": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
-})
-
+  id: zod.number(),
+  kind: zod.enum(["firm_member", "firm_engagement", "company_transfer"]),
+  email: zod.string(),
+  status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+  clientId: zod.number().nullish(),
+  firmId: zod.number().nullish(),
+  role: zod.string().nullish(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  inviteLink: zod.string().optional(),
+});
 
 /**
  * @summary Accept a firm, engagement, or company-transfer invitation
  */
 export const AcceptOrganizationInvitationParams = zod.object({
-  "token": zod.coerce.string()
-})
+  token: zod.coerce.string(),
+});
 
 export const AcceptOrganizationInvitationResponse = zod.object({
-  "onboardingRequired": zod.boolean(),
-  "mode": zod.union([zod.enum(['company', 'firm', 'both']),zod.null()]),
-  "firms": zod.array(zod.object({
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
-})),
-  "firmMembers": zod.array(zod.object({
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
-})),
-  "companies": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
-  "ownerUserId": zod.string().nullish(),
-  "firmId": zod.number().nullish(),
-  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
-  "subscriptionLiableParty": zod.enum(['company', 'firm']),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
-  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
-})),
-  "managedCompanyIds": zod.array(zod.number()),
-  "engagements": zod.array(zod.object({
-  "id": zod.number(),
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "clientId": zod.number(),
-  "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
-  "canManageFirm": zod.boolean(),
-  "canManageCompany": zod.boolean(),
-  "members": zod.array(zod.object({
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['accountant', 'bookkeeper']),
-  "status": zod.enum(['nominated', 'approved', 'revoked'])
-}))
-})),
-  "invitations": zod.array(zod.object({
-  "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
-  "email": zod.string(),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clientId": zod.number().nullish(),
-  "firmId": zod.number().nullish(),
-  "role": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
-}))
-})
-
+  onboardingRequired: zod.boolean(),
+  mode: zod.union([zod.enum(["company", "firm", "both"]), zod.null()]),
+  firms: zod.array(
+    zod.object({
+      firmId: zod.number(),
+      firmName: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+    }),
+  ),
+  firmMembers: zod.array(
+    zod.object({
+      firmId: zod.number(),
+      firmName: zod.string(),
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+    }),
+  ),
+  companies: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+      legalName: zod.string(),
+      functionalCurrency: zod.string(),
+      basis: zod.string(),
+      period: zod.string(),
+      ownerUserId: zod.string().nullish(),
+      firmId: zod.number().nullish(),
+      ownershipStatus: zod.enum(["company_owned", "firm_provisional"]),
+      subscriptionLiableParty: zod.enum(["company", "firm"]),
+      systemRatesEnabled: zod
+        .boolean()
+        .describe(
+          "Whether the system catalog may supply a fallback rate for this company.",
+        ),
+      legacyDemo: zod
+        .boolean()
+        .describe(
+          "True only for an untouched legacy demo workspace retained for reference.",
+        ),
+      workspaceState: zod
+        .enum(["starter", "configured", "legacy_demo"])
+        .describe(
+          "Configuration state for this workspace. Missing memberships are represented by an empty response.",
+        ),
+    }),
+  ),
+  managedCompanyIds: zod.array(zod.number()),
+  engagements: zod.array(
+    zod.object({
+      id: zod.number(),
+      firmId: zod.number(),
+      firmName: zod.string(),
+      clientId: zod.number(),
+      companyName: zod.string(),
+      status: zod.enum(["provisional", "active", "revoked"]),
+      canManageFirm: zod.boolean(),
+      canManageCompany: zod.boolean(),
+      members: zod.array(
+        zod.object({
+          userId: zod.string(),
+          name: zod.string(),
+          email: zod.string(),
+          role: zod.enum(["accountant", "bookkeeper"]),
+          status: zod.enum(["nominated", "approved", "revoked"]),
+        }),
+      ),
+    }),
+  ),
+  invitations: zod.array(
+    zod.object({
+      id: zod.number(),
+      kind: zod.enum(["firm_member", "firm_engagement", "company_transfer"]),
+      email: zod.string(),
+      status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+      clientId: zod.number().nullish(),
+      firmId: zod.number().nullish(),
+      role: zod.string().nullish(),
+      expiresAt: zod.coerce.date(),
+      createdAt: zod.coerce.date(),
+      inviteLink: zod.string().optional(),
+    }),
+  ),
+});
 
 /**
  * @summary Nominate a firm member for company access
  */
 export const NominateFirmEngagementMemberParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const nominateFirmEngagementMemberBodyEmailMin = 3;
 
-
-export const nominateFirmEngagementMemberBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
-
+export const nominateFirmEngagementMemberBodyEmailRegExp = new RegExp(
+  "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+);
 
 export const NominateFirmEngagementMemberBody = zod.object({
-  "email": zod.string().min(nominateFirmEngagementMemberBodyEmailMin).regex(nominateFirmEngagementMemberBodyEmailRegExp),
-  "role": zod.enum(['accountant', 'bookkeeper'])
-})
+  email: zod
+    .string()
+    .min(nominateFirmEngagementMemberBodyEmailMin)
+    .regex(nominateFirmEngagementMemberBodyEmailRegExp),
+  role: zod.enum(["accountant", "bookkeeper"]),
+});
 
 export const NominateFirmEngagementMemberResponse = zod.object({
-  "id": zod.number(),
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "clientId": zod.number(),
-  "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
-  "canManageFirm": zod.boolean(),
-  "canManageCompany": zod.boolean(),
-  "members": zod.array(zod.object({
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['accountant', 'bookkeeper']),
-  "status": zod.enum(['nominated', 'approved', 'revoked'])
-}))
-})
-
+  id: zod.number(),
+  firmId: zod.number(),
+  firmName: zod.string(),
+  clientId: zod.number(),
+  companyName: zod.string(),
+  status: zod.enum(["provisional", "active", "revoked"]),
+  canManageFirm: zod.boolean(),
+  canManageCompany: zod.boolean(),
+  members: zod.array(
+    zod.object({
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["accountant", "bookkeeper"]),
+      status: zod.enum(["nominated", "approved", "revoked"]),
+    }),
+  ),
+});
 
 /**
  * @summary Approve a nominated firm member for company access
  */
 export const ApproveFirmEngagementMemberParams = zod.object({
-  "id": zod.coerce.number(),
-  "userId": zod.coerce.string()
-})
+  id: zod.coerce.number(),
+  userId: zod.coerce.string(),
+});
 
 export const ApproveFirmEngagementMemberResponse = zod.object({
-  "id": zod.number(),
-  "firmId": zod.number(),
-  "firmName": zod.string(),
-  "clientId": zod.number(),
-  "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
-  "canManageFirm": zod.boolean(),
-  "canManageCompany": zod.boolean(),
-  "members": zod.array(zod.object({
-  "userId": zod.string(),
-  "name": zod.string(),
-  "email": zod.string(),
-  "role": zod.enum(['accountant', 'bookkeeper']),
-  "status": zod.enum(['nominated', 'approved', 'revoked'])
-}))
-})
-
+  id: zod.number(),
+  firmId: zod.number(),
+  firmName: zod.string(),
+  clientId: zod.number(),
+  companyName: zod.string(),
+  status: zod.enum(["provisional", "active", "revoked"]),
+  canManageFirm: zod.boolean(),
+  canManageCompany: zod.boolean(),
+  members: zod.array(
+    zod.object({
+      userId: zod.string(),
+      name: zod.string(),
+      email: zod.string(),
+      role: zod.enum(["accountant", "bookkeeper"]),
+      status: zod.enum(["nominated", "approved", "revoked"]),
+    }),
+  ),
+});
 
 /**
  * @summary Revoke one firm's access to a company
  */
 export const RevokeFirmEngagementMemberParams = zod.object({
-  "id": zod.coerce.number(),
-  "userId": zod.coerce.string()
-})
+  id: zod.coerce.number(),
+  userId: zod.coerce.string(),
+});
 
-export const RevokeFirmEngagementMemberResponse = zod.void()
-
+export const RevokeFirmEngagementMemberResponse = zod.void();
 
 /**
  * @summary End an accounting-firm engagement
  */
 export const RevokeFirmEngagementParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const RevokeFirmEngagementResponse = zod.void()
-
+export const RevokeFirmEngagementResponse = zod.void();
 
 /**
  * @summary Start the browser OIDC login flow
  */
 export const BeginBrowserLoginQueryParams = zod.object({
-  "returnTo": zod.coerce.string().optional()
-})
+  returnTo: zod.coerce.string().optional(),
+});
 
-export const BeginBrowserLoginResponse = zod.void()
-
+export const BeginBrowserLoginResponse = zod.void();
 
 /**
  * @summary Complete the browser OIDC login flow
  */
-export const HandleBrowserLoginCallbackResponse = zod.void()
-
+export const HandleBrowserLoginCallbackResponse = zod.void();
 
 /**
  * @summary Clear the session and begin OIDC logout
@@ -502,383 +581,434 @@ export const HandleBrowserLoginCallbackResponse = zod.void()
 export const logoutBrowserSessionQueryReturnToDefault = `/`;
 
 export const LogoutBrowserSessionQueryParams = zod.object({
-  "returnTo": zod.coerce.string().default(logoutBrowserSessionQueryReturnToDefault)
-})
+  returnTo: zod.coerce
+    .string()
+    .default(logoutBrowserSessionQueryReturnToDefault),
+});
 
-export const LogoutBrowserSessionResponse = zod.void()
-
+export const LogoutBrowserSessionResponse = zod.void();
 
 /**
  * @summary Exchange a mobile OIDC authorization code for a session token
  */
 
-
-
-
-
-
-
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
-  "code": zod.string().min(1),
-  "code_verifier": zod.string().min(1),
-  "redirect_uri": zod.string().min(1),
-  "state": zod.string().min(1),
-  "nonce": zod.string().min(1).optional()
-})
+  code: zod.string().min(1),
+  code_verifier: zod.string().min(1),
+  redirect_uri: zod.string().min(1),
+  state: zod.string().min(1),
+  nonce: zod.string().min(1).optional(),
+});
 
 export const ExchangeMobileAuthorizationCodeResponse = zod.object({
-  "token": zod.string()
-})
-
+  token: zod.string(),
+});
 
 /**
  * @summary Delete a mobile session token
  */
 export const LogoutMobileSessionResponse = zod.object({
-  "success": zod.literal(true)
-})
-
+  success: zod.literal(true),
+});
 
 /**
  * @summary List client workspaces
  */
 export const GetClientsResponseItem = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
-  "ownerUserId": zod.string().nullish(),
-  "firmId": zod.number().nullish(),
-  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
-  "subscriptionLiableParty": zod.enum(['company', 'firm']),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
-  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
-})
-export const GetClientsResponse = zod.array(GetClientsResponseItem)
-
+  id: zod.number(),
+  name: zod.string(),
+  legalName: zod.string(),
+  functionalCurrency: zod.string(),
+  basis: zod.string(),
+  period: zod.string(),
+  ownerUserId: zod.string().nullish(),
+  firmId: zod.number().nullish(),
+  ownershipStatus: zod.enum(["company_owned", "firm_provisional"]),
+  subscriptionLiableParty: zod.enum(["company", "firm"]),
+  systemRatesEnabled: zod
+    .boolean()
+    .describe(
+      "Whether the system catalog may supply a fallback rate for this company.",
+    ),
+  legacyDemo: zod
+    .boolean()
+    .describe(
+      "True only for an untouched legacy demo workspace retained for reference.",
+    ),
+  workspaceState: zod
+    .enum(["starter", "configured", "legacy_demo"])
+    .describe(
+      "Configuration state for this workspace. Missing memberships are represented by an empty response.",
+    ),
+});
+export const GetClientsResponse = zod.array(GetClientsResponseItem);
 
 /**
  * @summary Create a client workspace
  */
 export const CreateClientBody = zod.object({
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string().optional(),
-  "basis": zod.string().optional(),
-  "period": zod.string().optional(),
-  "creationMode": zod.enum(['own_company', 'firm_client']).optional(),
-  "firmId": zod.number().optional()
-})
+  name: zod.string(),
+  legalName: zod.string(),
+  functionalCurrency: zod.string().optional(),
+  basis: zod.string().optional(),
+  period: zod.string().optional(),
+  creationMode: zod.enum(["own_company", "firm_client"]).optional(),
+  firmId: zod.number().optional(),
+});
 
 export const CreateClientResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
-  "ownerUserId": zod.string().nullish(),
-  "firmId": zod.number().nullish(),
-  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
-  "subscriptionLiableParty": zod.enum(['company', 'firm']),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
-  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  legalName: zod.string(),
+  functionalCurrency: zod.string(),
+  basis: zod.string(),
+  period: zod.string(),
+  ownerUserId: zod.string().nullish(),
+  firmId: zod.number().nullish(),
+  ownershipStatus: zod.enum(["company_owned", "firm_provisional"]),
+  subscriptionLiableParty: zod.enum(["company", "firm"]),
+  systemRatesEnabled: zod
+    .boolean()
+    .describe(
+      "Whether the system catalog may supply a fallback rate for this company.",
+    ),
+  legacyDemo: zod
+    .boolean()
+    .describe(
+      "True only for an untouched legacy demo workspace retained for reference.",
+    ),
+  workspaceState: zod
+    .enum(["starter", "configured", "legacy_demo"])
+    .describe(
+      "Configuration state for this workspace. Missing memberships are represented by an empty response.",
+    ),
+});
 
 /**
  * @summary Update a client workspace
  */
 export const UpdateClientParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateClientBody = zod.object({
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string()
-})
+  name: zod.string(),
+  legalName: zod.string(),
+  functionalCurrency: zod.string(),
+  basis: zod.string(),
+  period: zod.string(),
+  systemRatesEnabled: zod.boolean().optional(),
+});
 
 export const UpdateClientResponse = zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
-  "ownerUserId": zod.string().nullish(),
-  "firmId": zod.number().nullish(),
-  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
-  "subscriptionLiableParty": zod.enum(['company', 'firm']),
-  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
-  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
-})
-
+  id: zod.number(),
+  name: zod.string(),
+  legalName: zod.string(),
+  functionalCurrency: zod.string(),
+  basis: zod.string(),
+  period: zod.string(),
+  ownerUserId: zod.string().nullish(),
+  firmId: zod.number().nullish(),
+  ownershipStatus: zod.enum(["company_owned", "firm_provisional"]),
+  subscriptionLiableParty: zod.enum(["company", "firm"]),
+  systemRatesEnabled: zod
+    .boolean()
+    .describe(
+      "Whether the system catalog may supply a fallback rate for this company.",
+    ),
+  legacyDemo: zod
+    .boolean()
+    .describe(
+      "True only for an untouched legacy demo workspace retained for reference.",
+    ),
+  workspaceState: zod
+    .enum(["starter", "configured", "legacy_demo"])
+    .describe(
+      "Configuration state for this workspace. Missing memberships are represented by an empty response.",
+    ),
+});
 
 /**
  * @summary Review workspace members and invitations
  */
 export const GetWorkspaceMembersResponse = zod.object({
-  "currentRole": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "canManage": zod.boolean(),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "members": zod.array(zod.object({
-  "userId": zod.string(),
-  "email": zod.string(),
-  "name": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "status": zod.enum(['active']),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "isCurrentUser": zod.boolean()
-})),
-  "invitations": zod.array(zod.object({
-  "id": zod.number(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "invitedBy": zod.string(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional(),
-  "emailSubject": zod.string().optional(),
-  "emailBody": zod.string().optional()
-}))
-})
-
+  currentRole: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+  canManage: zod.boolean(),
+  clients: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+  members: zod.array(
+    zod.object({
+      userId: zod.string(),
+      email: zod.string(),
+      name: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+      status: zod.enum(["active"]),
+      clients: zod.array(
+        zod.object({
+          id: zod.number(),
+          name: zod.string(),
+        }),
+      ),
+      isCurrentUser: zod.boolean(),
+    }),
+  ),
+  invitations: zod.array(
+    zod.object({
+      id: zod.number(),
+      email: zod.string(),
+      role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+      status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+      clients: zod.array(
+        zod.object({
+          id: zod.number(),
+          name: zod.string(),
+        }),
+      ),
+      invitedBy: zod.string(),
+      expiresAt: zod.coerce.date(),
+      createdAt: zod.coerce.date(),
+      inviteLink: zod.string().optional(),
+      emailSubject: zod.string().optional(),
+      emailBody: zod.string().optional(),
+    }),
+  ),
+});
 
 /**
  * @summary Update a member role and client access
  */
 export const UpdateWorkspaceMemberParams = zod.object({
-  "userId": zod.coerce.string()
-})
-
-
-
+  userId: zod.coerce.string(),
+});
 
 export const UpdateWorkspaceMemberBody = zod.object({
-  "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
-  "clientIds": zod.array(zod.number()).min(1)
-})
+  role: zod.enum(["admin", "accountant", "bookkeeper"]),
+  clientIds: zod.array(zod.number()).min(1),
+});
 
 export const UpdateWorkspaceMemberResponse = zod.object({
-  "userId": zod.string(),
-  "email": zod.string(),
-  "name": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "status": zod.enum(['active']),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "isCurrentUser": zod.boolean()
-})
-
+  userId: zod.string(),
+  email: zod.string(),
+  name: zod.string(),
+  role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+  status: zod.enum(["active"]),
+  clients: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+  isCurrentUser: zod.boolean(),
+});
 
 /**
  * @summary Remove a workspace member
  */
 export const RemoveWorkspaceMemberParams = zod.object({
-  "userId": zod.coerce.string()
-})
+  userId: zod.coerce.string(),
+});
 
-export const RemoveWorkspaceMemberResponse = zod.void()
-
+export const RemoveWorkspaceMemberResponse = zod.void();
 
 /**
  * @summary Invite a teammate to the workspace
  */
 export const createWorkspaceInvitationBodyEmailMin = 3;
 
-
-export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
-
-
+export const createWorkspaceInvitationBodyEmailRegExp = new RegExp(
+  "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+);
 
 export const CreateWorkspaceInvitationBody = zod.object({
-  "email": zod.string().min(createWorkspaceInvitationBodyEmailMin).regex(createWorkspaceInvitationBodyEmailRegExp),
-  "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
-  "clientIds": zod.array(zod.number()).min(1)
-})
+  email: zod
+    .string()
+    .min(createWorkspaceInvitationBodyEmailMin)
+    .regex(createWorkspaceInvitationBodyEmailRegExp),
+  role: zod.enum(["admin", "accountant", "bookkeeper"]),
+  clientIds: zod.array(zod.number()).min(1),
+});
 
 export const CreateWorkspaceInvitationResponse = zod.object({
-  "id": zod.number(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "invitedBy": zod.string(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional(),
-  "emailSubject": zod.string().optional(),
-  "emailBody": zod.string().optional()
-})
-
+  id: zod.number(),
+  email: zod.string(),
+  role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+  status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+  clients: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+  invitedBy: zod.string(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  inviteLink: zod.string().optional(),
+  emailSubject: zod.string().optional(),
+  emailBody: zod.string().optional(),
+});
 
 /**
  * @summary Revoke a pending workspace invitation
  */
 export const RevokeWorkspaceInvitationParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const RevokeWorkspaceInvitationResponse = zod.void()
-
+export const RevokeWorkspaceInvitationResponse = zod.void();
 
 /**
  * @summary Resend a pending workspace invitation
  */
 export const ResendWorkspaceInvitationParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const ResendWorkspaceInvitationResponse = zod.object({
-  "id": zod.number(),
-  "email": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "invitedBy": zod.string(),
-  "expiresAt": zod.coerce.date(),
-  "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional(),
-  "emailSubject": zod.string().optional(),
-  "emailBody": zod.string().optional()
-})
-
+  id: zod.number(),
+  email: zod.string(),
+  role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+  status: zod.enum(["pending", "accepted", "revoked", "expired"]),
+  clients: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+  invitedBy: zod.string(),
+  expiresAt: zod.coerce.date(),
+  createdAt: zod.coerce.date(),
+  inviteLink: zod.string().optional(),
+  emailSubject: zod.string().optional(),
+  emailBody: zod.string().optional(),
+});
 
 /**
  * @summary Accept a workspace invitation
  */
 export const AcceptWorkspaceInvitationParams = zod.object({
-  "token": zod.coerce.string()
-})
+  token: zod.coerce.string(),
+});
 
 export const AcceptWorkspaceInvitationResponse = zod.object({
-  "userId": zod.string(),
-  "email": zod.string(),
-  "name": zod.string(),
-  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
-  "status": zod.enum(['active']),
-  "clients": zod.array(zod.object({
-  "id": zod.number(),
-  "name": zod.string()
-})),
-  "isCurrentUser": zod.boolean()
-})
-
+  userId: zod.string(),
+  email: zod.string(),
+  name: zod.string(),
+  role: zod.enum(["owner", "admin", "accountant", "bookkeeper"]),
+  status: zod.enum(["active"]),
+  clients: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string(),
+    }),
+  ),
+  isCurrentUser: zod.boolean(),
+});
 
 /**
  * @summary Get server-measured workspace usage and plan limits
  */
 export const GetLedgerflowUsageResponse = zod.object({
-  "plan": zod.string(),
-  "asOf": zod.coerce.date(),
-  "billingPeriod": zod.object({
-  "label": zod.string(),
-  "startsAt": zod.coerce.date()
-}),
-  "statementImports": zod.object({
-  "used": zod.number(),
-  "limit": zod.number(),
-  "percentage": zod.number(),
-  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
-}),
-  "storedEvidence": zod.object({
-  "documents": zod.number(),
-  "bytes": zod.number(),
-  "limitBytes": zod.number(),
-  "percentage": zod.number(),
-  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
-}),
-  "aiActivity": zod.object({
-  "used": zod.number(),
-  "limit": zod.number(),
-  "percentage": zod.number(),
-  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
-}),
-  "aiCost": zod.object({
-  "completedActivities": zod.number(),
-  "activitiesWithEstimate": zod.number(),
-  "activitiesWithoutEstimate": zod.number(),
-  "replitPricedActivities": zod.number(),
-  "providerDirectPricedActivities": zod.number(),
-  "inputTokens": zod.number(),
-  "outputTokens": zod.number(),
-  "estimatedReplitCreditsUsd": zod.number(),
-  "estimatedProviderDirectUsd": zod.number(),
-  "estimatedTotalProviderCostUsd": zod.number(),
-  "models": zod.array(zod.object({
-  "provider": zod.string(),
-  "model": zod.string(),
-  "activityCount": zod.number(),
-  "estimatedCostUsd": zod.number()
-}))
-}),
-  "clientAiCosts": zod.array(zod.object({
-  "clientId": zod.number(),
-  "clientName": zod.string(),
-  "usage": zod.object({
-  "completedActivities": zod.number(),
-  "activitiesWithEstimate": zod.number(),
-  "activitiesWithoutEstimate": zod.number(),
-  "replitPricedActivities": zod.number(),
-  "providerDirectPricedActivities": zod.number(),
-  "inputTokens": zod.number(),
-  "outputTokens": zod.number(),
-  "estimatedReplitCreditsUsd": zod.number(),
-  "estimatedProviderDirectUsd": zod.number(),
-  "estimatedTotalProviderCostUsd": zod.number(),
-  "models": zod.array(zod.object({
-  "provider": zod.string(),
-  "model": zod.string(),
-  "activityCount": zod.number(),
-  "estimatedCostUsd": zod.number()
-}))
-})
-})),
-  "clientWorkspaces": zod.object({
-  "used": zod.number(),
-  "limit": zod.number(),
-  "percentage": zod.number(),
-  "status": zod.enum(['healthy', 'approaching', 'at_limit'])
-}),
-  "retention": zod.object({
-  "statementEvidenceDays": zod.number(),
-  "aiActivityDays": zod.number(),
-  "ledgerDataDescription": zod.string()
-})
-})
-
+  plan: zod.string(),
+  asOf: zod.coerce.date(),
+  billingPeriod: zod.object({
+    label: zod.string(),
+    startsAt: zod.coerce.date(),
+  }),
+  statementImports: zod.object({
+    used: zod.number(),
+    limit: zod.number(),
+    percentage: zod.number(),
+    status: zod.enum(["healthy", "approaching", "at_limit"]),
+  }),
+  storedEvidence: zod.object({
+    documents: zod.number(),
+    bytes: zod.number(),
+    limitBytes: zod.number(),
+    percentage: zod.number(),
+    status: zod.enum(["healthy", "approaching", "at_limit"]),
+  }),
+  aiActivity: zod.object({
+    used: zod.number(),
+    limit: zod.number(),
+    percentage: zod.number(),
+    status: zod.enum(["healthy", "approaching", "at_limit"]),
+  }),
+  aiCost: zod.object({
+    completedActivities: zod.number(),
+    activitiesWithEstimate: zod.number(),
+    activitiesWithoutEstimate: zod.number(),
+    replitPricedActivities: zod.number(),
+    providerDirectPricedActivities: zod.number(),
+    inputTokens: zod.number(),
+    outputTokens: zod.number(),
+    estimatedReplitCreditsUsd: zod.number(),
+    estimatedProviderDirectUsd: zod.number(),
+    estimatedTotalProviderCostUsd: zod.number(),
+    models: zod.array(
+      zod.object({
+        provider: zod.string(),
+        model: zod.string(),
+        activityCount: zod.number(),
+        estimatedCostUsd: zod.number(),
+      }),
+    ),
+  }),
+  clientAiCosts: zod.array(
+    zod.object({
+      clientId: zod.number(),
+      clientName: zod.string(),
+      usage: zod.object({
+        completedActivities: zod.number(),
+        activitiesWithEstimate: zod.number(),
+        activitiesWithoutEstimate: zod.number(),
+        replitPricedActivities: zod.number(),
+        providerDirectPricedActivities: zod.number(),
+        inputTokens: zod.number(),
+        outputTokens: zod.number(),
+        estimatedReplitCreditsUsd: zod.number(),
+        estimatedProviderDirectUsd: zod.number(),
+        estimatedTotalProviderCostUsd: zod.number(),
+        models: zod.array(
+          zod.object({
+            provider: zod.string(),
+            model: zod.string(),
+            activityCount: zod.number(),
+            estimatedCostUsd: zod.number(),
+          }),
+        ),
+      }),
+    }),
+  ),
+  clientWorkspaces: zod.object({
+    used: zod.number(),
+    limit: zod.number(),
+    percentage: zod.number(),
+    status: zod.enum(["healthy", "approaching", "at_limit"]),
+  }),
+  retention: zod.object({
+    statementEvidenceDays: zod.number(),
+    aiActivityDays: zod.number(),
+    ledgerDataDescription: zod.string(),
+  }),
+});
 
 /**
  * @summary List the authenticated workspace exchange-rate schedule
  */
 export const GetExchangeRatesQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional().describe('Company ledger whose persisted rate profile is being managed.'),
-  "firmId": zod.coerce.number().optional().describe('Accounting firm whose shared rate profile is being managed.')
-})
+  clientId: zod.coerce
+    .number()
+    .optional()
+    .describe("Company ledger whose persisted rate profile is being managed."),
+  firmId: zod.coerce
+    .number()
+    .optional()
+    .describe("Accounting firm whose shared rate profile is being managed."),
+});
 
 export const getExchangeRatesResponseSourceCurrencyMin = 3;
 export const getExchangeRatesResponseSourceCurrencyMax = 3;
@@ -888,27 +1018,36 @@ export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 
 export const getExchangeRatesResponseRateExclusiveMin = 0;
 
-
-
 export const GetExchangeRatesResponseItem = zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(getExchangeRatesResponseFunctionalCurrencyMin).max(getExchangeRatesResponseFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(getExchangeRatesResponseRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-})
-export const GetExchangeRatesResponse = zod.array(GetExchangeRatesResponseItem)
-
+  id: zod.number(),
+  sourceCurrency: zod
+    .string()
+    .min(getExchangeRatesResponseSourceCurrencyMin)
+    .max(getExchangeRatesResponseSourceCurrencyMax),
+  functionalCurrency: zod
+    .string()
+    .min(getExchangeRatesResponseFunctionalCurrencyMin)
+    .max(getExchangeRatesResponseFunctionalCurrencyMax),
+  effectiveDate: zod.coerce.date(),
+  rate: zod.number().gt(getExchangeRatesResponseRateExclusiveMin),
+  source: zod.string(),
+  note: zod.string().nullish(),
+});
+export const GetExchangeRatesResponse = zod.array(GetExchangeRatesResponseItem);
 
 /**
  * @summary Add a dated workspace exchange rate
  */
 export const CreateExchangeRateQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional().describe('Company ledger whose persisted rate profile is being managed.'),
-  "firmId": zod.coerce.number().optional().describe('Accounting firm whose shared rate profile is being managed.')
-})
+  clientId: zod.coerce
+    .number()
+    .optional()
+    .describe("Company ledger whose persisted rate profile is being managed."),
+  firmId: zod.coerce
+    .number()
+    .optional()
+    .describe("Accounting firm whose shared rate profile is being managed."),
+});
 
 export const createExchangeRateBodySourceCurrencyMin = 3;
 export const createExchangeRateBodySourceCurrencyMax = 3;
@@ -918,16 +1057,20 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
-
-
 export const CreateExchangeRateBody = zod.object({
-  "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
-  "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(createExchangeRateBodyRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})
+  sourceCurrency: zod
+    .string()
+    .min(createExchangeRateBodySourceCurrencyMin)
+    .max(createExchangeRateBodySourceCurrencyMax),
+  functionalCurrency: zod
+    .string()
+    .min(createExchangeRateBodyFunctionalCurrencyMin)
+    .max(createExchangeRateBodyFunctionalCurrencyMax),
+  effectiveDate: zod.coerce.date(),
+  rate: zod.number().gt(createExchangeRateBodyRateExclusiveMin),
+  source: zod.string().optional(),
+  note: zod.string().nullish(),
+});
 
 export const createExchangeRateResponseSourceCurrencyMin = 3;
 export const createExchangeRateResponseSourceCurrencyMax = 3;
@@ -937,25 +1080,28 @@ export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
 
-
-
 export const CreateExchangeRateResponse = zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(createExchangeRateResponseSourceCurrencyMin).max(createExchangeRateResponseSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(createExchangeRateResponseFunctionalCurrencyMin).max(createExchangeRateResponseFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(createExchangeRateResponseRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-})
-
+  id: zod.number(),
+  sourceCurrency: zod
+    .string()
+    .min(createExchangeRateResponseSourceCurrencyMin)
+    .max(createExchangeRateResponseSourceCurrencyMax),
+  functionalCurrency: zod
+    .string()
+    .min(createExchangeRateResponseFunctionalCurrencyMin)
+    .max(createExchangeRateResponseFunctionalCurrencyMax),
+  effectiveDate: zod.coerce.date(),
+  rate: zod.number().gt(createExchangeRateResponseRateExclusiveMin),
+  source: zod.string(),
+  note: zod.string().nullish(),
+});
 
 /**
  * @summary Edit a dated workspace exchange rate
  */
 export const UpdateExchangeRateParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const updateExchangeRateBodySourceCurrencyMin = 3;
 export const updateExchangeRateBodySourceCurrencyMax = 3;
@@ -965,16 +1111,20 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
-
-
 export const UpdateExchangeRateBody = zod.object({
-  "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
-  "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(updateExchangeRateBodyRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})
+  sourceCurrency: zod
+    .string()
+    .min(updateExchangeRateBodySourceCurrencyMin)
+    .max(updateExchangeRateBodySourceCurrencyMax),
+  functionalCurrency: zod
+    .string()
+    .min(updateExchangeRateBodyFunctionalCurrencyMin)
+    .max(updateExchangeRateBodyFunctionalCurrencyMax),
+  effectiveDate: zod.coerce.date(),
+  rate: zod.number().gt(updateExchangeRateBodyRateExclusiveMin),
+  source: zod.string().optional(),
+  note: zod.string().nullish(),
+});
 
 export const updateExchangeRateResponseSourceCurrencyMin = 3;
 export const updateExchangeRateResponseSourceCurrencyMax = 3;
@@ -984,36 +1134,44 @@ export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
 
-
-
 export const UpdateExchangeRateResponse = zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(updateExchangeRateResponseSourceCurrencyMin).max(updateExchangeRateResponseSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(updateExchangeRateResponseFunctionalCurrencyMin).max(updateExchangeRateResponseFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(updateExchangeRateResponseRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-})
-
+  id: zod.number(),
+  sourceCurrency: zod
+    .string()
+    .min(updateExchangeRateResponseSourceCurrencyMin)
+    .max(updateExchangeRateResponseSourceCurrencyMax),
+  functionalCurrency: zod
+    .string()
+    .min(updateExchangeRateResponseFunctionalCurrencyMin)
+    .max(updateExchangeRateResponseFunctionalCurrencyMax),
+  effectiveDate: zod.coerce.date(),
+  rate: zod.number().gt(updateExchangeRateResponseRateExclusiveMin),
+  source: zod.string(),
+  note: zod.string().nullish(),
+});
 
 /**
  * @summary Remove a dated workspace exchange rate
  */
 export const DeleteExchangeRateParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DeleteExchangeRateResponse = zod.void()
-
+export const DeleteExchangeRateResponse = zod.void();
 
 /**
  * @summary Import dated workspace exchange rates
  */
 export const ImportExchangeRatesQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional().describe('Company ledger whose persisted rate profile is being managed.'),
-  "firmId": zod.coerce.number().optional().describe('Accounting firm whose shared rate profile is being managed.')
-})
+  clientId: zod.coerce
+    .number()
+    .optional()
+    .describe("Company ledger whose persisted rate profile is being managed."),
+  firmId: zod.coerce
+    .number()
+    .optional()
+    .describe("Accounting firm whose shared rate profile is being managed."),
+});
 
 export const importExchangeRatesBodyRatesItemSourceCurrencyMin = 3;
 export const importExchangeRatesBodyRatesItemSourceCurrencyMax = 3;
@@ -1023,19 +1181,26 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
-
-
-
 export const ImportExchangeRatesBody = zod.object({
-  "rates": zod.array(zod.object({
-  "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(importExchangeRatesBodyRatesItemFunctionalCurrencyMin).max(importExchangeRatesBodyRatesItemFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(importExchangeRatesBodyRatesItemRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})).min(1)
-})
+  rates: zod
+    .array(
+      zod.object({
+        sourceCurrency: zod
+          .string()
+          .min(importExchangeRatesBodyRatesItemSourceCurrencyMin)
+          .max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
+        functionalCurrency: zod
+          .string()
+          .min(importExchangeRatesBodyRatesItemFunctionalCurrencyMin)
+          .max(importExchangeRatesBodyRatesItemFunctionalCurrencyMax),
+        effectiveDate: zod.coerce.date(),
+        rate: zod.number().gt(importExchangeRatesBodyRatesItemRateExclusiveMin),
+        source: zod.string().optional(),
+        note: zod.string().nullish(),
+      }),
+    )
+    .min(1),
+});
 
 export const importExchangeRatesResponseRatesItemSourceCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemSourceCurrencyMax = 3;
@@ -1045,22 +1210,29 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
 
-
-
 export const ImportExchangeRatesResponse = zod.object({
-  "importedCount": zod.number(),
-  "updatedCount": zod.number(),
-  "rates": zod.array(zod.object({
-  "id": zod.number(),
-  "sourceCurrency": zod.string().min(importExchangeRatesResponseRatesItemSourceCurrencyMin).max(importExchangeRatesResponseRatesItemSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(importExchangeRatesResponseRatesItemFunctionalCurrencyMin).max(importExchangeRatesResponseRatesItemFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(importExchangeRatesResponseRatesItemRateExclusiveMin),
-  "source": zod.string(),
-  "note": zod.string().nullish()
-}))
-})
-
+  importedCount: zod.number(),
+  updatedCount: zod.number(),
+  rates: zod.array(
+    zod.object({
+      id: zod.number(),
+      sourceCurrency: zod
+        .string()
+        .min(importExchangeRatesResponseRatesItemSourceCurrencyMin)
+        .max(importExchangeRatesResponseRatesItemSourceCurrencyMax),
+      functionalCurrency: zod
+        .string()
+        .min(importExchangeRatesResponseRatesItemFunctionalCurrencyMin)
+        .max(importExchangeRatesResponseRatesItemFunctionalCurrencyMax),
+      effectiveDate: zod.coerce.date(),
+      rate: zod
+        .number()
+        .gt(importExchangeRatesResponseRatesItemRateExclusiveMin),
+      source: zod.string(),
+      note: zod.string().nullish(),
+    }),
+  ),
+});
 
 /**
  * @summary Prepare an exchange-rate import preview from CSV or Excel data
@@ -1069,14 +1241,16 @@ export const parseExchangeRatesBodyContentMax = 120000;
 
 export const parseExchangeRatesBodyFileBase64Max = 20000000;
 
-
-
 export const ParseExchangeRatesBody = zod.object({
-  "clientId": zod.number(),
-  "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
-  "fileBase64": zod.string().min(1).max(parseExchangeRatesBodyFileBase64Max).optional(),
-  "fileName": zod.string().optional()
-})
+  clientId: zod.number(),
+  content: zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
+  fileBase64: zod
+    .string()
+    .min(1)
+    .max(parseExchangeRatesBodyFileBase64Max)
+    .optional(),
+  fileName: zod.string().optional(),
+});
 
 export const parseExchangeRatesResponseRatesItemSourceCurrencyMin = 3;
 export const parseExchangeRatesResponseRatesItemSourceCurrencyMax = 3;
@@ -1089,467 +1263,732 @@ export const parseExchangeRatesResponseRatesItemRateExclusiveMin = 0;
 export const parseExchangeRatesResponseConfidenceMin = 0;
 export const parseExchangeRatesResponseConfidenceMax = 1;
 
-
-
 export const ParseExchangeRatesResponse = zod.object({
-  "mapping": zod.object({
-  "effectiveDate": zod.string().nullable(),
-  "sourceCurrency": zod.string().nullable(),
-  "functionalCurrency": zod.string().nullable(),
-  "rate": zod.string().nullable(),
-  "source": zod.string().nullable(),
-  "note": zod.string().nullable()
-}),
-  "rates": zod.array(zod.object({
-  "sourceCurrency": zod.string().min(parseExchangeRatesResponseRatesItemSourceCurrencyMin).max(parseExchangeRatesResponseRatesItemSourceCurrencyMax),
-  "functionalCurrency": zod.string().min(parseExchangeRatesResponseRatesItemFunctionalCurrencyMin).max(parseExchangeRatesResponseRatesItemFunctionalCurrencyMax),
-  "effectiveDate": zod.coerce.date(),
-  "rate": zod.number().gt(parseExchangeRatesResponseRatesItemRateExclusiveMin),
-  "source": zod.string().optional(),
-  "note": zod.string().nullish()
-})),
-  "warnings": zod.array(zod.string()),
-  "unmappedColumns": zod.array(zod.string()),
-  "confidence": zod.number().min(parseExchangeRatesResponseConfidenceMin).max(parseExchangeRatesResponseConfidenceMax)
-})
+  mapping: zod.object({
+    effectiveDate: zod.string().nullable(),
+    sourceCurrency: zod.string().nullable(),
+    functionalCurrency: zod.string().nullable(),
+    rate: zod.string().nullable(),
+    source: zod.string().nullable(),
+    note: zod.string().nullable(),
+  }),
+  rates: zod.array(
+    zod.object({
+      sourceCurrency: zod
+        .string()
+        .min(parseExchangeRatesResponseRatesItemSourceCurrencyMin)
+        .max(parseExchangeRatesResponseRatesItemSourceCurrencyMax),
+      functionalCurrency: zod
+        .string()
+        .min(parseExchangeRatesResponseRatesItemFunctionalCurrencyMin)
+        .max(parseExchangeRatesResponseRatesItemFunctionalCurrencyMax),
+      effectiveDate: zod.coerce.date(),
+      rate: zod
+        .number()
+        .gt(parseExchangeRatesResponseRatesItemRateExclusiveMin),
+      source: zod.string().optional(),
+      note: zod.string().nullish(),
+    }),
+  ),
+  warnings: zod.array(zod.string()),
+  unmappedColumns: zod.array(zod.string()),
+  confidence: zod
+    .number()
+    .min(parseExchangeRatesResponseConfidenceMin)
+    .max(parseExchangeRatesResponseConfidenceMax),
+});
 
+/**
+ * Restricted to explicitly entitled system administrators. This response contains aggregate coverage metrics only.
+ * @summary Get aggregated system exchange-rate health
+ */
+export const GetSystemRateDashboardResponse = zod.object({
+  availablePairs: zod.array(
+    zod.object({
+      sourceCurrency: zod.string(),
+      functionalCurrency: zod.string(),
+      latestEffectiveDate: zod.string(),
+      rateCount: zod.number(),
+    }),
+  ),
+  workspacesUsingFallback: zod.number(),
+  workspacesWithFallbackDisabled: zod.number(),
+  missingOrStaleCoverage: zod.array(
+    zod.object({
+      sourceCurrency: zod.string(),
+      functionalCurrency: zod.string(),
+      workspaces: zod.number(),
+      kind: zod.enum(["missing", "stale"]),
+    }),
+  ),
+  recentChanges: zod.array(
+    zod.object({
+      id: zod.number(),
+      action: zod.enum(["created", "updated", "deleted", "imported"]),
+      summary: zod.string(),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary List global fallback exchange rates
+ */
+export const GetSystemRatesResponseItem = zod.object({
+  id: zod.number(),
+  sourceCurrency: zod.string(),
+  functionalCurrency: zod.string(),
+  effectiveDate: zod.string(),
+  rate: zod.number(),
+  source: zod.string(),
+  note: zod.string().nullable(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+export const GetSystemRatesResponse = zod.array(GetSystemRatesResponseItem);
+
+/**
+ * @summary Add a global fallback exchange rate
+ */
+export const CreateSystemRateBody = zod.object({
+  sourceCurrency: zod.string(),
+  functionalCurrency: zod.string(),
+  effectiveDate: zod.string(),
+  rate: zod.number(),
+  source: zod.string().optional(),
+  note: zod.string().nullish(),
+});
+
+export const CreateSystemRateResponse = zod.object({
+  id: zod.number(),
+  sourceCurrency: zod.string(),
+  functionalCurrency: zod.string(),
+  effectiveDate: zod.string(),
+  rate: zod.number(),
+  source: zod.string(),
+  note: zod.string().nullable(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Edit a global fallback exchange rate
+ */
+export const UpdateSystemRateParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateSystemRateBody = zod.object({
+  sourceCurrency: zod.string(),
+  functionalCurrency: zod.string(),
+  effectiveDate: zod.string(),
+  rate: zod.number(),
+  source: zod.string().optional(),
+  note: zod.string().nullish(),
+});
+
+export const UpdateSystemRateResponse = zod.object({
+  id: zod.number(),
+  sourceCurrency: zod.string(),
+  functionalCurrency: zod.string(),
+  effectiveDate: zod.string(),
+  rate: zod.number(),
+  source: zod.string(),
+  note: zod.string().nullable(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Remove a global fallback exchange rate
+ */
+export const DeleteSystemRateParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteSystemRateResponse = zod.void();
+
+/**
+ * @summary Import dated global fallback exchange rates
+ */
+
+export const ImportSystemRatesBody = zod.object({
+  rates: zod
+    .array(
+      zod.object({
+        sourceCurrency: zod.string(),
+        functionalCurrency: zod.string(),
+        effectiveDate: zod.string(),
+        rate: zod.number(),
+        source: zod.string().optional(),
+        note: zod.string().nullish(),
+      }),
+    )
+    .min(1),
+});
+
+export const ImportSystemRatesResponse = zod.object({
+  importedCount: zod.number(),
+  updatedCount: zod.number(),
+  rates: zod.array(
+    zod.object({
+      id: zod.number(),
+      sourceCurrency: zod.string(),
+      functionalCurrency: zod.string(),
+      effectiveDate: zod.string(),
+      rate: zod.number(),
+      source: zod.string(),
+      note: zod.string().nullable(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+});
 
 /**
  * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
-})
-
+  status: zod.string(),
+});
 
 /**
  * @summary Get bookkeeping workflow overview
  */
 export const GetLedgerOverviewQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional()
-})
+  clientId: zod.coerce.number().optional(),
+});
 
 export const GetLedgerOverviewResponse = zod.object({
-  "period": zod.string(),
-  "currencies": zod.array(zod.string()),
-  "totalLines": zod.number(),
-  "pendingReview": zod.number(),
-  "postedAmount": zod.number(),
-  "completionPercent": zod.number(),
-  "functionalCurrency": zod.string(),
-  "postedAmountFunctional": zod.number(),
-  "missingRateCount": zod.number(),
-  "missingRateCurrencies": zod.array(zod.string())
-})
-
+  period: zod.string(),
+  currencies: zod.array(zod.string()),
+  totalLines: zod.number(),
+  pendingReview: zod.number(),
+  postedAmount: zod.number(),
+  completionPercent: zod.number(),
+  functionalCurrency: zod.string(),
+  postedAmountFunctional: zod.number(),
+  missingRateCount: zod.number(),
+  missingRateCurrencies: zod.array(zod.string()),
+});
 
 /**
  * @summary List a client's bank accounts
  */
 export const GetBankAccountsQueryParams = zod.object({
-  "clientId": zod.coerce.number()
-})
+  clientId: zod.coerce.number(),
+});
 
 export const GetBankAccountsResponseItem = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "name": zod.string(),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().nullish(),
-  "currency": zod.string()
-})
-export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
-
+  id: zod.number(),
+  clientId: zod.number(),
+  name: zod.string(),
+  bankName: zod.string().nullish(),
+  accountNumberLast4: zod.string().nullish(),
+  currency: zod.string(),
+});
+export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem);
 
 /**
  * @summary Create a client bank account
  */
 
-export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
+export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp(
+  "^[0-9]{4}$",
+);
 export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
 
-
-
 export const CreateBankAccountBody = zod.object({
-  "clientId": zod.number(),
-  "name": zod.string().min(1),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().regex(createBankAccountBodyAccountNumberLast4RegExp).nullish(),
-  "currency": zod.string().min(createBankAccountBodyCurrencyMin).max(createBankAccountBodyCurrencyMax)
-})
+  clientId: zod.number(),
+  name: zod.string().min(1),
+  bankName: zod.string().nullish(),
+  accountNumberLast4: zod
+    .string()
+    .regex(createBankAccountBodyAccountNumberLast4RegExp)
+    .nullish(),
+  currency: zod
+    .string()
+    .min(createBankAccountBodyCurrencyMin)
+    .max(createBankAccountBodyCurrencyMax),
+});
 
 export const CreateBankAccountResponse = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "name": zod.string(),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().nullish(),
-  "currency": zod.string()
-})
-
+  id: zod.number(),
+  clientId: zod.number(),
+  name: zod.string(),
+  bankName: zod.string().nullish(),
+  accountNumberLast4: zod.string().nullish(),
+  currency: zod.string(),
+});
 
 /**
  * @summary List bank statement lines
  */
 export const GetStatementLinesQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional(),
-  "currency": zod.coerce.string().optional(),
-  "status": zod.coerce.string().optional()
-})
+  clientId: zod.coerce.number().optional(),
+  currency: zod.coerce.string().optional(),
+  status: zod.coerce.string().optional(),
+});
 
 export const GetStatementLinesResponseItem = zod.object({
-  "id": zod.number(),
-  "bankAccountId": zod.number().nullish(),
-  "date": zod.string(),
-  "description": zod.string(),
-  "currency": zod.string(),
-  "amount": zod.number(),
-  "direction": zod.string(),
-  "status": zod.string(),
-  "source": zod.string(),
-  "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})
-export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem)
-
+  id: zod.number(),
+  bankAccountId: zod.number().nullish(),
+  date: zod.string(),
+  description: zod.string(),
+  currency: zod.string(),
+  amount: zod.number(),
+  direction: zod.string(),
+  status: zod.string(),
+  source: zod.string(),
+  accountSuggestion: zod.string().nullish(),
+  confidence: zod.number().nullish(),
+  suggestionSource: zod.string().nullish(),
+  supportingPatternCount: zod.number().nullish(),
+  functionalCurrency: zod.string().nullish(),
+  functionalAmount: zod.number().nullish(),
+  exchangeRate: zod.number().nullish(),
+  exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+  exchangeRateSourceScope: zod
+    .enum(["none", "client", "firm", "system"])
+    .optional(),
+  exchangeRateStatus: zod.string().optional(),
+});
+export const GetStatementLinesResponse = zod.array(
+  GetStatementLinesResponseItem,
+);
 
 /**
  * @summary Add a bank statement line
  */
 export const CreateStatementLineBody = zod.object({
-  "clientId": zod.number().optional(),
-  "bankAccountId": zod.number().nullish(),
-  "date": zod.string(),
-  "description": zod.string(),
-  "currency": zod.string(),
-  "amount": zod.number(),
-  "direction": zod.string()
-})
+  clientId: zod.number().optional(),
+  bankAccountId: zod.number().nullish(),
+  date: zod.string(),
+  description: zod.string(),
+  currency: zod.string(),
+  amount: zod.number(),
+  direction: zod.string(),
+});
 
 export const CreateStatementLineResponse = zod.object({
-  "id": zod.number(),
-  "bankAccountId": zod.number().nullish(),
-  "date": zod.string(),
-  "description": zod.string(),
-  "currency": zod.string(),
-  "amount": zod.number(),
-  "direction": zod.string(),
-  "status": zod.string(),
-  "source": zod.string(),
-  "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})
-
+  id: zod.number(),
+  bankAccountId: zod.number().nullish(),
+  date: zod.string(),
+  description: zod.string(),
+  currency: zod.string(),
+  amount: zod.number(),
+  direction: zod.string(),
+  status: zod.string(),
+  source: zod.string(),
+  accountSuggestion: zod.string().nullish(),
+  confidence: zod.number().nullish(),
+  suggestionSource: zod.string().nullish(),
+  supportingPatternCount: zod.number().nullish(),
+  functionalCurrency: zod.string().nullish(),
+  functionalAmount: zod.number().nullish(),
+  exchangeRate: zod.number().nullish(),
+  exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+  exchangeRateSourceScope: zod
+    .enum(["none", "client", "firm", "system"])
+    .optional(),
+  exchangeRateStatus: zod.string().optional(),
+});
 
 /**
  * @summary Extract statement lines from a PDF, CSV, or Excel file
  */
 export const ImportStatementBody = zod.object({
-  "importId": zod.number().optional().describe('Existing pending import to confirm after the user reviews its detected currency.'),
-  "clientId": zod.number(),
-  "bankAccountId": zod.number().nullish(),
-  "fileName": zod.string(),
-  "mimeType": zod.string(),
-  "objectPath": zod.string(),
-  "currency": zod.string().optional(),
-  "confirmed": zod.boolean().describe('False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.')
-})
+  importId: zod
+    .number()
+    .optional()
+    .describe(
+      "Existing pending import to confirm after the user reviews its detected currency.",
+    ),
+  clientId: zod.number(),
+  bankAccountId: zod.number().nullish(),
+  fileName: zod.string(),
+  mimeType: zod.string(),
+  objectPath: zod.string(),
+  currency: zod.string().optional(),
+  confirmed: zod
+    .boolean()
+    .describe(
+      "False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.",
+    ),
+});
 
 export const ImportStatementResponse = zod.object({
-  "fileName": zod.string(),
-  "importId": zod.number(),
-  "importStatus": zod.enum(['preview', 'imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
-  "message": zod.string().optional(),
-  "sourceUrl": zod.string().optional(),
-  "detectedCurrency": zod.string().nullish(),
-  "currencyRequiresConfirmation": zod.boolean().optional(),
-  "importedCount": zod.number(),
-  "duplicateCount": zod.number(),
-  "duplicateLines": zod.array(zod.object({
-  "date": zod.string(),
-  "description": zod.string(),
-  "currency": zod.string(),
-  "amount": zod.number(),
-  "direction": zod.string(),
-  "existingLineId": zod.number().nullable(),
-  "reason": zod.enum(['already_imported', 'duplicate_in_file'])
-})),
-  "lines": zod.array(zod.object({
-  "id": zod.number(),
-  "bankAccountId": zod.number().nullish(),
-  "date": zod.string(),
-  "description": zod.string(),
-  "currency": zod.string(),
-  "amount": zod.number(),
-  "direction": zod.string(),
-  "status": zod.string(),
-  "source": zod.string(),
-  "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})),
-  "bankAccount": zod.union([zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "name": zod.string(),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().nullish(),
-  "currency": zod.string()
-}),zod.null()]).optional()
-})
-
+  fileName: zod.string(),
+  importId: zod.number(),
+  importStatus: zod.enum([
+    "preview",
+    "imported",
+    "imported_with_duplicates",
+    "duplicates_found",
+    "duplicate_file",
+  ]),
+  message: zod.string().optional(),
+  sourceUrl: zod.string().optional(),
+  detectedCurrency: zod.string().nullish(),
+  currencyRequiresConfirmation: zod.boolean().optional(),
+  importedCount: zod.number(),
+  duplicateCount: zod.number(),
+  duplicateLines: zod.array(
+    zod.object({
+      date: zod.string(),
+      description: zod.string(),
+      currency: zod.string(),
+      amount: zod.number(),
+      direction: zod.string(),
+      existingLineId: zod.number().nullable(),
+      reason: zod.enum(["already_imported", "duplicate_in_file"]),
+    }),
+  ),
+  lines: zod.array(
+    zod.object({
+      id: zod.number(),
+      bankAccountId: zod.number().nullish(),
+      date: zod.string(),
+      description: zod.string(),
+      currency: zod.string(),
+      amount: zod.number(),
+      direction: zod.string(),
+      status: zod.string(),
+      source: zod.string(),
+      accountSuggestion: zod.string().nullish(),
+      confidence: zod.number().nullish(),
+      suggestionSource: zod.string().nullish(),
+      supportingPatternCount: zod.number().nullish(),
+      functionalCurrency: zod.string().nullish(),
+      functionalAmount: zod.number().nullish(),
+      exchangeRate: zod.number().nullish(),
+      exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+      exchangeRateSourceScope: zod
+        .enum(["none", "client", "firm", "system"])
+        .optional(),
+      exchangeRateStatus: zod.string().optional(),
+    }),
+  ),
+  bankAccount: zod
+    .union([
+      zod.object({
+        id: zod.number(),
+        clientId: zod.number(),
+        name: zod.string(),
+        bankName: zod.string().nullish(),
+        accountNumberLast4: zod.string().nullish(),
+        currency: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+});
 
 /**
  * @summary List statement import trail
  */
 export const GetStatementImportsQueryParams = zod.object({
-  "clientId": zod.coerce.number()
-})
+  clientId: zod.coerce.number(),
+});
 
 export const GetStatementImportsResponseItem = zod.object({
-  "id": zod.number(),
-  "fileName": zod.string(),
-  "mimeType": zod.string(),
-  "objectPath": zod.string().nullable(),
-  "outcome": zod.enum(['pending_confirmation', 'completed', 'duplicate', 'failed', 'undone']),
-  "detectedCurrency": zod.string().nullish(),
-  "errorMessage": zod.string().nullish(),
-  "importedLineCount": zod.number(),
-  "createdAt": zod.string(),
-  "sourceUrl": zod.string().nullish()
-})
-export const GetStatementImportsResponse = zod.array(GetStatementImportsResponseItem)
-
+  id: zod.number(),
+  fileName: zod.string(),
+  mimeType: zod.string(),
+  objectPath: zod.string().nullable(),
+  outcome: zod.enum([
+    "pending_confirmation",
+    "completed",
+    "duplicate",
+    "failed",
+    "undone",
+  ]),
+  detectedCurrency: zod.string().nullish(),
+  errorMessage: zod.string().nullish(),
+  importedLineCount: zod.number(),
+  createdAt: zod.string(),
+  sourceUrl: zod.string().nullish(),
+});
+export const GetStatementImportsResponse = zod.array(
+  GetStatementImportsResponseItem,
+);
 
 /**
  * @summary Remove a review-only statement import while preserving its evidence trail
  */
 export const UndoStatementImportParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UndoStatementImportBody = zod.object({
-  "clientId": zod.number()
-})
+  clientId: zod.number(),
+});
 
 export const UndoStatementImportResponse = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "outcome": zod.enum(['undone']),
-  "removedLineCount": zod.number(),
-  "removedJournalEntryCount": zod.number(),
-  "alreadyUndone": zod.boolean(),
-  "message": zod.string()
-})
-
+  id: zod.number(),
+  clientId: zod.number(),
+  outcome: zod.enum(["undone"]),
+  removedLineCount: zod.number(),
+  removedJournalEntryCount: zod.number(),
+  alreadyUndone: zod.boolean(),
+  message: zod.string(),
+});
 
 /**
  * @summary List successful uploaded statement files
  */
 export const GetUploadedFilesQueryParams = zod.object({
-  "clientId": zod.coerce.number()
-})
+  clientId: zod.coerce.number(),
+});
 
 export const GetUploadedFilesResponseItem = zod.object({
-  "id": zod.number(),
-  "fileName": zod.string(),
-  "mimeType": zod.string(),
-  "outcome": zod.enum(['completed', 'duplicate']),
-  "importedLineCount": zod.number(),
-  "processedAt": zod.coerce.date(),
-  "sourceStatus": zod.enum(['available', 'expired', 'unavailable']),
-  "sourceUrl": zod.string().nullable()
-})
-export const GetUploadedFilesResponse = zod.array(GetUploadedFilesResponseItem)
-
+  id: zod.number(),
+  fileName: zod.string(),
+  mimeType: zod.string(),
+  outcome: zod.enum(["completed", "duplicate"]),
+  importedLineCount: zod.number(),
+  processedAt: zod.coerce.date(),
+  sourceStatus: zod.enum(["available", "expired", "unavailable"]),
+  sourceUrl: zod.string().nullable(),
+});
+export const GetUploadedFilesResponse = zod.array(GetUploadedFilesResponseItem);
 
 /**
  * @summary Download an imported statement source document
  */
 export const GetStatementImportSourceParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const GetStatementImportSourceResponse = zod.unknown()
-
+export const GetStatementImportSourceResponse = zod.unknown();
 
 /**
  * @summary Ask the AI assistant about a client workspace
  */
 export const AskLedgerflowAIBody = zod.object({
-  "clientId": zod.number(),
-  "message": zod.string()
-})
+  clientId: zod.number(),
+  message: zod.string(),
+});
 
-export const askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
-
+export const askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp =
+  new RegExp("^[0-9]{4}$");
 
 export const AskLedgerflowAIResponse = zod.object({
-  "answer": zod.string(),
-  "recommendations": zod.array(zod.object({
-  "id": zod.string(),
-  "clientId": zod.number(),
-  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account', 'bulk_approve_entries', 'bulk_post_entries']),
-  "title": zod.string(),
-  "summary": zod.string(),
-  "lineIds": zod.array(zod.number()).optional(),
-  "entryIds": zod.array(zod.number()).optional(),
-  "statementLineIds": zod.array(zod.number()).optional(),
-  "entryCount": zod.number().optional(),
-  "lineCount": zod.number().optional(),
-  "fromStatus": zod.string().optional(),
-  "toStatus": zod.string().optional(),
-  "statusTransition": zod.object({
-  "from": zod.string(),
-  "to": zod.string()
-}).optional(),
-  "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish(),
-  "suggestionSource": zod.string().nullish(),
-  "supportingPatternCount": zod.number().nullish(),
-  "bankAccount": zod.union([zod.object({
-  "name": zod.string(),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().regex(askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp).nullish(),
-  "currency": zod.string()
-}),zod.null()]).optional(),
-  "requiresConfirmation": zod.boolean()
-})),
-  "context": zod.object({
-  "clientName": zod.string(),
-  "pendingLines": zod.number(),
-  "postedLines": zod.number()
-})
-})
-
+  answer: zod.string(),
+  recommendations: zod.array(
+    zod.object({
+      id: zod.string(),
+      clientId: zod.number(),
+      type: zod.enum([
+        "next_step",
+        "review_group",
+        "recode_lines",
+        "create_bank_account",
+        "bulk_approve_entries",
+        "bulk_post_entries",
+      ]),
+      title: zod.string(),
+      summary: zod.string(),
+      lineIds: zod.array(zod.number()).optional(),
+      entryIds: zod.array(zod.number()).optional(),
+      statementLineIds: zod.array(zod.number()).optional(),
+      entryCount: zod.number().optional(),
+      lineCount: zod.number().optional(),
+      fromStatus: zod.string().optional(),
+      toStatus: zod.string().optional(),
+      statusTransition: zod
+        .object({
+          from: zod.string(),
+          to: zod.string(),
+        })
+        .optional(),
+      accountSuggestion: zod.string().nullish(),
+      confidence: zod.number().nullish(),
+      suggestionSource: zod.string().nullish(),
+      supportingPatternCount: zod.number().nullish(),
+      bankAccount: zod
+        .union([
+          zod.object({
+            name: zod.string(),
+            bankName: zod.string().nullish(),
+            accountNumberLast4: zod
+              .string()
+              .regex(
+                askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp,
+              )
+              .nullish(),
+            currency: zod.string(),
+          }),
+          zod.null(),
+        ])
+        .optional(),
+      requiresConfirmation: zod.boolean(),
+    }),
+  ),
+  context: zod.object({
+    clientName: zod.string(),
+    pendingLines: zod.number(),
+    postedLines: zod.number(),
+  }),
+});
 
 /**
  * @summary Get redacted AI provider settings for a client workspace
  */
 export const GetLedgerflowAISettingsQueryParams = zod.object({
-  "clientId": zod.coerce.number()
-})
+  clientId: zod.coerce.number(),
+});
 
 export const GetLedgerflowAISettingsResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
-})
-
+  clientId: zod.number(),
+  provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+  model: zod.string(),
+  credentialStatus: zod.enum([
+    "not_configured",
+    "configured",
+    "invalid",
+    "unavailable",
+  ]),
+  credentialLast4: zod
+    .string()
+    .nullable()
+    .describe("Last four characters only; never the API credential."),
+  credentialUpdatedAt: zod.coerce.date().nullable(),
+  lastTestedAt: zod.coerce.date().nullable(),
+  availableModels: zod
+    .array(
+      zod.object({
+        provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+        model: zod.string(),
+        displayName: zod.string(),
+        status: zod.enum(["active", "retired"]),
+        retiredAt: zod.coerce.date().nullable(),
+      }),
+    )
+    .describe(
+      "Provider-specific approved model catalog, including retired models for existing configurations.",
+    ),
+});
 
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
 
-
-
 export const UpdateLedgerflowAISettingsBody = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "apiKey": zod.string().min(1).optional()
-})
+  clientId: zod.number(),
+  provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+  model: zod.string(),
+  apiKey: zod.string().min(1).optional(),
+});
 
 export const UpdateLedgerflowAISettingsResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
-})
-
+  clientId: zod.number(),
+  provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+  model: zod.string(),
+  credentialStatus: zod.enum([
+    "not_configured",
+    "configured",
+    "invalid",
+    "unavailable",
+  ]),
+  credentialLast4: zod
+    .string()
+    .nullable()
+    .describe("Last four characters only; never the API credential."),
+  credentialUpdatedAt: zod.coerce.date().nullable(),
+  lastTestedAt: zod.coerce.date().nullable(),
+  availableModels: zod
+    .array(
+      zod.object({
+        provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+        model: zod.string(),
+        displayName: zod.string(),
+        status: zod.enum(["active", "retired"]),
+        retiredAt: zod.coerce.date().nullable(),
+      }),
+    )
+    .describe(
+      "Provider-specific approved model catalog, including retired models for existing configurations.",
+    ),
+});
 
 /**
  * @summary Test the selected AI provider without returning its credential
  */
 export const TestLedgerflowAISettingsBody = zod.object({
-  "clientId": zod.number()
-})
+  clientId: zod.number(),
+});
 
 export const TestLedgerflowAISettingsResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
-})
-
+  clientId: zod.number(),
+  provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+  model: zod.string(),
+  credentialStatus: zod.enum([
+    "not_configured",
+    "configured",
+    "invalid",
+    "unavailable",
+  ]),
+  credentialLast4: zod
+    .string()
+    .nullable()
+    .describe("Last four characters only; never the API credential."),
+  credentialUpdatedAt: zod.coerce.date().nullable(),
+  lastTestedAt: zod.coerce.date().nullable(),
+  availableModels: zod
+    .array(
+      zod.object({
+        provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+        model: zod.string(),
+        displayName: zod.string(),
+        status: zod.enum(["active", "retired"]),
+        retiredAt: zod.coerce.date().nullable(),
+      }),
+    )
+    .describe(
+      "Provider-specific approved model catalog, including retired models for existing configurations.",
+    ),
+});
 
 /**
  * @summary Remove the workspace-owned AI credential and return to managed OpenAI
  */
 export const RemoveLedgerflowAICredentialBody = zod.object({
-  "clientId": zod.number()
-})
+  clientId: zod.number(),
+});
 
 export const RemoveLedgerflowAICredentialResponse = zod.object({
-  "clientId": zod.number(),
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "credentialStatus": zod.enum(['not_configured', 'configured', 'invalid', 'unavailable']),
-  "credentialLast4": zod.string().nullable().describe('Last four characters only; never the API credential.'),
-  "credentialUpdatedAt": zod.coerce.date().nullable(),
-  "lastTestedAt": zod.coerce.date().nullable(),
-  "availableModels": zod.array(zod.object({
-  "provider": zod.enum(['managed_openai', 'openai', 'anthropic']),
-  "model": zod.string(),
-  "displayName": zod.string(),
-  "status": zod.enum(['active', 'retired']),
-  "retiredAt": zod.coerce.date().nullable()
-})).describe('Provider-specific approved model catalog, including retired models for existing configurations.')
-})
-
+  clientId: zod.number(),
+  provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+  model: zod.string(),
+  credentialStatus: zod.enum([
+    "not_configured",
+    "configured",
+    "invalid",
+    "unavailable",
+  ]),
+  credentialLast4: zod
+    .string()
+    .nullable()
+    .describe("Last four characters only; never the API credential."),
+  credentialUpdatedAt: zod.coerce.date().nullable(),
+  lastTestedAt: zod.coerce.date().nullable(),
+  availableModels: zod
+    .array(
+      zod.object({
+        provider: zod.enum(["managed_openai", "openai", "anthropic"]),
+        model: zod.string(),
+        displayName: zod.string(),
+        status: zod.enum(["active", "retired"]),
+        retiredAt: zod.coerce.date().nullable(),
+      }),
+    )
+    .describe(
+      "Provider-specific approved model catalog, including retired models for existing configurations.",
+    ),
+});
 
 /**
  * @summary Apply a user-confirmed AI bookkeeping proposal
@@ -1560,290 +1999,352 @@ export const confirmAICopilotActionBodyEntryIdsMax = 100;
 
 export const confirmAICopilotActionBodyStatementLineIdsMax = 100;
 
-export const confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
-
+export const confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp =
+  new RegExp("^[0-9]{4}$");
 
 export const ConfirmAICopilotActionBody = zod.object({
-  "clientId": zod.number(),
-  "type": zod.enum(['recode_lines', 'create_bank_account', 'bulk_approve_entries', 'bulk_post_entries']),
-  "lineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyLineIdsMax).optional(),
-  "entryIds": zod.array(zod.number()).max(confirmAICopilotActionBodyEntryIdsMax).optional(),
-  "statementLineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyStatementLineIdsMax).optional(),
-  "accountSuggestion": zod.string().nullish(),
-  "confidence": zod.number().nullish(),
-  "bankAccount": zod.union([zod.object({
-  "name": zod.string(),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().regex(confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp).nullish(),
-  "currency": zod.string()
-}),zod.null()]).optional()
-})
+  clientId: zod.number(),
+  type: zod.enum([
+    "recode_lines",
+    "create_bank_account",
+    "bulk_approve_entries",
+    "bulk_post_entries",
+  ]),
+  lineIds: zod
+    .array(zod.number())
+    .max(confirmAICopilotActionBodyLineIdsMax)
+    .optional(),
+  entryIds: zod
+    .array(zod.number())
+    .max(confirmAICopilotActionBodyEntryIdsMax)
+    .optional(),
+  statementLineIds: zod
+    .array(zod.number())
+    .max(confirmAICopilotActionBodyStatementLineIdsMax)
+    .optional(),
+  accountSuggestion: zod.string().nullish(),
+  confidence: zod.number().nullish(),
+  bankAccount: zod
+    .union([
+      zod.object({
+        name: zod.string(),
+        bankName: zod.string().nullish(),
+        accountNumberLast4: zod
+          .string()
+          .regex(
+            confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp,
+          )
+          .nullish(),
+        currency: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+});
 
 export const ConfirmAICopilotActionResponse = zod.object({
-  "type": zod.string(),
-  "clientId": zod.number().optional(),
-  "entryIds": zod.array(zod.number()).optional(),
-  "statementLineIds": zod.array(zod.number()).optional(),
-  "entryCount": zod.number().optional(),
-  "lineCount": zod.number().optional(),
-  "fromStatus": zod.string().optional(),
-  "toStatus": zod.string().optional(),
-  "entries": zod.array(zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-})),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})).optional(),
-  "updatedLineCount": zod.number(),
-  "bankAccount": zod.union([zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "name": zod.string(),
-  "bankName": zod.string().nullish(),
-  "accountNumberLast4": zod.string().nullish(),
-  "currency": zod.string()
-}),zod.null()])
-})
-
+  type: zod.string(),
+  clientId: zod.number().optional(),
+  entryIds: zod.array(zod.number()).optional(),
+  statementLineIds: zod.array(zod.number()).optional(),
+  entryCount: zod.number().optional(),
+  lineCount: zod.number().optional(),
+  fromStatus: zod.string().optional(),
+  toStatus: zod.string().optional(),
+  entries: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        statementLineId: zod.number(),
+        date: zod.string(),
+        memo: zod.string(),
+        currency: zod.string(),
+        status: zod.string(),
+        confidence: zod.number(),
+        lines: zod.array(
+          zod.object({
+            account: zod.string(),
+            debit: zod.number(),
+            credit: zod.number(),
+          }),
+        ),
+        functionalCurrency: zod.string().nullish(),
+        functionalAmount: zod.number().nullish(),
+        exchangeRate: zod.number().nullish(),
+        exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+        exchangeRateSourceScope: zod
+          .enum(["none", "client", "firm", "system"])
+          .optional(),
+        exchangeRateStatus: zod.string().optional(),
+      }),
+    )
+    .optional(),
+  updatedLineCount: zod.number(),
+  bankAccount: zod.union([
+    zod.object({
+      id: zod.number(),
+      clientId: zod.number(),
+      name: zod.string(),
+      bankName: zod.string().nullish(),
+      accountNumberLast4: zod.string().nullish(),
+      currency: zod.string(),
+    }),
+    zod.null(),
+  ]),
+});
 
 /**
  * @summary List immutable ledger transition history
  */
 export const GetBulkTransitionAuditsQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional()
-})
+  clientId: zod.coerce.number().optional(),
+});
 
 export const GetBulkTransitionAuditsResponseItem = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "actor": zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "email": zod.string().nullable()
-}),
-  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries', 'post_entry', 'unpost_entry']),
-  "fromStatus": zod.string(),
-  "toStatus": zod.string(),
-  "entryIds": zod.array(zod.number()),
-  "statementLineIds": zod.array(zod.number()),
-  "confirmedAt": zod.coerce.date()
-})
-export const GetBulkTransitionAuditsResponse = zod.array(GetBulkTransitionAuditsResponseItem)
-
+  id: zod.number(),
+  clientId: zod.number(),
+  actor: zod.object({
+    id: zod.string(),
+    name: zod.string(),
+    email: zod.string().nullable(),
+  }),
+  transition: zod.enum([
+    "bulk_approve_entries",
+    "bulk_post_entries",
+    "post_entry",
+    "unpost_entry",
+  ]),
+  fromStatus: zod.string(),
+  toStatus: zod.string(),
+  entryIds: zod.array(zod.number()),
+  statementLineIds: zod.array(zod.number()),
+  confirmedAt: zod.coerce.date(),
+});
+export const GetBulkTransitionAuditsResponse = zod.array(
+  GetBulkTransitionAuditsResponseItem,
+);
 
 /**
  * @summary List journal entries
  */
 export const GetJournalEntriesQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional()
-})
+  clientId: zod.coerce.number().optional(),
+});
 
 export const GetJournalEntriesResponseItem = zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-})),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})
-export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem)
-
+  id: zod.number(),
+  statementLineId: zod.number(),
+  date: zod.string(),
+  memo: zod.string(),
+  currency: zod.string(),
+  status: zod.string(),
+  confidence: zod.number(),
+  lines: zod.array(
+    zod.object({
+      account: zod.string(),
+      debit: zod.number(),
+      credit: zod.number(),
+    }),
+  ),
+  functionalCurrency: zod.string().nullish(),
+  functionalAmount: zod.number().nullish(),
+  exchangeRate: zod.number().nullish(),
+  exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+  exchangeRateSourceScope: zod
+    .enum(["none", "client", "firm", "system"])
+    .optional(),
+  exchangeRateStatus: zod.string().optional(),
+});
+export const GetJournalEntriesResponse = zod.array(
+  GetJournalEntriesResponseItem,
+);
 
 /**
  * @summary Approve a suggested journal entry
  */
 export const ApproveJournalEntryParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const ApproveJournalEntryBody = zod.object({
-  "clientId": zod.number()
-})
+  clientId: zod.number(),
+});
 
 export const ApproveJournalEntryResponse = zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-})),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})
-
+  id: zod.number(),
+  statementLineId: zod.number(),
+  date: zod.string(),
+  memo: zod.string(),
+  currency: zod.string(),
+  status: zod.string(),
+  confidence: zod.number(),
+  lines: zod.array(
+    zod.object({
+      account: zod.string(),
+      debit: zod.number(),
+      credit: zod.number(),
+    }),
+  ),
+  functionalCurrency: zod.string().nullish(),
+  functionalAmount: zod.number().nullish(),
+  exchangeRate: zod.number().nullish(),
+  exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+  exchangeRateSourceScope: zod
+    .enum(["none", "client", "firm", "system"])
+    .optional(),
+  exchangeRateStatus: zod.string().optional(),
+});
 
 /**
  * @summary Post an approved journal entry to the ledger
  */
 export const PostJournalEntryParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const PostJournalEntryBody = zod.object({
-  "clientId": zod.number()
-})
+  clientId: zod.number(),
+});
 
 export const PostJournalEntryResponse = zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-})),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})
-
+  id: zod.number(),
+  statementLineId: zod.number(),
+  date: zod.string(),
+  memo: zod.string(),
+  currency: zod.string(),
+  status: zod.string(),
+  confidence: zod.number(),
+  lines: zod.array(
+    zod.object({
+      account: zod.string(),
+      debit: zod.number(),
+      credit: zod.number(),
+    }),
+  ),
+  functionalCurrency: zod.string().nullish(),
+  functionalAmount: zod.number().nullish(),
+  exchangeRate: zod.number().nullish(),
+  exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+  exchangeRateSourceScope: zod
+    .enum(["none", "client", "firm", "system"])
+    .optional(),
+  exchangeRateStatus: zod.string().optional(),
+});
 
 /**
  * @summary Return a posted journal entry to approved and remove it from live reports
  */
 export const UnpostJournalEntryParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UnpostJournalEntryBody = zod.object({
-  "clientId": zod.number()
-})
+  clientId: zod.number(),
+});
 
 export const UnpostJournalEntryResponse = zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-})),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateStatus": zod.string().optional()
-})
-
+  id: zod.number(),
+  statementLineId: zod.number(),
+  date: zod.string(),
+  memo: zod.string(),
+  currency: zod.string(),
+  status: zod.string(),
+  confidence: zod.number(),
+  lines: zod.array(
+    zod.object({
+      account: zod.string(),
+      debit: zod.number(),
+      credit: zod.number(),
+    }),
+  ),
+  functionalCurrency: zod.string().nullish(),
+  functionalAmount: zod.number().nullish(),
+  exchangeRate: zod.number().nullish(),
+  exchangeRateEffectiveDate: zod.coerce.date().nullish(),
+  exchangeRateSourceScope: zod
+    .enum(["none", "client", "firm", "system"])
+    .optional(),
+  exchangeRateStatus: zod.string().optional(),
+});
 
 /**
  * @summary Get trial balance
  */
 export const GetTrialBalanceQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional()
-})
+  clientId: zod.coerce.number().optional(),
+});
 
 export const GetTrialBalanceResponseItem = zod.object({
-  "account": zod.string(),
-  "category": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number(),
-  "balance": zod.number(),
-  "functionalCurrency": zod.string(),
-  "missingRateCount": zod.number(),
-  "missingRateCurrencies": zod.array(zod.string())
-})
-export const GetTrialBalanceResponse = zod.array(GetTrialBalanceResponseItem)
-
+  account: zod.string(),
+  category: zod.string(),
+  debit: zod.number(),
+  credit: zod.number(),
+  balance: zod.number(),
+  functionalCurrency: zod.string(),
+  missingRateCount: zod.number(),
+  missingRateCurrencies: zod.array(zod.string()),
+});
+export const GetTrialBalanceResponse = zod.array(GetTrialBalanceResponseItem);
 
 /**
  * @summary Get financial statement reports
  */
 export const GetFinancialStatementsQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional(),
-  "period": zod.coerce.string().optional()
-})
+  clientId: zod.coerce.number().optional(),
+  period: zod.coerce.string().optional(),
+});
 
 export const GetFinancialStatementsResponse = zod.object({
-  "period": zod.string(),
-  "functionalCurrency": zod.string(),
-  "missingRateCount": zod.number(),
-  "missingRateCurrencies": zod.array(zod.string()),
-  "includedPostedEntryCount": zod.number(),
-  "excludedUnpostedCount": zod.number(),
-  "outsideReportingPeriodCount": zod.number(),
-  "incomeStatement": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number(),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "balanceSheet": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number(),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "cashFlow": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number(),
-  "children": zod.array(zod.unknown()).optional()
-}))
-})
-
+  period: zod.string(),
+  functionalCurrency: zod.string(),
+  missingRateCount: zod.number(),
+  missingRateCurrencies: zod.array(zod.string()),
+  includedPostedEntryCount: zod.number(),
+  excludedUnpostedCount: zod.number(),
+  outsideReportingPeriodCount: zod.number(),
+  incomeStatement: zod.array(
+    zod.object({
+      label: zod.string(),
+      amount: zod.number(),
+      children: zod.array(zod.unknown()).optional(),
+    }),
+  ),
+  balanceSheet: zod.array(
+    zod.object({
+      label: zod.string(),
+      amount: zod.number(),
+      children: zod.array(zod.unknown()).optional(),
+    }),
+  ),
+  cashFlow: zod.array(
+    zod.object({
+      label: zod.string(),
+      amount: zod.number(),
+      children: zod.array(zod.unknown()).optional(),
+    }),
+  ),
+});
 
 /**
  * @summary List saved IFRS report-pack snapshots
  */
 export const GetReportPacksQueryParams = zod.object({
-  "clientId": zod.coerce.number()
-})
+  clientId: zod.coerce.number(),
+});
 
 export const GetReportPacksResponseItem = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "presentationCurrency": zod.string(),
-  "status": zod.enum(['draft', 'finalized']),
-  "validationErrorCount": zod.number(),
-  "createdAt": zod.coerce.date()
-})
-export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
-
+  id: zod.number(),
+  clientId: zod.number(),
+  periodEnd: zod.coerce.date(),
+  comparativePeriodEnd: zod.coerce.date(),
+  reportingBasis: zod.string(),
+  presentationProfile: zod.string(),
+  presentationCurrency: zod.string(),
+  status: zod.enum(["draft", "finalized"]),
+  validationErrorCount: zod.number(),
+  createdAt: zod.coerce.date(),
+});
+export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem);
 
 /**
  * @summary Generate a comparative IFRS-style report pack snapshot
@@ -1851,436 +2352,531 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
 
-
-
 export const CreateReportPackBody = zod.object({
-  "clientId": zod.number(),
-  "periodEnd": zod.coerce.date(),
-  "reportingBasis": zod.enum(['IFRS', 'IFRS for SMEs']).optional(),
-  "presentationProfile": zod.enum(['IAS 1', 'IFRS 18', 'IFRS for SMEs']).optional(),
-  "presentationCurrency": zod.string().min(createReportPackBodyPresentationCurrencyMin).max(createReportPackBodyPresentationCurrencyMax).optional(),
-  "roundingPolicy": zod.enum(['Nearest whole unit', 'Nearest 2 decimals']).optional()
-})
+  clientId: zod.number(),
+  periodEnd: zod.coerce.date(),
+  reportingBasis: zod.enum(["IFRS", "IFRS for SMEs"]).optional(),
+  presentationProfile: zod
+    .enum(["IAS 1", "IFRS 18", "IFRS for SMEs"])
+    .optional(),
+  presentationCurrency: zod
+    .string()
+    .min(createReportPackBodyPresentationCurrencyMin)
+    .max(createReportPackBodyPresentationCurrencyMax)
+    .optional(),
+  roundingPolicy: zod
+    .enum(["Nearest whole unit", "Nearest 2 decimals"])
+    .optional(),
+});
 
 export const CreateReportPackResponse = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "periodStart": zod.coerce.date(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodStart": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "presentationCurrency": zod.string(),
-  "roundingPolicy": zod.string(),
-  "status": zod.enum(['draft', 'finalized']),
-  "snapshot": zod.object({
-  "entityName": zod.string(),
-  "legalName": zod.string(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "presentationCurrency": zod.string(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "statementOfFinancialPosition": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "profitOrLossAndOci": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "changesInEquity": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "cashFlows": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})),
-  "traceability": zod.object({
-  "postedEntryCount": zod.number(),
-  "postedLineCount": zod.number(),
-  "sourceImportCount": zod.number()
-})
-}),
-  "validation": zod.object({
-  "status": zod.enum(['pass', 'blocked']),
-  "errorCount": zod.number(),
-  "checks": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "status": zod.enum(['pass', 'error', 'warning']),
-  "detail": zod.string(),
-  "blocking": zod.boolean()
-}))
-}),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})),
-  "checklist": zod.array(zod.object({
-  "standard": zod.string(),
-  "title": zod.string(),
-  "status": zod.enum(['applicable', 'not_applicable', 'immaterial', 'satisfied', 'requires_accountant_input']),
-  "prompt": zod.string()
-})),
-  "signatory": zod.object({
-  "preparedBy": zod.string(),
-  "reviewedBy": zod.string(),
-  "authorizedBy": zod.string(),
-  "authorizationDate": zod.coerce.date().nullish()
-}),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "finalizedAt": zod.coerce.date().nullable()
-})
-
+  id: zod.number(),
+  clientId: zod.number(),
+  periodStart: zod.coerce.date(),
+  periodEnd: zod.coerce.date(),
+  comparativePeriodStart: zod.coerce.date(),
+  comparativePeriodEnd: zod.coerce.date(),
+  reportingBasis: zod.string(),
+  presentationProfile: zod.string(),
+  presentationCurrency: zod.string(),
+  roundingPolicy: zod.string(),
+  status: zod.enum(["draft", "finalized"]),
+  snapshot: zod.object({
+    entityName: zod.string(),
+    legalName: zod.string(),
+    periodEnd: zod.coerce.date(),
+    comparativePeriodEnd: zod.coerce.date(),
+    presentationCurrency: zod.string(),
+    reportingBasis: zod.string(),
+    presentationProfile: zod.string(),
+    statementOfFinancialPosition: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    profitOrLossAndOci: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    changesInEquity: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    cashFlows: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    notes: zod.array(
+      zod.object({
+        number: zod.number(),
+        title: zod.string(),
+        narrative: zod.string(),
+        requiresInput: zod.boolean(),
+        tables: zod.array(
+          zod.object({
+            label: zod.string(),
+            current: zod.number(),
+            comparative: zod.number(),
+          }),
+        ),
+      }),
+    ),
+    traceability: zod.object({
+      postedEntryCount: zod.number(),
+      postedLineCount: zod.number(),
+      sourceImportCount: zod.number(),
+    }),
+  }),
+  validation: zod.object({
+    status: zod.enum(["pass", "blocked"]),
+    errorCount: zod.number(),
+    checks: zod.array(
+      zod.object({
+        id: zod.string(),
+        label: zod.string(),
+        status: zod.enum(["pass", "error", "warning"]),
+        detail: zod.string(),
+        blocking: zod.boolean(),
+      }),
+    ),
+  }),
+  notes: zod.array(
+    zod.object({
+      number: zod.number(),
+      title: zod.string(),
+      narrative: zod.string(),
+      requiresInput: zod.boolean(),
+      tables: zod.array(
+        zod.object({
+          label: zod.string(),
+          current: zod.number(),
+          comparative: zod.number(),
+        }),
+      ),
+    }),
+  ),
+  checklist: zod.array(
+    zod.object({
+      standard: zod.string(),
+      title: zod.string(),
+      status: zod.enum([
+        "applicable",
+        "not_applicable",
+        "immaterial",
+        "satisfied",
+        "requires_accountant_input",
+      ]),
+      prompt: zod.string(),
+    }),
+  ),
+  signatory: zod.object({
+    preparedBy: zod.string(),
+    reviewedBy: zod.string(),
+    authorizedBy: zod.string(),
+    authorizationDate: zod.coerce.date().nullish(),
+  }),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  finalizedAt: zod.coerce.date().nullable(),
+});
 
 /**
  * @summary Get one saved report-pack snapshot
  */
 export const GetReportPackParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const GetReportPackResponse = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "periodStart": zod.coerce.date(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodStart": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "presentationCurrency": zod.string(),
-  "roundingPolicy": zod.string(),
-  "status": zod.enum(['draft', 'finalized']),
-  "snapshot": zod.object({
-  "entityName": zod.string(),
-  "legalName": zod.string(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "presentationCurrency": zod.string(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "statementOfFinancialPosition": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "profitOrLossAndOci": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "changesInEquity": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "cashFlows": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})),
-  "traceability": zod.object({
-  "postedEntryCount": zod.number(),
-  "postedLineCount": zod.number(),
-  "sourceImportCount": zod.number()
-})
-}),
-  "validation": zod.object({
-  "status": zod.enum(['pass', 'blocked']),
-  "errorCount": zod.number(),
-  "checks": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "status": zod.enum(['pass', 'error', 'warning']),
-  "detail": zod.string(),
-  "blocking": zod.boolean()
-}))
-}),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})),
-  "checklist": zod.array(zod.object({
-  "standard": zod.string(),
-  "title": zod.string(),
-  "status": zod.enum(['applicable', 'not_applicable', 'immaterial', 'satisfied', 'requires_accountant_input']),
-  "prompt": zod.string()
-})),
-  "signatory": zod.object({
-  "preparedBy": zod.string(),
-  "reviewedBy": zod.string(),
-  "authorizedBy": zod.string(),
-  "authorizationDate": zod.coerce.date().nullish()
-}),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "finalizedAt": zod.coerce.date().nullable()
-})
-
+  id: zod.number(),
+  clientId: zod.number(),
+  periodStart: zod.coerce.date(),
+  periodEnd: zod.coerce.date(),
+  comparativePeriodStart: zod.coerce.date(),
+  comparativePeriodEnd: zod.coerce.date(),
+  reportingBasis: zod.string(),
+  presentationProfile: zod.string(),
+  presentationCurrency: zod.string(),
+  roundingPolicy: zod.string(),
+  status: zod.enum(["draft", "finalized"]),
+  snapshot: zod.object({
+    entityName: zod.string(),
+    legalName: zod.string(),
+    periodEnd: zod.coerce.date(),
+    comparativePeriodEnd: zod.coerce.date(),
+    presentationCurrency: zod.string(),
+    reportingBasis: zod.string(),
+    presentationProfile: zod.string(),
+    statementOfFinancialPosition: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    profitOrLossAndOci: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    changesInEquity: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    cashFlows: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    notes: zod.array(
+      zod.object({
+        number: zod.number(),
+        title: zod.string(),
+        narrative: zod.string(),
+        requiresInput: zod.boolean(),
+        tables: zod.array(
+          zod.object({
+            label: zod.string(),
+            current: zod.number(),
+            comparative: zod.number(),
+          }),
+        ),
+      }),
+    ),
+    traceability: zod.object({
+      postedEntryCount: zod.number(),
+      postedLineCount: zod.number(),
+      sourceImportCount: zod.number(),
+    }),
+  }),
+  validation: zod.object({
+    status: zod.enum(["pass", "blocked"]),
+    errorCount: zod.number(),
+    checks: zod.array(
+      zod.object({
+        id: zod.string(),
+        label: zod.string(),
+        status: zod.enum(["pass", "error", "warning"]),
+        detail: zod.string(),
+        blocking: zod.boolean(),
+      }),
+    ),
+  }),
+  notes: zod.array(
+    zod.object({
+      number: zod.number(),
+      title: zod.string(),
+      narrative: zod.string(),
+      requiresInput: zod.boolean(),
+      tables: zod.array(
+        zod.object({
+          label: zod.string(),
+          current: zod.number(),
+          comparative: zod.number(),
+        }),
+      ),
+    }),
+  ),
+  checklist: zod.array(
+    zod.object({
+      standard: zod.string(),
+      title: zod.string(),
+      status: zod.enum([
+        "applicable",
+        "not_applicable",
+        "immaterial",
+        "satisfied",
+        "requires_accountant_input",
+      ]),
+      prompt: zod.string(),
+    }),
+  ),
+  signatory: zod.object({
+    preparedBy: zod.string(),
+    reviewedBy: zod.string(),
+    authorizedBy: zod.string(),
+    authorizationDate: zod.coerce.date().nullish(),
+  }),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  finalizedAt: zod.coerce.date().nullable(),
+});
 
 /**
  * @summary Update report-pack inputs or finalize after review
  */
 export const UpdateReportPackParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
 export const UpdateReportPackBody = zod.object({
-  "clientId": zod.number(),
-  "action": zod.enum(['update_inputs', 'finalize']),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})).optional(),
-  "checklist": zod.array(zod.object({
-  "standard": zod.string(),
-  "title": zod.string(),
-  "status": zod.enum(['applicable', 'not_applicable', 'immaterial', 'satisfied', 'requires_accountant_input']),
-  "prompt": zod.string()
-})).optional(),
-  "signatory": zod.object({
-  "preparedBy": zod.string(),
-  "reviewedBy": zod.string(),
-  "authorizedBy": zod.string(),
-  "authorizationDate": zod.coerce.date().nullish()
-}).optional()
-})
+  clientId: zod.number(),
+  action: zod.enum(["update_inputs", "finalize"]),
+  notes: zod
+    .array(
+      zod.object({
+        number: zod.number(),
+        title: zod.string(),
+        narrative: zod.string(),
+        requiresInput: zod.boolean(),
+        tables: zod.array(
+          zod.object({
+            label: zod.string(),
+            current: zod.number(),
+            comparative: zod.number(),
+          }),
+        ),
+      }),
+    )
+    .optional(),
+  checklist: zod
+    .array(
+      zod.object({
+        standard: zod.string(),
+        title: zod.string(),
+        status: zod.enum([
+          "applicable",
+          "not_applicable",
+          "immaterial",
+          "satisfied",
+          "requires_accountant_input",
+        ]),
+        prompt: zod.string(),
+      }),
+    )
+    .optional(),
+  signatory: zod
+    .object({
+      preparedBy: zod.string(),
+      reviewedBy: zod.string(),
+      authorizedBy: zod.string(),
+      authorizationDate: zod.coerce.date().nullish(),
+    })
+    .optional(),
+});
 
 export const UpdateReportPackResponse = zod.object({
-  "id": zod.number(),
-  "clientId": zod.number(),
-  "periodStart": zod.coerce.date(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodStart": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "presentationCurrency": zod.string(),
-  "roundingPolicy": zod.string(),
-  "status": zod.enum(['draft', 'finalized']),
-  "snapshot": zod.object({
-  "entityName": zod.string(),
-  "legalName": zod.string(),
-  "periodEnd": zod.coerce.date(),
-  "comparativePeriodEnd": zod.coerce.date(),
-  "presentationCurrency": zod.string(),
-  "reportingBasis": zod.string(),
-  "presentationProfile": zod.string(),
-  "statementOfFinancialPosition": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "profitOrLossAndOci": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "changesInEquity": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "cashFlows": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number(),
-  "noteRef": zod.string(),
-  "sourceEntryIds": zod.array(zod.number()),
-  "sourceLineIds": zod.array(zod.number()),
-  "children": zod.array(zod.unknown()).optional()
-})),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})),
-  "traceability": zod.object({
-  "postedEntryCount": zod.number(),
-  "postedLineCount": zod.number(),
-  "sourceImportCount": zod.number()
-})
-}),
-  "validation": zod.object({
-  "status": zod.enum(['pass', 'blocked']),
-  "errorCount": zod.number(),
-  "checks": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "status": zod.enum(['pass', 'error', 'warning']),
-  "detail": zod.string(),
-  "blocking": zod.boolean()
-}))
-}),
-  "notes": zod.array(zod.object({
-  "number": zod.number(),
-  "title": zod.string(),
-  "narrative": zod.string(),
-  "requiresInput": zod.boolean(),
-  "tables": zod.array(zod.object({
-  "label": zod.string(),
-  "current": zod.number(),
-  "comparative": zod.number()
-}))
-})),
-  "checklist": zod.array(zod.object({
-  "standard": zod.string(),
-  "title": zod.string(),
-  "status": zod.enum(['applicable', 'not_applicable', 'immaterial', 'satisfied', 'requires_accountant_input']),
-  "prompt": zod.string()
-})),
-  "signatory": zod.object({
-  "preparedBy": zod.string(),
-  "reviewedBy": zod.string(),
-  "authorizedBy": zod.string(),
-  "authorizationDate": zod.coerce.date().nullish()
-}),
-  "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date(),
-  "finalizedAt": zod.coerce.date().nullable()
-})
-
+  id: zod.number(),
+  clientId: zod.number(),
+  periodStart: zod.coerce.date(),
+  periodEnd: zod.coerce.date(),
+  comparativePeriodStart: zod.coerce.date(),
+  comparativePeriodEnd: zod.coerce.date(),
+  reportingBasis: zod.string(),
+  presentationProfile: zod.string(),
+  presentationCurrency: zod.string(),
+  roundingPolicy: zod.string(),
+  status: zod.enum(["draft", "finalized"]),
+  snapshot: zod.object({
+    entityName: zod.string(),
+    legalName: zod.string(),
+    periodEnd: zod.coerce.date(),
+    comparativePeriodEnd: zod.coerce.date(),
+    presentationCurrency: zod.string(),
+    reportingBasis: zod.string(),
+    presentationProfile: zod.string(),
+    statementOfFinancialPosition: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    profitOrLossAndOci: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    changesInEquity: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    cashFlows: zod.array(
+      zod.object({
+        label: zod.string(),
+        current: zod.number(),
+        comparative: zod.number(),
+        noteRef: zod.string(),
+        sourceEntryIds: zod.array(zod.number()),
+        sourceLineIds: zod.array(zod.number()),
+        children: zod.array(zod.unknown()).optional(),
+      }),
+    ),
+    notes: zod.array(
+      zod.object({
+        number: zod.number(),
+        title: zod.string(),
+        narrative: zod.string(),
+        requiresInput: zod.boolean(),
+        tables: zod.array(
+          zod.object({
+            label: zod.string(),
+            current: zod.number(),
+            comparative: zod.number(),
+          }),
+        ),
+      }),
+    ),
+    traceability: zod.object({
+      postedEntryCount: zod.number(),
+      postedLineCount: zod.number(),
+      sourceImportCount: zod.number(),
+    }),
+  }),
+  validation: zod.object({
+    status: zod.enum(["pass", "blocked"]),
+    errorCount: zod.number(),
+    checks: zod.array(
+      zod.object({
+        id: zod.string(),
+        label: zod.string(),
+        status: zod.enum(["pass", "error", "warning"]),
+        detail: zod.string(),
+        blocking: zod.boolean(),
+      }),
+    ),
+  }),
+  notes: zod.array(
+    zod.object({
+      number: zod.number(),
+      title: zod.string(),
+      narrative: zod.string(),
+      requiresInput: zod.boolean(),
+      tables: zod.array(
+        zod.object({
+          label: zod.string(),
+          current: zod.number(),
+          comparative: zod.number(),
+        }),
+      ),
+    }),
+  ),
+  checklist: zod.array(
+    zod.object({
+      standard: zod.string(),
+      title: zod.string(),
+      status: zod.enum([
+        "applicable",
+        "not_applicable",
+        "immaterial",
+        "satisfied",
+        "requires_accountant_input",
+      ]),
+      prompt: zod.string(),
+    }),
+  ),
+  signatory: zod.object({
+    preparedBy: zod.string(),
+    reviewedBy: zod.string(),
+    authorizedBy: zod.string(),
+    authorizationDate: zod.coerce.date().nullish(),
+  }),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+  finalizedAt: zod.coerce.date().nullable(),
+});
 
 /**
  * @summary Download the saved report-pack snapshot as a PDF
  */
 export const DownloadReportPackPdfParams = zod.object({
-  "id": zod.coerce.number()
-})
+  id: zod.coerce.number(),
+});
 
-export const DownloadReportPackPdfResponse = zod.unknown()
-
+export const DownloadReportPackPdfResponse = zod.unknown();
 
 /**
  * @summary Request a presigned URL for a private statement upload
  */
 export const RequestUploadUrlBody = zod.object({
-  "clientId": zod.number(),
-  "name": zod.string(),
-  "size": zod.number(),
-  "contentType": zod.string()
-})
+  clientId: zod.number(),
+  name: zod.string(),
+  size: zod.number(),
+  contentType: zod.string(),
+});
 
 export const RequestUploadUrlResponse = zod.object({
-  "uploadURL": zod.string(),
-  "objectPath": zod.string(),
-  "metadata": zod.object({
-  "name": zod.string(),
-  "size": zod.number(),
-  "contentType": zod.string()
-})
-})
-
+  uploadURL: zod.string(),
+  objectPath: zod.string(),
+  metadata: zod.object({
+    name: zod.string(),
+    size: zod.number(),
+    contentType: zod.string(),
+  }),
+});
 
 /**
  * @summary Serve an authorized private object
  */
 export const GetStorageObjectParams = zod.object({
-  "objectPath": zod.coerce.string()
-})
+  objectPath: zod.coerce.string(),
+});
 
-export const GetStorageObjectResponse = zod.unknown()
-
-
+export const GetStorageObjectResponse = zod.unknown();

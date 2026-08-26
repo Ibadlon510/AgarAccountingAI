@@ -309,6 +309,7 @@ function ClientSettingsPage() {
     functionalCurrency: activeClient?.functionalCurrency ?? 'AED',
     basis: activeClient?.basis ?? 'IFRS',
     period: activeClient?.period ?? '',
+    systemRatesEnabled: activeClient?.systemRatesEnabled ?? true,
   });
   const [editingRateId, setEditingRateId] = useState<number | null>(null);
   const [rateForm, setRateForm] = useState({ sourceCurrency: 'USD', functionalCurrency: activeClient?.functionalCurrency ?? 'AED', effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
@@ -425,6 +426,7 @@ function ClientSettingsPage() {
             <label className="block text-xs font-medium">Functional currency<select data-testid="select-page-settings-currency" value={form.functionalCurrency} onChange={(event) => update('functionalCurrency', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label>
             <label className="block text-xs font-medium">Reporting basis<select data-testid="select-page-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label>
             <label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-page-settings-period" type="month" required value={periodToMonthInput(form.period)} onChange={(event) => update('period', monthInputToPeriod(event.target.value))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
+            <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-page-settings-system-rates" type="checkbox" checked={form.systemRatesEnabled} onChange={(event) => setForm((current) => ({ ...current, systemRatesEnabled: event.target.checked }))} className="mt-0.5" /><span><strong>Use system exchange rates as a fallback</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Client and firm schedules remain higher priority. Turn this off to require an explicit client or firm rate.</span></span></label>
             {(mutation.isError || saved) && <p data-testid={saved ? 'status-page-settings-saved' : 'status-page-settings-error'} className={`text-xs sm:col-span-2 ${saved ? 'text-primary' : 'text-destructive'}`}>{saved ? 'Workspace settings saved.' : 'Settings could not be saved. Check the details and try again.'}</p>}
             <div className="flex justify-end sm:col-span-2"><button data-testid="button-page-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save profile settings'}</button></div>
           </form>
@@ -594,15 +596,15 @@ function FirmSettingsPage() {
   const importRates = useImportExchangeRates();
   const parseRates = useParseExchangeRates();
   const { user } = useUser();
-  const [form, setForm] = useState({ name: '', legalName: '' });
+  const [form, setForm] = useState({ name: '', legalName: '', systemRatesEnabled: true });
   const [rate, setRate] = useState({ sourceCurrency: 'USD', functionalCurrency: 'AED', effectiveDate: new Date().toISOString().slice(0, 10), rate: '' });
   const [rateImportError, setRateImportError] = useState('');
   const [rateImportNotice, setRateImportNotice] = useState('');
   const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
   const [ratePage, setRatePage] = useState(1);
   useEffect(() => {
-    if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName });
-  }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName]);
+    if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName, systemRatesEnabled: firmQuery.data.systemRatesEnabled });
+  }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName, firmQuery.data?.systemRatesEnabled]);
   const refreshRates = () => {
     queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey(firmRateScope) });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
@@ -674,6 +676,7 @@ function FirmSettingsPage() {
         <form onSubmit={(event) => { event.preventDefault(); saveFirm.mutate({ data: form }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetFirmProfileQueryKey() }) }); }} className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="text-xs font-medium">Firm name<input data-testid="input-firm-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
           <label className="text-xs font-medium">Legal firm name<input data-testid="input-firm-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+          <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-system-rates" type="checkbox" checked={form.systemRatesEnabled} onChange={(event) => setForm({ ...form, systemRatesEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Allow system exchange-rate fallback</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Firm and client schedules remain authoritative. Disable this to keep every client on firm-controlled rates only.</span></span></label>
           <div className="rounded-md bg-muted px-3 py-2 text-xs sm:col-span-2">Account owner: <strong>{user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Loading profile…'}</strong></div>
           <div className="flex justify-end sm:col-span-2"><button data-testid="button-save-firm-settings" disabled={saveFirm.isPending || firmQuery.isLoading} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">{saveFirm.isPending ? 'Saving…' : 'Save firm settings'}</button></div>
         </form>
@@ -861,6 +864,7 @@ function WorkspaceSettingsDialog({ client, onClose }: { client: Client; onClose:
     functionalCurrency: client.functionalCurrency,
     basis: client.basis,
     period: client.period,
+    systemRatesEnabled: client.systemRatesEnabled,
   });
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -1475,6 +1479,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const exchangeRate = entry?.exchangeRate ?? line.exchangeRate;
   const exchangeRateEffectiveDate = entry?.exchangeRateEffectiveDate ?? line.exchangeRateEffectiveDate;
   const exchangeRateStatus = entry?.exchangeRateStatus ?? line.exchangeRateStatus;
+  const exchangeRateSourceScope = entry?.exchangeRateSourceScope ?? line.exchangeRateSourceScope;
   const baseCurrency = functionalCurrency ?? entry?.currency ?? line.currency;
   const isForeignCurrency = Boolean(entry && functionalCurrency && entry.currency !== functionalCurrency);
 
@@ -1520,6 +1525,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
            <div className="flex flex-wrap items-start justify-between gap-2">
              <div><div className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">Currency conversion</div><p className="mt-1 text-[11px] text-muted-foreground">Recorded in foreign currency, converted for reporting in the client base currency.</p></div>
              <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${exchangeRateStatus === 'exact' ? 'bg-primary/10 text-primary' : exchangeRateStatus === 'prior' ? 'bg-accent/15 text-accent-foreground' : 'bg-destructive/10 text-destructive'}`}>{exchangeRateStatus === 'exact' ? 'Exact-date rate' : exchangeRateStatus === 'prior' ? 'Prior rate' : 'Rate missing'}</span>
+             {exchangeRateSourceScope === 'system' && <span data-testid={`system-rate-source-${line.id}`} className="rounded-full bg-muted px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] text-muted-foreground">System fallback</span>}
            </div>
            <div className="mt-3 grid gap-3 md:grid-cols-3">
              <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Foreign currency (FCY)</div><div data-testid={`conversion-source-${line.id}`} className="mt-1 font-mono text-sm font-semibold">{money(sourceAmount, entry.currency)}</div></div>

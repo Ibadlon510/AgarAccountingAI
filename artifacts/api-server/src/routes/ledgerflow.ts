@@ -106,6 +106,16 @@ import {
   ApproveFirmEngagementMemberResponse,
   RevokeFirmEngagementMemberParams,
   RevokeFirmEngagementParams,
+  GetSystemRateDashboardResponse,
+  GetSystemRatesResponse,
+  CreateSystemRateBody,
+  CreateSystemRateResponse,
+  UpdateSystemRateParams,
+  UpdateSystemRateBody,
+  UpdateSystemRateResponse,
+  DeleteSystemRateParams,
+  ImportSystemRatesBody,
+  ImportSystemRatesResponse,
 } from "@workspace/api-zod";
 import {
   accountClassificationsTable,
@@ -128,6 +138,9 @@ import {
   statementImportsTable,
   statementImportUndoAuditsTable,
   statementLinesTable,
+  systemRateAdminsTable,
+  systemRateAuditEventsTable,
+  systemRatesTable,
   usersTable,
   workspaceInvitationsTable,
 } from "@workspace/db";
@@ -185,6 +198,7 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
     functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
     exchangeRate: entry.exchangeRate == null ? null : number(entry.exchangeRate),
     exchangeRateEffectiveDate: calendarDate(entry.exchangeRateEffectiveDate),
+    exchangeRateSourceScope: entry.exchangeRateSourceScope,
     exchangeRateStatus: entry.exchangeRateStatus,
     lines: [
       { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
@@ -235,6 +249,7 @@ function clientResponse(
     firmId: client.firmId,
     ownershipStatus: client.ownershipStatus as "company_owned" | "firm_provisional",
     subscriptionLiableParty: client.subscriptionLiableParty as "company" | "firm",
+    systemRatesEnabled: client.systemRatesEnabled,
     legacyDemo,
     workspaceState: workspaceState ?? (legacyDemo ? "legacy_demo" : isPlaceholderStarterWorkspace(client) ? "starter" : "configured"),
   };
@@ -520,15 +535,36 @@ function exchangeRateResponse(rate: typeof exchangeRatesTable.$inferSelect) {
   };
 }
 
+function systemRateResponse(rate: typeof systemRatesTable.$inferSelect) {
+  return {
+    id: rate.id,
+    sourceCurrency: rate.sourceCurrency,
+    functionalCurrency: rate.functionalCurrency,
+    effectiveDate: calendarDate(rate.effectiveDate),
+    rate: number(rate.rate),
+    source: rate.source,
+    note: rate.note,
+    createdAt: rate.createdAt,
+    updatedAt: rate.updatedAt,
+  };
+}
+
 type RateResolution = {
   functionalCurrency: string;
   functionalAmount: string | null;
   exchangeRate: string | null;
   exchangeRateEffectiveDate: string | null;
+  exchangeRateSourceScope: "none" | "client" | "firm" | "system";
   exchangeRateStatus: "not_required" | "exact" | "prior" | "missing";
 };
 
-async function resolveExchangeRate(firmId: number, sourceCurrency: string, functionalCurrency: string, transactionDate: string, amount: string | number): Promise<RateResolution> {
+async function resolveExchangeRate(
+  client: typeof clientsTable.$inferSelect,
+  sourceCurrency: string,
+  functionalCurrency: string,
+  transactionDate: string,
+  amount: string | number,
+): Promise<RateResolution> {
   const source = normalizeCurrency(sourceCurrency);
   const functional = normalizeCurrency(functionalCurrency);
   if (source === functional) {
@@ -537,21 +573,62 @@ async function resolveExchangeRate(firmId: number, sourceCurrency: string, funct
       functionalAmount: Number(amount).toFixed(2),
       exchangeRate: "1.0000000000",
       exchangeRateEffectiveDate: transactionDate,
+      exchangeRateSourceScope: "none",
       exchangeRateStatus: "not_required",
     };
   }
-  const [rate] = await db.select().from(exchangeRatesTable).where(and(
-    eq(exchangeRatesTable.firmId, firmId),
-    eq(exchangeRatesTable.sourceCurrency, source),
-    eq(exchangeRatesTable.functionalCurrency, functional),
-    lte(exchangeRatesTable.effectiveDate, transactionDate),
-  )).orderBy(desc(exchangeRatesTable.effectiveDate)).limit(1);
+  const profileIds = [
+    client.rateProfileId != null && client.rateProfileId !== client.firmId
+      ? { id: client.rateProfileId, scope: "client" as const }
+      : null,
+    client.firmId != null
+      ? { id: client.firmId, scope: "firm" as const }
+      : client.rateProfileId != null
+        ? { id: client.rateProfileId, scope: "client" as const }
+        : null,
+  ].filter((profile): profile is { id: number; scope: "client" | "firm" } => profile !== null);
+  let selectedRate: typeof exchangeRatesTable.$inferSelect | typeof systemRatesTable.$inferSelect | undefined;
+  let selectedScope: "client" | "firm" | "system" | undefined;
+  for (const profile of profileIds) {
+    const [rate] = await db.select().from(exchangeRatesTable).where(and(
+      eq(exchangeRatesTable.firmId, profile.id),
+      eq(exchangeRatesTable.sourceCurrency, source),
+      eq(exchangeRatesTable.functionalCurrency, functional),
+      lte(exchangeRatesTable.effectiveDate, transactionDate),
+    )).orderBy(desc(exchangeRatesTable.effectiveDate)).limit(1);
+    if (rate) {
+      selectedRate = rate;
+      selectedScope = profile.scope;
+      break;
+    }
+  }
+  let systemFallbackEnabled = client.systemRatesEnabled;
+  if (systemFallbackEnabled && client.firmId != null) {
+    const [firm] = await db.select({ systemRatesEnabled: firmProfilesTable.systemRatesEnabled })
+      .from(firmProfilesTable)
+      .where(eq(firmProfilesTable.id, client.firmId))
+      .limit(1);
+    systemFallbackEnabled = firm?.systemRatesEnabled ?? true;
+  }
+  if (!selectedRate && systemFallbackEnabled) {
+    const [systemRate] = await db.select().from(systemRatesTable).where(and(
+      eq(systemRatesTable.sourceCurrency, source),
+      eq(systemRatesTable.functionalCurrency, functional),
+      lte(systemRatesTable.effectiveDate, transactionDate),
+    )).orderBy(desc(systemRatesTable.effectiveDate)).limit(1);
+    if (systemRate) {
+      selectedRate = systemRate;
+      selectedScope = "system";
+    }
+  }
+  const rate = selectedRate;
   if (!rate) {
     return {
       functionalCurrency: functional,
       functionalAmount: null,
       exchangeRate: null,
       exchangeRateEffectiveDate: null,
+      exchangeRateSourceScope: "none",
       exchangeRateStatus: "missing",
     };
   }
@@ -560,6 +637,7 @@ async function resolveExchangeRate(firmId: number, sourceCurrency: string, funct
     functionalAmount: (Number(amount) * number(rate.rate)).toFixed(2),
     exchangeRate: rate.rate,
     exchangeRateEffectiveDate: calendarDate(rate.effectiveDate),
+    exchangeRateSourceScope: selectedScope ?? "none",
     exchangeRateStatus: calendarDate(rate.effectiveDate) === transactionDate ? "exact" : "prior",
   };
 }
@@ -576,18 +654,58 @@ async function refreshFirmRateConversions(firmId: number) {
     ));
 
   await Promise.all(lines.map(async ({ line, functionalCurrency }) => {
-    const conversion = await resolveExchangeRate(firmId, line.currency, functionalCurrency, calendarDate(line.date) ?? "", line.amount);
+    const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, line.clientId)).limit(1);
+    if (!client) return;
+    const conversion = await resolveExchangeRate(client, line.currency, functionalCurrency, calendarDate(line.date) ?? "", line.amount);
     const values = {
       functionalCurrency: conversion.functionalCurrency,
       functionalAmount: conversion.functionalAmount,
       exchangeRate: conversion.exchangeRate,
       exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+      exchangeRateSourceScope: conversion.exchangeRateSourceScope,
       exchangeRateStatus: conversion.exchangeRateStatus,
     };
     await db.transaction(async (tx) => {
       await tx.update(statementLinesTable).set(values).where(eq(statementLinesTable.id, line.id));
       await tx.update(journalEntriesTable).set(values).where(eq(journalEntriesTable.statementLineId, line.id));
     });
+  }));
+}
+
+async function refreshSystemRateConversions() {
+  const clients = await db.select().from(clientsTable).where(eq(clientsTable.systemRatesEnabled, true));
+  await Promise.all(clients.map(async (client) => {
+    const lines = await db.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.clientId, client.id),
+      ne(statementLinesTable.status, "posted"),
+    ));
+    await Promise.all(lines.map(async (line) => {
+      const conversion = await resolveExchangeRate(
+        client,
+        line.currency,
+        client.functionalCurrency,
+        calendarDate(line.date) ?? "",
+        line.amount,
+      );
+      const values = {
+        functionalCurrency: conversion.functionalCurrency,
+        functionalAmount: conversion.functionalAmount,
+        exchangeRate: conversion.exchangeRate,
+        exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+        exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+        exchangeRateStatus: conversion.exchangeRateStatus,
+      };
+      await db.transaction(async (tx) => {
+        await tx.update(statementLinesTable).set(values).where(and(
+          eq(statementLinesTable.id, line.id),
+          ne(statementLinesTable.status, "posted"),
+        ));
+        await tx.update(journalEntriesTable).set(values).where(and(
+          eq(journalEntriesTable.statementLineId, line.id),
+          ne(journalEntriesTable.status, "posted"),
+        ));
+      });
+    }));
   }));
 }
 
@@ -757,6 +875,18 @@ function normalizedSignatory(signatory: ReportSignatory | undefined, fallback: R
 function currentUserId(req: Request) {
   if (!req.dbUser) throw new Error("Authenticated user is required.");
   return req.dbUser.id;
+}
+
+async function requireSystemRateAdmin(req: Request, res: Response) {
+  const [entitlement] = await db.select().from(systemRateAdminsTable).where(and(
+    eq(systemRateAdminsTable.userId, currentUserId(req)),
+    eq(systemRateAdminsTable.status, "active"),
+  )).limit(1);
+  if (!entitlement) {
+    res.status(403).json({ error: "System administrator entitlement required." });
+    return null;
+  }
+  return entitlement;
 }
 
 const USAGE_PLAN = {
@@ -946,7 +1076,12 @@ function clientSummary(client: typeof clientsTable.$inferSelect) {
 }
 
 function firmProfileResponse(firm: typeof firmProfilesTable.$inferSelect) {
-  return { id: firm.id, name: firm.name, legalName: firm.legalName };
+  return {
+    id: firm.id,
+    name: firm.name,
+    legalName: firm.legalName,
+    systemRatesEnabled: firm.systemRatesEnabled,
+  };
 }
 
 async function firmMembershipsTableForUser(userId: string) {
@@ -1685,6 +1820,7 @@ async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
   functionalAmount?: string | null;
   exchangeRate?: string | null;
   exchangeRateEffectiveDate?: string | null;
+  exchangeRateSourceScope?: string | null;
   exchangeRateStatus?: string | null;
 }) {
   const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
@@ -1702,6 +1838,7 @@ async function createSuggestedEntry(tx: LedgerflowTransaction, line: {
     functionalAmount: line.functionalAmount,
     exchangeRate: line.exchangeRate,
     exchangeRateEffectiveDate: line.exchangeRateEffectiveDate,
+    exchangeRateSourceScope: line.exchangeRateSourceScope ?? "none",
     exchangeRateStatus: line.exchangeRateStatus ?? "not_required",
   });
 }
@@ -2724,14 +2861,15 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       return res.status(400).json({ error: "Selected bank account was not found for this client." });
     }
     failedBankAccountId = selectedBankAccount?.id ?? null;
-    const firm = await getRateProfileForClient(client);
+    await getRateProfileForClient(client);
+    const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
     const resolvedLines = await Promise.all(lines.map(async (line) => {
       const currencyValue = normalizeCurrency(currency ?? detectedCurrency ?? line.currency ?? fallbackCurrency);
       return {
         line,
         currencyValue,
         conversion: await resolveExchangeRate(
-          firm.id,
+          rateClient ?? client,
           currencyValue,
           normalizeCurrency(client.functionalCurrency),
           line.date,
@@ -2801,6 +2939,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
           exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
           exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateSourceScope: conversion.exchangeRateSourceScope,
           exchangeRateStatus: conversion.exchangeRateStatus,
           importDedupeKey: null,
           createdAt: new Date(),
@@ -2910,6 +3049,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           functionalAmount: conversion.functionalAmount,
           exchangeRate: conversion.exchangeRate,
           exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateSourceScope: conversion.exchangeRateSourceScope,
           exchangeRateStatus: conversion.exchangeRateStatus,
           importDedupeKey: importDedupeKey({
             clientId: scopedClientId,
@@ -4141,6 +4281,7 @@ router.patch("/workspace/firm-profile", async (req, res) => {
   const [saved] = await db.update(firmProfilesTable).set({
     name: parsed.data.name.trim(),
     legalName: parsed.data.legalName.trim(),
+    systemRatesEnabled: parsed.data.systemRatesEnabled,
   }).where(eq(firmProfilesTable.id, firm.id)).returning();
   return res.json(UpdateFirmProfileResponse.parse(firmProfileResponse(saved)));
 });
@@ -4196,8 +4337,9 @@ router.patch("/clients/:id", async (req, res) => {
     functionalCurrency: parsed.data.functionalCurrency.trim(),
     basis: parsed.data.basis.trim(),
     period: parsed.data.period.trim(),
+    systemRatesEnabled: parsed.data.systemRatesEnabled,
   };
-  if (Object.values(body).some((value) => !value)) {
+  if ([body.name, body.legalName, body.functionalCurrency, body.basis, body.period].some((value) => !value)) {
     return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
   }
   const [client] = await db.update(clientsTable)
@@ -4497,6 +4639,245 @@ router.post("/workspace/invitations/:token/accept", async (req, res) => {
   res.json(AcceptWorkspaceInvitationResponse.parse(
     await workspaceMemberResponse(userId, invitation.clientIds, userId),
   ));
+});
+
+router.get("/ledgerflow/system-rates/dashboard", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const [rates, clients, lines, recentChanges] = await Promise.all([
+    db.select().from(systemRatesTable).orderBy(desc(systemRatesTable.effectiveDate)),
+    db.select({
+      id: clientsTable.id,
+      functionalCurrency: clientsTable.functionalCurrency,
+      systemRatesEnabled: clientsTable.systemRatesEnabled,
+    }).from(clientsTable),
+    db.select({
+      clientId: statementLinesTable.clientId,
+      currency: statementLinesTable.currency,
+      date: statementLinesTable.date,
+      exchangeRateEffectiveDate: statementLinesTable.exchangeRateEffectiveDate,
+      exchangeRateSourceScope: statementLinesTable.exchangeRateSourceScope,
+      exchangeRateStatus: statementLinesTable.exchangeRateStatus,
+    }).from(statementLinesTable),
+    db.select().from(systemRateAuditEventsTable)
+      .orderBy(desc(systemRateAuditEventsTable.createdAt))
+      .limit(20),
+  ]);
+  const availablePairs = new Map<string, {
+    sourceCurrency: string;
+    functionalCurrency: string;
+    latestEffectiveDate: string;
+    rateCount: number;
+  }>();
+  for (const rate of rates) {
+    const key = `${rate.sourceCurrency}|${rate.functionalCurrency}`;
+    const current = availablePairs.get(key);
+    const effectiveDate = calendarDate(rate.effectiveDate)!;
+    if (!current) {
+      availablePairs.set(key, {
+        sourceCurrency: rate.sourceCurrency,
+        functionalCurrency: rate.functionalCurrency,
+        latestEffectiveDate: effectiveDate,
+        rateCount: 1,
+      });
+    } else {
+      current.rateCount += 1;
+      if (effectiveDate > current.latestEffectiveDate) current.latestEffectiveDate = effectiveDate;
+    }
+  }
+  const clientsById = new Map(clients.map((client) => [client.id, client]));
+  const fallbackClients = new Set<number>();
+  const gaps = new Map<string, {
+    sourceCurrency: string;
+    functionalCurrency: string;
+    workspaces: Set<number>;
+    kind: "missing" | "stale";
+  }>();
+  for (const line of lines) {
+    const client = clientsById.get(line.clientId);
+    if (!client) continue;
+    if (line.exchangeRateSourceScope === "system") fallbackClients.add(line.clientId);
+    const sourceCurrency = normalizeCurrency(line.currency);
+    const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+    if (sourceCurrency === functionalCurrency) continue;
+    let kind: "missing" | "stale" | null = line.exchangeRateStatus === "missing" ? "missing" : null;
+    if (!kind && line.exchangeRateEffectiveDate) {
+      const transactionAt = Date.parse(`${calendarDate(line.date)}T00:00:00Z`);
+      const effectiveAt = Date.parse(`${calendarDate(line.exchangeRateEffectiveDate)}T00:00:00Z`);
+      if (Number.isFinite(transactionAt) && Number.isFinite(effectiveAt) && transactionAt - effectiveAt > 90 * 24 * 60 * 60 * 1000) {
+        kind = "stale";
+      }
+    }
+    if (!kind) continue;
+    const key = `${sourceCurrency}|${functionalCurrency}|${kind}`;
+    const current = gaps.get(key) ?? {
+      sourceCurrency,
+      functionalCurrency,
+      workspaces: new Set<number>(),
+      kind,
+    };
+    current.workspaces.add(line.clientId);
+    gaps.set(key, current);
+  }
+  res.json(GetSystemRateDashboardResponse.parse({
+    availablePairs: [...availablePairs.values()].sort((left, right) =>
+      left.sourceCurrency.localeCompare(right.sourceCurrency)
+      || left.functionalCurrency.localeCompare(right.functionalCurrency)),
+    workspacesUsingFallback: fallbackClients.size,
+    workspacesWithFallbackDisabled: clients.filter((client) => !client.systemRatesEnabled).length,
+    missingOrStaleCoverage: [...gaps.values()].map((gap) => ({
+      sourceCurrency: gap.sourceCurrency,
+      functionalCurrency: gap.functionalCurrency,
+      workspaces: gap.workspaces.size,
+      kind: gap.kind,
+    })),
+    recentChanges: recentChanges.map((event) => ({
+      id: event.id,
+      action: event.action,
+      summary: event.summary,
+      createdAt: event.createdAt,
+    })),
+  }));
+});
+
+router.get("/ledgerflow/system-rates", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const rates = await db.select().from(systemRatesTable)
+    .orderBy(desc(systemRatesTable.effectiveDate), asc(systemRatesTable.sourceCurrency), asc(systemRatesTable.functionalCurrency));
+  res.json(GetSystemRatesResponse.parse(rates.map(systemRateResponse)));
+});
+
+router.post("/ledgerflow/system-rates", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const parsed = CreateSystemRateBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "A valid dated system exchange rate is required." });
+  let body: ReturnType<typeof normalizeRateInput>;
+  try {
+    body = normalizeRateInput(parsed.data);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid system exchange rate." });
+  }
+  try {
+    const [rate] = await db.insert(systemRatesTable).values({
+      ...body,
+      createdByUserId: currentUserId(req),
+    }).returning();
+    await db.insert(systemRateAuditEventsTable).values({
+      actorUserId: currentUserId(req),
+      systemRateId: rate.id,
+      action: "created",
+      summary: `Added ${rate.sourceCurrency}/${rate.functionalCurrency} effective ${calendarDate(rate.effectiveDate)}.`,
+    });
+    await refreshSystemRateConversions();
+    return res.status(201).json(CreateSystemRateResponse.parse(systemRateResponse(rate)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "A system rate already exists for this currency pair and effective date." });
+    }
+    throw error;
+  }
+});
+
+router.patch("/ledgerflow/system-rates/:id", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const params = UpdateSystemRateParams.safeParse({ id: Number(req.params.id) });
+  const parsed = UpdateSystemRateBody.safeParse(req.body);
+  if (!params.success || !parsed.success) return res.status(400).json({ error: "A valid dated system exchange rate is required." });
+  let body: ReturnType<typeof normalizeRateInput>;
+  try {
+    body = normalizeRateInput(parsed.data);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid system exchange rate." });
+  }
+  try {
+    const [rate] = await db.update(systemRatesTable).set(body)
+      .where(eq(systemRatesTable.id, params.data.id))
+      .returning();
+    if (!rate) return res.status(404).json({ error: "System exchange rate not found." });
+    await db.insert(systemRateAuditEventsTable).values({
+      actorUserId: currentUserId(req),
+      systemRateId: rate.id,
+      action: "updated",
+      summary: `Updated ${rate.sourceCurrency}/${rate.functionalCurrency} effective ${calendarDate(rate.effectiveDate)}.`,
+    });
+    await refreshSystemRateConversions();
+    return res.json(UpdateSystemRateResponse.parse(systemRateResponse(rate)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return res.status(409).json({ error: "A system rate already exists for this currency pair and effective date." });
+    }
+    throw error;
+  }
+});
+
+router.delete("/ledgerflow/system-rates/:id", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const params = DeleteSystemRateParams.safeParse({ id: Number(req.params.id) });
+  if (!params.success) return res.status(400).json({ error: "Invalid system exchange rate." });
+  const [rate] = await db.delete(systemRatesTable).where(eq(systemRatesTable.id, params.data.id)).returning();
+  if (!rate) return res.status(404).json({ error: "System exchange rate not found." });
+  await db.insert(systemRateAuditEventsTable).values({
+    actorUserId: currentUserId(req),
+    action: "deleted",
+    summary: `Deleted ${rate.sourceCurrency}/${rate.functionalCurrency} effective ${calendarDate(rate.effectiveDate)}.`,
+  });
+  await refreshSystemRateConversions();
+  return res.sendStatus(204);
+});
+
+router.post("/ledgerflow/system-rates/import", async (req, res) => {
+  if (!await requireSystemRateAdmin(req, res)) return;
+  const parsed = ImportSystemRatesBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Import at least one valid dated system rate." });
+  let rates: Array<ReturnType<typeof normalizeRateInput>>;
+  try {
+    rates = parsed.data.rates.map(normalizeRateInput);
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Invalid system exchange rate import." });
+  }
+  const uniqueKeys = new Set<string>();
+  if (rates.some((rate) => {
+    const key = `${rate.sourceCurrency}|${rate.functionalCurrency}|${rate.effectiveDate}`;
+    if (uniqueKeys.has(key)) return true;
+    uniqueKeys.add(key);
+    return false;
+  })) return res.status(400).json({ error: "Each imported currency pair and effective date must appear once." });
+  const result = await db.transaction(async (tx) => {
+    const returned: Array<typeof systemRatesTable.$inferSelect> = [];
+    let importedCount = 0;
+    let updatedCount = 0;
+    for (const rate of rates) {
+      const [existing] = await tx.select().from(systemRatesTable).where(and(
+        eq(systemRatesTable.sourceCurrency, rate.sourceCurrency),
+        eq(systemRatesTable.functionalCurrency, rate.functionalCurrency),
+        eq(systemRatesTable.effectiveDate, rate.effectiveDate),
+      )).limit(1);
+      if (existing) {
+        const [updated] = await tx.update(systemRatesTable).set(rate)
+          .where(eq(systemRatesTable.id, existing.id))
+          .returning();
+        returned.push(updated);
+        updatedCount += 1;
+      } else {
+        const [created] = await tx.insert(systemRatesTable).values({
+          ...rate,
+          createdByUserId: currentUserId(req),
+        }).returning();
+        returned.push(created);
+        importedCount += 1;
+      }
+    }
+    await tx.insert(systemRateAuditEventsTable).values({
+      actorUserId: currentUserId(req),
+      action: "imported",
+      summary: `Imported ${rates.length} system rate${rates.length === 1 ? "" : "s"} (${importedCount} new, ${updatedCount} updated).`,
+    });
+    return { importedCount, updatedCount, rates: returned };
+  });
+  await refreshSystemRateConversions();
+  return res.json(ImportSystemRatesResponse.parse({
+    ...result,
+    rates: result.rates.map(systemRateResponse),
+  }));
 });
 
 router.get("/ledgerflow/exchange-rates", async (req, res) => {
@@ -4822,9 +5203,10 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
   }
   const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
   const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, body.description);
-  const firm = await getRateProfileForClient(client);
+  await getRateProfileForClient(client);
+  const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
   const conversion = await resolveExchangeRate(
-    firm.id,
+    rateClient ?? client,
     body.currency,
     normalizeCurrency(client.functionalCurrency),
     body.date,
@@ -4842,6 +5224,7 @@ router.post("/ledgerflow/statement-lines", async (req, res) => {
     functionalAmount: conversion.functionalAmount,
     exchangeRate: conversion.exchangeRate,
     exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+    exchangeRateSourceScope: conversion.exchangeRateSourceScope,
     exchangeRateStatus: conversion.exchangeRateStatus,
   }));
   if (!line) throw new Error("Manual statement line was not created.");

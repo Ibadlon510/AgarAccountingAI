@@ -22,6 +22,8 @@ export interface Client {
   firmId?: number | null;
   ownershipStatus: OwnershipStatus;
   subscriptionLiableParty: SubscriptionLiableParty;
+  /** Whether the system catalog may supply a fallback rate for this company. */
+  systemRatesEnabled: boolean;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
   /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
