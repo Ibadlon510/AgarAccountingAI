@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { createHash, randomBytes } from "node:crypto";
 import * as XLSX from "xlsx";
 import {
@@ -11,6 +11,16 @@ import {
   UnpostJournalEntryResponse,
   AskLedgerflowAIBody,
   AskLedgerflowAIResponse,
+  ClearLedgerflowAIConversationParams,
+  CreateLedgerflowAIConversationBody,
+  CreateLedgerflowAIConversationResponse,
+  GetLedgerflowAIConversationParams,
+  GetLedgerflowAIConversationResponse,
+  GetLedgerflowAIConversationsQueryParams,
+  GetLedgerflowAIConversationsResponse,
+  RenameLedgerflowAIConversationBody,
+  RenameLedgerflowAIConversationParams,
+  RenameLedgerflowAIConversationResponse,
   ConfirmAICopilotActionBody,
   ConfirmAICopilotActionResponse,
   AcceptWorkspaceInvitationParams,
@@ -122,6 +132,8 @@ import {
 import {
   accountClassificationsTable,
   aiProviderConfigsTable,
+  assistantThreadsTable,
+  assistantTurnsTable,
   bankAccountsTable,
   bulkTransitionAuditsTable,
   aiActivityTable,
@@ -3429,60 +3441,698 @@ router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
   }
 });
 
-router.post("/ledgerflow/ai-chat", async (req, res) => {
-  const { clientId, message } = AskLedgerflowAIBody.parse(req.body);
+const ASSISTANT_RETENTION_DAYS = 90;
+const ASSISTANT_MAX_TURNS = 100;
+type AccountingFilters = {
+  period?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  direction?: "inflow" | "outflow";
+  currency?: string;
+  status?: string;
+  merchant?: string;
+  account?: string;
+  recordId?: number;
+};
+
+function assistantThreadSummary(
+  thread: typeof assistantThreadsTable.$inferSelect,
+  turnCount: number,
+) {
+  return {
+    id: thread.id,
+    clientId: thread.clientId,
+    title: thread.title,
+    status: thread.status as "active" | "cleared",
+    turnCount,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+  };
+}
+
+async function pruneAssistantTurns(threadId: number) {
+  await db.delete(assistantTurnsTable).where(and(
+    eq(assistantTurnsTable.threadId, threadId),
+    lt(assistantTurnsTable.createdAt, new Date(Date.now() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000)),
+  ));
+  const retained = await db.select({ id: assistantTurnsTable.id })
+    .from(assistantTurnsTable)
+    .where(eq(assistantTurnsTable.threadId, threadId))
+    .orderBy(desc(assistantTurnsTable.createdAt), desc(assistantTurnsTable.id));
+  const overflowIds = retained.slice(ASSISTANT_MAX_TURNS).map(({ id }) => id);
+  if (overflowIds.length) {
+    await db.delete(assistantTurnsTable).where(inArray(assistantTurnsTable.id, overflowIds));
+  }
+}
+
+async function purgeExpiredAssistantData(now = new Date()) {
+  const cutoff = new Date(now.getTime() - ASSISTANT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  await db.transaction(async (tx) => {
+    await tx.delete(assistantTurnsTable).where(lt(assistantTurnsTable.createdAt, cutoff));
+    await tx.update(assistantThreadsTable).set({
+      scope: {},
+      status: "cleared",
+    }).where(lt(assistantThreadsTable.updatedAt, cutoff));
+  });
+}
+
+const assistantRetentionInterval = setInterval(() => {
+  void purgeExpiredAssistantData().catch((error) => {
+    console.error("Assistant retention purge failed", error);
+  });
+}, 6 * 60 * 60 * 1000);
+assistantRetentionInterval.unref();
+
+async function assistantConversationResponse(thread: typeof assistantThreadsTable.$inferSelect) {
+  await pruneAssistantTurns(thread.id);
+  const turns = await db.select().from(assistantTurnsTable)
+    .where(eq(assistantTurnsTable.threadId, thread.id))
+    .orderBy(asc(assistantTurnsTable.createdAt), asc(assistantTurnsTable.id));
+  return {
+    ...assistantThreadSummary(thread, turns.length),
+    scope: (thread.scope && typeof thread.scope === "object" ? thread.scope : {}) as Record<string, unknown>,
+    turns: turns.map((turn) => ({
+      id: turn.id,
+      role: turn.role as "user" | "assistant",
+      content: turn.content,
+      ...(turn.response && typeof turn.response === "object" ? { response: turn.response as Record<string, unknown> } : {}),
+      ...(turn.attachment && typeof turn.attachment === "object" ? { attachment: turn.attachment as Record<string, unknown> } : {}),
+      createdAt: turn.createdAt,
+    })),
+  };
+}
+
+async function requireAssistantThread(req: Request, res: Response, threadId: number) {
+  const [thread] = await db.select().from(assistantThreadsTable).where(and(
+    eq(assistantThreadsTable.id, threadId),
+    eq(assistantThreadsTable.userId, currentUserId(req)),
+  )).limit(1);
+  if (!thread) {
+    res.status(404).json({ error: "Conversation not found." });
+    return null;
+  }
+  const client = await requireOwnedClient(req, res, thread.clientId);
+  if (!client) return null;
+  return { thread, client };
+}
+
+function titleFromAssistantMessage(message: string) {
+  const title = message.replace(/\s+/g, " ").trim();
+  return (title.length > 70 ? `${title.slice(0, 67)}…` : title) || "New conversation";
+}
+
+function dateValue(value: Date | string | undefined) {
+  if (!value) return undefined;
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
+}
+
+function accountingFilters(
+  supplied: {
+    period?: string;
+    dateFrom?: Date;
+    dateTo?: Date;
+    minAmount?: number;
+    maxAmount?: number;
+    direction?: "inflow" | "outflow";
+    currency?: string;
+    status?: string;
+    merchant?: string;
+    account?: string;
+    recordId?: number;
+  } | undefined,
+  message: string,
+  previous: Record<string, unknown>,
+): AccountingFilters {
+  const reset = /\b(?:reset|clear)\s+(?:all\s+)?filters?\b|\bshow\s+all\b/i.test(message);
+  const filters: AccountingFilters = {
+    ...(reset ? {} : previous as AccountingFilters),
+    ...(supplied ?? {}),
+    dateFrom: dateValue(supplied?.dateFrom) ?? (typeof previous.dateFrom === "string" ? previous.dateFrom : undefined),
+    dateTo: dateValue(supplied?.dateTo) ?? (typeof previous.dateTo === "string" ? previous.dateTo : undefined),
+  };
+  const normalized = message.toLowerCase();
+  if (reset) {
+    return {};
+  }
+  const period = normalized.match(/\b(?:period|fy|year)\s*(?:ending\s*)?(\d{4}(?:-\d{2}(?:-\d{2})?)?)\b/)?.[1];
+  if (period) filters.period = period;
+  if (/\boutflows?\b/.test(normalized)) filters.direction = "outflow";
+  if (/\binflows?\b/.test(normalized)) filters.direction = "inflow";
+  const currency = message.match(/\b(AED|USD|EUR|GBP)\b/i)?.[1];
+  if (currency) filters.currency = currency.toUpperCase();
+  const status = normalized.match(/\b(needs_review|suggested|approved|posted|pending_confirmation|completed|duplicate|failed|undone)\b/)?.[1];
+  if (status) filters.status = status;
+  const recordId = message.match(/\b(?:SL|JE|IMP|line|entry|import)[-\s#]*(\d+)\b/i)?.[1];
+  if (recordId) filters.recordId = Number(recordId);
+  const dates = [...message.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
+  if (dates[0]) filters.dateFrom = dates[0];
+  if (dates[1]) filters.dateTo = dates[1];
+  const minimum = normalized.match(/\b(?:over|above|at least|minimum|min)\s*(?:aed|usd|eur|gbp)?\s*([\d,.]+)/)?.[1];
+  const maximum = normalized.match(/\b(?:under|below|at most|maximum|max)\s*(?:aed|usd|eur|gbp)?\s*([\d,.]+)/)?.[1];
+  if (minimum) filters.minAmount = Number(minimum.replaceAll(",", ""));
+  if (maximum) filters.maxAmount = Number(maximum.replaceAll(",", ""));
+  if (filters.currency) filters.currency = filters.currency.toUpperCase();
+  return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== undefined && value !== "")) as AccountingFilters;
+}
+
+function lineMatchesAccountingFilters(
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect | undefined,
+  filters: AccountingFilters,
+) {
+  const amount = number(line.amount);
+  const account = `${line.accountSuggestion ?? ""} ${entry?.debitAccount ?? ""} ${entry?.creditAccount ?? ""}`.toLowerCase();
+  const periodMatch = !filters.period
+    || (filters.period.length === 4 && line.date.startsWith(filters.period))
+    || (filters.period.length === 7 && line.date.startsWith(filters.period))
+    || (filters.period.length === 10 && line.date === filters.period);
+  return (!filters.recordId || line.id === filters.recordId || entry?.id === filters.recordId)
+    && periodMatch
+    && (!filters.dateFrom || line.date >= filters.dateFrom)
+    && (!filters.dateTo || line.date <= filters.dateTo)
+    && (filters.minAmount === undefined || amount >= filters.minAmount)
+    && (filters.maxAmount === undefined || amount <= filters.maxAmount)
+    && (!filters.direction || line.direction === filters.direction)
+    && (!filters.currency || line.currency.toUpperCase() === filters.currency)
+    && (!filters.status || line.status === filters.status || entry?.status === filters.status)
+    && (!filters.merchant || line.description.toLowerCase().includes(filters.merchant.toLowerCase()))
+    && (!filters.account || account.includes(filters.account.toLowerCase()));
+}
+
+function readOnlyIntent(message: string) {
+  const normalized = message.toLowerCase();
+  if (/\b(imports?|uploads?|statements? imported|import history)\b/.test(normalized)) return "imports";
+  if (/\btrial balance\b/.test(normalized)) return "trial_balance";
+  if (/\b(financial statements?|income statement|profit and loss|balance sheet|cash flow|report balances?)\b/.test(normalized)) return "financial_statements";
+  if (/\b(journal entries?|journals?|je-\d+)\b/.test(normalized)) return "journal_entries";
+  if (/\b(review|queue|exceptions?|transactions?|statement lines?|find|search|merchant|sl-\d+)\b/.test(normalized)) return "statement_lines";
+  return null;
+}
+
+function accountingResultForLines(
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  filters: AccountingFilters,
+  workspacePatterns: Array<typeof classificationPatternsTable.$inferSelect>,
+) {
+  const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+  const selected = lines.filter((line) => lineMatchesAccountingFilters(line, entriesByLine.get(line.id), filters));
+  const byCurrency = (direction: "inflow" | "outflow") => Object.fromEntries(
+    [...new Set(selected.filter((line) => line.direction === direction).map((line) => line.currency.toUpperCase()))]
+      .map((currency) => [currency, selected
+        .filter((line) => line.direction === direction && line.currency.toUpperCase() === currency)
+        .reduce((sum, line) => sum + number(line.amount), 0)]),
+  );
+  const rows = selected.map((line) => {
+    const suggestion = lineSuggestion(line, workspacePatterns);
+    return {
+      id: line.id,
+      date: line.date,
+      merchant: line.description,
+      currency: line.currency,
+      amount: number(line.amount),
+      direction: line.direction,
+      status: line.status,
+      account: suggestion.accountSuggestion,
+      href: `/statement-lines?lineId=${line.id}`,
+    };
+  });
+  return {
+    result: {
+      kind: "statement_lines",
+      title: "Statement lines",
+      complete: true,
+      insufficientData: rows.length === 0,
+      rows,
+      totals: { count: rows.length, inflowByCurrency: byCurrency("inflow"), outflowByCurrency: byCurrency("outflow") },
+      calculationNotes: ["Totals include every authorized statement line matching the active conversation filters; no row sample or page limit was applied.", "Amounts remain partitioned by currency and are never added together without an exchange-rate conversion."],
+    },
+    citations: rows.map((row) => ({ recordType: "statement_line", recordId: row.id, label: `SL-${row.id}`, href: row.href })),
+  };
+}
+
+function accountingResultForEntries(
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  filters: AccountingFilters,
+) {
+  const linesById = new Map(lines.map((line) => [line.id, line]));
+  const selected = entries.filter((entry) => {
+    const line = linesById.get(entry.statementLineId);
+    return Boolean(line && lineMatchesAccountingFilters(line, entry, filters));
+  });
+  const rows = selected.map((entry) => ({
+    id: entry.id,
+    statementLineId: entry.statementLineId,
+    date: entry.date,
+    memo: entry.memo,
+    currency: entry.currency,
+    amount: number(entry.amount),
+    status: entry.status,
+    debitAccount: entry.debitAccount,
+    creditAccount: entry.creditAccount,
+    href: `/journal-entries?entryId=${entry.id}`,
+  }));
+  return {
+    result: {
+      kind: "journal_entries",
+      title: "Journal entries",
+      complete: true,
+      insufficientData: rows.length === 0,
+      rows,
+      totals: {
+        count: rows.length,
+        amountByCurrency: Object.fromEntries([...new Set(rows.map((row) => row.currency.toUpperCase()))].map((currency) => [
+          currency,
+          rows.filter((row) => row.currency.toUpperCase() === currency).reduce((sum, row) => sum + row.amount, 0),
+        ])),
+      },
+      calculationNotes: ["Every authorized journal entry matching the active filters is included. Debit and credit totals remain balanced by construction.", "Amounts remain partitioned by currency and are never added together without an exchange-rate conversion."],
+    },
+    citations: rows.map((row) => ({ recordType: "journal_entry", recordId: row.id, label: `JE-${row.id}`, href: row.href })),
+  };
+}
+
+function accountingResultForImports(
+  imports: Array<typeof statementImportsTable.$inferSelect>,
+  filters: AccountingFilters,
+) {
+  const selected = imports.filter((item) =>
+    (!filters.recordId || item.id === filters.recordId)
+    && (!filters.status || item.outcome === filters.status)
+    && (!filters.dateFrom || calendarDate(item.createdAt)! >= filters.dateFrom)
+    && (!filters.dateTo || calendarDate(item.createdAt)! <= filters.dateTo),
+  );
+  const rows = selected.map((item) => ({
+    id: item.id,
+    fileName: item.fileName,
+    outcome: item.outcome,
+    detectedCurrency: item.detectedCurrency,
+    importedLineCount: item.importedLineCount,
+    processedAt: item.createdAt.toISOString(),
+    error: item.errorMessage,
+    href: `/import-statement?importId=${item.id}`,
+  }));
+  return {
+    result: {
+      kind: "imports",
+      title: "Statement imports",
+      complete: true,
+      insufficientData: rows.length === 0,
+      rows,
+      totals: {
+        count: rows.length,
+        importedLines: rows.reduce((sum, row) => sum + row.importedLineCount, 0),
+        pendingConfirmation: rows.filter((row) => row.outcome === "pending_confirmation").length,
+        failed: rows.filter((row) => row.outcome === "failed").length,
+      },
+      calculationNotes: ["Import counts come from the durable client import history. Pending currency confirmation does not create statement or journal lines."],
+    },
+    citations: rows.map((row) => ({ recordType: "statement_import", recordId: row.id, label: `IMP-${row.id}`, href: row.href })),
+  };
+}
+
+function accountingResultForTrialBalance(
+  client: typeof clientsTable.$inferSelect,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  filters: AccountingFilters,
+) {
+  const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+  const filteredEntries = entries.filter((entry) =>
+    (!filters.recordId || entry.id === filters.recordId)
+    && (!filters.dateFrom || entry.date >= filters.dateFrom)
+    && (!filters.dateTo || entry.date <= filters.dateTo)
+    && (!filters.status || entry.status === filters.status)
+    && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
+    && (!filters.account || `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase().includes(filters.account.toLowerCase())),
+  );
+  const eligibility = reportingEligibility(filteredEntries, functionalCurrency, assistantPeriodEnd(filters.period));
+  const accounts = new Map<string, { debit: number; credit: number }>();
+  for (const entry of eligibility.eligibleEntries) {
+    const amount = reportingAmount(entry, functionalCurrency)!;
+    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0 };
+    debit.debit += amount;
+    accounts.set(entry.debitAccount, debit);
+    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0 };
+    credit.credit += amount;
+    accounts.set(entry.creditAccount, credit);
+  }
+  const rows = [...accounts.entries()].map(([account, value]) => ({
+    account,
+    debit: value.debit,
+    credit: value.credit,
+    balance: value.debit - value.credit,
+    href: `/trial-balance?account=${encodeURIComponent(account)}`,
+  }));
+  const totalDebit = rows.reduce((sum, row) => sum + row.debit, 0);
+  const totalCredit = rows.reduce((sum, row) => sum + row.credit, 0);
+  return {
+    result: {
+      kind: "trial_balance",
+      title: "Trial balance",
+      complete: eligibility.missingRateEntries.length === 0,
+      insufficientData: rows.length === 0,
+      rows,
+      totals: { totalDebit, totalCredit, difference: totalDebit - totalCredit, functionalCurrency },
+      calculationNotes: [
+        "Only posted entries with complete functional-currency evidence contribute to report balances.",
+        eligibility.missingRateEntries.length
+          ? `${eligibility.missingRateEntries.length} posted entr${eligibility.missingRateEntries.length === 1 ? "y is" : "ies are"} excluded because exchange-rate evidence is incomplete.`
+          : "No posted entries were excluded for missing exchange-rate evidence.",
+      ],
+    },
+    citations: eligibility.eligibleEntries.map((entry) => ({
+      recordType: "journal_entry",
+      recordId: entry.id,
+      label: `JE-${entry.id}`,
+      href: `/journal-entries?entryId=${entry.id}`,
+    })),
+  };
+}
+
+function assistantPeriodEnd(period: string | undefined) {
+  if (!period) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(period)) return period;
+  if (/^\d{4}$/.test(period)) return `${period}-12-31`;
+  const month = period.match(/^(\d{4})-(\d{2})$/);
+  if (!month) return undefined;
+  const lastDay = new Date(Date.UTC(Number(month[1]), Number(month[2]), 0)).getUTCDate();
+  return `${month[1]}-${month[2]}-${String(lastDay).padStart(2, "0")}`;
+}
+
+function accountingResultForFinancialStatements(
+  client: typeof clientsTable.$inferSelect,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  filters: AccountingFilters,
+) {
+  const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+  const periodEnd = assistantPeriodEnd(filters.period) ?? assistantPeriodEnd(client.period);
+  const selectedEntries = entries.filter((entry) =>
+    (!filters.recordId || entry.id === filters.recordId)
+    && (!filters.dateFrom || entry.date >= filters.dateFrom)
+    && (!filters.dateTo || entry.date <= filters.dateTo)
+    && (!filters.status || entry.status === filters.status)
+    && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
+    && (!filters.account || `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase().includes(filters.account.toLowerCase())),
+  );
+  const eligibility = reportingEligibility(selectedEntries, functionalCurrency, periodEnd);
+  const expenseAccounts = new Map<string, number>();
+  const revenueAccounts = new Map<string, number>();
+  let cash = 0;
+  let transferClearing = 0;
+  let operatingCash = 0;
+  for (const entry of eligibility.eligibleEntries) {
+    const amount = reportingAmount(entry, functionalCurrency)!;
+    if (entry.debitAccount === "Bank / cash") cash += amount;
+    if (entry.creditAccount === "Bank / cash") cash -= amount;
+    if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
+    if (isInterAccountTransferAccount(entry.creditAccount)) transferClearing -= amount;
+    if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
+    if (entry.debitAccount === "Bank / cash") operatingCash += amount;
+    if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
+    if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
+    if (entry.creditAccount !== "Bank / cash") revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
+  }
+  const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
+  const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);
+  const netIncome = totalRevenue - totalExpenses;
+  const rows = [
+    ...[["Income statement", "Revenue", totalRevenue], ...[...expenseAccounts.entries()].map(([label, amount]) => ["Income statement", label, -amount] as const), ["Income statement", "Net income", netIncome] as const],
+    ["Balance sheet", "Bank / cash", cash],
+    ["Balance sheet", interAccountTransferAccount, transferClearing],
+    ["Balance sheet", "Liabilities", 0],
+    ["Balance sheet", "Equity", cash + transferClearing],
+    ["Cash flow", "Net income", netIncome],
+    ["Cash flow", "Net cash from operating activities", operatingCash],
+    ["Cash flow", "Net increase in cash", operatingCash],
+  ].map(([section, label, amount]) => ({
+    section,
+    label,
+    amount,
+    currency: functionalCurrency,
+    href: `/financial-statements?period=${encodeURIComponent(filters.period ?? client.period)}`,
+  }));
+  return {
+    result: {
+      kind: "financial_statements",
+      title: "Financial statement balances",
+      complete: eligibility.missingRateEntries.length === 0,
+      insufficientData: eligibility.eligibleEntries.length === 0,
+      rows,
+      totals: {
+        period: filters.period ?? client.period,
+        functionalCurrency,
+        incomeStatementNet: netIncome,
+        balanceSheetAssets: cash + transferClearing,
+        cashFlowNetIncrease: operatingCash,
+        includedPostedEntryCount: eligibility.eligibleEntries.length,
+        missingRateCount: eligibility.missingRateEntries.length,
+      },
+      calculationNotes: [
+        "This uses the same posted-entry, functional-currency reporting rules as the Financial Statements page.",
+        eligibility.missingRateEntries.length
+          ? `${eligibility.missingRateEntries.length} posted entr${eligibility.missingRateEntries.length === 1 ? "y is" : "ies are"} excluded because exchange-rate evidence is incomplete.`
+          : "All included posted entries have functional-currency evidence.",
+      ],
+    },
+    citations: eligibility.eligibleEntries.map((entry) => ({
+      recordType: "journal_entry",
+      recordId: entry.id,
+      label: `JE-${entry.id}`,
+      href: `/journal-entries?entryId=${entry.id}`,
+    })),
+  };
+}
+
+async function deterministicAccountingAnswer(
+  intent: ReturnType<typeof readOnlyIntent>,
+  client: typeof clientsTable.$inferSelect,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  imports: Array<typeof statementImportsTable.$inferSelect>,
+  filters: AccountingFilters,
+  workspacePatterns: Array<typeof classificationPatternsTable.$inferSelect>,
+) {
+  if (!intent) return null;
+  const built = intent === "statement_lines"
+    ? accountingResultForLines(lines, entries, filters, workspacePatterns)
+    : intent === "journal_entries"
+      ? accountingResultForEntries(lines, entries, filters)
+        : intent === "imports"
+        ? accountingResultForImports(imports, filters)
+        : intent === "trial_balance"
+          ? accountingResultForTrialBalance(client, entries, filters)
+          : accountingResultForFinancialStatements(client, entries, filters);
+  const count = built.result.rows.length;
+  const incomplete = built.result.complete ? "" : " Some report evidence is incomplete; see the calculation notes.";
+  return {
+    answer: count
+      ? `I found ${count} matching record${count === 1 ? "" : "s"} in ${client.name}.${incomplete}`
+      : `I did not find matching evidence in ${client.name}. I have not inferred or guessed any missing records.`,
+    results: [built.result],
+    citations: built.citations,
+  };
+}
+
+router.get("/ledgerflow/ai-conversations", async (req, res) => {
+  const { clientId } = GetLedgerflowAIConversationsQueryParams.parse(req.query);
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
-  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
-  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
-  const bankAccounts = await db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id));
-  const workspacePatterns = await getWorkspacePatterns(currentUserId(req));
+  await purgeExpiredAssistantData();
+  const threads = await db.select().from(assistantThreadsTable).where(and(
+    eq(assistantThreadsTable.clientId, client.id),
+    eq(assistantThreadsTable.userId, currentUserId(req)),
+  )).orderBy(desc(assistantThreadsTable.updatedAt));
+  const responses = await Promise.all(threads.map(async (thread) => {
+    const turns = await db.select({ id: assistantTurnsTable.id }).from(assistantTurnsTable)
+      .where(eq(assistantTurnsTable.threadId, thread.id));
+    return assistantThreadSummary(thread, turns.length);
+  }));
+  res.json(GetLedgerflowAIConversationsResponse.parse(responses));
+});
+
+router.post("/ledgerflow/ai-conversations", async (req, res) => {
+  const body = CreateLedgerflowAIConversationBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const [thread] = await db.insert(assistantThreadsTable).values({
+    clientId: client.id,
+    userId: currentUserId(req),
+    title: body.title?.trim() || "New conversation",
+  }).returning();
+  res.status(201).json(CreateLedgerflowAIConversationResponse.parse(await assistantConversationResponse(thread)));
+});
+
+router.get("/ledgerflow/ai-conversations/:id", async (req, res) => {
+  const { id } = GetLedgerflowAIConversationParams.parse(req.params);
+  const scoped = await requireAssistantThread(req, res, id);
+  if (!scoped) return;
+  res.json(GetLedgerflowAIConversationResponse.parse(await assistantConversationResponse(scoped.thread)));
+});
+
+router.patch("/ledgerflow/ai-conversations/:id", async (req, res) => {
+  const { id } = RenameLedgerflowAIConversationParams.parse(req.params);
+  const body = RenameLedgerflowAIConversationBody.parse(req.body);
+  const scoped = await requireAssistantThread(req, res, id);
+  if (!scoped) return;
+  if (scoped.thread.clientId !== body.clientId) {
+    res.status(409).json({ error: "A conversation cannot be moved to another client workspace." });
+    return;
+  }
+  const [thread] = await db.update(assistantThreadsTable).set({
+    title: body.title.trim(),
+    status: "active",
+    updatedAt: new Date(),
+  }).where(eq(assistantThreadsTable.id, id)).returning();
+  res.json(RenameLedgerflowAIConversationResponse.parse(await assistantConversationResponse(thread)));
+});
+
+router.delete("/ledgerflow/ai-conversations/:id", async (req, res) => {
+  const { id } = ClearLedgerflowAIConversationParams.parse(req.params);
+  const scoped = await requireAssistantThread(req, res, id);
+  if (!scoped) return;
+  await db.transaction(async (tx) => {
+    await tx.delete(assistantTurnsTable).where(eq(assistantTurnsTable.threadId, id));
+    await tx.update(assistantThreadsTable).set({
+      scope: {},
+      status: "cleared",
+      updatedAt: new Date(),
+    }).where(eq(assistantThreadsTable.id, id));
+  });
+  res.status(204).end();
+});
+
+router.post("/ledgerflow/ai-chat", async (req, res) => {
+  const requestedCurrency = req.body?.filters?.currency;
+  if (typeof requestedCurrency === "string" && !/^[A-Za-z]{3}$/.test(requestedCurrency)) {
+    res.status(400).json({ error: "Currency filters must use a three-letter ISO currency code." });
+    return;
+  }
+  const parsedInput = AskLedgerflowAIBody.safeParse(req.body);
+  if (!parsedInput.success) {
+    res.status(400).json({ error: "The chat request is invalid. Check the client, message, thread, and filter values before retrying." });
+    return;
+  }
+  const { clientId, message, threadId, filters: suppliedFilters } = parsedInput.data;
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const existingThread = threadId ? await requireAssistantThread(req, res, threadId) : null;
+  if (threadId && !existingThread) return;
+  if (existingThread && existingThread.thread.clientId !== client.id) {
+    res.status(409).json({ error: "A conversation cannot cross client workspaces. Start or resume a conversation for the active client." });
+    return;
+  }
+  const [thread] = existingThread
+    ? [existingThread.thread]
+    : await db.insert(assistantThreadsTable).values({
+      clientId: client.id,
+      userId: currentUserId(req),
+      title: titleFromAssistantMessage(message),
+    }).returning();
+  await pruneAssistantTurns(thread.id);
+  const priorTurns = await db.select().from(assistantTurnsTable)
+    .where(eq(assistantTurnsTable.threadId, thread.id))
+    .orderBy(desc(assistantTurnsTable.createdAt), desc(assistantTurnsTable.id))
+    .limit(12);
+  const previousScope = thread.scope && typeof thread.scope === "object"
+    ? thread.scope as Record<string, unknown>
+    : {};
+  const activeFilters = accountingFilters(suppliedFilters, message, previousScope);
+  await db.transaction(async (tx) => {
+    await tx.insert(assistantTurnsTable).values({ threadId: thread.id, role: "user", content: message });
+    await tx.update(assistantThreadsTable).set({
+      scope: activeFilters,
+      status: "active",
+      updatedAt: new Date(),
+    }).where(eq(assistantThreadsTable.id, thread.id));
+  });
+  const [lines, entries, bankAccounts, imports, workspacePatterns] = await Promise.all([
+    db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id)),
+    db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id)),
+    db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id)),
+    db.select().from(statementImportsTable).where(eq(statementImportsTable.clientId, client.id)).orderBy(desc(statementImportsTable.createdAt)),
+    getWorkspacePatterns(currentUserId(req)),
+  ]);
   const lineSuggestions = new Map(lines.map((line) => [line.id, lineSuggestion(line, workspacePatterns)]));
   const pendingLines = lines.filter((line) => line.status !== "posted");
   const postedLines = lines.filter((line) => line.status === "posted");
   const context = { clientName: client.name, pendingLines: pendingLines.length, postedLines: postedLines.length };
+  const sendChatResponse = async (payload: {
+    answer: string;
+    recommendations?: AICopilotRecommendation[];
+    results?: Array<Record<string, unknown>>;
+    citations?: Array<{ recordType: string; recordId: number; label: string; href: string }>;
+  }) => {
+    const response = AskLedgerflowAIResponse.parse({
+      answer: payload.answer,
+      threadId: thread.id,
+      context,
+      recommendations: payload.recommendations ?? [],
+      results: payload.results ?? [],
+      citations: payload.citations ?? [],
+    });
+    await db.transaction(async (tx) => {
+      await tx.insert(assistantTurnsTable).values({
+        threadId: thread.id,
+        role: "assistant",
+        content: response.answer,
+        response,
+      });
+      await tx.update(assistantThreadsTable).set({ updatedAt: new Date(), status: "active" })
+        .where(eq(assistantThreadsTable.id, thread.id));
+    });
+    await pruneAssistantTurns(thread.id);
+    res.json(response);
+  };
   const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines);
   const asksToClassify = asksForDescriptionClassification(message);
   const asksToTransition = asksForLedgerTransition(message);
   if (asksToClassify && asksToTransition) {
-    res.json(AskLedgerflowAIResponse.parse({
+    await sendChatResponse({
       answer: "Classification and ledger posting are separate steps. Confirm the classification card first, then ask me to prepare either an approval or a posting confirmation for the eligible entries.",
-      context,
-      recommendations: [],
-    }));
+    });
     return;
   }
   if (descriptionRecode?.error) {
-    res.json(AskLedgerflowAIResponse.parse({
+    await sendChatResponse({
       answer: descriptionRecode.error,
-      context,
-      recommendations: [],
-    }));
+    });
     return;
   }
   if (descriptionRecode?.recommendation) {
-    res.json(AskLedgerflowAIResponse.parse({
+    await sendChatResponse({
       answer: "I prepared this client-scoped classification for your confirmation. Nothing has changed yet; approval and posting remain separate confirmations.",
-      context,
       recommendations: [descriptionRecode.recommendation],
-    }));
+    });
     return;
   }
   const bulkAction = prepareBulkActionRecommendation(message, clientId, entries, lines);
   if (bulkAction?.error) {
-    res.json(AskLedgerflowAIResponse.parse({
+    await sendChatResponse({
       answer: bulkAction.error,
-      context,
-      recommendations: [],
-    }));
+    });
     return;
   }
   if (bulkAction?.recommendation) {
-    res.json(AskLedgerflowAIResponse.parse({
+    await sendChatResponse({
       answer: "I prepared this client-scoped ledger transition for your review. Nothing has changed yet.",
-      context,
       recommendations: [bulkAction.recommendation],
-    }));
+    });
+    return;
+  }
+  const deterministic = await deterministicAccountingAnswer(
+    readOnlyIntent(message),
+    client,
+    lines,
+    entries,
+    imports,
+    activeFilters,
+    workspacePatterns,
+  );
+  if (deterministic) {
+    await sendChatResponse(deterministic);
     return;
   }
   const aiConfig = await getAIProviderConfig(client.id);
@@ -3498,21 +4148,31 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
   const aiActivityId = aiActivity?.id;
   let aiCompletionRecorded = false;
   try {
+    const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+    const scopedLines = lines.filter((line) => lineMatchesAccountingFilters(line, entriesByLine.get(line.id), activeFilters));
+    const scopedLineIds = new Set(scopedLines.map((line) => line.id));
+    const scopedEntries = entries.filter((entry) => scopedLineIds.has(entry.statementLineId));
     const completion = await completeAI(client.id, [
         {
           role: "system",
-          content: "You are AgarAccounting AI System's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
+          content: "You are AgarAccounting AI System's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. State when evidence is incomplete instead of guessing. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
         },
+        ...priorTurns.reverse().map((turn) => ({
+          role: turn.role === "assistant" ? "assistant" as const : "user" as const,
+          content: turn.content,
+        })),
         {
           role: "user",
           content: JSON.stringify({
             client: { name: client.name, legalName: client.legalName, basis: client.basis, functionalCurrency: client.functionalCurrency, period: client.period },
+            activeFilters,
             bankAccounts: bankAccounts.map(bankAccountResponse),
-             reviewQueue: pendingLines.slice(0, 50).map((line) => {
+             reviewQueue: scopedLines.filter((line) => line.status !== "posted").map((line) => {
                const suggestion = lineSuggestions.get(line.id);
                return { id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: suggestion?.accountSuggestion, suggestionSource: suggestion?.suggestionSource, supportingPatternCount: suggestion?.supportingPatternCount };
              }),
-             journalEntries: entries.filter((entry) => entry.status !== "posted").slice(0, 50).map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: entry.status, debit: entry.debitAccount, credit: entry.creditAccount })),
+             journalEntries: scopedEntries.filter((entry) => entry.status !== "posted").map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: entry.status, debit: entry.debitAccount, credit: entry.creditAccount })),
+            imports: imports.map((item) => ({ id: item.id, fileName: item.fileName, outcome: item.outcome, detectedCurrency: item.detectedCurrency, importedLineCount: item.importedLineCount, createdAt: item.createdAt })),
             question: message,
           }),
         },
@@ -3530,17 +4190,33 @@ router.post("/ledgerflow/ai-chat", async (req, res) => {
       }
       const fallbackRecommendations = defaultAICopilotRecommendations(pendingLines, bankAccounts, clientId, lineSuggestions);
     const answer = safeText(raw.answer, "I can help you review this queue, group recurring transactions, propose recodes, or prepare a bank account for your confirmation.", 1200);
-    res.json(AskLedgerflowAIResponse.parse({ answer, context, recommendations: recommendations.length ? recommendations : fallbackRecommendations }));
+    await sendChatResponse({ answer, recommendations: recommendations.length ? recommendations : fallbackRecommendations });
   } catch (error) {
     if (aiActivityId !== undefined && !aiCompletionRecorded) {
       await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
     }
     req.log.error({ err: error }, "AI workspace chat failed");
     if (error instanceof AIProviderError) {
-      res.status(error.status).json({ error: error.message });
+      await db.insert(assistantTurnsTable).values({
+        threadId: thread.id,
+        role: "assistant",
+        content: error.message,
+        response: { errorKind: error.kind, recoverable: true },
+      });
+      res.status(error.status).json({ error: error.message, threadId: thread.id, recoverable: true });
       return;
     }
-    res.status(502).json({ error: "The AI assistant is temporarily unavailable." });
+    await db.insert(assistantTurnsTable).values({
+      threadId: thread.id,
+      role: "assistant",
+      content: "The assistant could not reach its provider. Your conversation is saved; retry this message when the connection is available.",
+      response: { errorKind: "network_or_provider", recoverable: true },
+    });
+    res.status(502).json({
+      error: "The AI assistant is temporarily unavailable. Your conversation is saved; retry when the connection is available.",
+      threadId: thread.id,
+      recoverable: true,
+    });
   }
 });
 

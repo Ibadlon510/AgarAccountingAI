@@ -982,9 +982,41 @@ export interface UnpostJournalEntryInput {
   clientId: number;
 }
 
+export type AIAccountingFiltersDirection = typeof AIAccountingFiltersDirection[keyof typeof AIAccountingFiltersDirection];
+
+
+export const AIAccountingFiltersDirection = {
+  inflow: 'inflow',
+  outflow: 'outflow',
+} as const;
+
+export interface AIAccountingFilters {
+  period?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  minAmount?: number;
+  maxAmount?: number;
+  direction?: AIAccountingFiltersDirection;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency?: string;
+  status?: string;
+  merchant?: string;
+  account?: string;
+  recordId?: number;
+}
+
 export interface AIChatInput {
   clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
   message: string;
+  threadId?: number;
+  filters?: AIAccountingFilters;
 }
 
 export type AIChatResponseContext = {
@@ -1048,11 +1080,99 @@ export interface AICopilotRecommendation {
   requiresConfirmation: boolean;
 }
 
+export type AIAccountingResultRowsItem = { [key: string]: unknown };
+
+export type AIAccountingResultTotals = { [key: string]: unknown };
+
+export interface AIAccountingResult {
+  kind: string;
+  title: string;
+  complete: boolean;
+  insufficientData?: boolean;
+  rows: AIAccountingResultRowsItem[];
+  totals: AIAccountingResultTotals;
+  calculationNotes: string[];
+}
+
+export interface AIAccountingCitation {
+  recordType: string;
+  recordId: number;
+  label: string;
+  href: string;
+}
+
 export interface AIChatResponse {
   answer: string;
+  threadId: number;
   recommendations: AICopilotRecommendation[];
+  results: AIAccountingResult[];
+  citations: AIAccountingCitation[];
   context: AIChatResponseContext;
 }
+
+export interface AIConversationInput {
+  clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title?: string;
+}
+
+export interface AIConversationRenameInput {
+  clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  title: string;
+}
+
+export type AIConversationTurnRole = typeof AIConversationTurnRole[keyof typeof AIConversationTurnRole];
+
+
+export const AIConversationTurnRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export type AIConversationTurnResponse = { [key: string]: unknown };
+
+export type AIConversationTurnAttachment = { [key: string]: unknown };
+
+export interface AIConversationTurn {
+  id: number;
+  role: AIConversationTurnRole;
+  content: string;
+  response?: AIConversationTurnResponse;
+  attachment?: AIConversationTurnAttachment;
+  createdAt: string;
+}
+
+export type AIConversationSummaryStatus = typeof AIConversationSummaryStatus[keyof typeof AIConversationSummaryStatus];
+
+
+export const AIConversationSummaryStatus = {
+  active: 'active',
+  cleared: 'cleared',
+} as const;
+
+export interface AIConversationSummary {
+  id: number;
+  clientId: number;
+  title: string;
+  status: AIConversationSummaryStatus;
+  turnCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AIConversationScope = { [key: string]: unknown };
+
+export type AIConversation = AIConversationSummary & {
+  scope: AIConversationScope;
+  turns: AIConversationTurn[];
+};
 
 export type AIProvider = typeof AIProvider[keyof typeof AIProvider];
 
@@ -1532,11 +1652,22 @@ direction?: GetStatementLinesDirection;
 };
 
 export type GetStatementLinesDirection = typeof GetStatementLinesDirection[keyof typeof GetStatementLinesDirection];
+
+
+export const GetStatementLinesDirection = {
+  inflow: 'inflow',
+  outflow: 'outflow',
+} as const;
+
 export type GetStatementImportsParams = {
 clientId: number;
 };
 
 export type GetUploadedFilesParams = {
+clientId: number;
+};
+
+export type GetLedgerflowAIConversationsParams = {
 clientId: number;
 };
 
@@ -1564,9 +1695,3 @@ period?: string;
 export type GetReportPacksParams = {
 clientId: number;
 };
-
-
-export const GetStatementLinesDirection = {
-  inflow: 'inflow',
-  outflow: 'outflow',
-} as const;

@@ -22,6 +22,10 @@ import type {
 import type {
   AIChatInput,
   AIChatResponse,
+  AIConversation,
+  AIConversationInput,
+  AIConversationRenameInput,
+  AIConversationSummary,
   AICopilotActionInput,
   AICopilotActionResult,
   AIProviderSettings,
@@ -58,6 +62,7 @@ import type {
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
   GetLedgerOverviewParams,
+  GetLedgerflowAIConversationsParams,
   GetLedgerflowAISettingsParams,
   GetReportPacksParams,
   GetStatementImportsParams,
@@ -4238,6 +4243,381 @@ export const useAskLedgerflowAI = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAskLedgerflowAIMutationOptions(options));
+    }
+
+export const getGetLedgerflowAIConversationsUrl = (params: GetLedgerflowAIConversationsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/ai-conversations?${stringifiedParams}` : `/api/ledgerflow/ai-conversations`
+}
+
+/**
+ * @summary List client-scoped accountant copilot conversations
+ */
+export const getLedgerflowAIConversations = async (params: GetLedgerflowAIConversationsParams, options?: Parameters<typeof customFetch>[1]): Promise<AIConversationSummary[]> => {
+
+  return customFetch<AIConversationSummary[]>(getGetLedgerflowAIConversationsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLedgerflowAIConversationsQueryKey = (params?: GetLedgerflowAIConversationsParams,) => {
+    return [
+    `/api/ledgerflow/ai-conversations`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetLedgerflowAIConversationsQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError = ErrorType<unknown>>(params: GetLedgerflowAIConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAIConversationsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAIConversations>>> = ({ signal }) => getLedgerflowAIConversations(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLedgerflowAIConversationsQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAIConversations>>>
+export type GetLedgerflowAIConversationsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List client-scoped accountant copilot conversations
+ */
+
+export function useGetLedgerflowAIConversations<TData = Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError = ErrorType<unknown>>(
+ params: GetLedgerflowAIConversationsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversations>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLedgerflowAIConversationsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateLedgerflowAIConversationUrl = () => {
+
+
+
+
+  return `/api/ledgerflow/ai-conversations`
+}
+
+/**
+ * @summary Start a client-scoped accountant copilot conversation
+ */
+export const createLedgerflowAIConversation = async (aIConversationInput: AIConversationInput, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
+
+  return customFetch<AIConversation>(getCreateLedgerflowAIConversationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aIConversationInput)
+  }
+);}
+
+
+
+
+
+export const getCreateLedgerflowAIConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext> => {
+
+const mutationKey = ['createLedgerflowAIConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, {data: BodyType<AIConversationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createLedgerflowAIConversation(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateLedgerflowAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof createLedgerflowAIConversation>>>
+    export type CreateLedgerflowAIConversationMutationBody = BodyType<AIConversationInput>
+    export type CreateLedgerflowAIConversationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Start a client-scoped accountant copilot conversation
+ */
+export const useCreateLedgerflowAIConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createLedgerflowAIConversation>>, TError,{data: BodyType<AIConversationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createLedgerflowAIConversation>>,
+        TError,
+        {data: BodyType<AIConversationInput>},
+        TContext
+      > => {
+      return useMutation(getCreateLedgerflowAIConversationMutationOptions(options));
+    }
+
+export const getGetLedgerflowAIConversationUrl = (id: number,) => {
+
+
+
+
+  return `/api/ledgerflow/ai-conversations/${id}`
+}
+
+/**
+ * @summary Get a client-scoped copilot conversation and its turns
+ */
+export const getLedgerflowAIConversation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
+
+  return customFetch<AIConversation>(getGetLedgerflowAIConversationUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetLedgerflowAIConversationQueryKey = (id: number,) => {
+    return [
+    `/api/ledgerflow/ai-conversations/${id}`
+    ] as const;
+    }
+
+
+export const getGetLedgerflowAIConversationQueryOptions = <TData = Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetLedgerflowAIConversationQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getLedgerflowAIConversation>>> = ({ signal }) => getLedgerflowAIConversation(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetLedgerflowAIConversationQueryResult = NonNullable<Awaited<ReturnType<typeof getLedgerflowAIConversation>>>
+export type GetLedgerflowAIConversationQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a client-scoped copilot conversation and its turns
+ */
+
+export function useGetLedgerflowAIConversation<TData = Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getLedgerflowAIConversation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetLedgerflowAIConversationQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRenameLedgerflowAIConversationUrl = (id: number,) => {
+
+
+
+
+  return `/api/ledgerflow/ai-conversations/${id}`
+}
+
+/**
+ * @summary Rename a copilot conversation
+ */
+export const renameLedgerflowAIConversation = async (id: number,
+    aIConversationRenameInput: AIConversationRenameInput, options?: Parameters<typeof customFetch>[1]): Promise<AIConversation> => {
+
+  return customFetch<AIConversation>(getRenameLedgerflowAIConversationUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aIConversationRenameInput)
+  }
+);}
+
+
+
+
+
+export const getRenameLedgerflowAIConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext> => {
+
+const mutationKey = ['renameLedgerflowAIConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, {id: number;data: BodyType<AIConversationRenameInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  renameLedgerflowAIConversation(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RenameLedgerflowAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>>
+    export type RenameLedgerflowAIConversationMutationBody = BodyType<AIConversationRenameInput>
+    export type RenameLedgerflowAIConversationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Rename a copilot conversation
+ */
+export const useRenameLedgerflowAIConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof renameLedgerflowAIConversation>>, TError,{id: number;data: BodyType<AIConversationRenameInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof renameLedgerflowAIConversation>>,
+        TError,
+        {id: number;data: BodyType<AIConversationRenameInput>},
+        TContext
+      > => {
+      return useMutation(getRenameLedgerflowAIConversationMutationOptions(options));
+    }
+
+export const getClearLedgerflowAIConversationUrl = (id: number,) => {
+
+
+
+
+  return `/api/ledgerflow/ai-conversations/${id}`
+}
+
+/**
+ * @summary Clear a copilot conversation while retaining its identity
+ */
+export const clearLedgerflowAIConversation = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getClearLedgerflowAIConversationUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearLedgerflowAIConversationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['clearLedgerflowAIConversation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  clearLedgerflowAIConversation(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearLedgerflowAIConversationMutationResult = NonNullable<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>>
+
+    export type ClearLedgerflowAIConversationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Clear a copilot conversation while retaining its identity
+ */
+export const useClearLedgerflowAIConversation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearLedgerflowAIConversation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearLedgerflowAIConversation>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getClearLedgerflowAIConversationMutationOptions(options));
     }
 
 export const getGetLedgerflowAISettingsUrl = (params: GetLedgerflowAISettingsParams,) => {

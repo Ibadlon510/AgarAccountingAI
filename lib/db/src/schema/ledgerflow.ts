@@ -435,6 +435,48 @@ export const aiActivityTable = pgTable("ledgerflow_ai_activity", {
     name: "ledgerflow_ai_activity_user_fk",
   }),
 ]);
+
+export const assistantThreadsTable = pgTable("ledgerflow_assistant_threads", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull().default("New conversation"),
+  scope: jsonb("scope").notNull().default({}),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("ledgerflow_assistant_threads_client_user_updated_idx").on(table.clientId, table.userId, table.updatedAt),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_assistant_threads_client_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.userId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_assistant_threads_user_fk",
+  }).onDelete("cascade"),
+  check("ledgerflow_assistant_threads_status_check", sql`status in ('active', 'cleared')`),
+]);
+
+export const assistantTurnsTable = pgTable("ledgerflow_assistant_turns", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  threadId: integer("thread_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  response: jsonb("response"),
+  attachment: jsonb("attachment"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ledgerflow_assistant_turns_thread_created_idx").on(table.threadId, table.createdAt),
+  foreignKey({
+    columns: [table.threadId],
+    foreignColumns: [assistantThreadsTable.id],
+    name: "ledgerflow_assistant_turns_thread_fk",
+  }).onDelete("cascade"),
+  check("ledgerflow_assistant_turns_role_check", sql`role in ('user', 'assistant')`),
+]);
 export const statementLinesTable = pgTable("ledgerflow_statement_lines", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull().default(1),
@@ -602,6 +644,8 @@ export type ReportPack = typeof reportPacksTable.$inferSelect;
 
 export type BulkTransitionAudit = typeof bulkTransitionAuditsTable.$inferSelect;
 export type StatementImportUndoAudit = typeof statementImportUndoAuditsTable.$inferSelect;
+export type AssistantThread = typeof assistantThreadsTable.$inferSelect;
+export type AssistantTurn = typeof assistantTurnsTable.$inferSelect;
 export type User = typeof usersTable.$inferSelect;
 export type UpsertUser = typeof usersTable.$inferInsert;
 

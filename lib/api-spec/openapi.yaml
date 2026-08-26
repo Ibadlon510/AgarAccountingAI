@@ -993,6 +993,93 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIChatResponse"
+  /ledgerflow/ai-conversations:
+    get:
+      operationId: getLedgerflowAIConversations
+      tags: [ledgerflow]
+      summary: List client-scoped accountant copilot conversations
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Conversations for the authorized client
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AIConversationSummary"
+    post:
+      operationId: createLedgerflowAIConversation
+      tags: [ledgerflow]
+      summary: Start a client-scoped accountant copilot conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIConversationInput"
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIConversation"
+  /ledgerflow/ai-conversations/{id}:
+    get:
+      operationId: getLedgerflowAIConversation
+      tags: [ledgerflow]
+      summary: Get a client-scoped copilot conversation and its turns
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Conversation with prior turns
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIConversation"
+    patch:
+      operationId: renameLedgerflowAIConversation
+      tags: [ledgerflow]
+      summary: Rename a copilot conversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AIConversationRenameInput"
+      responses:
+        "200":
+          description: Renamed conversation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIConversation"
+    delete:
+      operationId: clearLedgerflowAIConversation
+      tags: [ledgerflow]
+      summary: Clear a copilot conversation while retaining its identity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Conversation cleared
   /ledgerflow/ai-settings:
     get:
       operationId: getLedgerflowAISettings
@@ -2217,16 +2304,28 @@ components:
       required: [clientId, message]
       properties:
         clientId: { type: number }
-        message: { type: string }
+        message: { type: string, minLength: 1, maxLength: 4000 }
+        threadId: { type: number }
+        filters:
+          $ref: "#/components/schemas/AIAccountingFilters"
     AIChatResponse:
       type: object
-      required: [answer, context, recommendations]
+      required: [answer, context, recommendations, threadId, results, citations]
       properties:
         answer: { type: string }
+        threadId: { type: number }
         recommendations:
           type: array
           items:
             $ref: "#/components/schemas/AICopilotRecommendation"
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIAccountingResult"
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/AIAccountingCitation"
         context:
           type: object
           required: [clientName, pendingLines, postedLines]
@@ -2234,6 +2333,97 @@ components:
             clientName: { type: string }
             pendingLines: { type: number }
             postedLines: { type: number }
+    AIAccountingFilters:
+      type: object
+      properties:
+        period: { type: string }
+        dateFrom: { type: string, format: date }
+        dateTo: { type: string, format: date }
+        minAmount: { type: number }
+        maxAmount: { type: number }
+        direction: { type: string, enum: [inflow, outflow] }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        status: { type: string }
+        merchant: { type: string }
+        account: { type: string }
+        recordId: { type: number }
+    AIAccountingCitation:
+      type: object
+      required: [recordType, recordId, label, href]
+      properties:
+        recordType: { type: string }
+        recordId: { type: number }
+        label: { type: string }
+        href: { type: string }
+    AIAccountingResult:
+      type: object
+      required: [kind, title, complete, rows, totals, calculationNotes]
+      properties:
+        kind: { type: string }
+        title: { type: string }
+        complete: { type: boolean }
+        insufficientData: { type: boolean }
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        totals:
+          type: object
+          additionalProperties: true
+        calculationNotes:
+          type: array
+          items: { type: string }
+    AIConversationInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+        title: { type: string, minLength: 1, maxLength: 120 }
+    AIConversationRenameInput:
+      type: object
+      required: [clientId, title]
+      properties:
+        clientId: { type: number }
+        title: { type: string, minLength: 1, maxLength: 120 }
+    AIConversationTurn:
+      type: object
+      required: [id, role, content, createdAt]
+      properties:
+        id: { type: number }
+        role: { type: string, enum: [user, assistant] }
+        content: { type: string }
+        response:
+          type: object
+          additionalProperties: true
+        attachment:
+          type: object
+          additionalProperties: true
+        createdAt: { type: string, format: date-time }
+    AIConversationSummary:
+      type: object
+      required: [id, clientId, title, status, turnCount, createdAt, updatedAt]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        title: { type: string }
+        status: { type: string, enum: [active, cleared] }
+        turnCount: { type: number }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AIConversation:
+      allOf:
+        - $ref: "#/components/schemas/AIConversationSummary"
+        - type: object
+          required: [scope, turns]
+          properties:
+            scope:
+              type: object
+              additionalProperties: true
+            turns:
+              type: array
+              items:
+                $ref: "#/components/schemas/AIConversationTurn"
     AIProvider:
       type: string
       enum: [managed_openai, openai, anthropic]

@@ -5,8 +5,15 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AIAccountingFilters } from './aIAccountingFilters';
 
 export interface AIChatInput {
   clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
   message: string;
+  threadId?: number;
+  filters?: AIAccountingFilters;
 }

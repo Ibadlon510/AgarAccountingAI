@@ -27,6 +27,8 @@ export const GetCurrentAuthUserResponse = zod.object({
  */
 
 
+
+
 export const UpdateLedgerflowAccountProfileBody = zod.object({
   "firstName": zod.string().min(1),
   "lastName": zod.string().min(1)
@@ -53,6 +55,8 @@ export const GetFirmProfileResponse = zod.object({
 /**
  * @summary Update the bookkeeping firm's shared identity
  */
+
+
 
 
 export const UpdateFirmProfileBody = zod.object({
@@ -142,6 +146,8 @@ export const GetOrganizationContextResponse = zod.object({
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
+
+
 
 
 export const CompleteOrganizationOnboardingBody = zod.object({
@@ -513,6 +519,11 @@ export const LogoutBrowserSessionResponse = zod.void()
  */
 
 
+
+
+
+
+
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -667,6 +678,8 @@ export const UpdateWorkspaceMemberParams = zod.object({
 })
 
 
+
+
 export const UpdateWorkspaceMemberBody = zod.object({
   "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
   "clientIds": zod.array(zod.number()).min(1)
@@ -703,6 +716,7 @@ export const createWorkspaceInvitationBodyEmailMin = 3;
 
 
 export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
 
 
 export const CreateWorkspaceInvitationBody = zod.object({
@@ -885,6 +899,7 @@ export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 export const getExchangeRatesResponseRateExclusiveMin = 0;
 
 
+
 export const GetExchangeRatesResponseItem = zod.object({
   "id": zod.number(),
   "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
@@ -914,6 +929,7 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const CreateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
@@ -930,6 +946,7 @@ export const createExchangeRateResponseFunctionalCurrencyMin = 3;
 export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const CreateExchangeRateResponse = zod.object({
@@ -959,6 +976,7 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const UpdateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
@@ -975,6 +993,7 @@ export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
 export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const UpdateExchangeRateResponse = zod.object({
@@ -1015,6 +1034,8 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
 
+
+
 export const ImportExchangeRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
@@ -1033,6 +1054,7 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
+
 
 
 export const ImportExchangeRatesResponse = zod.object({
@@ -1058,6 +1080,7 @@ export const parseExchangeRatesBodyContentMax = 120000;
 export const parseExchangeRatesBodyFileBase64Max = 20000000;
 
 
+
 export const ParseExchangeRatesBody = zod.object({
   "clientId": zod.number(),
   "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
@@ -1075,6 +1098,7 @@ export const parseExchangeRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseExchangeRatesResponseConfidenceMin = 0;
 export const parseExchangeRatesResponseConfidenceMax = 1;
+
 
 
 export const ParseExchangeRatesResponse = zod.object({
@@ -1214,6 +1238,7 @@ export const DeleteSystemRateResponse = zod.void()
  */
 
 
+
 export const ImportSystemRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string(),
@@ -1270,6 +1295,7 @@ export const parseSystemRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseSystemRatesResponseConfidenceMin = 0;
 export const parseSystemRatesResponseConfidenceMax = 1;
+
 
 
 export const ParseSystemRatesResponse = zod.object({
@@ -1350,6 +1376,7 @@ export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
 export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
+
 
 
 export const CreateBankAccountBody = zod.object({
@@ -1582,9 +1609,30 @@ export const GetStatementImportSourceResponse = zod.unknown()
 /**
  * @summary Ask the AI assistant about a client workspace
  */
+export const askLedgerflowAIBodyMessageMax = 4000;
+
+export const askLedgerflowAIBodyFiltersCurrencyMin = 3;
+export const askLedgerflowAIBodyFiltersCurrencyMax = 3;
+
+
+
 export const AskLedgerflowAIBody = zod.object({
   "clientId": zod.number(),
-  "message": zod.string()
+  "message": zod.string().min(1).max(askLedgerflowAIBodyMessageMax),
+  "threadId": zod.number().optional(),
+  "filters": zod.object({
+  "period": zod.string().optional(),
+  "dateFrom": zod.coerce.date().optional(),
+  "dateTo": zod.coerce.date().optional(),
+  "minAmount": zod.number().optional(),
+  "maxAmount": zod.number().optional(),
+  "direction": zod.enum(['inflow', 'outflow']).optional(),
+  "currency": zod.string().min(askLedgerflowAIBodyFiltersCurrencyMin).max(askLedgerflowAIBodyFiltersCurrencyMax).optional(),
+  "status": zod.string().optional(),
+  "merchant": zod.string().optional(),
+  "account": zod.string().optional(),
+  "recordId": zod.number().optional()
+}).optional()
 })
 
 export const askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
@@ -1592,6 +1640,7 @@ export const askLedgerflowAIResponseRecommendationsItemBankAccountOneAccountNumb
 
 export const AskLedgerflowAIResponse = zod.object({
   "answer": zod.string(),
+  "threadId": zod.number(),
   "recommendations": zod.array(zod.object({
   "id": zod.string(),
   "clientId": zod.number(),
@@ -1621,12 +1670,154 @@ export const AskLedgerflowAIResponse = zod.object({
 }),zod.null()]).optional(),
   "requiresConfirmation": zod.boolean()
 })),
+  "results": zod.array(zod.object({
+  "kind": zod.string(),
+  "title": zod.string(),
+  "complete": zod.boolean(),
+  "insufficientData": zod.boolean().optional(),
+  "rows": zod.array(zod.record(zod.string(), zod.unknown())),
+  "totals": zod.record(zod.string(), zod.unknown()),
+  "calculationNotes": zod.array(zod.string())
+})),
+  "citations": zod.array(zod.object({
+  "recordType": zod.string(),
+  "recordId": zod.number(),
+  "label": zod.string(),
+  "href": zod.string()
+})),
   "context": zod.object({
   "clientName": zod.string(),
   "pendingLines": zod.number(),
   "postedLines": zod.number()
 })
 })
+
+
+/**
+ * @summary List client-scoped accountant copilot conversations
+ */
+export const GetLedgerflowAIConversationsQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetLedgerflowAIConversationsResponseItem = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "title": zod.string(),
+  "status": zod.enum(['active', 'cleared']),
+  "turnCount": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const GetLedgerflowAIConversationsResponse = zod.array(GetLedgerflowAIConversationsResponseItem)
+
+
+/**
+ * @summary Start a client-scoped accountant copilot conversation
+ */
+export const createLedgerflowAIConversationBodyTitleMax = 120;
+
+
+
+export const CreateLedgerflowAIConversationBody = zod.object({
+  "clientId": zod.number(),
+  "title": zod.string().min(1).max(createLedgerflowAIConversationBodyTitleMax).optional()
+})
+
+export const CreateLedgerflowAIConversationResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "title": zod.string(),
+  "status": zod.enum(['active', 'cleared']),
+  "turnCount": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "scope": zod.record(zod.string(), zod.unknown()),
+  "turns": zod.array(zod.object({
+  "id": zod.number(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "response": zod.record(zod.string(), zod.unknown()).optional(),
+  "attachment": zod.record(zod.string(), zod.unknown()).optional(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Get a client-scoped copilot conversation and its turns
+ */
+export const GetLedgerflowAIConversationParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetLedgerflowAIConversationResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "title": zod.string(),
+  "status": zod.enum(['active', 'cleared']),
+  "turnCount": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "scope": zod.record(zod.string(), zod.unknown()),
+  "turns": zod.array(zod.object({
+  "id": zod.number(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "response": zod.record(zod.string(), zod.unknown()).optional(),
+  "attachment": zod.record(zod.string(), zod.unknown()).optional(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Rename a copilot conversation
+ */
+export const RenameLedgerflowAIConversationParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const renameLedgerflowAIConversationBodyTitleMax = 120;
+
+
+
+export const RenameLedgerflowAIConversationBody = zod.object({
+  "clientId": zod.number(),
+  "title": zod.string().min(1).max(renameLedgerflowAIConversationBodyTitleMax)
+})
+
+export const RenameLedgerflowAIConversationResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "title": zod.string(),
+  "status": zod.enum(['active', 'cleared']),
+  "turnCount": zod.number(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}).and(zod.object({
+  "scope": zod.record(zod.string(), zod.unknown()),
+  "turns": zod.array(zod.object({
+  "id": zod.number(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "response": zod.record(zod.string(), zod.unknown()).optional(),
+  "attachment": zod.record(zod.string(), zod.unknown()).optional(),
+  "createdAt": zod.coerce.date()
+}))
+}))
+
+
+/**
+ * @summary Clear a copilot conversation while retaining its identity
+ */
+export const ClearLedgerflowAIConversationParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ClearLedgerflowAIConversationResponse = zod.void()
 
 
 /**
@@ -1657,6 +1848,7 @@ export const GetLedgerflowAISettingsResponse = zod.object({
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
+
 
 
 export const UpdateLedgerflowAISettingsBody = zod.object({
@@ -2038,6 +2230,7 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
  */
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
+
 
 
 export const CreateReportPackBody = zod.object({
@@ -2469,4 +2662,3 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
-

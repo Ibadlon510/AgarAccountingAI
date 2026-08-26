@@ -759,14 +759,6 @@ type AgarAccountingUser = {
   firstName: string | null;
   lastName: string | null;
 };
-
-type AgarAccountingUser = {
-  id: string;
-  externalId?: string | null;
-  primaryEmailAddress?: { emailAddress: string } | null;
-  firstName: string | null;
-  lastName: string | null;
-};
 export type ClientWorkspace = { activeClient: Client | undefined; clients: Client[]; setActiveClientId: (id: number) => void };
 export const ClientContext = createContext<ClientWorkspace | null>(null);
 export function useClientWorkspace() {

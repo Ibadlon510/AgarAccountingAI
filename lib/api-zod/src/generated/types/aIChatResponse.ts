@@ -5,11 +5,16 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { AIAccountingCitation } from './aIAccountingCitation';
+import type { AIAccountingResult } from './aIAccountingResult';
 import type { AIChatResponseContext } from './aIChatResponseContext';
 import type { AICopilotRecommendation } from './aICopilotRecommendation';
 
 export interface AIChatResponse {
   answer: string;
+  threadId: number;
   recommendations: AICopilotRecommendation[];
+  results: AIAccountingResult[];
+  citations: AIAccountingCitation[];
   context: AIChatResponseContext;
 }

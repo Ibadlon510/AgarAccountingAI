@@ -288,7 +288,8 @@ async function request<T>(path: string, init?: RequestInit, userId = primaryUser
     ...init,
     headers: { "content-type": "application/json", "x-test-user-id": userId, ...(init?.headers ?? {}) },
   });
-  const body = (await response.json()) as T;
+  const text = await response.text();
+  const body = (text ? JSON.parse(text) : undefined) as T;
   return { response, body };
 }
 
@@ -860,6 +861,250 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(audits.response.status, 200);
   assert.deepEqual(audits.body.map((audit) => audit.transition).sort(), ["bulk_approve_entries", "bulk_post_entries"]);
   assert.ok(audits.body.every((audit) => audit.actor.id === primaryUserId));
+});
+
+test("persists isolated copilot threads and returns complete grounded results across follow-ups", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Durable copilot ${randomUUID()}`);
+  const seededLines = await database.db.insert(database.statementLinesTable).values(
+    Array.from({ length: 65 }, (_, index) => ({
+      clientId,
+      date: `2026-08-${String((index % 28) + 1).padStart(2, "0")}`,
+      description: `Grounded merchant ${String(index + 1).padStart(2, "0")}`,
+      currency: index % 2 === 0 ? "USD" : "AED",
+      amount: String(100 + index),
+      direction: "outflow" as const,
+      status: "needs_review" as const,
+      source: "Copilot test",
+      accountSuggestion: "Software & subscriptions",
+      confidence: "0.90",
+    })),
+  ).returning();
+  const seededEntries = await database.db.insert(database.journalEntriesTable).values(seededLines.map((line) => ({
+    clientId,
+    statementLineId: line.id,
+    date: line.date,
+    memo: line.description,
+    currency: line.currency,
+    status: "suggested" as const,
+    confidence: "0.90",
+    debitAccount: "Software & subscriptions",
+    creditAccount: "Bank / cash",
+    amount: line.amount,
+  }))).returning();
+
+  const created = await request<{
+    id: number;
+    clientId: number;
+    turns: unknown[];
+  }>("/ledgerflow/ai-conversations", {
+    method: "POST",
+    body: JSON.stringify({ clientId, title: "August exception review" }),
+  });
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.clientId, clientId);
+  assert.deepEqual(created.body.turns, []);
+
+  const invalidCurrency = await request<{ error: string }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Find transactions.",
+      filters: { currency: "US" },
+    }),
+  });
+  assert.equal(invalidCurrency.response.status, 400);
+  assert.match(invalidCurrency.body.error, /three-letter ISO currency code/i);
+
+  const first = await request<{
+    threadId: number;
+    results: Array<{ complete: boolean; rows: Array<{ id: number }>; totals: { count: number } }>;
+    citations: Array<{ recordId: number; href: string }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Find all outflow transactions.",
+      filters: { direction: "outflow" },
+    }),
+  });
+  assert.equal(first.response.status, 200);
+  assert.equal(first.body.threadId, created.body.id);
+  assert.equal(first.body.results[0]?.complete, true);
+  assert.equal(first.body.results[0]?.rows.length, 65);
+  assert.equal(first.body.results[0]?.totals.count, 65);
+  assert.equal(first.body.citations.length, 65);
+  assert.ok(first.body.citations.every((citation) => citation.href.includes(`lineId=${citation.recordId}`)));
+
+  const followUp = await request<{
+    results: Array<{ rows: Array<{ currency: string; direction: string }> }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Find transactions, but only USD.",
+    }),
+  });
+  assert.equal(followUp.response.status, 200);
+  assert.equal(followUp.body.results[0]?.rows.length, 33);
+  assert.ok(followUp.body.results[0]?.rows.every((row) => row.currency === "USD" && row.direction === "outflow"));
+
+  const periodFiltered = await request<{ results: Array<{ rows: unknown[] }> }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Find transactions for period 2025.",
+    }),
+  });
+  assert.equal(periodFiltered.response.status, 200);
+  assert.equal(periodFiltered.body.results[0]?.rows.length, 0);
+
+  const resetFilters = await request<{
+    results: Array<{ rows: unknown[]; totals: { outflowByCurrency: Record<string, number> } }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Reset filters and show all transactions.",
+    }),
+  });
+  assert.equal(resetFilters.response.status, 200);
+  assert.equal(resetFilters.body.results[0]?.rows.length, 65);
+  assert.deepEqual(Object.keys(resetFilters.body.results[0]?.totals.outflowByCurrency).sort(), ["AED", "USD"]);
+
+  const resumed = await request<{
+    scope: { direction?: string; currency?: string };
+    turns: Array<{ role: string; response?: { threadId?: number } }>;
+  }>(`/ledgerflow/ai-conversations/${created.body.id}`);
+  assert.equal(resumed.response.status, 200);
+  assert.deepEqual(resumed.body.scope, {});
+  assert.equal(resumed.body.turns.length, 8);
+  assert.equal(resumed.body.turns.at(-1)?.response?.threadId, created.body.id);
+
+  await database.db.update(database.statementLinesTable).set({ status: "posted" })
+    .where(inArray(database.statementLinesTable.id, seededLines.slice(0, 2).map((line) => line.id)));
+  await database.db.update(database.journalEntriesTable).set({ status: "posted" })
+    .where(inArray(database.journalEntriesTable.id, seededEntries.slice(0, 2).map((entry) => entry.id)));
+  const statements = await request<{
+    results: Array<{
+      kind: string;
+      complete: boolean;
+      rows: Array<{ section: string; currency: string }>;
+      totals: { functionalCurrency: string; missingRateCount: number };
+    }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Explain the financial statements for period 2026.",
+    }),
+  });
+  assert.equal(statements.response.status, 200);
+  assert.equal(statements.body.results[0]?.kind, "financial_statements");
+  assert.equal(statements.body.results[0]?.complete, false);
+  assert.equal(statements.body.results[0]?.totals.functionalCurrency, "AED");
+  assert.equal(statements.body.results[0]?.totals.missingRateCount, 1);
+  assert.ok(statements.body.results[0]?.rows.some((row) => row.section === "Income statement"));
+  assert.ok(statements.body.results[0]?.rows.every((row) => row.currency === "AED"));
+
+  const priorPeriodTrialBalance = await request<{
+    results: Array<{ kind: string; rows: unknown[]; totals: { totalDebit: number; totalCredit: number } }>;
+  }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      threadId: created.body.id,
+      message: "Show the trial balance for period 2025.",
+    }),
+  });
+  assert.equal(priorPeriodTrialBalance.response.status, 200);
+  assert.equal(priorPeriodTrialBalance.body.results[0]?.kind, "trial_balance");
+  assert.deepEqual(priorPeriodTrialBalance.body.results[0]?.rows, []);
+  assert.equal(priorPeriodTrialBalance.body.results[0]?.totals.totalDebit, 0);
+  assert.equal(priorPeriodTrialBalance.body.results[0]?.totals.totalCredit, 0);
+
+  const renamed = await request<{ title: string }>(`/ledgerflow/ai-conversations/${created.body.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, title: "USD outflow review" }),
+  });
+  assert.equal(renamed.response.status, 200);
+  assert.equal(renamed.body.title, "USD outflow review");
+
+  const dormant = await request<{ id: number }>("/ledgerflow/ai-conversations", {
+    method: "POST",
+    body: JSON.stringify({ clientId, title: "Expired conversation" }),
+  });
+  assert.equal(dormant.response.status, 201);
+  const expiredAt = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000);
+  await database.db.insert(database.assistantTurnsTable).values({
+    threadId: dormant.body.id,
+    role: "user",
+    content: "Old accounting context",
+    createdAt: expiredAt,
+  });
+  await database.db.update(database.assistantThreadsTable).set({
+    scope: { currency: "USD" },
+    updatedAt: expiredAt,
+  }).where(eq(database.assistantThreadsTable.id, dormant.body.id));
+  const afterRetention = await request<Array<{ id: number; status: string }>>(
+    `/ledgerflow/ai-conversations?clientId=${clientId}`,
+  );
+  assert.equal(afterRetention.response.status, 200);
+  assert.equal(afterRetention.body.find((thread) => thread.id === dormant.body.id)?.status, "cleared");
+  const expiredConversation = await request<{ scope: Record<string, unknown>; turns: unknown[] }>(
+    `/ledgerflow/ai-conversations/${dormant.body.id}`,
+  );
+  assert.deepEqual(expiredConversation.body.scope, {});
+  assert.deepEqual(expiredConversation.body.turns, []);
+
+  await database.db.insert(database.clientWorkspacesTable).values({
+    clientId,
+    userId: secondaryUserId,
+    role: "bookkeeper",
+  });
+  const foreignThread = await request<{ error: string }>(
+    `/ledgerflow/ai-conversations/${created.body.id}`,
+    undefined,
+    secondaryUserId,
+  );
+  assert.equal(foreignThread.response.status, 404);
+  const foreignList = await request<unknown[]>(
+    `/ledgerflow/ai-conversations?clientId=${clientId}`,
+    undefined,
+    secondaryUserId,
+  );
+  assert.equal(foreignList.response.status, 200);
+  assert.deepEqual(foreignList.body, []);
+
+  const otherClientId = await createClient(`Other copilot client ${randomUUID()}`);
+  const crossClient = await request<{ error: string }>("/ledgerflow/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: otherClientId,
+      threadId: created.body.id,
+      message: "Find transactions.",
+    }),
+  });
+  assert.equal(crossClient.response.status, 409);
+  assert.match(crossClient.body.error, /cannot cross client workspaces/i);
+
+  const cleared = await request<unknown>(`/ledgerflow/ai-conversations/${created.body.id}`, {
+    method: "DELETE",
+  });
+  assert.equal(cleared.response.status, 204);
+  const afterClear = await request<{ status: string; scope: Record<string, unknown>; turns: unknown[] }>(
+    `/ledgerflow/ai-conversations/${created.body.id}`,
+  );
+  assert.equal(afterClear.response.status, 200);
+  assert.equal(afterClear.body.status, "cleared");
+  assert.deepEqual(afterClear.body.scope, {});
+  assert.deepEqual(afterClear.body.turns, []);
 });
 
 test("keeps workspace AI credentials redacted, isolated, rotatable, and routes extraction through the selected provider", async () => {

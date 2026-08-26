@@ -1,32 +1,48 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sparkles, X, Paperclip, Send, Loader2, ArrowRight, Check, CircleAlert } from 'lucide-react';
+import {
+  Sparkles, X, Paperclip, Send, Loader2, ArrowRight, Check, CircleAlert,
+  Menu, Maximize2, Minimize2, Plus, MoreVertical, Trash2, Edit2, AlertCircle,
+  ListTodo, Search, TrendingUp, Tag, ArrowUpRight, Landmark, RotateCw
+} from 'lucide-react';
 import { useClientWorkspace } from '../App';
-import { 
-  useAskLedgerflowAI, 
-  useImportStatement, 
+import {
+  useAskLedgerflowAI,
+  useImportStatement,
   useConfirmAICopilotAction,
   useGetStatementImports,
+  useGetLedgerflowAIConversations,
+  useGetLedgerflowAIConversation,
+  useCreateLedgerflowAIConversation,
+  useRenameLedgerflowAIConversation,
+  useClearLedgerflowAIConversation,
   getGetStatementImportsQueryKey,
-  getGetStatementLinesQueryKey, 
+  getGetStatementLinesQueryKey,
   getGetBulkTransitionAuditsQueryKey,
   getGetLedgerOverviewQueryKey,
   getGetJournalEntriesQueryKey,
   getGetBankAccountsQueryKey,
   getGetTrialBalanceQueryKey,
-  getGetFinancialStatementsQueryKey
+  getGetFinancialStatementsQueryKey,
+  getGetLedgerflowAIConversationsQueryKey,
+  getGetLedgerflowAIConversationQueryKey
 } from '@workspace/api-client-react';
-import type { AIChatResponse, AICopilotRecommendation } from '@workspace/api-client-react';
+import type {
+  AIChatResponse, AICopilotRecommendation,
+  AIAccountingResult, AIAccountingCitation,
+  Client
+} from '@workspace/api-client-react';
 import { useUpload } from '@workspace/object-storage-web';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 
-type Message = {
+type RenderMessage = {
   id: string;
   role: 'user' | 'assistant';
-  type: 'text' | 'import-progress' | 'import-result' | 'recommendations';
   content: string;
-  context?: AIChatResponse['context'];
-  recommendations?: AICopilotRecommendation[];
+  createdAt: string;
+  response?: AIChatResponse;
+  type?: 'text' | 'import-progress' | 'import-result' | 'error';
+  errorPrompt?: string;
   importData?: {
     importedCount?: number;
     pendingConfirmation?: boolean;
@@ -49,34 +65,21 @@ type PendingImport = {
 };
 
 type AssistantState = {
-  messagesByClient: Record<string, Message[]>;
   pendingImports: Record<string, PendingImport>;
 };
-
-const initialAssistantMessage = (clientName?: string): Message => ({
-  id: `workspace-${clientName ?? 'none'}`,
-  role: 'assistant',
-  type: 'text',
-  content: clientName
-    ? `You are working in ${clientName}. Ask about its review queue, posted entries, or upload a statement.`
-    : 'Select a workspace to ask questions or import a statement.',
-});
 
 function readAssistantState(): AssistantState {
   try {
     const stored = window.localStorage.getItem(ASSISTANT_STATE_STORAGE_KEY);
-    if (!stored) return { messagesByClient: {}, pendingImports: {} };
+    if (!stored) return { pendingImports: {} };
     const parsed = JSON.parse(stored) as Partial<AssistantState>;
-    return {
-      messagesByClient: parsed.messagesByClient ?? {},
-      pendingImports: parsed.pendingImports ?? {},
-    };
+    return { pendingImports: parsed.pendingImports ?? {} };
   } catch {
-    return { messagesByClient: {}, pendingImports: {} };
+    return { pendingImports: {} };
   }
 }
 
-function importErrorMessage(error: unknown) {
+function getErrorMessage(error: unknown) {
   let message: string | null = null;
   if (typeof error === 'object' && error !== null) {
     if ('data' in error) {
@@ -95,7 +98,99 @@ function importErrorMessage(error: unknown) {
   return (message ?? 'Unknown error').replace(/^HTTP\s+\d+\s*:\s*/i, '');
 }
 
-function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: AICopilotRecommendation; activeClientId: number; onClose: () => void; onApplied?: () => void }) {
+function getErrorThreadId(error: unknown) {
+  if (typeof error !== 'object' || error === null || !('data' in error)) return null;
+  const data = (error as { data?: unknown }).data;
+  if (typeof data !== 'object' || data === null || !('threadId' in data)) return null;
+  const threadId = Number((data as { threadId?: unknown }).threadId);
+  return Number.isFinite(threadId) ? threadId : null;
+}
+
+function resultValue(value: unknown) {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'object') return String(value);
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, entry]) => `${key} ${String(entry)}`)
+    .join(' · ');
+}
+
+function ResultCard({ result }: { result: AIAccountingResult }) {
+  if (result.insufficientData) {
+    return (
+      <div className="mt-3 border border-border rounded-md bg-muted/30 p-3 shadow-sm">
+        <div className="font-semibold text-[12px]">{result.title}</div>
+        <p className="text-[11px] text-muted-foreground mt-1">Insufficient data to complete this request.</p>
+      </div>
+    );
+  }
+
+  const rowKeys = result.rows.length > 0 ? Object.keys(result.rows[0]) : [];
+  const totalKeys = result.totals ? Object.keys(result.totals) : [];
+  const columns = Array.from(new Set([...rowKeys, ...totalKeys]));
+
+  const rows = result.rows;
+  const totals = result.totals;
+
+  return (
+    <div data-testid={`card-result-${result.title.replace(/\s+/g, '-').toLowerCase()}`} className="mt-3 border border-border rounded-md bg-card overflow-hidden shadow-sm">
+       <div className="bg-muted/40 px-3 py-2 border-b border-border">
+         <div className="font-semibold text-[12px]">{result.title}</div>
+         {!result.complete && <div className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 font-medium">Partial results shown</div>}
+       </div>
+       {(rows.length > 0 || totalKeys.length > 0) && (
+         <div className="overflow-x-auto">
+           <table className="w-full text-[11px] text-left">
+             <thead className="bg-muted/20 text-muted-foreground">
+               <tr>
+                 {columns.map(c => <th key={c} className="px-3 py-1.5 font-medium whitespace-nowrap">{c}</th>)}
+               </tr>
+             </thead>
+             <tbody className="divide-y divide-border/50">
+               {rows.map((row, i) => (
+                 <tr key={i} className="hover:bg-muted/10 transition-colors">
+                   {columns.map(c => <td key={c} className="px-3 py-1.5 whitespace-nowrap">{resultValue(row[c])}</td>)}
+                 </tr>
+               ))}
+             </tbody>
+             {totalKeys.length > 0 && (
+               <tfoot className="bg-muted/20 font-semibold border-t border-border">
+                 <tr>
+                   {columns.map((c, i) => (
+                     <td key={c} className="px-3 py-1.5 whitespace-nowrap">{totals[c] !== undefined && totals[c] !== null ? resultValue(totals[c]) : (i === 0 && rows.length > 0 ? 'Total' : '')}</td>
+                   ))}
+                 </tr>
+               </tfoot>
+             )}
+           </table>
+         </div>
+       )}
+       {result.calculationNotes && result.calculationNotes.length > 0 && (
+         <div className="p-3 bg-muted/10 border-t border-border space-y-1">
+           {result.calculationNotes.map((note, i) => (
+             <div key={i} className="text-[10px] text-muted-foreground flex gap-1.5 leading-relaxed">
+                <span className="opacity-50 mt-0.5">•</span> <span>{note}</span>
+             </div>
+           ))}
+         </div>
+       )}
+    </div>
+  );
+}
+
+function Citations({ citations }: { citations: AIAccountingCitation[] }) {
+  if (!citations || citations.length === 0) return null;
+  return (
+    <div className="mt-4 flex flex-wrap gap-1.5 border-t border-border/60 pt-3">
+      {citations.map((c, i) => (
+        <Link key={i} href={c.href} className="inline-flex items-center gap-1.5 rounded-md bg-secondary/50 hover:bg-secondary border border-border/50 px-2 py-1 text-[10px] font-mono text-secondary-foreground transition-all hover:shadow-sm">
+          {c.label} <ArrowUpRight size={10} className="opacity-50" />
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onApplied }: { rec: AICopilotRecommendation; activeClientId: number; activeThreadId: number | null; onClose: () => void; onApplied?: () => void }) {
   const confirmMutation = useConfirmAICopilotAction();
   const queryClient = useQueryClient();
 
@@ -103,7 +198,7 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
   const isConfirmable = rec.requiresConfirmation && (rec.type === 'recode_lines' || rec.type === 'create_bank_account' || isBulkAction);
   const isNavigable = rec.type === 'next_step' || rec.type === 'review_group';
   const actionLabel = rec.type === 'bulk_approve_entries' ? 'approval' : rec.type === 'bulk_post_entries' ? 'posting' : 'proposal';
-  
+
   const handleConfirm = () => {
     confirmMutation.mutate({
       data: {
@@ -135,7 +230,7 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
       <div className="flex items-center justify-between">
         <div className="font-semibold text-[12px]">{rec.title}</div>
         {rec.confidence != null && (
-          <div className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+          <div className="text-[10px] font-mono text-muted-foreground bg-muted border border-border/50 px-1.5 py-0.5 rounded">
             {Math.round(rec.confidence * 100)}% conf
           </div>
         )}
@@ -146,14 +241,14 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
           <Sparkles size={11} /> Workspace learned · {(rec as any).supportingPatternCount ?? 0} confirmed pattern{((rec as any).supportingPatternCount ?? 0) === 1 ? '' : 's'}
         </div>
       )}
-      
+
       {rec.type === 'recode_lines' && rec.accountSuggestion && (
         <div className="mt-2.5 flex items-center gap-2 text-[10px] font-mono">
           <span className="text-muted-foreground">Suggests:</span>
           <span className="font-semibold px-1.5 py-0.5 bg-secondary/40 rounded">{rec.accountSuggestion}</span>
         </div>
       )}
-      
+
       {rec.type === 'create_bank_account' && rec.bankAccount && (
         <div className="mt-2.5 text-[10px] font-mono space-y-1.5 bg-muted/40 p-2 rounded">
           <div><span className="text-muted-foreground">Name:</span> {rec.bankAccount.name}</div>
@@ -182,7 +277,7 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
       )}
 
       {isConfirmable && (
-        <div className="mt-3 border-t border-border pt-3">
+        <div className="mt-3 border-t border-border/60 pt-3">
           {confirmMutation.isSuccess ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-primary">
               <Check size={13} /> {actionLabel === 'approval' ? 'Approval confirmed' : actionLabel === 'posting' ? 'Posting confirmed' : 'Applied successfully'}
@@ -196,7 +291,7 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
               data-testid={rec.type === 'bulk_approve_entries' ? `button-confirm-bulk-approval-${rec.id}` : rec.type === 'bulk_post_entries' ? `button-confirm-bulk-posting-${rec.id}` : `button-confirm-ai-proposal-${rec.id}`}
               onClick={handleConfirm}
               disabled={confirmMutation.isPending}
-              className="flex w-full items-center justify-center gap-2 rounded bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-sm disabled:opacity-50"
             >
               {confirmMutation.isPending && <Loader2 size={12} className="animate-spin" />}
               {confirmMutation.isPending ? 'Applying...' : rec.type === 'bulk_approve_entries' ? 'Confirm approval' : rec.type === 'bulk_post_entries' ? 'Confirm posting' : 'Confirm proposal'}
@@ -204,10 +299,10 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
           )}
         </div>
       )}
-      
+
       {isNavigable && (
-        <div className="mt-3 border-t border-border pt-3">
-          <Link href="/statement-lines" onClick={onClose} className="flex w-full items-center justify-center gap-2 rounded border border-input bg-background px-3 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:bg-muted hover:text-foreground">
+        <div className="mt-3 border-t border-border/60 pt-3">
+          <Link href="/statement-lines" onClick={onClose} className="flex w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-[11px] font-semibold text-foreground transition-all hover:bg-muted hover:shadow-sm">
             Review lines <ArrowRight size={12} />
           </Link>
         </div>
@@ -216,23 +311,211 @@ function RecommendationCard({ rec, activeClientId, onClose, onApplied }: { rec: 
   );
 }
 
+const STARTERS = [
+  { label: 'Review exceptions', prompt: 'Review the current exceptions queue and highlight the most urgent issues.', icon: CircleAlert },
+  { label: 'Summarize queue', prompt: 'Summarize the pending review queue.', icon: ListTodo },
+  { label: 'Find transactions', prompt: 'Find recent transactions over $10,000.', icon: Search },
+  { label: 'Explain balances', prompt: 'Explain the changes in operating expenses this period.', icon: TrendingUp },
+  { label: 'Classify lines', prompt: 'Propose classifications for unmapped statement lines.', icon: Tag },
+  { label: 'Import statement', action: 'import', icon: Paperclip },
+];
+
+function EmptyState({ onSelect, onImport }: { onSelect: (prompt: string) => void, onImport: () => void }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-6 animate-in fade-in zoom-in-95 duration-300">
+      <div className="grid size-12 place-items-center rounded-2xl bg-primary/10 text-primary shadow-sm">
+        <Sparkles size={24} />
+      </div>
+      <div className="text-center">
+        <h3 className="text-sm font-semibold">How can I help?</h3>
+        <p className="text-[11px] text-muted-foreground mt-1 max-w-[200px] mx-auto">Select a starter or type a question below to begin.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2 w-full max-w-[320px]">
+        {STARTERS.map(s => (
+          <button
+            key={s.label}
+            data-testid={s.action === 'import' ? 'button-starter-import-statement' : `button-starter-${s.label.replace(/\s+/g, '-').toLowerCase()}`}
+            onClick={() => s.action === 'import' ? onImport() : onSelect(s.prompt!)}
+            className="flex flex-col items-start gap-2 p-3 text-left border border-border rounded-xl bg-card hover:bg-muted hover:border-primary/40 transition-all group lift-hover shadow-sm"
+          >
+            <s.icon size={16} className="text-muted-foreground group-hover:text-primary transition-colors" />
+            <span className="text-[11px] font-medium leading-tight">{s.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({ msg, activeClient, activeThreadId, onClose, onRetry }: { msg: RenderMessage, activeClient: Client, activeThreadId: number | null, onClose: () => void, onRetry: (prompt: string) => void }) {
+  const isUser = msg.role === 'user';
+  const content = msg.content;
+  const response = msg.response;
+  const queryClient = useQueryClient();
+
+  const handleApplied = (rec: any) => {
+    if (rec.type !== 'bulk_post_entries' || !activeThreadId) return;
+    const movedLines = rec.lineCount ?? rec.statementLineIds?.length ?? 0;
+
+    queryClient.setQueryData(getGetLedgerflowAIConversationQueryKey(activeThreadId), (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        turns: old.turns.map((t: any) => {
+          if (t.id.toString() === msg.id && t.response?.context) {
+            return {
+              ...t,
+              response: {
+                ...t.response,
+                context: {
+                  ...t.response.context,
+                  pendingLines: Math.max(0, t.response.context.pendingLines - movedLines),
+                  postedLines: t.response.context.postedLines + movedLines,
+                }
+              }
+            };
+          }
+          return t;
+        })
+      };
+    });
+  };
+
+  return (
+    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 fade-in duration-300`}>
+      {isUser ? (
+        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-[13px] leading-relaxed text-primary-foreground shadow-sm">
+          {content}
+        </div>
+      ) : (
+        <div className={`max-w-[92%] rounded-2xl rounded-bl-sm border px-4 py-3 text-[13px] leading-relaxed shadow-sm ${msg.type === 'import-result' ? 'border-primary/30 bg-primary/5' : 'border-card-border bg-card'}`}>
+          {msg.type === 'error' && (
+            <div className="space-y-3">
+              <div className="text-destructive font-semibold flex items-center gap-2">
+                <AlertCircle size={16} /> Request Failed
+              </div>
+              <div className="text-foreground whitespace-pre-wrap">{content}</div>
+              {msg.errorPrompt && (
+                <button
+                  data-testid="button-retry-chat"
+                  onClick={() => onRetry(msg.errorPrompt!)}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 shadow-sm"
+                >
+                  <RotateCw size={14} /> Retry
+                </button>
+              )}
+            </div>
+          )}
+          {msg.type === 'import-progress' && (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" />
+              <span>{content}</span>
+            </div>
+          )}
+          {msg.type === 'import-result' && (
+            <div>
+              <div className="font-semibold text-primary">{content}</div>
+              <div className="mt-1 text-muted-foreground text-[11px]">
+                {msg.importData?.pendingConfirmation
+                  ? `${msg.importData.importedCount ?? 0} proposed lines are saved but not loaded.${msg.importData.detectedCurrency ? ` Detected currency: ${msg.importData.detectedCurrency}.` : ''}`
+                  : `${msg.importData?.importedCount ?? 0} lines extracted and queued.`}
+              </div>
+              {msg.importData?.bankAccountName && (
+                <div className="mt-2 rounded bg-secondary/50 px-2 py-1.5 font-mono text-[10px] text-foreground border border-border/50">
+                  Bank account: {msg.importData.bankAccountName}{msg.importData.accountNumberLast4 ? ` · •••• ${msg.importData.accountNumberLast4}` : ''}
+                </div>
+              )}
+              <Link href={msg.importData?.pendingConfirmation ? '/import-statement' : '/statement-lines'} onClick={onClose} className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 shadow-sm">
+                {msg.importData?.pendingConfirmation ? 'Confirm currency' : 'Review lines'} <ArrowRight size={14} />
+              </Link>
+            </div>
+          )}
+          {(!msg.type || msg.type === 'text') && (
+            <div className="space-y-3">
+              <div className="text-foreground whitespace-pre-wrap">{content}</div>
+
+              {response?.recommendations && response.recommendations.length > 0 && (
+                <div className="space-y-3 pt-1">
+                  {response.recommendations.map((rec: any) => (
+                    <RecommendationCard key={rec.id} rec={rec} activeClientId={activeClient.id} activeThreadId={activeThreadId} onClose={onClose} onApplied={() => handleApplied(rec)} />
+                  ))}
+                </div>
+              )}
+
+              {response?.results && response.results.length > 0 && (
+                <div className="space-y-3 pt-1">
+                  {response.results.map((res: any, idx: number) => (
+                    <ResultCard key={idx} result={res} />
+                  ))}
+                </div>
+              )}
+
+              {response?.citations && response.citations.length > 0 && (
+                <Citations citations={response.citations} />
+              )}
+
+              {response?.context && (
+                <div className="flex flex-wrap items-center gap-3 border-t border-border/60 pt-3">
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    Pending: <span className="font-semibold text-foreground">{response.context.pendingLines}</span>
+                  </div>
+                  <div className="font-mono text-[10px] text-muted-foreground">
+                    Posted: <span className="font-semibold text-foreground">{response.context.postedLines}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AssistantFAB() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [view, setView] = useState<'chat' | 'history'>('chat');
+  const [activeThreadId, setActiveThreadId] = useState<number | null>(null);
+
   const { activeClient, clients } = useClientWorkspace();
   const queryClient = useQueryClient();
   const chatMutation = useAskLedgerflowAI();
   const importMutation = useImportStatement();
   const { uploadFile, isUploading } = useUpload();
+
   const [assistantState, setAssistantState] = useState<AssistantState>(readAssistantState);
   const [input, setInput] = useState('');
   const [activeChatClientId, setActiveChatClientId] = useState<number | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const createMutation = useCreateLedgerflowAIConversation();
+
   const activeClientKey = activeClient ? String(activeClient.id) : 'none';
   const pendingImport = activeClient ? assistantState.pendingImports[activeClientKey] : undefined;
-  const messages = activeClient
-    ? assistantState.messagesByClient[activeClientKey] ?? [initialAssistantMessage(activeClient.name)]
-    : [initialAssistantMessage()];
+
+  const [optimisticTurns, setOptimisticTurns] = useState<RenderMessage[]>([]);
+  const [localImportMessages, setLocalImportMessages] = useState<Record<string, RenderMessage[]>>({});
+
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [showOptions, setShowOptions] = useState(false);
+
+  const conversationsQuery = useGetLedgerflowAIConversations(
+    { clientId: activeClient?.id ?? 0 },
+    { query: { enabled: !!activeClient, queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient?.id ?? 0 }) } }
+  );
+
+  const activeThread = useGetLedgerflowAIConversation(
+    activeThreadId ?? 0,
+    { query: { enabled: !!activeThreadId, queryKey: getGetLedgerflowAIConversationQueryKey(activeThreadId ?? 0) } }
+  );
+
+  const renameMutation = useRenameLedgerflowAIConversation();
+  const clearMutation = useClearLedgerflowAIConversation();
+
   const importTrail = useGetStatementImports(
     { clientId: activeClient?.id ?? 0 },
     {
@@ -243,16 +526,7 @@ export function AssistantFAB() {
       },
     },
   );
-  const updateMessages = (clientId: number, transform: (current: Message[]) => Message[]) => {
-    setAssistantState((current) => {
-      const key = String(clientId);
-      const existing = current.messagesByClient[key] ?? [initialAssistantMessage(clients.find((client) => client.id === clientId)?.name)];
-      return {
-        ...current,
-        messagesByClient: { ...current.messagesByClient, [key]: transform(existing) },
-      };
-    });
-  };
+
   const clearPendingImport = (clientId: number) => {
     setAssistantState((current) => {
       const pendingImports = { ...current.pendingImports };
@@ -266,37 +540,41 @@ export function AssistantFAB() {
   }, [assistantState]);
 
   useEffect(() => {
-    if (!activeClient) return;
-    setAssistantState((current) => {
-      const key = String(activeClient.id);
-      if (current.messagesByClient[key]) return current;
-      return {
-        ...current,
-        messagesByClient: {
-          ...current.messagesByClient,
-          [key]: [initialAssistantMessage(activeClient.name)],
-        },
-      };
-    });
-    setInput('');
-  }, [activeClient?.id]);
+    if (activeClient && activeThreadId && activeThread.data?.clientId !== activeClient.id && !activeThread.isFetching) {
+      setActiveThreadId(null);
+      setView('chat');
+    }
+  }, [activeClient?.id, activeThread.data?.clientId, activeThreadId, activeThread.isFetching]);
+
+  useEffect(() => {
+    if (isOpen && composerRef.current) {
+      setTimeout(() => composerRef.current?.focus(), 0);
+    }
+  }, [isOpen, activeThreadId, view]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isOpen, activeChatClientId, pendingImport]);
+  }, [optimisticTurns, localImportMessages, activeThread.data, isOpen, view, activeChatClientId, pendingImport]);
+
+  useEffect(() => {
+    if (!activeThread.isFetching && optimisticTurns.length > 0 && !chatMutation.isPending) {
+      setOptimisticTurns([]);
+    }
+  }, [activeThread.isFetching, chatMutation.isPending]);
 
   useEffect(() => {
     if (!activeClient || !pendingImport) return;
     const matchingImport = importTrail.data?.find((item) => item.objectPath === pendingImport.objectPath);
     if (!matchingImport) return;
-    const settledMessage: Message = matchingImport.outcome === 'failed'
+
+    const settledMessage: RenderMessage = matchingImport.outcome === 'failed'
       ? {
           id: pendingImport.progressMessageId,
           role: 'assistant',
-          type: 'text',
           content: `Import failed: ${matchingImport.errorMessage ?? 'The statement could not be processed.'}`,
+          createdAt: new Date().toISOString()
         }
       : matchingImport.outcome === 'pending_confirmation'
         ? {
@@ -309,6 +587,7 @@ export function AssistantFAB() {
               pendingConfirmation: true,
               detectedCurrency: matchingImport.detectedCurrency,
             },
+            createdAt: new Date().toISOString()
           }
         : {
           id: pendingImport.progressMessageId,
@@ -318,12 +597,17 @@ export function AssistantFAB() {
             ? 'This statement was already imported.'
             : 'Import completed.',
           importData: { importedCount: matchingImport.importedLineCount },
+          createdAt: new Date().toISOString()
         };
-    updateMessages(activeClient.id, (current) =>
-      current.some((message) => message.id === pendingImport.progressMessageId)
-        ? current.map((message) => message.id === pendingImport.progressMessageId ? settledMessage : message)
-        : [...current, settledMessage],
-    );
+
+    setLocalImportMessages(prev => {
+      const current = prev[activeClient.id] || [];
+      if (current.some(m => m.id === pendingImport.progressMessageId)) {
+        return { ...prev, [activeClient.id]: current.map(m => m.id === pendingImport.progressMessageId ? settledMessage : m) };
+      }
+      return { ...prev, [activeClient.id]: [...current, settledMessage] };
+    });
+
     clearPendingImport(activeClient.id);
     if (matchingImport.outcome !== 'pending_confirmation') {
       queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
@@ -331,37 +615,75 @@ export function AssistantFAB() {
     }
   }, [activeClient?.id, importTrail.data, pendingImport]);
 
-  const handleSend = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!input.trim() || !activeClient) return;
+  const handleSend = (e?: React.FormEvent | string) => {
+    if (typeof e === 'object' && e !== null && 'preventDefault' in e) e.preventDefault();
+    const content = typeof e === 'string' ? e : input;
+    if (!content.trim() || !activeClient) return;
+
     const client = activeClient;
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', type: 'text', content: input.trim() };
-    updateMessages(client.id, (current) => [...current, userMsg]);
-    setInput('');
+
+    setOptimisticTurns(prev => [...prev, {
+      id: Date.now().toString(),
+      role: 'user',
+      content: content.trim(),
+      createdAt: new Date().toISOString()
+    }]);
+
+    if (typeof e !== 'string') setInput('');
 
     setActiveChatClientId(client.id);
-    chatMutation.mutate({ data: { clientId: client.id, message: userMsg.content } }, {
+    chatMutation.mutate({ data: { clientId: client.id, message: content.trim(), threadId: activeThreadId ?? undefined } }, {
       onSuccess: (res) => {
-        updateMessages(client.id, (current) => [...current, {
-          id: Date.now().toString(),
-          role: 'assistant',
-          type: res.recommendations && res.recommendations.length > 0 ? 'recommendations' : 'text',
-          content: res.answer,
-          context: res.context,
-          recommendations: res.recommendations
-        }]);
-        setActiveChatClientId(null);
+         const responseThreadId = activeThreadId ?? res.threadId;
+         if (!activeThreadId) {
+           setActiveThreadId(res.threadId);
+           queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: client.id }) });
+         } else {
+           queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(activeThreadId) });
+         }
+         if (/\b(?:reset|clear)\s+(?:all\s+)?filters?\b|\bshow\s+all\b/i.test(content)) {
+           queryClient.setQueryData(getGetLedgerflowAIConversationQueryKey(responseThreadId), (current: unknown) => {
+             if (typeof current !== 'object' || current === null) return current;
+             return { ...current, scope: {} };
+           });
+         }
+         setActiveChatClientId(null);
       },
-      onError: () => {
-        updateMessages(client.id, (current) => [...current, {
-          id: Date.now().toString(),
-          role: 'assistant',
-          type: 'text',
-          content: 'I encountered an error processing your request.'
-        }]);
-        setActiveChatClientId(null);
+      onError: (err) => {
+         const durableThreadId = activeThreadId ?? getErrorThreadId(err);
+         setOptimisticTurns([]);
+         setActiveChatClientId(null);
+         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: client.id }) });
+         if (durableThreadId) {
+           setActiveThreadId(durableThreadId);
+           queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(durableThreadId) });
+           return;
+         }
+         setLocalImportMessages(prev => ({
+           ...prev,
+           [client.id]: [
+             ...(prev[client.id] || []),
+             {
+               id: (Date.now() + 1).toString(),
+               role: 'assistant',
+               type: 'error',
+               content: getErrorMessage(err),
+               errorPrompt: content.trim(),
+               createdAt: new Date().toISOString()
+             }
+           ]
+         }));
       }
     });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (input.trim()) {
+        handleSend();
+      }
+    }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -373,18 +695,25 @@ export function AssistantFAB() {
     const progressId = Date.now().toString();
 
     if (file.size > MAX_IMPORT_FILE_SIZE) {
-      updateMessages(client.id, (current) => [...current,
-        { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
-        { id: progressId, role: 'assistant', type: 'text', content: 'Statement file is too large. Choose a file no larger than 50 MB.' },
-      ]);
+      setLocalImportMessages(prev => ({
+        ...prev,
+        [client.id]: [
+          ...(prev[client.id] || []),
+          { id: Date.now().toString() + '-user', role: 'user', content: `Importing ${file.name}`, createdAt: new Date().toISOString() },
+          { id: progressId, role: 'assistant', type: 'text', content: 'Statement file is too large. Choose a file no larger than 50 MB.', createdAt: new Date().toISOString() },
+        ]
+      }));
       return;
     }
-    
-    updateMessages(client.id, (current) => [
-      ...current,
-      { id: Date.now().toString() + '-user', role: 'user', type: 'text', content: `Importing ${file.name}` },
-      { id: progressId, role: 'assistant', type: 'import-progress', content: 'Uploading the original file to private storage...' }
-    ]);
+
+    setLocalImportMessages(prev => ({
+      ...prev,
+      [client.id]: [
+        ...(prev[client.id] || []),
+        { id: Date.now().toString() + '-user', role: 'user', content: `Importing ${file.name}`, createdAt: new Date().toISOString() },
+        { id: progressId, role: 'assistant', type: 'import-progress', content: 'Uploading the original file to private storage...', createdAt: new Date().toISOString() }
+      ]
+    }));
 
     try {
       const uploaded = await uploadFile(file, { clientId: client.id });
@@ -400,9 +729,12 @@ export function AssistantFAB() {
         ...current,
         pendingImports: { ...current.pendingImports, [String(client.id)]: pending },
       }));
-      updateMessages(client.id, (current) => current.map((message) =>
-        message.id === progressId ? { ...message, content: 'Upload complete. Extracting data in the background...' } : message,
-      ));
+
+      setLocalImportMessages(prev => ({
+        ...prev,
+        [client.id]: prev[client.id].map(m => m.id === progressId ? { ...m, content: 'Upload complete. Extracting data in the background...' } : m)
+      }));
+
       const data = await importMutation.mutateAsync({
         data: {
           clientId: client.id,
@@ -413,20 +745,24 @@ export function AssistantFAB() {
         }
       });
       clearPendingImport(client.id);
-      updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
-        ...message,
-        type: 'import-result',
-        content: data.importStatus === 'preview'
-          ? 'Statement parsed — currency confirmation required.'
-          : data.message ?? 'This statement was already imported.',
-        importData: {
-          importedCount: data.importStatus === 'preview' ? data.lines.length : data.importedCount,
-          pendingConfirmation: data.importStatus === 'preview',
-          detectedCurrency: data.detectedCurrency,
-          bankAccountName: data.bankAccount?.name,
-          accountNumberLast4: data.bankAccount?.accountNumberLast4,
-        }
-      } : message));
+
+      setLocalImportMessages(prev => ({
+        ...prev,
+        [client.id]: prev[client.id].map(m => m.id === progressId ? {
+          ...m,
+          type: 'import-result',
+          content: data.importStatus === 'preview'
+            ? 'Statement parsed — currency confirmation required.'
+            : data.message ?? 'This statement was already imported.',
+          importData: {
+            importedCount: data.importStatus === 'preview' ? data.lines.length : data.importedCount,
+            pendingConfirmation: data.importStatus === 'preview',
+            detectedCurrency: data.detectedCurrency,
+            bankAccountName: data.bankAccount?.name,
+            accountNumberLast4: data.bankAccount?.accountNumberLast4,
+          }
+        } : m)
+      }));
       queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: client.id }) });
     } catch (error) {
       const status = typeof error === 'object' && error !== null && 'status' in error
@@ -434,127 +770,306 @@ export function AssistantFAB() {
         : null;
       if (status !== null && status >= 400 && status < 500) {
         clearPendingImport(client.id);
-        updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
-          ...message,
-          type: 'text',
-          content: `Import failed: ${importErrorMessage(error)}`
-        } : message));
+        setLocalImportMessages(prev => ({
+          ...prev,
+          [client.id]: prev[client.id].map(m => m.id === progressId ? {
+            ...m,
+            type: 'text',
+            content: `Import failed: ${getErrorMessage(error)}`
+          } : m)
+        }));
       } else {
-        updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
-          ...message,
-          type: 'import-progress',
-          content: 'Connection interrupted. AgarAccounting AI will keep checking this client’s import trail.'
-        } : message));
+        setLocalImportMessages(prev => ({
+          ...prev,
+          [client.id]: prev[client.id].map(m => m.id === progressId ? {
+            ...m,
+            type: 'import-progress',
+            content: 'Connection interrupted. AgarAccounting AI will keep checking this client’s import trail.'
+          } : m)
+        }));
       }
     }
   };
+
   const isChatWorkingForActiveClient = chatMutation.isPending && activeChatClientId === activeClient?.id;
   const backgroundImportClients = Object.values(assistantState.pendingImports)
     .filter((pending) => pending.clientId !== activeClient?.id)
     .map((pending) => clients.find((client) => client.id === pending.clientId)?.name ?? 'another client');
   const backgroundWorkCount = backgroundImportClients.length + (chatMutation.isPending && activeChatClientId !== activeClient?.id ? 1 : 0);
 
-  return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
-      {isOpen && (
-        <div className="mb-4 flex h-[550px] max-h-[calc(100dvh-120px)] w-[380px] flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl transition-all page-enter">
-          <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="grid size-8 place-items-center rounded-lg bg-primary/10 text-primary">
-                <Sparkles size={16} />
-              </div>
-              <div>
-                <h3 className="text-[13px] font-semibold leading-none text-foreground">AgarAccounting AI</h3>
-                  <p className="mt-1 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">
-                   {activeClient ? activeClient.name : 'Select a workspace'}
-                 </p>
-                 {backgroundWorkCount > 0 && <p data-testid="text-ai-background-work" className="mt-1 text-[10px] text-primary">Still working in {backgroundImportClients[0] ?? 'another client'}{backgroundWorkCount > 1 ? ` and ${backgroundWorkCount - 1} more` : ''}.</p>}
-              </div>
-            </div>
-            <button 
-              onClick={() => setIsOpen(false)}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <X size={16} />
-            </button>
-          </div>
+  const serverTurns: RenderMessage[] = (activeThread.data?.turns ?? []).map(t => ({
+    id: t.id.toString(),
+    role: t.role,
+    content: t.content,
+    createdAt: t.createdAt,
+    response: t.response as unknown as AIChatResponse | undefined,
+  }));
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/20 p-4 space-y-4">
-            {messages.map(msg => (
-              <div key={msg.id} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'user' ? (
-                  <div className="max-w-[85%] rounded-lg bg-primary px-3.5 py-2.5 text-[13px] leading-relaxed text-primary-foreground shadow-sm">
-                    {msg.content}
-                  </div>
+  const displayTurns = [
+    ...serverTurns,
+    ...optimisticTurns,
+    ...(localImportMessages[activeClient?.id ?? 0] ?? [])
+  ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const activeScope = Object.entries(activeThread.data?.scope ?? {});
+
+  const containerClasses = isOpen
+    ? isExpanded
+      ? "fixed inset-0 md:inset-6 z-50 flex overflow-hidden flex-col md:flex-row bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
+      : "fixed inset-0 md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[380px] md:h-[600px] md:max-h-[calc(100dvh-120px)] z-50 flex flex-col overflow-hidden bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
+    : "hidden";
+
+  const showSidebar = isExpanded || view === 'history';
+  const showChat = isExpanded || view === 'chat';
+
+  if (!isOpen) {
+    return (
+      <button
+        data-testid="button-open-assistant"
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-6 right-6 z-50 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-transform hover:-translate-y-1 focus-ring"
+        aria-label="Open AI Assistant"
+      >
+        <Sparkles size={24} />
+        {backgroundWorkCount > 0 && (
+          <span className="absolute top-0 right-0 size-3.5 rounded-full bg-destructive border-2 border-background" />
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <>
+      {isOpen && !isExpanded && <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden" onClick={() => setIsOpen(false)} />}
+      <div className={containerClasses} aria-live="polite">
+
+        {/* Sidebar */}
+        <div className={`flex flex-col border-border bg-muted/10 ${isExpanded ? 'w-full md:w-[280px] border-r' : 'w-full flex-1'} ${!showSidebar ? 'hidden' : ''}`}>
+          <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shrink-0 h-[57px]">
+            <h3 className="text-[13px] font-semibold text-foreground">Conversations</h3>
+            <div className="flex items-center gap-1">
+              <button
+                data-testid="button-new-conversation"
+                aria-label="New chat"
+                onClick={() => {
+                  if (!activeClient) return;
+                  createMutation.mutate({ data: { clientId: activeClient.id } }, {
+                    onSuccess: (res) => {
+                      setActiveThreadId(res.id);
+                      queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient.id }) });
+                      setView('chat');
+                      setTimeout(() => composerRef.current?.focus(), 0);
+                    }
+                  });
+                }}
+                className="grid size-7 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-colors"
+                title="New chat"
+              >
+                <Plus size={16} />
+              </button>
+              {!isExpanded && (
+                <button aria-label="Close" onClick={() => setIsOpen(false)} className="grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md" title="Close">
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1">
+            {conversationsQuery.data?.map(thread => (
+              <div data-testid={`row-thread-${thread.id}`} key={thread.id} className={`group flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${activeThreadId === thread.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground'}`} onClick={() => { setActiveThreadId(thread.id); setView('chat'); }}>
+                {renamingId === thread.id ? (
+                   <form onSubmit={(e) => {
+                     e.preventDefault();
+                     renameMutation.mutate({ id: thread.id, data: { clientId: activeClient!.id, title: renameTitle } }, {
+                       onSuccess: () => {
+                         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient!.id }) });
+                         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(thread.id) });
+                       }
+                     });
+                     setRenamingId(null);
+                   }} className="flex-1 flex">
+                     <input autoFocus value={renameTitle} onChange={e => setRenameTitle(e.target.value)} onBlur={() => setRenamingId(null)} className="flex-1 text-[12px] bg-background border border-primary/50 rounded px-2 py-0.5 outline-none" onClick={e => e.stopPropagation()} />
+                   </form>
                 ) : (
-                  <div className={`max-w-[85%] rounded-lg border px-3.5 py-2.5 text-[13px] leading-relaxed shadow-sm ${msg.type === 'import-result' ? 'border-primary/30 bg-primary/5' : 'border-card-border bg-card'}`}>
-                    {msg.type === 'import-progress' ? (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 size={14} className="animate-spin" />
-                        <span>{msg.content}</span>
-                      </div>
-                    ) : msg.type === 'import-result' ? (
-                      <div>
-                        <div className="font-semibold text-primary">{msg.content}</div>
-                        <div className="mt-1 text-muted-foreground">{msg.importData?.pendingConfirmation
-                          ? `${msg.importData.importedCount ?? 0} proposed lines are saved but not loaded.${msg.importData.detectedCurrency ? ` Detected currency: ${msg.importData.detectedCurrency}.` : ''}`
-                          : `${msg.importData?.importedCount ?? 0} lines extracted and queued.`}</div>
-                        {msg.importData?.bankAccountName && <div className="mt-2 rounded bg-secondary/50 px-2 py-1.5 font-mono text-[10px] text-foreground">Bank account: {msg.importData.bankAccountName}{msg.importData.accountNumberLast4 ? ` · •••• ${msg.importData.accountNumberLast4}` : ''}</div>}
-                        <Link href={msg.importData?.pendingConfirmation ? '/import-statement' : '/statement-lines'} onClick={() => setIsOpen(false)} className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">
-                          {msg.importData?.pendingConfirmation ? 'Confirm currency' : 'Review lines'} <ArrowRight size={14} />
-                        </Link>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="text-foreground">{msg.content}</div>
-                        
-                        {msg.type === 'recommendations' && msg.recommendations && activeClient && (
-                          <div className="space-y-3 pt-1">
-                            {msg.recommendations.map(rec => (
-                              <RecommendationCard 
-                                key={rec.id} 
-                                rec={rec} 
-                                activeClientId={activeClient.id} 
-                                onClose={() => setIsOpen(false)} 
-                                onApplied={() => {
-                                  if (rec.type !== 'bulk_post_entries' || !msg.context) return;
-                                  const movedLines = rec.lineCount ?? rec.statementLineIds?.length ?? 0;
-                                  updateMessages(activeClient.id, (current) => current.map((item) => item.id === msg.id && item.context
-                                    ? {
-                                      ...item,
-                                      context: {
-                                        ...item.context,
-                                        pendingLines: Math.max(0, item.context.pendingLines - movedLines),
-                                        postedLines: item.context.postedLines + movedLines,
-                                      },
-                                    }
-                                    : item));
-                                }}
-                              />
-                            ))}
-                          </div>
-                        )}
-                        
-                        {msg.context && (
-                          <div className="flex flex-wrap items-center gap-3 border-t border-border pt-3">
-                            <div className="font-mono text-[10px] text-muted-foreground">
-                              Pending: <span className="font-semibold text-foreground">{msg.context.pendingLines}</span>
-                            </div>
-                            <div className="font-mono text-[10px] text-muted-foreground">
-                              Posted: <span className="font-semibold text-foreground">{msg.context.postedLines}</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                   <div className="truncate text-[12px] font-medium flex-1 mr-2">{thread.title || 'New Conversation'}</div>
+                )}
+
+                {renamingId !== thread.id && (
+                   <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                     <button
+                       data-testid={`button-rename-thread-${thread.id}`}
+                       aria-label="Rename chat"
+                       onClick={(e) => { e.stopPropagation(); setRenamingId(thread.id); setRenameTitle(thread.title || ''); }}
+                       className="p-1 hover:bg-background rounded text-muted-foreground"
+                     >
+                       <Edit2 size={12} />
+                     </button>
+                     <button
+                       data-testid={`button-clear-thread-${thread.id}`}
+                       aria-label="Clear chat"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         if (confirm('Delete this conversation?')) {
+                           clearMutation.mutate({ id: thread.id }, {
+                             onSuccess: () => {
+                               queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient!.id }) });
+                               queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(thread.id) });
+                             }
+                           });
+                         }
+                       }}
+                       className="p-1 hover:bg-background rounded text-destructive"
+                     >
+                       <Trash2 size={12} />
+                     </button>
+                   </div>
                 )}
               </div>
             ))}
+            {(!conversationsQuery.data || conversationsQuery.data.length === 0) && (
+               <div className="p-6 text-center text-[11px] text-muted-foreground">No recent conversations.</div>
+            )}
+          </div>
+        </div>
+
+        {/* Chat Area */}
+        <div className={`flex flex-col bg-card ${isExpanded ? 'flex-1' : 'w-full flex-1'} ${!showChat ? 'hidden' : ''}`}>
+
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shrink-0 h-[57px]">
+            <div className="flex items-center gap-3">
+              {!isExpanded && (
+                <button aria-label="View history" onClick={() => setView('history')} className="p-1 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-colors -ml-1" title="View history">
+                  <Menu size={16} />
+                </button>
+              )}
+              <div className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary shrink-0">
+                <Sparkles size={14} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-[13px] font-semibold leading-none text-foreground truncate">
+                  {activeThreadId ? activeThread.data?.title || 'Conversation' : 'New Conversation'}
+                </h3>
+                <p className="mt-1 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground truncate">
+                  {activeClient ? activeClient.name : 'Select a workspace'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0 relative">
+              {activeThreadId && (
+                 <div className="relative">
+                   <button aria-label="Options" onClick={() => setShowOptions(!showOptions)} className="grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title="Options">
+                     <MoreVertical size={15} />
+                   </button>
+                   {showOptions && (
+                     <>
+                       <div className="fixed inset-0 z-40" onClick={() => setShowOptions(false)} />
+                       <div className="absolute right-0 top-9 bg-popover border border-popover-border shadow-md rounded-xl p-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                          <button
+                            data-testid={`button-rename-thread-${activeThreadId}`}
+                            onClick={() => {
+                              setShowOptions(false);
+                              setRenamingId(activeThreadId);
+                              setRenameTitle(activeThread.data?.title || '');
+                              setView('history');
+                            }}
+                            className="w-full flex items-center gap-2 text-left px-3 py-2 text-[12px] hover:bg-muted rounded-lg text-foreground font-medium"
+                          >
+                            <Edit2 size={13}/> Rename
+                          </button>
+                          <button
+                            data-testid={`button-clear-thread-${activeThreadId}`}
+                            onClick={() => {
+                              setShowOptions(false);
+                              if (confirm('Clear this conversation?')) {
+                                clearMutation.mutate({ id: activeThreadId }, {
+                                  onSuccess: () => {
+                                    queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationsQueryKey({ clientId: activeClient!.id }) });
+                                    queryClient.invalidateQueries({ queryKey: getGetLedgerflowAIConversationQueryKey(activeThreadId) });
+                                  }
+                                });
+                              }
+                            }}
+                            className="w-full flex items-center gap-2 text-left px-3 py-2 text-[12px] hover:bg-destructive/10 text-destructive rounded-lg font-medium mt-1"
+                          >
+                            <Trash2 size={13}/> Clear chat
+                          </button>
+                       </div>
+                     </>
+                   )}
+                 </div>
+              )}
+              <button data-testid="button-expand-assistant" aria-label={isExpanded ? "Collapse" : "Expand"} onClick={() => setIsExpanded(!isExpanded)} className="hidden md:grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title={isExpanded ? "Collapse" : "Expand"}>
+                {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+              </button>
+              <button aria-label="Close" onClick={() => setIsOpen(false)} className="grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title="Close">
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+
+          {activeScope.length > 0 && (
+            <div data-testid="assistant-active-filters" className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-primary/5 px-4 py-2">
+              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">Active filters</span>
+              {activeScope.map(([key, value]) => (
+                <span key={key} className="shrink-0 rounded-full border border-primary/20 bg-background px-2 py-0.5 text-[10px] text-foreground">
+                  {key}: {resultValue(value)}
+                </span>
+              ))}
+              <button
+                type="button"
+                data-testid="button-reset-ai-filters"
+                onClick={() => handleSend('Reset filters and show all transactions.')}
+                disabled={chatMutation.isPending}
+                className="ml-auto shrink-0 text-[10px] font-semibold text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              >
+                Show all
+              </button>
+            </div>
+          )}
+
+          {/* Messages */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/20 p-4 space-y-5">
+            {backgroundWorkCount > 0 && (
+              <div className="mx-auto max-w-fit rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-[10px] font-medium text-primary flex items-center gap-2">
+                <Loader2 size={12} className="animate-spin" />
+                Working in {backgroundImportClients[0] ?? 'another client'}{backgroundWorkCount > 1 ? ` and ${backgroundWorkCount - 1} more` : ''}
+              </div>
+            )}
+
+            {!activeClient ? (
+              <div className="flex-1 h-full flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in duration-300">
+                <div className="grid size-14 place-items-center rounded-3xl bg-muted border border-border text-muted-foreground mb-4 shadow-sm">
+                  <Landmark size={24} />
+                </div>
+                <h3 className="text-sm font-semibold">No Workspace Selected</h3>
+                <p className="text-[11px] text-muted-foreground mt-2 max-w-[200px] mx-auto leading-relaxed">Select a workspace from the dashboard to use the AI assistant.</p>
+              </div>
+            ) : (!activeThreadId && displayTurns.length === 0) ? (
+              <EmptyState
+                onSelect={(prompt) => {
+                  handleSend(prompt);
+                  setTimeout(() => composerRef.current?.focus(), 0);
+                }}
+                onImport={() => fileInputRef.current?.click()}
+              />
+            ) : (
+              displayTurns.map(msg => (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  activeClient={activeClient}
+                  activeThreadId={activeThreadId}
+                  onClose={() => !isExpanded && setIsOpen(false)}
+                  onRetry={(prompt) => handleSend(prompt)}
+                />
+              ))
+            )}
+
             {isChatWorkingForActiveClient && (
-              <div className="flex w-full justify-start">
-                <div className="max-w-[85%] rounded-lg border border-card-border bg-card px-4 py-3.5 text-[13px] shadow-sm">
-                  <div className="flex gap-1.5">
+              <div className="flex w-full justify-start animate-in fade-in duration-300">
+                <div className="max-w-[85%] rounded-2xl rounded-bl-sm border border-card-border bg-card px-4 py-4 text-[13px] shadow-sm">
+                  <div className="flex gap-1.5 items-center h-2">
                     <span className="size-1.5 animate-pulse rounded-full bg-primary/60"></span>
                     <span className="size-1.5 animate-pulse rounded-full bg-primary/60 stagger-1"></span>
                     <span className="size-1.5 animate-pulse rounded-full bg-primary/60 stagger-2"></span>
@@ -564,54 +1079,56 @@ export function AssistantFAB() {
             )}
           </div>
 
-          <div className="border-t border-border bg-card p-3">
-            <form onSubmit={handleSend} className="flex items-center gap-2">
-              <input 
-                type="file" 
+          {/* Composer */}
+          <div className="border-t border-border bg-card p-3 shrink-0">
+            <form onSubmit={handleSend} className="flex items-end gap-2 bg-background border border-input rounded-xl p-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all shadow-sm">
+              <input
+                type="file"
                 ref={fileInputRef}
-                className="hidden" 
+                className="hidden"
                 accept=".pdf,.csv,.xls,.xlsx,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={handleFileChange}
               />
               <button
                 data-testid="button-ai-import-statement"
+                aria-label="Import statement"
                 type="button"
                 title="Import statement"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!activeClient || importMutation.isPending || isUploading || Boolean(pendingImport)}
-                className="grid size-9 shrink-0 place-items-center rounded-md border border-transparent text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 transition-colors"
+                className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 transition-colors mb-0.5"
               >
                 <Paperclip size={17} />
               </button>
-              <input
+              <textarea
+                ref={composerRef}
                 data-testid="input-ai-message"
-                type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                }}
+                onKeyDown={handleKeyDown}
                 placeholder={activeClient ? "Ask or instruct..." : "Select a workspace"}
                 disabled={!activeClient || chatMutation.isPending}
-                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-[13px] outline-none transition-colors focus:border-primary disabled:opacity-50"
+                className="flex-1 max-h-[120px] min-h-[20px] py-1.5 px-2 text-[13px] outline-none bg-transparent resize-none leading-relaxed overflow-y-auto disabled:opacity-50 placeholder:text-muted-foreground/70"
+                rows={1}
               />
               <button
                 data-testid="button-send-ai-message"
+                aria-label="Send message"
                 type="submit"
                 disabled={!input.trim() || !activeClient || chatMutation.isPending}
-                className="grid size-9 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0"
+                className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground disabled:opacity-50 transition-transform hover:scale-105 active:scale-95 mb-0.5 shadow-sm"
               >
-                <Send size={15} className="ml-0.5" />
+                <Send size={15} className="mr-0.5" />
               </button>
             </form>
           </div>
+
         </div>
-      )}
-      
-      <button
-        data-testid="button-toggle-ai-assistant"
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex size-[52px] items-center justify-center rounded-full shadow-lg transition-transform hover:-translate-y-0.5 ${isOpen ? 'bg-secondary text-foreground hover:bg-secondary/80' : 'bg-primary text-primary-foreground'}`}
-      >
-        {isOpen ? <X size={22} /> : isUploading || importMutation.isPending || backgroundWorkCount > 0 ? <Loader2 size={22} className="animate-spin" /> : <Sparkles size={22} />}
-      </button>
-    </div>
+      </div>
+    </>
   );
 }
