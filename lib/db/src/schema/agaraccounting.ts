@@ -490,6 +490,8 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   status: text("status").notNull().default("needs_review"),
   source: text("source").notNull().default("Bank statement"),
   accountSuggestion: text("account_suggestion"),
+  contactId: integer("contact_id"),
+  contactSuggestionEvidenceCount: integer("contact_suggestion_evidence_count"),
   accountClassificationId: integer("account_classification_id"),
   confidence: numeric("confidence", { precision: 5, scale: 2 }),
   importDedupeKey: text("import_dedupe_key"),
@@ -502,6 +504,7 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   importDedupeKeyUnique: uniqueIndex("agaraccounting_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
+  idClientUnique: uniqueIndex("agaraccounting_statement_lines_id_client_idx").on(table.id, table.clientId),
   statementImportIndex: index("agaraccounting_statement_lines_import_idx").on(table.statementImportId),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
@@ -533,6 +536,7 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   creditAccount: text("credit_account").notNull(),
   debitAccountClassificationId: integer("debit_account_classification_id"),
   creditAccountClassificationId: integer("credit_account_classification_id"),
+  contactId: integer("contact_id"),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
   functionalCurrency: varchar("functional_currency", { length: 3 }),
   functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
@@ -543,6 +547,7 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   statementLineUnique: uniqueIndex("agaraccounting_journal_entries_statement_line_id_idx").on(table.statementLineId),
+  idClientUnique: uniqueIndex("agaraccounting_journal_entries_id_client_idx").on(table.id, table.clientId),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],

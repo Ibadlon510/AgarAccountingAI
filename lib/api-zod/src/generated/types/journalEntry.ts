@@ -11,6 +11,10 @@ import type { JournalLine } from './journalLine';
 export interface JournalEntry {
   id: number;
   statementLineId: number;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  contactName?: string | null;
   date: string;
   memo: string;
   currency: string;

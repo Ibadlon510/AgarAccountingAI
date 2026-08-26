@@ -42,6 +42,10 @@ import type {
   Client,
   ClientInput,
   ClientUpdateInput,
+  Contact,
+  ContactHistory,
+  ContactInput,
+  ContactUpdate,
   CreateExchangeRateParams,
   ExchangeRate,
   ExchangeRateImportInput,
@@ -60,6 +64,7 @@ import type {
   GetAgarAccountingAISettingsParams,
   GetBankAccountsParams,
   GetBulkTransitionAuditsParams,
+  GetContactsParams,
   GetExchangeRatesParams,
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
@@ -97,6 +102,7 @@ import type {
   StatementImportUndoInput,
   StatementImportUndoResult,
   StatementLine,
+  StatementLineContactInput,
   StatementLineInput,
   SystemRate,
   SystemRateClearResult,
@@ -3865,6 +3871,387 @@ export const useCreateStatementLine = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCreateStatementLineMutationOptions(options));
     }
+
+export const getLinkStatementLineContactUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/statement-lines/${id}/contact`
+}
+
+/**
+ * @summary Link or clear a client contact on a statement line
+ */
+export const linkStatementLineContact = async (id: number,
+    statementLineContactInput: StatementLineContactInput, options?: Parameters<typeof customFetch>[1]): Promise<StatementLine> => {
+
+  return customFetch<StatementLine>(getLinkStatementLineContactUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(statementLineContactInput)
+  }
+);}
+
+
+
+
+
+export const getLinkStatementLineContactMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkStatementLineContact>>, TError,{id: number;data: BodyType<StatementLineContactInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof linkStatementLineContact>>, TError,{id: number;data: BodyType<StatementLineContactInput>}, TContext> => {
+
+const mutationKey = ['linkStatementLineContact'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof linkStatementLineContact>>, {id: number;data: BodyType<StatementLineContactInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  linkStatementLineContact(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LinkStatementLineContactMutationResult = NonNullable<Awaited<ReturnType<typeof linkStatementLineContact>>>
+    export type LinkStatementLineContactMutationBody = BodyType<StatementLineContactInput>
+    export type LinkStatementLineContactMutationError = ErrorType<void>
+
+    /**
+ * @summary Link or clear a client contact on a statement line
+ */
+export const useLinkStatementLineContact = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkStatementLineContact>>, TError,{id: number;data: BodyType<StatementLineContactInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof linkStatementLineContact>>,
+        TError,
+        {id: number;data: BodyType<StatementLineContactInput>},
+        TContext
+      > => {
+      return useMutation(getLinkStatementLineContactMutationOptions(options));
+    }
+
+export const getGetContactsUrl = (params: GetContactsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/contacts?${stringifiedParams}` : `/api/agaraccounting/contacts`
+}
+
+/**
+ * @summary List contacts for a client workspace
+ */
+export const getContacts = async (params: GetContactsParams, options?: Parameters<typeof customFetch>[1]): Promise<Contact[]> => {
+
+  return customFetch<Contact[]>(getGetContactsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetContactsQueryKey = (params?: GetContactsParams,) => {
+    return [
+    `/api/agaraccounting/contacts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetContactsQueryOptions = <TData = Awaited<ReturnType<typeof getContacts>>, TError = ErrorType<unknown>>(params: GetContactsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getContacts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetContactsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getContacts>>> = ({ signal }) => getContacts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getContacts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetContactsQueryResult = NonNullable<Awaited<ReturnType<typeof getContacts>>>
+export type GetContactsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List contacts for a client workspace
+ */
+
+export function useGetContacts<TData = Awaited<ReturnType<typeof getContacts>>, TError = ErrorType<unknown>>(
+ params: GetContactsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getContacts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetContactsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateContactUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/contacts`
+}
+
+/**
+ * @summary Create a client customer or supplier contact
+ */
+export const createContact = async (contactInput: ContactInput, options?: Parameters<typeof customFetch>[1]): Promise<Contact> => {
+
+  return customFetch<Contact>(getCreateContactUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(contactInput)
+  }
+);}
+
+
+
+
+
+export const getCreateContactMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createContact>>, TError,{data: BodyType<ContactInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createContact>>, TError,{data: BodyType<ContactInput>}, TContext> => {
+
+const mutationKey = ['createContact'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createContact>>, {data: BodyType<ContactInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createContact(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateContactMutationResult = NonNullable<Awaited<ReturnType<typeof createContact>>>
+    export type CreateContactMutationBody = BodyType<ContactInput>
+    export type CreateContactMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create a client customer or supplier contact
+ */
+export const useCreateContact = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createContact>>, TError,{data: BodyType<ContactInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createContact>>,
+        TError,
+        {data: BodyType<ContactInput>},
+        TContext
+      > => {
+      return useMutation(getCreateContactMutationOptions(options));
+    }
+
+export const getUpdateContactUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/contacts/${id}`
+}
+
+/**
+ * @summary Update a client contact and its aliases
+ */
+export const updateContact = async (id: number,
+    contactUpdate: ContactUpdate, options?: Parameters<typeof customFetch>[1]): Promise<Contact> => {
+
+  return customFetch<Contact>(getUpdateContactUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(contactUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateContactMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateContact>>, TError,{id: number;data: BodyType<ContactUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateContact>>, TError,{id: number;data: BodyType<ContactUpdate>}, TContext> => {
+
+const mutationKey = ['updateContact'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateContact>>, {id: number;data: BodyType<ContactUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateContact(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateContactMutationResult = NonNullable<Awaited<ReturnType<typeof updateContact>>>
+    export type UpdateContactMutationBody = BodyType<ContactUpdate>
+    export type UpdateContactMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update a client contact and its aliases
+ */
+export const useUpdateContact = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateContact>>, TError,{id: number;data: BodyType<ContactUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateContact>>,
+        TError,
+        {id: number;data: BodyType<ContactUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateContactMutationOptions(options));
+    }
+
+export const getGetContactHistoryUrl = (clientId: number,
+    id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/clients/${clientId}/contacts/${id}/history`
+}
+
+/**
+ * @summary Read a client contact's confirmed accounting history
+ */
+export const getContactHistory = async (clientId: number,
+    id: number, options?: Parameters<typeof customFetch>[1]): Promise<ContactHistory> => {
+
+  return customFetch<ContactHistory>(getGetContactHistoryUrl(clientId,id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetContactHistoryQueryKey = (clientId: number,
+    id: number,) => {
+    return [
+    `/api/agaraccounting/clients/${clientId}/contacts/${id}/history`
+    ] as const;
+    }
+
+
+export const getGetContactHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getContactHistory>>, TError = ErrorType<unknown>>(clientId: number,
+    id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getContactHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetContactHistoryQueryKey(clientId,id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getContactHistory>>> = ({ signal }) => getContactHistory(clientId,id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: clientId !== null && clientId !== undefined && id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getContactHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetContactHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getContactHistory>>>
+export type GetContactHistoryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Read a client contact's confirmed accounting history
+ */
+
+export function useGetContactHistory<TData = Awaited<ReturnType<typeof getContactHistory>>, TError = ErrorType<unknown>>(
+ clientId: number,
+    id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getContactHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetContactHistoryQueryOptions(clientId,id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getImportStatementUrl = () => {
 

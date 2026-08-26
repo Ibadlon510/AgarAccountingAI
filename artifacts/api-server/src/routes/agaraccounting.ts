@@ -85,6 +85,18 @@ import {
   GetLedgerOverviewResponse,
   GetStatementLinesQueryParams,
   GetStatementLinesResponse,
+  LinkStatementLineContactParams,
+  LinkStatementLineContactBody,
+  LinkStatementLineContactResponse,
+  GetContactsQueryParams,
+  GetContactsResponse,
+  CreateContactBody,
+  CreateContactResponse,
+  UpdateContactParams,
+  UpdateContactBody,
+  UpdateContactResponse,
+  GetContactHistoryParams,
+  GetContactHistoryResponse,
   GetUploadedFilesResponse,
   GetTrialBalanceResponse,
   PostJournalEntryBody,
@@ -153,6 +165,9 @@ import {
   bulkTransitionAuditsTable,
   aiActivityTable,
   classificationPatternsTable,
+  contactAliasesTable,
+  contactClassificationEvidenceTable,
+  contactsTable,
   clientWorkspacesTable,
   clientsTable,
   db,
@@ -217,10 +232,12 @@ const router: IRouter = Router();
 type AccountingTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect) {
+function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, contactName: string | null = null) {
   return {
     id: entry.id,
     statementLineId: entry.statementLineId,
+    contactId: entry.contactId,
+    contactName,
     date: calendarDate(entry.date),
     memo: entry.memo,
     currency: entry.currency,
@@ -1738,6 +1755,256 @@ function normalizeVendor(description: string) {
     .slice(0, 160);
 }
 
+function normalizeContactAlias(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+function normalizedContactAliases(values: string[]) {
+  const aliases = new Map<string, string>();
+  for (const raw of values) {
+    const alias = raw.trim().replace(/\s+/g, " ").slice(0, 160);
+    const normalizedAlias = normalizeContactAlias(alias);
+    if (alias && normalizedAlias) aliases.set(normalizedAlias, alias);
+  }
+  return [...aliases.entries()].map(([normalizedAlias, alias]) => ({ alias, normalizedAlias }));
+}
+
+type ContactSuggestion = {
+  contactId: number | null;
+  contactName: string | null;
+  contactType: "customer" | "supplier" | "both" | null;
+  contactMatchConfidence: number | null;
+  contactSuggestionStatus: "supported" | "weak" | "conflicting" | "no_safe_treatment" | "no_history" | null;
+  contactSuggestionReason: string | null;
+  accountSuggestion: string | null;
+  supportingPatternCount: number;
+};
+
+async function contactResponse(contact: typeof contactsTable.$inferSelect) {
+  const aliases = await db.select({ alias: contactAliasesTable.alias })
+    .from(contactAliasesTable)
+    .where(and(
+      eq(contactAliasesTable.clientId, contact.clientId),
+      eq(contactAliasesTable.contactId, contact.id),
+    ))
+    .orderBy(asc(contactAliasesTable.alias));
+  return {
+    ...contact,
+    aliases: aliases.map((item) => item.alias),
+  };
+}
+
+async function resolveContactSuggestion(
+  executor: Pick<typeof db, "select">,
+  clientId: number,
+  description: string,
+  direction: string,
+  explicitContactId?: number | null,
+): Promise<ContactSuggestion> {
+  const contacts = await executor.select().from(contactsTable).where(and(
+    eq(contactsTable.clientId, clientId),
+    eq(contactsTable.status, "active"),
+    explicitContactId == null ? undefined : eq(contactsTable.id, explicitContactId),
+  ));
+  let contact = explicitContactId == null ? null : contacts[0] ?? null;
+  let matchConfidence = explicitContactId == null ? null : 1;
+
+  if (explicitContactId != null && !contact) {
+    return {
+      contactId: null,
+      contactName: null,
+      contactType: null,
+      contactMatchConfidence: null,
+      contactSuggestionStatus: "no_safe_treatment",
+      contactSuggestionReason: "The selected contact is not active in this client workspace.",
+      accountSuggestion: null,
+      supportingPatternCount: 0,
+    };
+  }
+
+  if (!contact) {
+    const aliases = await executor.select().from(contactAliasesTable).where(eq(contactAliasesTable.clientId, clientId));
+    const normalizedDescription = ` ${normalizeContactAlias(description)} `;
+    const matches = aliases
+      .filter((alias) => alias.normalizedAlias.length >= 2 && normalizedDescription.includes(` ${alias.normalizedAlias} `))
+      .sort((left, right) => right.normalizedAlias.length - left.normalizedAlias.length);
+    if (matches.length) {
+      const bestLength = matches[0].normalizedAlias.length;
+      const bestContactIds = [...new Set(matches.filter((item) => item.normalizedAlias.length === bestLength).map((item) => item.contactId))];
+      if (bestContactIds.length === 1) {
+        contact = contacts.find((item) => item.id === bestContactIds[0]) ?? null;
+        matchConfidence = contact ? 0.92 : null;
+      }
+    }
+  }
+
+  if (!contact) {
+    return {
+      contactId: null,
+      contactName: null,
+      contactType: null,
+      contactMatchConfidence: null,
+      contactSuggestionStatus: null,
+      contactSuggestionReason: null,
+      accountSuggestion: null,
+      supportingPatternCount: 0,
+    };
+  }
+
+  const evidence = await executor.select({
+    accountSuggestion: contactClassificationEvidenceTable.accountSuggestion,
+    direction: contactClassificationEvidenceTable.direction,
+    entryStatus: journalEntriesTable.status,
+  }).from(contactClassificationEvidenceTable)
+    .innerJoin(journalEntriesTable, and(
+      eq(journalEntriesTable.id, contactClassificationEvidenceTable.journalEntryId),
+      eq(journalEntriesTable.clientId, contactClassificationEvidenceTable.clientId),
+    ))
+    .where(and(
+      eq(contactClassificationEvidenceTable.clientId, clientId),
+      eq(contactClassificationEvidenceTable.contactId, contact.id),
+      eq(contactClassificationEvidenceTable.direction, direction),
+      inArray(journalEntriesTable.status, ["approved", "posted"]),
+    ));
+  if (!evidence.length) {
+    return {
+      contactId: contact.id,
+      contactName: contact.displayName,
+      contactType: contact.contactType as ContactSuggestion["contactType"],
+      contactMatchConfidence: matchConfidence,
+      contactSuggestionStatus: "no_history",
+      contactSuggestionReason: `Matched ${contact.displayName}, but there is no approved or posted ${direction} history yet.`,
+      accountSuggestion: null,
+      supportingPatternCount: 0,
+    };
+  }
+
+  const counts = new Map<string, number>();
+  for (const item of evidence) counts.set(item.accountSuggestion, (counts.get(item.accountSuggestion) ?? 0) + 1);
+  const ranked = [...counts.entries()].sort((left, right) => right[1] - left[1]);
+  if (ranked.length > 1) {
+    return {
+      contactId: contact.id,
+      contactName: contact.displayName,
+      contactType: contact.contactType as ContactSuggestion["contactType"],
+      contactMatchConfidence: matchConfidence,
+      contactSuggestionStatus: "conflicting",
+      contactSuggestionReason: `${contact.displayName} has confirmed history across ${ranked.length} different account treatments. Review is required.`,
+      accountSuggestion: null,
+      supportingPatternCount: evidence.length,
+    };
+  }
+
+  const [accountSuggestion, supportingPatternCount] = ranked[0];
+  const [activeAccount] = await executor.select({ id: accountClassificationsTable.id })
+    .from(accountClassificationsTable)
+    .where(and(
+      eq(accountClassificationsTable.clientId, clientId),
+      eq(accountClassificationsTable.accountName, accountSuggestion),
+      eq(accountClassificationsTable.isActive, true),
+    ))
+    .limit(1);
+  if (!activeAccount) {
+    return {
+      contactId: contact.id,
+      contactName: contact.displayName,
+      contactType: contact.contactType as ContactSuggestion["contactType"],
+      contactMatchConfidence: matchConfidence,
+      contactSuggestionStatus: "no_safe_treatment",
+      contactSuggestionReason: `${contact.displayName}'s prior treatment is no longer active in this client's chart.`,
+      accountSuggestion: null,
+      supportingPatternCount,
+    };
+  }
+  const weak = supportingPatternCount === 1;
+  return {
+    contactId: contact.id,
+    contactName: contact.displayName,
+    contactType: contact.contactType as ContactSuggestion["contactType"],
+    contactMatchConfidence: matchConfidence,
+    contactSuggestionStatus: weak ? "weak" : "supported",
+    contactSuggestionReason: weak
+      ? `Matched ${contact.displayName}. One approved treatment supports ${accountSuggestion}; review before approval.`
+      : `Matched ${contact.displayName}. ${supportingPatternCount} approved or posted items consistently used ${accountSuggestion}.`,
+    accountSuggestion,
+    supportingPatternCount,
+  };
+}
+
+async function recordContactEvidence(
+  tx: AccountingTransaction,
+  userId: string,
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect,
+) {
+  if (!line.contactId) return;
+  const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  await tx.insert(contactClassificationEvidenceTable).values({
+    clientId: line.clientId,
+    contactId: line.contactId,
+    statementLineId: line.id,
+    journalEntryId: entry.id,
+    accountSuggestion,
+    direction: line.direction,
+    amount: line.amount,
+    currency: line.currency,
+    activityDate: calendarDate(line.date) ?? line.date,
+    entryStatus: entry.status,
+    confirmedByUserId: userId,
+  }).onConflictDoNothing({ target: contactClassificationEvidenceTable.statementLineId });
+}
+
+async function validateCurrentContactTreatment(
+  executor: Pick<typeof db, "select">,
+  clientId: number,
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect,
+  validateSuggestionEvidence: boolean,
+) {
+  if (line.contactId !== entry.contactId) return "stale_contact" as const;
+  if (line.contactId != null) {
+    const [activeContact] = await executor.select({ id: contactsTable.id }).from(contactsTable).where(and(
+      eq(contactsTable.id, line.contactId),
+      eq(contactsTable.clientId, clientId),
+      eq(contactsTable.status, "active"),
+    )).limit(1);
+    if (!activeContact) return "stale_contact" as const;
+  }
+  const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  const [activeAccount] = await executor.select({ id: accountClassificationsTable.id })
+    .from(accountClassificationsTable)
+    .where(and(
+      eq(accountClassificationsTable.clientId, clientId),
+      eq(accountClassificationsTable.accountName, accountSuggestion),
+      eq(accountClassificationsTable.isActive, true),
+    ))
+    .limit(1);
+  if (!activeAccount) return "stale_treatment" as const;
+  if (validateSuggestionEvidence && line.contactId != null && line.contactSuggestionEvidenceCount != null) {
+    const currentSuggestion = await resolveContactSuggestion(
+      executor,
+      clientId,
+      line.description,
+      line.direction,
+      line.contactId,
+    );
+    if (
+      !currentSuggestion.accountSuggestion
+      || currentSuggestion.accountSuggestion !== accountSuggestion
+      || !["supported", "weak"].includes(currentSuggestion.contactSuggestionStatus ?? "")
+    ) {
+      return "stale_evidence" as const;
+    }
+  }
+  return null;
+}
+
 type SuggestionSource = "ai" | "heuristic" | "workspace_learning";
 type ClassificationSuggestion = {
   accountSuggestion: string;
@@ -1844,16 +2111,26 @@ function lineSuggestion(
 function statementLineResponse(
   line: typeof statementLinesTable.$inferSelect,
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
+  contactSuggestion?: ContactSuggestion,
 ) {
   const suggestion = lineSuggestion(line, patterns);
+  const contactAccount = line.contactSuggestionEvidenceCount != null
+    ? contactSuggestion?.accountSuggestion
+    : null;
   return {
     ...line,
     date: calendarDate(line.date),
     amount: number(line.amount),
-    accountSuggestion: suggestion.accountSuggestion,
-    confidence: suggestion.confidence,
-    suggestionSource: suggestion.suggestionSource,
-    supportingPatternCount: suggestion.supportingPatternCount,
+    contactId: contactSuggestion?.contactId ?? line.contactId,
+    contactName: contactSuggestion?.contactName ?? null,
+    contactType: contactSuggestion?.contactType ?? null,
+    contactMatchConfidence: contactSuggestion?.contactMatchConfidence ?? null,
+    contactSuggestionStatus: contactSuggestion?.contactSuggestionStatus ?? null,
+    contactSuggestionReason: contactSuggestion?.contactSuggestionReason ?? null,
+    accountSuggestion: contactAccount ?? suggestion.accountSuggestion,
+    confidence: contactAccount ? (contactSuggestion?.contactSuggestionStatus === "supported" ? 0.94 : 0.85) : suggestion.confidence,
+    suggestionSource: contactAccount ? "contact_history" : suggestion.suggestionSource,
+    supportingPatternCount: contactAccount ? contactSuggestion?.supportingPatternCount ?? 0 : suggestion.supportingPatternCount,
     functionalAmount: line.functionalAmount == null ? null : number(line.functionalAmount),
     exchangeRate: line.exchangeRate == null ? null : number(line.exchangeRate),
     exchangeRateEffectiveDate: calendarDate(line.exchangeRateEffectiveDate),
@@ -1894,6 +2171,7 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
   exchangeRateEffectiveDate?: string | null;
   exchangeRateSourceScope?: string | null;
   exchangeRateStatus?: string | null;
+  contactId?: number | null;
 }) {
   const account = line.accountSuggestion || suggestAccount(line.description, line.direction);
   const chartAccounts = await tx.select({
@@ -1917,6 +2195,7 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
     ...journalAccountsForSuggestion(line.direction, account),
     debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
     creditAccountClassificationId: line.direction === "inflow" ? selectedAccountId : bankAccountId,
+    contactId: line.contactId,
     amount: line.amount,
     functionalCurrency: line.functionalCurrency,
     functionalAmount: line.functionalAmount,
@@ -1932,7 +2211,24 @@ async function createStatementLineAndJournal(
   draft: typeof statementLinesTable.$inferInsert,
   options?: { ignoreExistingImportDedupeKey?: boolean },
 ) {
-  const insert = tx.insert(statementLinesTable).values(draft);
+  const contactSuggestion = await resolveContactSuggestion(
+    tx,
+    draft.clientId ?? 1,
+    draft.description,
+    draft.direction,
+    draft.contactId,
+  );
+  const contactAccount = contactSuggestion.accountSuggestion;
+  const enrichedDraft = {
+    ...draft,
+    contactId: contactSuggestion.contactId ?? draft.contactId ?? null,
+    contactSuggestionEvidenceCount: contactAccount ? contactSuggestion.supportingPatternCount : null,
+    accountSuggestion: contactAccount ?? draft.accountSuggestion,
+    confidence: contactAccount
+      ? (contactSuggestion.contactSuggestionStatus === "supported" ? "0.94" : "0.85")
+      : draft.confidence,
+  };
+  const insert = tx.insert(statementLinesTable).values(enrichedDraft);
   const [line] = options?.ignoreExistingImportDedupeKey
     ? await insert.onConflictDoNothing({ target: statementLinesTable.importDedupeKey }).returning()
     : await insert.returning();
@@ -2379,7 +2675,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_approve_entries" | "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence") {
     super(kind);
   }
 }
@@ -4438,6 +4734,18 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           || (body.type === "bulk_post_entries" && lines.some((line) => line.status === "posted"))) {
           throw new BulkActionValidationError("invalid_status");
         }
+        for (const line of lines) {
+          const entry = entries.find((candidate) => candidate.statementLineId === line.id);
+          if (!entry) throw new BulkActionValidationError("invalid_scope");
+          const validation = await validateCurrentContactTreatment(
+            tx,
+            body.clientId,
+            line,
+            entry,
+            body.type === "bulk_approve_entries",
+          );
+          if (validation) throw new BulkActionValidationError(validation);
+        }
         if (entries.some((entry) => isMissingExchangeRate(entry, client.functionalCurrency))
           || lines.some((line) => isMissingExchangeRate(line, client.functionalCurrency))) {
           throw new BulkActionValidationError("missing_exchange_rate");
@@ -4475,6 +4783,10 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           entryIds,
           statementLineIds,
         });
+        for (const updatedEntry of updatedEntries) {
+          const line = lines.find((candidate) => candidate.id === updatedEntry.statementLineId);
+          if (line) await recordContactEvidence(tx, currentUserId(req), line, updatedEntry);
+        }
 
         return { entries: updatedEntries, expectedStatus, resultingStatus };
       });
@@ -4498,6 +4810,15 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             ),
           });
         }
+        if (error.kind === "stale_contact") {
+          return res.status(409).json({ error: "One or more matched contacts changed or were archived. Review those contacts before confirming the bulk action." });
+        }
+        if (error.kind === "stale_treatment") {
+          return res.status(409).json({ error: "One or more proposed accounts are no longer active in this client's chart. Review the treatment before confirming." });
+        }
+        if (error.kind === "stale_evidence") {
+          return res.status(409).json({ error: "The contact history supporting one or more proposals changed. Review the updated evidence before confirming." });
+        }
         const statusMessage = body.type === "bulk_approve_entries"
           ? "Only suggested entries can be bulk approved. Posted or already approved entries were rejected."
           : "Only approved entries can be bulk posted. Suggested or posted entries were rejected.";
@@ -4515,7 +4836,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
       lineCount: statementLineIds.length,
       fromStatus: result.expectedStatus,
       toStatus: result.resultingStatus,
-      entries: result.entries.map(journalEntryResponse),
+      entries: result.entries.map((entry) => journalEntryResponse(entry)),
       updatedLineCount: statementLineIds.length,
       bankAccount: null,
     }));
@@ -4595,6 +4916,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         accountSuggestion,
         accountClassificationId: selectedAccount.id,
         confidence,
+        contactSuggestionEvidenceCount: null,
       }).where(and(
         eq(statementLinesTable.clientId, client.id),
         inArray(statementLinesTable.id, lineIds),
@@ -6156,13 +6478,26 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
     parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
     parsed.direction ? eq(statementLinesTable.direction, parsed.direction) : undefined,
   )).orderBy(asc(statementLinesTable.date));
-  return res.json(GetStatementLinesResponse.parse(lines.map((line) => statementLineResponse(line, workspacePatterns))));
+  const responses = await Promise.all(lines.map(async (line) => statementLineResponse(
+    line,
+    workspacePatterns,
+    await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId),
+  )));
+  return res.json(GetStatementLinesResponse.parse(responses));
 });
 
 router.post("/agaraccounting/statement-lines", async (req, res) => {
   const body = CreateStatementLineBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
+  if (body.contactId != null) {
+    const [contact] = await db.select({ id: contactsTable.id }).from(contactsTable).where(and(
+      eq(contactsTable.id, body.contactId),
+      eq(contactsTable.clientId, client.id),
+      eq(contactsTable.status, "active"),
+    )).limit(1);
+    if (!contact) return res.status(400).json({ error: "Selected contact was not found for this client." });
+  }
   if (body.bankAccountId != null) {
     const [bankAccount] = await db.select({ id: bankAccountsTable.id })
       .from(bankAccountsTable)
@@ -6202,7 +6537,268 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
     exchangeRateStatus: conversion.exchangeRateStatus,
   }));
   if (!line) throw new Error("Manual statement line was not created.");
-  return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns)));
+  const contactSuggestion = await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId);
+  return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns, contactSuggestion)));
+});
+
+router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => {
+  const { id } = LinkStatementLineContactParams.parse({ id: Number(req.params.id) });
+  const body = LinkStatementLineContactBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  if (body.contactId != null) {
+    const [contact] = await db.select({ id: contactsTable.id }).from(contactsTable).where(and(
+      eq(contactsTable.id, body.contactId),
+      eq(contactsTable.clientId, client.id),
+      eq(contactsTable.status, "active"),
+    )).limit(1);
+    if (!contact) {
+      res.status(400).json({ error: "Selected contact was not found for this client." });
+      return;
+    }
+  }
+
+  const result = await db.transaction(async (tx) => {
+    const [line] = await tx.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.id, id),
+      eq(statementLinesTable.clientId, client.id),
+    )).for("update");
+    if (!line) return { kind: "not_found" as const };
+    const [entry] = await tx.select().from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.statementLineId, line.id),
+      eq(journalEntriesTable.clientId, client.id),
+    )).for("update");
+    if (!entry) return { kind: "not_found" as const };
+    if (entry.status !== "suggested" || line.status === "posted") return { kind: "locked" as const };
+
+    const contactSuggestion = body.contactId == null
+      ? null
+      : await resolveContactSuggestion(tx, client.id, line.description, line.direction, body.contactId);
+    const accountSuggestion = contactSuggestion?.accountSuggestion ?? line.accountSuggestion;
+    const confidence = contactSuggestion?.accountSuggestion
+      ? (contactSuggestion.contactSuggestionStatus === "supported" ? "0.94" : "0.85")
+      : line.confidence;
+    const chartAccounts = accountSuggestion
+      ? await tx.select({ id: accountClassificationsTable.id, accountName: accountClassificationsTable.accountName })
+        .from(accountClassificationsTable)
+        .where(and(
+          eq(accountClassificationsTable.clientId, client.id),
+          eq(accountClassificationsTable.isActive, true),
+          inArray(accountClassificationsTable.accountName, [accountSuggestion, "Bank / cash"]),
+        ))
+      : [];
+    const selectedAccountId = chartAccounts.find((item) => item.accountName === accountSuggestion)?.id ?? line.accountClassificationId;
+    const bankAccountId = chartAccounts.find((item) => item.accountName === "Bank / cash")?.id ?? null;
+    const [updatedLine] = await tx.update(statementLinesTable).set({
+      contactId: body.contactId ?? null,
+      contactSuggestionEvidenceCount: contactSuggestion?.accountSuggestion
+        ? contactSuggestion.supportingPatternCount
+        : null,
+      accountSuggestion,
+      accountClassificationId: selectedAccountId,
+      confidence,
+    }).where(and(
+      eq(statementLinesTable.id, line.id),
+      eq(statementLinesTable.clientId, client.id),
+      ne(statementLinesTable.status, "posted"),
+    )).returning();
+    if (!updatedLine) return { kind: "locked" as const };
+    await tx.update(journalEntriesTable).set({
+      contactId: body.contactId ?? null,
+      confidence: confidence ?? entry.confidence,
+      ...(accountSuggestion ? journalAccountsForSuggestion(line.direction, accountSuggestion) : {}),
+      debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
+      creditAccountClassificationId: line.direction === "inflow" ? selectedAccountId : bankAccountId,
+    }).where(and(
+      eq(journalEntriesTable.id, entry.id),
+      eq(journalEntriesTable.clientId, client.id),
+      eq(journalEntriesTable.status, "suggested"),
+    ));
+    return { kind: "updated" as const, line: updatedLine };
+  });
+  if (result.kind === "not_found") {
+    res.status(404).json({ error: "Statement line not found for this client." });
+    return;
+  }
+  if (result.kind === "locked") {
+    res.status(409).json({ error: "Approved or posted accounting activity cannot be relinked. Correct it with an explicit reversing or correcting entry so the confirmed history remains intact." });
+    return;
+  }
+  const activeAccountNames = await activeClientAccountNames(client.id);
+  const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
+    .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
+  const contactSuggestion = await resolveContactSuggestion(
+    db,
+    client.id,
+    result.line.description,
+    result.line.direction,
+    result.line.contactId,
+  );
+  res.json(LinkStatementLineContactResponse.parse(statementLineResponse(result.line, workspacePatterns, contactSuggestion)));
+});
+
+router.get("/agaraccounting/contacts", async (req, res) => {
+  const parsed = GetContactsQueryParams.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "A valid client is required." });
+    return;
+  }
+  const client = await requireOwnedClient(req, res, parsed.data.clientId);
+  if (!client) return;
+  const contacts = await db.select().from(contactsTable)
+    .where(eq(contactsTable.clientId, client.id))
+    .orderBy(asc(contactsTable.displayName));
+  res.json(GetContactsResponse.parse(await Promise.all(contacts.map(contactResponse))));
+});
+
+router.post("/agaraccounting/contacts", async (req, res) => {
+  const body = CreateContactBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const aliases = normalizedContactAliases([body.displayName, body.legalName, ...(body.aliases ?? [])]);
+  const conflicting = aliases.length
+    ? await db.select({ alias: contactAliasesTable.alias }).from(contactAliasesTable).where(and(
+      eq(contactAliasesTable.clientId, client.id),
+      inArray(contactAliasesTable.normalizedAlias, aliases.map((alias) => alias.normalizedAlias)),
+    )).limit(1)
+    : [];
+  if (conflicting.length) {
+    res.status(409).json({ error: `The alias "${conflicting[0].alias}" already belongs to another contact in this client.` });
+    return;
+  }
+  const contact = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(contactsTable).values({
+      clientId: client.id,
+      displayName: body.displayName.trim(),
+      legalName: body.legalName.trim(),
+      contactType: body.contactType,
+    }).returning();
+    if (aliases.length) {
+      await tx.insert(contactAliasesTable).values(aliases.map((alias) => ({
+        clientId: client.id,
+        contactId: created.id,
+        ...alias,
+      })));
+    }
+    return created;
+  });
+  res.status(201).json(CreateContactResponse.parse(await contactResponse(contact)));
+});
+
+router.patch("/agaraccounting/contacts/:id", async (req, res) => {
+  const { id } = UpdateContactParams.parse({ id: Number(req.params.id) });
+  const body = UpdateContactBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  const [existing] = await db.select().from(contactsTable).where(and(
+    eq(contactsTable.id, id),
+    eq(contactsTable.clientId, client.id),
+  )).limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "Contact not found for this client." });
+    return;
+  }
+  const existingAliases = await db.select({ alias: contactAliasesTable.alias })
+    .from(contactAliasesTable)
+    .where(and(eq(contactAliasesTable.clientId, client.id), eq(contactAliasesTable.contactId, id)));
+  const displayName = body.displayName?.trim() ?? existing.displayName;
+  const legalName = body.legalName?.trim() ?? existing.legalName;
+  const aliases = normalizedContactAliases([
+    displayName,
+    legalName,
+    ...(body.aliases ?? existingAliases.map((item) => item.alias)),
+  ]);
+  const conflicts = aliases.length
+    ? await db.select({ alias: contactAliasesTable.alias }).from(contactAliasesTable).where(and(
+      eq(contactAliasesTable.clientId, client.id),
+      ne(contactAliasesTable.contactId, id),
+      inArray(contactAliasesTable.normalizedAlias, aliases.map((alias) => alias.normalizedAlias)),
+    )).limit(1)
+    : [];
+  if (conflicts.length) {
+    res.status(409).json({ error: `The alias "${conflicts[0].alias}" already belongs to another contact in this client.` });
+    return;
+  }
+  const contact = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(contactsTable).set({
+      displayName,
+      legalName,
+      contactType: body.contactType ?? existing.contactType,
+      status: body.status ?? existing.status,
+      updatedAt: new Date(),
+    }).where(and(eq(contactsTable.id, id), eq(contactsTable.clientId, client.id))).returning();
+    await tx.delete(contactAliasesTable).where(and(
+      eq(contactAliasesTable.clientId, client.id),
+      eq(contactAliasesTable.contactId, id),
+    ));
+    if (aliases.length) {
+      await tx.insert(contactAliasesTable).values(aliases.map((alias) => ({
+        clientId: client.id,
+        contactId: id,
+        ...alias,
+      })));
+    }
+    return updated;
+  });
+  res.json(UpdateContactResponse.parse(await contactResponse(contact)));
+});
+
+router.get("/agaraccounting/clients/:clientId/contacts/:id/history", async (req, res) => {
+  const { id, clientId } = GetContactHistoryParams.parse({
+    id: Number(req.params.id),
+    clientId: Number(req.params.clientId),
+  });
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const [contact] = await db.select().from(contactsTable).where(and(
+    eq(contactsTable.id, id),
+    eq(contactsTable.clientId, client.id),
+  )).limit(1);
+  if (!contact) {
+    res.status(404).json({ error: "Contact not found for this client." });
+    return;
+  }
+  const rows = await db.select({
+    statementLineId: statementLinesTable.id,
+    journalEntryId: journalEntriesTable.id,
+    date: statementLinesTable.date,
+    description: statementLinesTable.description,
+    status: journalEntriesTable.status,
+    amount: statementLinesTable.amount,
+    currency: statementLinesTable.currency,
+    direction: statementLinesTable.direction,
+    accountTreatment: contactClassificationEvidenceTable.accountSuggestion,
+  }).from(contactClassificationEvidenceTable)
+    .innerJoin(statementLinesTable, and(
+      eq(statementLinesTable.id, contactClassificationEvidenceTable.statementLineId),
+      eq(statementLinesTable.clientId, contactClassificationEvidenceTable.clientId),
+    ))
+    .innerJoin(journalEntriesTable, and(
+      eq(journalEntriesTable.id, contactClassificationEvidenceTable.journalEntryId),
+      eq(journalEntriesTable.clientId, contactClassificationEvidenceTable.clientId),
+    ))
+    .where(and(
+      eq(contactClassificationEvidenceTable.clientId, client.id),
+      eq(contactClassificationEvidenceTable.contactId, contact.id),
+      inArray(journalEntriesTable.status, ["approved", "posted"]),
+    ))
+    .orderBy(desc(statementLinesTable.date));
+  const summaries = new Map<string, { count: number; currencies: Set<string> }>();
+  for (const row of rows) {
+    const summary = summaries.get(row.accountTreatment) ?? { count: 0, currencies: new Set<string>() };
+    summary.count += 1;
+    summary.currencies.add(row.currency);
+    summaries.set(row.accountTreatment, summary);
+  }
+  res.json(GetContactHistoryResponse.parse({
+    contact: await contactResponse(contact),
+    history: rows.map((row) => ({ ...row, date: calendarDate(row.date), amount: number(row.amount) })),
+    treatmentSummary: [...summaries.entries()].map(([accountTreatment, summary]) => ({
+      accountTreatment,
+      count: summary.count,
+      currencies: [...summary.currencies].sort(),
+    })),
+  }));
 });
 
 router.get("/agaraccounting/journal-entries", async (req, res) => {
@@ -6210,7 +6806,7 @@ router.get("/agaraccounting/journal-entries", async (req, res) => {
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
   const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id)).orderBy(asc(journalEntriesTable.date));
-  res.json(GetJournalEntriesResponse.parse(entries.map(journalEntryResponse)));
+  res.json(GetJournalEntriesResponse.parse(entries.map((entry) => journalEntryResponse(entry))));
 });
 
 router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
@@ -6230,6 +6826,8 @@ router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
       eq(statementLinesTable.clientId, client.id),
     )).for("update");
     if (!line) return { kind: "not_available" as const };
+    const treatmentValidation = await validateCurrentContactTreatment(tx, client.id, line, entry, true);
+    if (treatmentValidation) return { kind: treatmentValidation };
     if (isMissingExchangeRate(entry, client.functionalCurrency)
       || isMissingExchangeRate(line, client.functionalCurrency)) {
       return { kind: "missing_exchange_rate" as const, entry, line };
@@ -6240,10 +6838,23 @@ router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
       eq(journalEntriesTable.status, "suggested"),
     )).returning();
     if (!approvedEntry) return { kind: "not_available" as const };
+    await recordContactEvidence(tx, currentUserId(req), line, approvedEntry);
     return { kind: "approved" as const, entry: approvedEntry, line };
   });
   if (result.kind === "not_available") {
     res.status(409).json({ error: "This journal entry is not available for approval for this client" });
+    return;
+  }
+  if (result.kind === "stale_contact") {
+    res.status(409).json({ error: "The matched contact changed or was archived. Review the contact before approving this entry." });
+    return;
+  }
+  if (result.kind === "stale_treatment") {
+    res.status(409).json({ error: "The proposed account is no longer active in this client's chart. Review the treatment before approving." });
+    return;
+  }
+  if (result.kind === "stale_evidence") {
+    res.status(409).json({ error: "The contact history supporting this proposal changed. Review the updated evidence before approving." });
     return;
   }
   if (result.kind === "missing_exchange_rate") {
@@ -6251,6 +6862,9 @@ router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
       error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "approval"),
     });
     return;
+  }
+  if (result.kind !== "approved") {
+    throw new Error("Unexpected journal approval result.");
   }
   const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
   try {
@@ -6281,6 +6895,8 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     )).for("update");
     if (!line) return { kind: "not_found" as const };
     if (line.status === "posted") return { kind: "line_conflict" as const };
+    const treatmentValidation = await validateCurrentContactTreatment(tx, client.id, line, entry, false);
+    if (treatmentValidation) return { kind: treatmentValidation };
     if (isMissingExchangeRate(entry, client.functionalCurrency)
       || isMissingExchangeRate(line, client.functionalCurrency)) {
       return { kind: "missing_exchange_rate" as const, entry, line };
@@ -6321,11 +6937,26 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     res.status(409).json({ error: "The linked statement line is already posted and must be reconciled before this entry can be posted." });
     return;
   }
+  if (result.kind === "stale_contact") {
+    res.status(409).json({ error: "The matched contact changed or was archived after approval. Review the entry before posting." });
+    return;
+  }
+  if (result.kind === "stale_treatment") {
+    res.status(409).json({ error: "The approved account is no longer active in this client's chart. Review the entry before posting." });
+    return;
+  }
+  if (result.kind === "stale_evidence") {
+    res.status(409).json({ error: "The supporting contact history changed. Review the entry before posting." });
+    return;
+  }
   if (result.kind === "missing_exchange_rate") {
     res.status(409).json({
       error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "posting"),
     });
     return;
+  }
+  if (result.kind !== "posted") {
+    throw new Error("Unexpected journal posting result.");
   }
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });

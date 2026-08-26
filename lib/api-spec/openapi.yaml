@@ -880,6 +880,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementLine"
+  /agaraccounting/statement-lines/{id}/contact:
+    patch:
+      operationId: linkStatementLineContact
+      tags: [agaraccounting]
+      summary: Link or clear a client contact on a statement line
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineContactInput"
+      responses:
+        "200":
+          description: Statement line with updated contact link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLine"
+        "409":
+          description: Approved or posted activity cannot be silently relinked
+  /agaraccounting/contacts:
+    get:
+      operationId: getContacts
+      tags: [agaraccounting]
+      summary: List contacts for a client workspace
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Client contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contact"
+    post:
+      operationId: createContact
+      tags: [agaraccounting]
+      summary: Create a client customer or supplier contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+  /agaraccounting/contacts/{id}:
+    patch:
+      operationId: updateContact
+      tags: [agaraccounting]
+      summary: Update a client contact and its aliases
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactUpdate"
+      responses:
+        "200":
+          description: Contact updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contact"
+  /agaraccounting/clients/{clientId}/contacts/{id}/history:
+    get:
+      operationId: getContactHistory
+      tags: [agaraccounting]
+      summary: Read a client contact's confirmed accounting history
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+        - name: clientId
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Contact and confirmed history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContactHistory"
   /agaraccounting/import-statement:
     post:
       operationId: importStatement
@@ -2379,6 +2484,12 @@ components:
         direction: { type: string }
         status: { type: string }
         source: { type: string }
+        contactId: { type: ["number", "null"] }
+        contactName: { type: ["string", "null"] }
+        contactType: { type: ["string", "null"], enum: [customer, supplier, both, null] }
+        contactMatchConfidence: { type: ["number", "null"] }
+        contactSuggestionStatus: { type: ["string", "null"], enum: [supported, weak, conflicting, no_safe_treatment, no_history, null] }
+        contactSuggestionReason: { type: ["string", "null"] }
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
         suggestionSource: { type: ["string", "null"] }
@@ -2402,6 +2513,95 @@ components:
         currency: { type: string }
         amount: { type: number }
         direction: { type: string }
+        contactId: { type: ["number", "null"] }
+    StatementLineContactInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+        contactId: { type: ["number", "null"] }
+    Contact:
+      type: object
+      required: [id, clientId, displayName, legalName, contactType, status, aliases, createdAt, updatedAt]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        displayName: { type: string }
+        legalName: { type: string }
+        contactType:
+          type: string
+          enum: [customer, supplier, both]
+        status:
+          type: string
+          enum: [active, archived]
+        aliases:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ContactInput:
+      type: object
+      required: [clientId, displayName, legalName, contactType]
+      properties:
+        clientId: { type: number }
+        displayName: { type: string, minLength: 1, maxLength: 160 }
+        legalName: { type: string, minLength: 1, maxLength: 160 }
+        contactType:
+          type: string
+          enum: [customer, supplier, both]
+        aliases:
+          type: array
+          maxItems: 30
+          items: { type: string, minLength: 1, maxLength: 160 }
+    ContactUpdate:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+        displayName: { type: string, minLength: 1, maxLength: 160 }
+        legalName: { type: string, minLength: 1, maxLength: 160 }
+        contactType:
+          type: string
+          enum: [customer, supplier, both]
+        status:
+          type: string
+          enum: [active, archived]
+        aliases:
+          type: array
+          maxItems: 30
+          items: { type: string, minLength: 1, maxLength: 160 }
+    ContactHistoryItem:
+      type: object
+      required: [statementLineId, journalEntryId, date, description, status, amount, currency, direction, accountTreatment]
+      properties:
+        statementLineId: { type: number }
+        journalEntryId: { type: number }
+        date: { type: string, format: date }
+        description: { type: string }
+        status: { type: string }
+        amount: { type: number }
+        currency: { type: string }
+        direction: { type: string, enum: [inflow, outflow] }
+        accountTreatment: { type: string }
+    ContactHistory:
+      type: object
+      required: [contact, history, treatmentSummary]
+      properties:
+        contact: { $ref: "#/components/schemas/Contact" }
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/ContactHistoryItem" }
+        treatmentSummary:
+          type: array
+          items:
+            type: object
+            required: [accountTreatment, count, currencies]
+            properties:
+              accountTreatment: { type: string }
+              count: { type: number }
+              currencies:
+                type: array
+                items: { type: string }
     StatementImportInput:
       type: object
       required: [clientId, fileName, mimeType, objectPath, confirmed]
@@ -2850,6 +3050,8 @@ components:
       properties:
         id: { type: number }
         statementLineId: { type: number }
+        contactId: { type: ["number", "null"] }
+        contactName: { type: ["string", "null"] }
         date: { type: string }
         memo: { type: string }
         currency: { type: string }

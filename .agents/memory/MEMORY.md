@@ -26,3 +26,4 @@
 - [Copilot accounting result integrity](copilot-accounting-result-integrity.md) — grounded answers must reuse canonical report rules and never combine native-currency amounts.
 - [Chart history identity](chart-history-identity.md) — referenced account identity and reporting classification are immutable; archive instead, while accountant tax treatment may change.
 - [Product namespace database renames](product-namespace-database-renames.md) — preserve data with an idempotent pre-push dev rename; production renames stay in Replit’s Publish confirmation flow.
+- [Contact suggestion provenance](contact-suggestion-provenance.md) — revalidate automated contact evidence at approval, but preserve explicit accountant recodes as human decisions.

@@ -20,8 +20,6 @@ export const GetCurrentAuthUserResponse = zod.object({
   "profileImageUrl": zod.string().nullable()
 }),zod.null()])
 })
-
-
 /**
  * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
@@ -141,8 +139,6 @@ export const GetOrganizationContextResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
-
-
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
@@ -228,8 +224,6 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
-
-
 /**
  * @summary Invite a member to an accounting firm
  */
@@ -399,8 +393,6 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
-
-
 /**
  * @summary Nominate a firm member for company access
  */
@@ -435,9 +427,7 @@ export const NominateFirmEngagementMemberResponse = zod.object({
   "role": zod.enum(['accountant', 'bookkeeper']),
   "status": zod.enum(['nominated', 'approved', 'revoked'])
 }))
-})
-
-
+});
 /**
  * @summary Approve a nominated firm member for company access
  */
@@ -463,8 +453,6 @@ export const ApproveFirmEngagementMemberResponse = zod.object({
   "status": zod.enum(['nominated', 'approved', 'revoked'])
 }))
 })
-
-
 /**
  * @summary Revoke one firm's access to a company
  */
@@ -1426,6 +1414,12 @@ export const GetStatementLinesResponseItem = zod.object({
   "direction": zod.string(),
   "status": zod.string(),
   "source": zod.string(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "contactMatchConfidence": zod.number().nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal(null)]).nullish(),
+  "contactSuggestionReason": zod.string().nullish(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "suggestionSource": zod.string().nullish(),
@@ -1450,7 +1444,8 @@ export const CreateStatementLineBody = zod.object({
   "description": zod.string(),
   "currency": zod.string(),
   "amount": zod.number(),
-  "direction": zod.string()
+  "direction": zod.string(),
+  "contactId": zod.number().nullish()
 })
 
 export const CreateStatementLineResponse = zod.object({
@@ -1463,6 +1458,12 @@ export const CreateStatementLineResponse = zod.object({
   "direction": zod.string(),
   "status": zod.string(),
   "source": zod.string(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "contactMatchConfidence": zod.number().nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal(null)]).nullish(),
+  "contactSuggestionReason": zod.string().nullish(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "suggestionSource": zod.string().nullish(),
@@ -1473,6 +1474,180 @@ export const CreateStatementLineResponse = zod.object({
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
   "exchangeRateStatus": zod.string().optional()
+})
+
+
+/**
+ * @summary Link or clear a client contact on a statement line
+ */
+export const LinkStatementLineContactParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const LinkStatementLineContactBody = zod.object({
+  "clientId": zod.number(),
+  "contactId": zod.number().nullish()
+})
+
+export const LinkStatementLineContactResponse = zod.object({
+  "id": zod.number(),
+  "bankAccountId": zod.number().nullish(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "status": zod.string(),
+  "source": zod.string(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "contactMatchConfidence": zod.number().nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal(null)]).nullish(),
+  "contactSuggestionReason": zod.string().nullish(),
+  "accountSuggestion": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "suggestionSource": zod.string().nullish(),
+  "supportingPatternCount": zod.number().nullish(),
+  "functionalCurrency": zod.string().nullish(),
+  "functionalAmount": zod.number().nullish(),
+  "exchangeRate": zod.number().nullish(),
+  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
+  "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
+  "exchangeRateStatus": zod.string().optional()
+})
+
+
+/**
+ * @summary List contacts for a client workspace
+ */
+export const GetContactsQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetContactsResponseItem = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+export const GetContactsResponse = zod.array(GetContactsResponseItem)
+
+
+/**
+ * @summary Create a client customer or supplier contact
+ */
+export const createContactBodyDisplayNameMax = 160;
+
+export const createContactBodyLegalNameMax = 160;
+
+export const createContactBodyAliasesItemMax = 160;
+
+export const createContactBodyAliasesMax = 30;
+
+
+
+export const CreateContactBody = zod.object({
+  "clientId": zod.number(),
+  "displayName": zod.string().min(1).max(createContactBodyDisplayNameMax),
+  "legalName": zod.string().min(1).max(createContactBodyLegalNameMax),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "aliases": zod.array(zod.string().min(1).max(createContactBodyAliasesItemMax)).max(createContactBodyAliasesMax).optional()
+})
+
+export const CreateContactResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Update a client contact and its aliases
+ */
+export const UpdateContactParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateContactBodyDisplayNameMax = 160;
+
+export const updateContactBodyLegalNameMax = 160;
+
+export const updateContactBodyAliasesItemMax = 160;
+
+export const updateContactBodyAliasesMax = 30;
+
+
+
+export const UpdateContactBody = zod.object({
+  "clientId": zod.number(),
+  "displayName": zod.string().min(1).max(updateContactBodyDisplayNameMax).optional(),
+  "legalName": zod.string().min(1).max(updateContactBodyLegalNameMax).optional(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']).optional(),
+  "status": zod.enum(['active', 'archived']).optional(),
+  "aliases": zod.array(zod.string().min(1).max(updateContactBodyAliasesItemMax)).max(updateContactBodyAliasesMax).optional()
+})
+
+export const UpdateContactResponse = zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Read a client contact's confirmed accounting history
+ */
+export const GetContactHistoryParams = zod.object({
+  "id": zod.coerce.number(),
+  "clientId": zod.coerce.number()
+})
+
+export const GetContactHistoryResponse = zod.object({
+  "contact": zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "displayName": zod.string(),
+  "legalName": zod.string(),
+  "contactType": zod.enum(['customer', 'supplier', 'both']),
+  "status": zod.enum(['active', 'archived']),
+  "aliases": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}),
+  "history": zod.array(zod.object({
+  "statementLineId": zod.number(),
+  "journalEntryId": zod.number(),
+  "date": zod.coerce.date(),
+  "description": zod.string(),
+  "status": zod.string(),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "direction": zod.enum(['inflow', 'outflow']),
+  "accountTreatment": zod.string()
+})),
+  "treatmentSummary": zod.array(zod.object({
+  "accountTreatment": zod.string(),
+  "count": zod.number(),
+  "currencies": zod.array(zod.string())
+}))
 })
 
 
@@ -1519,6 +1694,12 @@ export const ImportStatementResponse = zod.object({
   "direction": zod.string(),
   "status": zod.string(),
   "source": zod.string(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "contactMatchConfidence": zod.number().nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal(null)]).nullish(),
+  "contactSuggestionReason": zod.string().nullish(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "suggestionSource": zod.string().nullish(),
@@ -1975,6 +2156,8 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "entries": zod.array(zod.object({
   "id": zod.number(),
   "statementLineId": zod.number(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
@@ -2039,6 +2222,8 @@ export const GetJournalEntriesQueryParams = zod.object({
 export const GetJournalEntriesResponseItem = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
@@ -2073,6 +2258,8 @@ export const ApproveJournalEntryBody = zod.object({
 export const ApproveJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
@@ -2106,6 +2293,8 @@ export const PostJournalEntryBody = zod.object({
 export const PostJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
@@ -2139,6 +2328,8 @@ export const UnpostJournalEntryBody = zod.object({
 export const UnpostJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),

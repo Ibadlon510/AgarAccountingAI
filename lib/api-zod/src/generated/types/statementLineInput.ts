@@ -15,4 +15,6 @@ export interface StatementLineInput {
   currency: string;
   amount: number;
   direction: string;
+  /** @nullable */
+  contactId?: number | null;
 }

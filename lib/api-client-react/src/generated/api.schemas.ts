@@ -939,6 +939,32 @@ export interface LedgerOverview {
   missingRateCurrencies: string[];
 }
 
+/**
+ * @nullable
+ */
+export type StatementLineContactType = typeof StatementLineContactType[keyof typeof StatementLineContactType] | null;
+
+
+export const StatementLineContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+/**
+ * @nullable
+ */
+export type StatementLineContactSuggestionStatus = typeof StatementLineContactSuggestionStatus[keyof typeof StatementLineContactSuggestionStatus] | null;
+
+
+export const StatementLineContactSuggestionStatus = {
+  supported: 'supported',
+  weak: 'weak',
+  conflicting: 'conflicting',
+  no_safe_treatment: 'no_safe_treatment',
+  no_history: 'no_history',
+} as const;
+
 export type StatementLineExchangeRateSourceScope = typeof StatementLineExchangeRateSourceScope[keyof typeof StatementLineExchangeRateSourceScope];
 
 
@@ -960,6 +986,18 @@ export interface StatementLine {
   direction: string;
   status: string;
   source: string;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  contactName?: string | null;
+  /** @nullable */
+  contactType?: StatementLineContactType;
+  /** @nullable */
+  contactMatchConfidence?: number | null;
+  /** @nullable */
+  contactSuggestionStatus?: StatementLineContactSuggestionStatus;
+  /** @nullable */
+  contactSuggestionReason?: string | null;
   /** @nullable */
   accountSuggestion?: string | null;
   /** @nullable */
@@ -989,6 +1027,144 @@ export interface StatementLineInput {
   currency: string;
   amount: number;
   direction: string;
+  /** @nullable */
+  contactId?: number | null;
+}
+
+export interface StatementLineContactInput {
+  clientId: number;
+  /** @nullable */
+  contactId?: number | null;
+}
+
+export type ContactContactType = typeof ContactContactType[keyof typeof ContactContactType];
+
+
+export const ContactContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export type ContactStatus = typeof ContactStatus[keyof typeof ContactStatus];
+
+
+export const ContactStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface Contact {
+  id: number;
+  clientId: number;
+  displayName: string;
+  legalName: string;
+  contactType: ContactContactType;
+  status: ContactStatus;
+  aliases: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ContactInputContactType = typeof ContactInputContactType[keyof typeof ContactInputContactType];
+
+
+export const ContactInputContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export interface ContactInput {
+  clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  displayName: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  legalName: string;
+  contactType: ContactInputContactType;
+  /**
+     * @maxItems 30
+     * @items.minLength 1
+     * @items.maxLength 160
+     */
+  aliases?: string[];
+}
+
+export type ContactUpdateContactType = typeof ContactUpdateContactType[keyof typeof ContactUpdateContactType];
+
+
+export const ContactUpdateContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
+export type ContactUpdateStatus = typeof ContactUpdateStatus[keyof typeof ContactUpdateStatus];
+
+
+export const ContactUpdateStatus = {
+  active: 'active',
+  archived: 'archived',
+} as const;
+
+export interface ContactUpdate {
+  clientId: number;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  displayName?: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  legalName?: string;
+  contactType?: ContactUpdateContactType;
+  status?: ContactUpdateStatus;
+  /**
+     * @maxItems 30
+     * @items.minLength 1
+     * @items.maxLength 160
+     */
+  aliases?: string[];
+}
+
+export type ContactHistoryItemDirection = typeof ContactHistoryItemDirection[keyof typeof ContactHistoryItemDirection];
+
+
+export const ContactHistoryItemDirection = {
+  inflow: 'inflow',
+  outflow: 'outflow',
+} as const;
+
+export interface ContactHistoryItem {
+  statementLineId: number;
+  journalEntryId: number;
+  date: string;
+  description: string;
+  status: string;
+  amount: number;
+  currency: string;
+  direction: ContactHistoryItemDirection;
+  accountTreatment: string;
+}
+
+export type ContactHistoryTreatmentSummaryItem = {
+  accountTreatment: string;
+  count: number;
+  currencies: string[];
+};
+
+export interface ContactHistory {
+  contact: Contact;
+  history: ContactHistoryItem[];
+  treatmentSummary: ContactHistoryTreatmentSummaryItem[];
 }
 
 export interface StatementImportInput {
@@ -1488,6 +1664,10 @@ export const JournalEntryExchangeRateSourceScope = {
 export interface JournalEntry {
   id: number;
   statementLineId: number;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  contactName?: string | null;
   date: string;
   memo: string;
   currency: string;
@@ -1863,6 +2043,10 @@ export const GetStatementLinesDirection = {
   inflow: 'inflow',
   outflow: 'outflow',
 } as const;
+
+export type GetContactsParams = {
+clientId: number;
+};
 
 export type GetStatementImportsParams = {
 clientId: number;

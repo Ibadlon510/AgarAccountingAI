@@ -19,3 +19,4 @@
 
 export * from "./agaraccounting";
 export * from "./classification-learning";
+export * from "./contacts";
