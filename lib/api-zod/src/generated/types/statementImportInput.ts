@@ -7,6 +7,8 @@
  */
 
 export interface StatementImportInput {
+  /** Existing pending import to confirm after the user reviews its detected currency. */
+  importId?: number;
   clientId: number;
   /** @nullable */
   bankAccountId?: number | null;
@@ -14,6 +16,6 @@ export interface StatementImportInput {
   mimeType: string;
   objectPath: string;
   currency?: string;
-  /** False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue. */
+  /** False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue. */
   confirmed: boolean;
 }

@@ -10,6 +10,7 @@ export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof 
 
 
 export const StatementImportOutcome = {
+  pending_confirmation: 'pending_confirmation',
   completed: 'completed',
   duplicate: 'duplicate',
   failed: 'failed',

@@ -213,7 +213,7 @@ export const getUpdateLedgerflowAccountProfileUrl = () => {
 }
 
 /**
- * @summary Save the authenticated account owner's LedgerFlow profile
+ * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
 export const updateLedgerflowAccountProfile = async (accountProfileInput: AccountProfileInput, options?: Parameters<typeof customFetch>[1]): Promise<AccountProfile> => {
 
@@ -262,7 +262,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UpdateLedgerflowAccountProfileMutationError = ErrorType<unknown>
 
     /**
- * @summary Save the authenticated account owner's LedgerFlow profile
+ * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
 export const useUpdateLedgerflowAccountProfile = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateLedgerflowAccountProfile>>, TError,{data: BodyType<AccountProfileInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

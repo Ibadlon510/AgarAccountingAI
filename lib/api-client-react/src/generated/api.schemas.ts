@@ -674,6 +674,8 @@ export interface StatementLineInput {
 }
 
 export interface StatementImportInput {
+  /** Existing pending import to confirm after the user reviews its detected currency. */
+  importId?: number;
   clientId: number;
   /** @nullable */
   bankAccountId?: number | null;
@@ -681,7 +683,7 @@ export interface StatementImportInput {
   mimeType: string;
   objectPath: string;
   currency?: string;
-  /** False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue. */
+  /** False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue. */
   confirmed: boolean;
 }
 
@@ -746,6 +748,7 @@ export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof 
 
 
 export const StatementImportOutcome = {
+  pending_confirmation: 'pending_confirmation',
   completed: 'completed',
   duplicate: 'duplicate',
   failed: 'failed',
@@ -759,6 +762,8 @@ export interface StatementImport {
   /** @nullable */
   objectPath: string | null;
   outcome: StatementImportOutcome;
+  /** @nullable */
+  detectedCurrency?: string | null;
   /** @nullable */
   errorMessage?: string | null;
   importedLineCount: number;

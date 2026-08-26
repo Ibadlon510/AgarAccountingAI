@@ -1827,6 +1827,9 @@ components:
       type: object
       required: [clientId, fileName, mimeType, objectPath, confirmed]
       properties:
+        importId:
+          type: number
+          description: Existing pending import to confirm after the user reviews its detected currency.
         clientId: { type: number }
         bankAccountId: { type: ["number", "null"] }
         fileName: { type: string }
@@ -1835,7 +1838,7 @@ components:
         currency: { type: string }
         confirmed:
           type: boolean
-          description: False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue.
+          description: False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.
     StatementImportResult:
       type: object
       required: [fileName, importId, importStatus, importedCount, duplicateCount, duplicateLines, lines]
@@ -1869,7 +1872,8 @@ components:
         fileName: { type: string }
         mimeType: { type: string }
         objectPath: { type: ["string", "null"] }
-        outcome: { type: string, enum: [completed, duplicate, failed, undone] }
+        outcome: { type: string, enum: [pending_confirmation, completed, duplicate, failed, undone] }
+        detectedCurrency: { type: ["string", "null"] }
         errorMessage: { type: ["string", "null"] }
         importedLineCount: { type: number }
         createdAt: { type: string }

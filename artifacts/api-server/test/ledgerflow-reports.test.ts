@@ -440,18 +440,16 @@ test("posting can be reversed without rewriting reports or accountability eviden
     const foreignEntries = await request<Array<{ id: number; statementLineId: number }>>(`/ledgerflow/journal-entries?clientId=${lifecycleClientId}`);
     const foreignEntry = foreignEntries.body.find((candidate) => candidate.statementLineId === foreignLine.body.id);
     assert.ok(foreignEntry);
-    assert.equal((await request(`/ledgerflow/journal-entries/${foreignEntry.id}/approve`, {
+    const blockedApproval = await request<{ error: string }>(`/ledgerflow/journal-entries/${foreignEntry.id}/approve`, {
       method: "POST",
       body: JSON.stringify({ clientId: lifecycleClientId }),
-    })).response.status, 200);
-    assert.equal((await request(`/ledgerflow/journal-entries/${foreignEntry.id}/post`, {
-      method: "POST",
-      body: JSON.stringify({ clientId: lifecycleClientId }),
-    })).response.status, 200);
-    const missingRate = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`);
-    assert.equal(missingRate.body.find((row) => row.account === "Rate coverage required")?.missingRateCount, 1);
+    });
+    assert.equal(blockedApproval.response.status, 409);
+    assert.match(blockedApproval.body.error, /exchange rate required before approval/i);
+    const stillSuggested = await request<Array<{ id: number; status: string }>>(`/ledgerflow/journal-entries?clientId=${lifecycleClientId}`);
+    assert.equal(stillSuggested.body.find((candidate) => candidate.id === foreignEntry.id)?.status, "suggested");
 
-    const addedRate = await request(`/ledgerflow/exchange-rates?clientId=${lifecycleClientId}`, {
+    const addedRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${lifecycleClientId}`, {
       method: "POST",
       body: JSON.stringify({
         sourceCurrency: "USD",
@@ -461,9 +459,42 @@ test("posting can be reversed without rewriting reports or accountability eviden
       }),
     });
     assert.equal(addedRate.response.status, 201);
-    const recoveredRate = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`);
-    assert.equal(recoveredRate.body.some((row) => row.account === "Rate coverage required"), false);
-    assert.equal(recoveredRate.body.find((row) => row.account === "Software & subscriptions")?.debit, 36.7);
+    assert.equal((await request(`/ledgerflow/journal-entries/${foreignEntry.id}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    })).response.status, 200);
+
+    const deletedRate = await fetch(`${baseUrl}/ledgerflow/exchange-rates/${addedRate.body.id}`, {
+      method: "DELETE",
+      headers: {
+        "x-test-user-id": primaryUserId,
+      },
+    });
+    assert.equal(deletedRate.status, 204);
+    const blockedPosting = await request<{ error: string }>(`/ledgerflow/journal-entries/${foreignEntry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    });
+    assert.equal(blockedPosting.response.status, 409);
+    assert.match(blockedPosting.body.error, /exchange rate required before posting/i);
+
+    const restoredRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${lifecycleClientId}`, {
+      method: "POST",
+      body: JSON.stringify({
+        sourceCurrency: "USD",
+        functionalCurrency: "AED",
+        effectiveDate: "2026-09-01",
+        rate: 3.67,
+      }),
+    });
+    assert.equal(restoredRate.response.status, 201);
+    assert.equal((await request(`/ledgerflow/journal-entries/${foreignEntry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({ clientId: lifecycleClientId }),
+    })).response.status, 200);
+    const missingRate = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`);
+    assert.equal(missingRate.body.some((row) => row.account === "Rate coverage required"), false);
+    assert.equal(missingRate.body.find((row) => row.account === "Software & subscriptions")?.debit, 36.7);
   } finally {
     await database.db.delete(database.reportPacksTable).where(eq(database.reportPacksTable.clientId, lifecycleClientId));
     await database.db.delete(database.accountClassificationsTable).where(eq(database.accountClassificationsTable.clientId, lifecycleClientId));

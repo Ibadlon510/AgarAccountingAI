@@ -29,6 +29,8 @@ type Message = {
   recommendations?: AICopilotRecommendation[];
   importData?: {
     importedCount?: number;
+    pendingConfirmation?: boolean;
+    detectedCurrency?: string | null;
     error?: string;
     bankAccountName?: string;
     accountNumberLast4?: string | null;
@@ -296,7 +298,19 @@ export function AssistantFAB() {
           type: 'text',
           content: `Import failed: ${matchingImport.errorMessage ?? 'The statement could not be processed.'}`,
         }
-      : {
+      : matchingImport.outcome === 'pending_confirmation'
+        ? {
+            id: pendingImport.progressMessageId,
+            role: 'assistant',
+            type: 'import-result',
+            content: 'Statement parsed — currency confirmation required.',
+            importData: {
+              importedCount: 0,
+              pendingConfirmation: true,
+              detectedCurrency: matchingImport.detectedCurrency,
+            },
+          }
+        : {
           id: pendingImport.progressMessageId,
           role: 'assistant',
           type: 'import-result',
@@ -311,8 +325,10 @@ export function AssistantFAB() {
         : [...current, settledMessage],
     );
     clearPendingImport(activeClient.id);
-    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
-    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+    if (matchingImport.outcome !== 'pending_confirmation') {
+      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+    }
   }, [activeClient?.id, importTrail.data, pendingImport]);
 
   const handleSend = (e?: React.FormEvent) => {
@@ -393,23 +409,25 @@ export function AssistantFAB() {
           fileName: file.name,
           mimeType: file.type || 'application/octet-stream',
           objectPath: uploaded.objectPath,
-          currency: client.functionalCurrency || 'AED',
-          confirmed: true,
+          confirmed: false,
         }
       });
       clearPendingImport(client.id);
       updateMessages(client.id, (current) => current.map((message) => message.id === progressId ? {
         ...message,
         type: 'import-result',
-        content: 'Import completed.',
+        content: data.importStatus === 'preview'
+          ? 'Statement parsed — currency confirmation required.'
+          : data.message ?? 'This statement was already imported.',
         importData: {
-          importedCount: data.importedCount,
+          importedCount: data.importStatus === 'preview' ? data.lines.length : data.importedCount,
+          pendingConfirmation: data.importStatus === 'preview',
+          detectedCurrency: data.detectedCurrency,
           bankAccountName: data.bankAccount?.name,
           accountNumberLast4: data.bankAccount?.accountNumberLast4,
         }
       } : message));
-      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: client.id }) });
-      queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: client.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: client.id }) });
     } catch (error) {
       const status = typeof error === 'object' && error !== null && 'status' in error
         ? Number((error as { status?: unknown }).status)
@@ -478,10 +496,12 @@ export function AssistantFAB() {
                     ) : msg.type === 'import-result' ? (
                       <div>
                         <div className="font-semibold text-primary">{msg.content}</div>
-                        <div className="mt-1 text-muted-foreground">{msg.importData?.importedCount ?? 0} lines extracted and queued.</div>
+                        <div className="mt-1 text-muted-foreground">{msg.importData?.pendingConfirmation
+                          ? `${msg.importData.importedCount ?? 0} proposed lines are saved but not loaded.${msg.importData.detectedCurrency ? ` Detected currency: ${msg.importData.detectedCurrency}.` : ''}`
+                          : `${msg.importData?.importedCount ?? 0} lines extracted and queued.`}</div>
                         {msg.importData?.bankAccountName && <div className="mt-2 rounded bg-secondary/50 px-2 py-1.5 font-mono text-[10px] text-foreground">Bank account: {msg.importData.bankAccountName}{msg.importData.accountNumberLast4 ? ` · •••• ${msg.importData.accountNumberLast4}` : ''}</div>}
-                        <Link href="/statement-lines" onClick={() => setIsOpen(false)} className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">
-                          Review lines <ArrowRight size={14} />
+                        <Link href={msg.importData?.pendingConfirmation ? '/import-statement' : '/statement-lines'} onClick={() => setIsOpen(false)} className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5">
+                          {msg.importData?.pendingConfirmation ? 'Confirm currency' : 'Review lines'} <ArrowRight size={14} />
                         </Link>
                       </div>
                     ) : (

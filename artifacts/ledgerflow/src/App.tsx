@@ -17,7 +17,7 @@ import {
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement
+  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -1087,6 +1087,7 @@ function ImportStatementPage() {
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
         ? { ...entry, status: 'ready', result }
         : entry));
+      void queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) });
       setIsProcessingQueue(false);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Statement preview failed.';
@@ -1110,6 +1111,7 @@ function ImportStatementPage() {
     try {
       const result = await importMutation.mutateAsync({
         data: {
+          importId: preview.result.importId,
           clientId: activeClient.id,
           fileName: preview.fileName,
           mimeType: preview.mimeType,
@@ -1126,6 +1128,7 @@ function ImportStatementPage() {
         : entry));
       queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) });
       queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) });
+      queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) });
       continueQueue(currentIndex);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Statement import failed.');
@@ -1138,9 +1141,9 @@ function ImportStatementPage() {
     setPreview(null);
     setPreviewIndex(null);
     setQueue((current) => current.map((entry, entryIndex) => entryIndex === currentIndex
-      ? { ...entry, status: 'skipped', message: 'Skipped before loading into review.' }
+      ? { ...entry, status: 'skipped', message: 'Saved in Import history for later currency confirmation.' }
       : entry));
-    setMessage('This statement was skipped and nothing was loaded into review.');
+    setMessage('This statement remains in Import history for later currency confirmation. Nothing was loaded into review.');
     continueQueue(currentIndex);
   };
 
@@ -1151,7 +1154,7 @@ function ImportStatementPage() {
       <PageHeading eyebrow={`Document ${queuePosition} of ${queue.length} · review before load`} title="Review parsed statement" description={`AgarAccounting AI has not loaded any rows for ${activeClient?.name ?? 'this client'} yet. Confirm the interpreted currency and transactions before they enter the review queue.`} />
       <section className="rounded-lg border border-card-border bg-card p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI extraction preview</div><h2 className="mt-2 text-lg font-semibold">{preview.fileName}</h2><p className="mt-1 text-xs text-muted-foreground">{preview.result.lines.length} proposed transaction{preview.result.lines.length === 1 ? '' : 's'} · nothing has been saved</p></div>
+          <div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI extraction preview</div><h2 className="mt-2 text-lg font-semibold">{preview.fileName}</h2><p className="mt-1 text-xs text-muted-foreground">{preview.result.lines.length} proposed transaction{preview.result.lines.length === 1 ? '' : 's'} · source and preview saved, no statement lines loaded</p></div>
           <button type="button" onClick={skipPreview} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button>
         </div>
         <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
@@ -1210,7 +1213,43 @@ function StatementImportHistory() {
     },
   });
   const undoMutation = useUndoStatementImport();
+  const confirmMutation = useImportStatement();
   const [feedback, setFeedback] = useState('');
+  const [pendingCurrencies, setPendingCurrencies] = useState<Record<number, string>>({});
+
+  const confirmPendingImport = (statementImport: StatementImport) => {
+    if (!activeClient || !statementImport.objectPath) return;
+    const currency = pendingCurrencies[statementImport.id] ?? statementImport.detectedCurrency ?? '';
+    if (!currency) {
+      setFeedback('Choose the statement currency before loading this file into review.');
+      return;
+    }
+    setFeedback('');
+    confirmMutation.mutate({
+      data: {
+        importId: statementImport.id,
+        clientId: activeClient.id,
+        fileName: statementImport.fileName,
+        mimeType: statementImport.mimeType,
+        objectPath: statementImport.objectPath,
+        currency,
+        confirmed: true,
+      },
+    }, {
+      onSuccess: (result) => {
+        setFeedback(result.message ?? `${result.importedCount} statement lines are ready for review.`);
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) }),
+        ]);
+      },
+      onError: (error) => {
+        setFeedback(mutationErrorMessage(error));
+      },
+    });
+  };
 
   const undoImport = (importId: number, fileName: string) => {
     if (!activeClient || !window.confirm(`Undo "${fileName}"? This permanently removes its review-only transactions and suggested journals. The original statement document and audit trail will be kept.`)) return;
@@ -1233,10 +1272,10 @@ function StatementImportHistory() {
 
   if (!activeClient) return null;
   return <section className="mt-6 rounded-lg border border-card-border bg-card p-6" data-testid="statement-import-history">
-    <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Undo is available only while every imported transaction is still in review and its journal is still suggested. Source evidence is always retained.</p></div><button type="button" onClick={() => void importsQuery.refetch()} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-muted-foreground hover:bg-muted"><RefreshCw size={13} /> Refresh</button></div>
+    <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Uploads waiting for currency confirmation create no statement lines. Undo is available only while every loaded transaction is still in review and its journal is still suggested.</p></div><button type="button" onClick={() => void importsQuery.refetch()} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-muted-foreground hover:bg-muted"><RefreshCw size={13} /> Refresh</button></div>
     {feedback ? <div className="mt-4 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-primary" role="status">{feedback}</div> : null}
     {importsQuery.isLoading ? <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><LoaderCircle size={14} className="animate-spin" /> Loading import history…</div> : null}
-    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replace('_', ' ')}</span></div>{statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a transaction or journal is changed, approved, or posted.</p> : null}</div><div className="flex shrink-0 items-center gap-2">{statementImport.sourceUrl ? <a href={statementImport.sourceUrl} className="text-xs font-semibold text-primary underline">Source</a> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
+    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} loaded transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replaceAll('_', ' ')}</span></div>{statementImport.outcome === 'pending_confirmation' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Nothing has been loaded. Confirm the source currency to create review lines.</p> : statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a transaction or journal is changed, approved, or posted.</p> : null}</div><div className="flex shrink-0 flex-wrap items-center gap-2">{statementImport.outcome === 'pending_confirmation' ? <><select data-testid={`select-pending-statement-currency-${statementImport.id}`} aria-label={`Currency for ${statementImport.fileName}`} value={pendingCurrencies[statementImport.id] ?? statementImport.detectedCurrency ?? ''} onChange={(event) => setPendingCurrencies((current) => ({ ...current, [statementImport.id]: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="">Choose currency</option><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select><button data-testid={`button-confirm-pending-statement-${statementImport.id}`} type="button" onClick={() => confirmPendingImport(statementImport)} disabled={confirmMutation.isPending || !statementImport.objectPath} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{confirmMutation.isPending && confirmMutation.variables?.data.importId === statementImport.id ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />} Confirm & load</button></> : null}{statementImport.sourceUrl ? <a href={statementImport.sourceUrl} className="text-xs font-semibold text-primary underline">Source</a> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
   </section>;
 }
 

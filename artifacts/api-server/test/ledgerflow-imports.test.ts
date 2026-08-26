@@ -25,7 +25,7 @@ type ImportResult = {
     existingLineId: number | null;
     reason: "already_imported" | "duplicate_in_file";
   }>;
-  lines: Array<{ id: number; bankAccountId: number | null }>;
+  lines: Array<{ id: number; bankAccountId: number | null; currency: string }>;
   bankAccount?: {
     id: number;
     clientId: number;
@@ -41,6 +41,7 @@ type StatementLine = {
   clientId: number;
   bankAccountId: number | null;
   description: string;
+  currency: string;
 };
 
 type AIRecommendation = {
@@ -444,12 +445,12 @@ test("blocks changed imports and isolates the statement-import undo mutation", a
   assert.equal(audits.length, 0);
 });
 
-test("returns a currency-aware statement preview without creating lines or import history", async () => {
+test("stores a USD statement for confirmation without creating lines, then loads it only after confirmation", async () => {
   const clientId = await createClient(`Preview only ${randomUUID()}`);
   const fileName = "preview-only.csv";
   const marker = "preview-currency";
   const objectPath = `/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/${randomUUID()}`;
-  statementFiles.set(objectPath, Buffer.from(`Bank Statement\nCurrency: AED\nDate,Description,Debit,Credit\n2026-08-25,${marker},100,`));
+  statementFiles.set(objectPath, Buffer.from(`Bank Statement\nCurrency: USD\nDate,Description,Debit,Credit\n2026-08-25,${marker},100,`));
 
   const preview = await request<ImportResult>("/ledgerflow/import-statement", {
     method: "POST",
@@ -464,14 +465,53 @@ test("returns a currency-aware statement preview without creating lines or impor
 
   assert.equal(preview.response.status, 200);
   assert.equal(preview.body.importStatus, "preview");
-  assert.equal(preview.body.detectedCurrency, "AED");
+  assert.equal(preview.body.detectedCurrency, "USD");
   assert.equal(preview.body.importedCount, 0);
   assert.equal(preview.body.lines.length, 1);
   assert.ok(preview.body.lines[0].id < 0);
+  assert.equal(preview.body.lines[0].currency, "USD");
   assert.equal((await statementLines(clientId)).length, 0);
-  const history = await request<Array<{ id: number }>>(`/ledgerflow/statement-imports?clientId=${clientId}`, undefined, primaryUserId);
+  const history = await request<Array<{
+    id: number;
+    outcome: string;
+    detectedCurrency: string | null;
+    importedLineCount: number;
+  }>>(`/ledgerflow/statement-imports?clientId=${clientId}`, undefined, primaryUserId);
   assert.equal(history.response.status, 200);
-  assert.equal(history.body.length, 0);
+  assert.equal(history.body.length, 1);
+  assert.equal(history.body[0].id, preview.body.importId);
+  assert.equal(history.body[0].outcome, "pending_confirmation");
+  assert.equal(history.body[0].detectedCurrency, "USD");
+  assert.equal(history.body[0].importedLineCount, 0);
+
+  const confirmed = await request<ImportResult>("/ledgerflow/import-statement", {
+    method: "POST",
+    body: JSON.stringify({
+      importId: preview.body.importId,
+      clientId,
+      fileName,
+      mimeType: "text/csv",
+      objectPath,
+      currency: "USD",
+      confirmed: true,
+    }),
+  }, primaryUserId);
+  assert.equal(confirmed.response.status, 201);
+  assert.equal(confirmed.body.importedCount, 1);
+  assert.equal(confirmed.body.lines[0].currency, "USD");
+  const loadedLines = await statementLines(clientId);
+  assert.equal(loadedLines.length, 1);
+  assert.equal(loadedLines[0].currency, "USD");
+
+  const confirmedHistory = await request<Array<{ id: number; outcome: string; importedLineCount: number }>>(
+    `/ledgerflow/statement-imports?clientId=${clientId}`,
+    undefined,
+    primaryUserId,
+  );
+  assert.equal(confirmedHistory.body.length, 1);
+  assert.equal(confirmedHistory.body[0].id, preview.body.importId);
+  assert.equal(confirmedHistory.body[0].outcome, "completed");
+  assert.equal(confirmedHistory.body[0].importedLineCount, 1);
 });
 
 test("handles concurrent duplicate statement imports once", async () => {

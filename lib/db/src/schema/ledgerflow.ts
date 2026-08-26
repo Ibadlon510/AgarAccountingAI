@@ -361,6 +361,7 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
   evidenceExpiresAt: timestamp("evidence_expires_at"),
   fileHash: text("file_hash").notNull(),
   outcome: text("outcome").notNull().default("completed"),
+  detectedCurrency: text("detected_currency"),
   errorMessage: text("error_message"),
   importedLineCount: integer("imported_line_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -379,8 +380,8 @@ export const statementImportsTable = pgTable("ledgerflow_statement_imports", {
     name: "ledgerflow_statement_imports_bank_account_fk",
   }),
   outcomeCheck: check(
-    "ledgerflow_statement_imports_outcome_check",
-    sql`outcome in ('completed', 'duplicate', 'failed', 'undone')`,
+    "ledgerflow_statement_imports_outcome_v3_check",
+    sql`outcome in ('pending_confirmation', 'completed', 'duplicate', 'failed', 'undone')`,
   ),
 }));
 

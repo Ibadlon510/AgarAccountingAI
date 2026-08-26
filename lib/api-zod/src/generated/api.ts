@@ -23,7 +23,7 @@ export const GetCurrentAuthUserResponse = zod.object({
 
 
 /**
- * @summary Save the authenticated account owner's LedgerFlow profile
+ * @summary Save the authenticated account owner's AgarAccounting AI System profile
  */
 
 
@@ -1261,13 +1261,14 @@ export const CreateStatementLineResponse = zod.object({
  * @summary Extract statement lines from a PDF, CSV, or Excel file
  */
 export const ImportStatementBody = zod.object({
+  "importId": zod.number().optional().describe('Existing pending import to confirm after the user reviews its detected currency.'),
   "clientId": zod.number(),
   "bankAccountId": zod.number().nullish(),
   "fileName": zod.string(),
   "mimeType": zod.string(),
   "objectPath": zod.string(),
   "currency": zod.string().optional(),
-  "confirmed": zod.boolean().describe('False returns an extraction preview only; true confirms that the reviewed rows may be loaded into the review queue.')
+  "confirmed": zod.boolean().describe('False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.')
 })
 
 export const ImportStatementResponse = zod.object({
@@ -1332,7 +1333,8 @@ export const GetStatementImportsResponseItem = zod.object({
   "fileName": zod.string(),
   "mimeType": zod.string(),
   "objectPath": zod.string().nullable(),
-  "outcome": zod.enum(['completed', 'duplicate', 'failed', 'undone']),
+  "outcome": zod.enum(['pending_confirmation', 'completed', 'duplicate', 'failed', 'undone']),
+  "detectedCurrency": zod.string().nullish(),
   "errorMessage": zod.string().nullish(),
   "importedLineCount": zod.number(),
   "createdAt": zod.string(),

@@ -15,6 +15,8 @@ export interface StatementImport {
   objectPath: string | null;
   outcome: StatementImportOutcome;
   /** @nullable */
+  detectedCurrency?: string | null;
+  /** @nullable */
   errorMessage?: string | null;
   importedLineCount: number;
   createdAt: string;

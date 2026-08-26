@@ -72,6 +72,13 @@ test("repairs the legacy statement import hash index and preserves duplicate aud
         outcome: "failed",
         errorMessage: "Temporary provider outage",
       },
+      {
+        clientId,
+        fileName: "statement-undone.pdf",
+        mimeType: "application/pdf",
+        fileHash,
+        outcome: "undone",
+      },
     ]);
     await assert.rejects(
       db.insert(statementImportsTable).values({

@@ -597,6 +597,37 @@ function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functio
   return null;
 }
 
+type ExchangeRateCoverageRecord = {
+  currency: string;
+  date: string;
+  functionalCurrency: string | null;
+  functionalAmount: string | null;
+};
+
+function isMissingExchangeRate(record: ExchangeRateCoverageRecord, functionalCurrency: string) {
+  const normalizedFunctionalCurrency = normalizeCurrency(functionalCurrency);
+  return normalizeCurrency(record.currency) !== normalizedFunctionalCurrency
+    && (
+      record.functionalAmount == null
+      || normalizeCurrency(record.functionalCurrency ?? "") !== normalizedFunctionalCurrency
+    );
+}
+
+function exchangeRateRequiredMessage(
+  records: ExchangeRateCoverageRecord[],
+  functionalCurrency: string,
+  action: "approval" | "posting",
+) {
+  const normalizedFunctionalCurrency = normalizeCurrency(functionalCurrency);
+  const missing = records.filter((record) => isMissingExchangeRate(record, normalizedFunctionalCurrency));
+  const currencies = [...new Set(missing.map((record) => normalizeCurrency(record.currency)))];
+  const firstDate = calendarDate(missing[0]?.date) ?? missing[0]?.date;
+  const currencyLabel = currencies.length === 1
+    ? `${currencies[0]} → ${normalizedFunctionalCurrency}`
+    : `${currencies.join(", ")} → ${normalizedFunctionalCurrency}`;
+  return `Exchange rate required before ${action}. Add ${currencyLabel} rate coverage${firstDate ? ` dated on or before ${firstDate}` : ""}, then try again.`;
+}
+
 function reportingEligibility(
   entries: Array<typeof journalEntriesTable.$inferSelect>,
   functionalCurrency: string,
@@ -2139,7 +2170,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_approve_entries" | "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate") {
     super(kind);
   }
 }
@@ -2441,7 +2472,7 @@ function hasBankStatementStructure(text: string, parsedRows: ParsedBankLine[], h
 router.post("/ledgerflow/import-statement", async (req, res) => {
   const parsed = ImportStatementBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
-  const { clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed } = parsed.data as typeof parsed.data & { objectPath?: string };
+  const { importId: pendingImportId, clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed } = parsed.data as typeof parsed.data & { objectPath?: string };
   if (!objectPath) return res.status(400).json({ error: "A verified statement upload is required." });
   let activeClientId: number | undefined;
   let failedBankAccountId: number | null = null;
@@ -2480,6 +2511,22 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     const scopedFileHash = createHash("sha256").update(buffer).digest("hex");
     activeClientId = scopedClientId;
     fileHash = scopedFileHash;
+    const pendingImport = pendingImportId == null
+      ? null
+      : (await db.select().from(statementImportsTable).where(and(
+        eq(statementImportsTable.id, pendingImportId),
+        eq(statementImportsTable.clientId, scopedClientId),
+        eq(statementImportsTable.outcome, "pending_confirmation"),
+      )).limit(1))[0] ?? null;
+    if (pendingImportId != null && (
+      !pendingImport
+      || pendingImport.fileHash !== scopedFileHash
+      || pendingImport.objectPath !== objectPath
+    )) {
+      return res.status(409).json({
+        error: "This pending statement is no longer available for confirmation. Refresh Import history and try again.",
+      });
+    }
     const previousImport = (await db.select().from(statementImportsTable).where(and(
       eq(statementImportsTable.clientId, scopedClientId),
       eq(statementImportsTable.fileHash, scopedFileHash),
@@ -2508,18 +2555,34 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
           eq(bankAccountsTable.id, previousImport.bankAccountId),
           eq(bankAccountsTable.clientId, scopedClientId),
         )))[0] ?? null;
-      const [duplicateImport] = await db.insert(statementImportsTable).values({
-        clientId: scopedClientId,
-        bankAccountId: previousImport.bankAccountId,
-        fileName,
-        mimeType,
-        objectPath,
-        fileSize: uploadedFileSize,
-        evidenceExpiresAt: retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays),
-        fileHash: scopedFileHash,
-        outcome: "duplicate",
-        importedLineCount: previousImport.importedLineCount,
-      }).returning();
+      const [duplicateImport] = pendingImportId == null
+        ? await db.insert(statementImportsTable).values({
+          clientId: scopedClientId,
+          bankAccountId: previousImport.bankAccountId,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          evidenceExpiresAt: retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays),
+          fileHash: scopedFileHash,
+          outcome: "duplicate",
+          detectedCurrency: pendingImport?.detectedCurrency ?? null,
+          importedLineCount: previousImport.importedLineCount,
+        }).returning()
+        : await db.update(statementImportsTable).set({
+          bankAccountId: previousImport.bankAccountId,
+          outcome: "duplicate",
+          importedLineCount: previousImport.importedLineCount,
+        }).where(and(
+          eq(statementImportsTable.id, pendingImportId),
+          eq(statementImportsTable.clientId, scopedClientId),
+          eq(statementImportsTable.outcome, "pending_confirmation"),
+        )).returning();
+      if (!duplicateImport) {
+        return res.status(409).json({
+          error: "This pending statement changed before confirmation. Refresh Import history and try again.",
+        });
+      }
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
         importId: duplicateImport.id,
@@ -2663,7 +2726,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     failedBankAccountId = selectedBankAccount?.id ?? null;
     const firm = await getRateProfileForClient(client);
     const resolvedLines = await Promise.all(lines.map(async (line) => {
-      const currencyValue = normalizeCurrency(currency ?? line.currency ?? detectedCurrency ?? fallbackCurrency);
+      const currencyValue = normalizeCurrency(currency ?? detectedCurrency ?? line.currency ?? fallbackCurrency);
       return {
         line,
         currencyValue,
@@ -2677,11 +2740,43 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       };
     }));
     if (!confirmed) {
+      const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
+      const [existingPendingImport] = await db.select().from(statementImportsTable).where(and(
+        eq(statementImportsTable.clientId, scopedClientId),
+        eq(statementImportsTable.fileHash, scopedFileHash),
+        eq(statementImportsTable.outcome, "pending_confirmation"),
+      )).orderBy(desc(statementImportsTable.createdAt)).limit(1);
+      const [storedPendingImport] = existingPendingImport
+        ? await db.update(statementImportsTable).set({
+          bankAccountId: selectedBankAccount?.id ?? null,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          evidenceExpiresAt,
+          detectedCurrency,
+          errorMessage: null,
+        }).where(eq(statementImportsTable.id, existingPendingImport.id)).returning()
+        : await db.insert(statementImportsTable).values({
+          clientId: scopedClientId,
+          bankAccountId: selectedBankAccount?.id ?? null,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          evidenceExpiresAt,
+          fileHash: scopedFileHash,
+          outcome: "pending_confirmation",
+          detectedCurrency,
+          importedLineCount: 0,
+        }).returning();
+      if (!storedPendingImport) throw new Error("The pending statement confirmation could not be saved.");
       return res.json(ImportStatementResponse.parse({
         fileName,
-        importId: 0,
+        importId: storedPendingImport.id,
         importStatus: "preview",
-        message: `${resolvedLines.length} transaction${resolvedLines.length === 1 ? "" : "s"} parsed. Review the currency and rows before loading them into the review queue.`,
+        message: `${resolvedLines.length} transaction${resolvedLines.length === 1 ? "" : "s"} parsed and saved for confirmation. Review the currency before loading them into the review queue.`,
+        sourceUrl: statementSourceUrl(storedPendingImport.id),
         detectedCurrency,
         currencyRequiresConfirmation: !detectedCurrency,
         importedCount: 0,
@@ -2715,22 +2810,36 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
     }
     const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
     const importResult = await db.transaction(async (tx) => {
-      const [createdImport] = await tx.insert(statementImportsTable).values({
-        clientId: scopedClientId,
-        bankAccountId: null,
-        fileName,
-        mimeType,
-        objectPath,
-        fileSize: uploadedFileSize,
-        evidenceExpiresAt,
-        fileHash: scopedFileHash,
-        outcome: "completed",
-        importedLineCount: 0,
-      }).onConflictDoNothing({
-        target: [statementImportsTable.clientId, statementImportsTable.fileHash],
-        where: eq(statementImportsTable.outcome, "completed"),
-      }).returning();
+      const [createdImport] = pendingImportId == null
+        ? await tx.insert(statementImportsTable).values({
+          clientId: scopedClientId,
+          bankAccountId: null,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          evidenceExpiresAt,
+          fileHash: scopedFileHash,
+          outcome: "completed",
+          detectedCurrency,
+          importedLineCount: 0,
+        }).onConflictDoNothing({
+          target: [statementImportsTable.clientId, statementImportsTable.fileHash],
+          where: eq(statementImportsTable.outcome, "completed"),
+        }).returning()
+        : await tx.update(statementImportsTable).set({
+          bankAccountId: null,
+          outcome: "completed",
+          detectedCurrency,
+          errorMessage: null,
+        }).where(and(
+          eq(statementImportsTable.id, pendingImportId),
+          eq(statementImportsTable.clientId, scopedClientId),
+          eq(statementImportsTable.fileHash, scopedFileHash),
+          eq(statementImportsTable.outcome, "pending_confirmation"),
+        )).returning();
       if (!createdImport) {
+        if (pendingImportId != null) return { kind: "invalid_pending" as const };
         const [completedImport] = await tx.select().from(statementImportsTable).where(and(
           eq(statementImportsTable.clientId, scopedClientId),
           eq(statementImportsTable.fileHash, scopedFileHash),
@@ -2876,6 +2985,11 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
       await tx.update(statementImportsTable).set({ importedLineCount: inserted.length }).where(eq(statementImportsTable.id, createdImport.id));
       return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount };
     });
+    if (importResult.kind === "invalid_pending") {
+      return res.status(409).json({
+        error: "This pending statement changed before confirmation. Refresh Import history and try again.",
+      });
+    }
     if (importResult.kind === "duplicate_file") {
       return res.status(200).json(ImportStatementResponse.parse({
         fileName,
@@ -2925,7 +3039,7 @@ router.post("/ledgerflow/import-statement", async (req, res) => {
         error: "Statement import is temporarily unavailable. Please try again.",
       });
     }
-    if (activeClientId !== undefined && fileHash) {
+    if (pendingImportId == null && activeClientId !== undefined && fileHash) {
       await recordFailedStatementImport({
         clientId: activeClientId,
         bankAccountId: failedBankAccountId,
@@ -2957,6 +3071,7 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
     mimeType: statementImport.mimeType,
      objectPath: statementImport.objectPath,
     outcome: statementImport.outcome,
+    detectedCurrency: statementImport.detectedCurrency,
     errorMessage: statementImport.errorMessage,
     importedLineCount: statementImport.importedLineCount,
     createdAt: statementImport.createdAt.toISOString(),
@@ -3433,6 +3548,10 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
           || (body.type === "bulk_post_entries" && lines.some((line) => line.status === "posted"))) {
           throw new BulkActionValidationError("invalid_status");
         }
+        if (entries.some((entry) => isMissingExchangeRate(entry, client.functionalCurrency))
+          || lines.some((line) => isMissingExchangeRate(line, client.functionalCurrency))) {
+          throw new BulkActionValidationError("missing_exchange_rate");
+        }
 
         const updatedEntries = await tx.update(journalEntriesTable)
           .set({ status: resultingStatus })
@@ -3476,6 +3595,18 @@ router.post("/ledgerflow/ai-actions/confirm", async (req, res) => {
         }
         if (error.kind === "invalid_scope") {
           return res.status(400).json({ error: "The selected journal entries and statement lines do not describe one matching client-scoped selection." });
+        }
+        if (error.kind === "missing_exchange_rate") {
+          return res.status(409).json({
+            error: exchangeRateRequiredMessage(
+              await db.select().from(journalEntriesTable).where(and(
+                eq(journalEntriesTable.clientId, body.clientId),
+                inArray(journalEntriesTable.id, entryIds),
+              )),
+              client.functionalCurrency,
+              body.type === "bulk_approve_entries" ? "approval" : "posting",
+            ),
+          });
         }
         const statusMessage = body.type === "bulk_approve_entries"
           ? "Only suggested entries can be bulk approved. Posted or already approved entries were rejected."
@@ -4731,28 +4862,46 @@ router.post("/ledgerflow/journal-entries/:id/approve", async (req, res) => {
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
 
-  const [entry] = await db.update(journalEntriesTable).set({ status: "approved" }).where(and(
-    eq(journalEntriesTable.id, id),
-    eq(journalEntriesTable.clientId, client.id),
-    eq(journalEntriesTable.status, "suggested"),
-  )).returning();
-  if (!entry) {
+  const result = await db.transaction(async (tx) => {
+    const [entry] = await tx.select().from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.id, id),
+      eq(journalEntriesTable.clientId, client.id),
+    )).for("update");
+    if (!entry || entry.status !== "suggested") return { kind: "not_available" as const };
+    const [line] = await tx.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.id, entry.statementLineId),
+      eq(statementLinesTable.clientId, client.id),
+    )).for("update");
+    if (!line) return { kind: "not_available" as const };
+    if (isMissingExchangeRate(entry, client.functionalCurrency)
+      || isMissingExchangeRate(line, client.functionalCurrency)) {
+      return { kind: "missing_exchange_rate" as const, entry, line };
+    }
+    const [approvedEntry] = await tx.update(journalEntriesTable).set({ status: "approved" }).where(and(
+      eq(journalEntriesTable.id, id),
+      eq(journalEntriesTable.clientId, client.id),
+      eq(journalEntriesTable.status, "suggested"),
+    )).returning();
+    if (!approvedEntry) return { kind: "not_available" as const };
+    return { kind: "approved" as const, entry: approvedEntry, line };
+  });
+  if (result.kind === "not_available") {
     res.status(409).json({ error: "This journal entry is not available for approval for this client" });
     return;
   }
-  const [line] = await db.select().from(statementLinesTable).where(and(
-    eq(statementLinesTable.id, entry.statementLineId),
-    eq(statementLinesTable.clientId, client.id),
-  ));
-  if (line) {
-    const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
-    try {
-      await recordClassificationPattern(currentUserId(req), line.description, accountSuggestion, entry.confidence);
-    } catch (error) {
-      req.log.warn({ err: error }, "Classification learning could not be recorded after approval");
-    }
+  if (result.kind === "missing_exchange_rate") {
+    res.status(409).json({
+      error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "approval"),
+    });
+    return;
   }
-  return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(entry)));
+  const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
+  try {
+    await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
+  } catch (error) {
+    req.log.warn({ err: error }, "Classification learning could not be recorded after approval");
+  }
+  return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
 router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
@@ -4775,6 +4924,10 @@ router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
     )).for("update");
     if (!line) return { kind: "not_found" as const };
     if (line.status === "posted") return { kind: "line_conflict" as const };
+    if (isMissingExchangeRate(entry, client.functionalCurrency)
+      || isMissingExchangeRate(line, client.functionalCurrency)) {
+      return { kind: "missing_exchange_rate" as const, entry, line };
+    }
 
     const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
       eq(journalEntriesTable.id, entry.id),
@@ -4809,6 +4962,12 @@ router.post("/ledgerflow/journal-entries/:id/post", async (req, res) => {
   }
   if (result.kind === "line_conflict") {
     res.status(409).json({ error: "The linked statement line is already posted and must be reconciled before this entry can be posted." });
+    return;
+  }
+  if (result.kind === "missing_exchange_rate") {
+    res.status(409).json({
+      error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "posting"),
+    });
     return;
   }
   return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
