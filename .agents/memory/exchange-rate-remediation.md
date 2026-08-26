@@ -3,8 +3,8 @@ name: Exchange-rate remediation
 description: How workspace rate schedule changes affect persisted transaction conversion snapshots.
 ---
 
-When a workspace exchange-rate schedule is created, edited, deleted, or imported, re-resolve the affected workspace's stored functional-currency snapshots for both statement lines and linked journal entries.
+When a workspace or system exchange-rate schedule changes, re-resolve unposted statement lines and linked journal entries together. Posted pairs may gain genuinely missing conversion evidence, but any existing posted snapshot is immutable.
 
-**Why:** Missing-rate transactions are intentionally excluded from consolidated totals. If a later rate did not refresh their snapshots, adding the rate would not actually restore report coverage; corrected rates would also leave reports stale.
+**Why:** Missing-rate transactions are intentionally excluded from consolidated totals, so later rates must restore their coverage. Posted accounting evidence must remain stable even when a catalog rate is edited or removed.
 
-**How to apply:** Keep original source currency and amount immutable. Apply the current schedule only to the persisted functional amount, rate, effective date, and coverage status, and always scope the refresh through workspace membership.
+**How to apply:** Keep source currency and amount immutable. Resolve client, then firm, then system precedence; enforce both client and firm system-rate opt-outs. Refresh each statement/journal pair atomically, await remediation before mutation responses, and refresh again when an opt-out setting changes.

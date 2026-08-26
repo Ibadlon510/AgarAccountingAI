@@ -778,71 +778,88 @@ async function resolveExchangeRate(
   };
 }
 
-async function refreshFirmRateConversions(firmId: number) {
-  const lines = await db.select({
-    line: statementLinesTable,
-    functionalCurrency: clientsTable.functionalCurrency,
-  }).from(statementLinesTable)
-    .innerJoin(clientsTable, eq(clientsTable.id, statementLinesTable.clientId))
-    .where(or(
-      eq(clientsTable.rateProfileId, firmId),
-      and(isNull(clientsTable.rateProfileId), eq(clientsTable.firmId, firmId)),
-    ));
+function hasConversionEvidence(record: {
+  functionalAmount: string | null;
+  exchangeRate: string | null;
+  exchangeRateEffectiveDate: string | null;
+  exchangeRateSourceScope: string | null;
+}) {
+  return record.functionalAmount != null
+    || record.exchangeRate != null
+    || record.exchangeRateEffectiveDate != null
+    || (record.exchangeRateSourceScope != null && record.exchangeRateSourceScope !== "none");
+}
 
-  await Promise.all(lines.map(async ({ line, functionalCurrency }) => {
-    const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, line.clientId)).limit(1);
-    if (!client) return;
-    const conversion = await resolveExchangeRate(client, line.currency, functionalCurrency, calendarDate(line.date) ?? "", line.amount);
-    const values = {
-      functionalCurrency: conversion.functionalCurrency,
-      functionalAmount: conversion.functionalAmount,
-      exchangeRate: conversion.exchangeRate,
-      exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
-      exchangeRateSourceScope: conversion.exchangeRateSourceScope,
-      exchangeRateStatus: conversion.exchangeRateStatus,
-    };
-    await db.transaction(async (tx) => {
-      await tx.update(statementLinesTable).set(values).where(eq(statementLinesTable.id, line.id));
-      await tx.update(journalEntriesTable).set(values).where(eq(journalEntriesTable.statementLineId, line.id));
-    });
-  }));
+async function refreshClientRateConversions(clients: Array<typeof clientsTable.$inferSelect>) {
+  for (const client of clients) {
+    const lines = await db.select().from(statementLinesTable)
+      .where(eq(statementLinesTable.clientId, client.id));
+    for (const line of lines) {
+      await db.transaction(async (tx) => {
+        const [currentClient] = await tx.select().from(clientsTable)
+          .where(eq(clientsTable.id, client.id))
+          .for("update");
+        if (!currentClient) return;
+        const [currentLine] = await tx.select().from(statementLinesTable)
+          .where(and(
+            eq(statementLinesTable.id, line.id),
+            eq(statementLinesTable.clientId, currentClient.id),
+          ))
+          .for("update");
+        if (!currentLine) return;
+        const [currentEntry] = await tx.select().from(journalEntriesTable)
+          .where(and(
+            eq(journalEntriesTable.statementLineId, currentLine.id),
+            eq(journalEntriesTable.clientId, currentClient.id),
+          ))
+          .for("update");
+
+        // A posted conversion is an accounting snapshot. A posted pair with
+        // genuinely missing evidence may be completed, but neither catalog
+        // edits nor removals may rewrite an existing posted snapshot.
+        if ((currentLine.status === "posted" && hasConversionEvidence(currentLine))
+          || (currentEntry?.status === "posted" && hasConversionEvidence(currentEntry))) {
+          return;
+        }
+
+        const conversion = await resolveExchangeRate(
+          currentClient,
+          currentLine.currency,
+          currentClient.functionalCurrency,
+          calendarDate(currentLine.date) ?? "",
+          currentLine.amount,
+        );
+        const values = {
+          functionalCurrency: conversion.functionalCurrency,
+          functionalAmount: conversion.functionalAmount,
+          exchangeRate: conversion.exchangeRate,
+          exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+          exchangeRateStatus: conversion.exchangeRateStatus,
+        };
+        await tx.update(statementLinesTable).set(values).where(eq(statementLinesTable.id, currentLine.id));
+        if (currentEntry) {
+          await tx.update(journalEntriesTable).set(values).where(eq(journalEntriesTable.id, currentEntry.id));
+        }
+      });
+    }
+  }
+}
+
+async function refreshFirmRateConversions(firmId: number) {
+  const clients = await db.select().from(clientsTable).where(or(
+    eq(clientsTable.rateProfileId, firmId),
+    eq(clientsTable.firmId, firmId),
+  ));
+  await refreshClientRateConversions(clients);
 }
 
 async function refreshSystemRateConversions() {
-  const clients = await db.select().from(clientsTable).where(eq(clientsTable.systemRatesEnabled, true));
-  await Promise.all(clients.map(async (client) => {
-    const lines = await db.select().from(statementLinesTable).where(and(
-      eq(statementLinesTable.clientId, client.id),
-      ne(statementLinesTable.status, "posted"),
-    ));
-    await Promise.all(lines.map(async (line) => {
-      const conversion = await resolveExchangeRate(
-        client,
-        line.currency,
-        client.functionalCurrency,
-        calendarDate(line.date) ?? "",
-        line.amount,
-      );
-      const values = {
-        functionalCurrency: conversion.functionalCurrency,
-        functionalAmount: conversion.functionalAmount,
-        exchangeRate: conversion.exchangeRate,
-        exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
-        exchangeRateSourceScope: conversion.exchangeRateSourceScope,
-        exchangeRateStatus: conversion.exchangeRateStatus,
-      };
-      await db.transaction(async (tx) => {
-        await tx.update(statementLinesTable).set(values).where(and(
-          eq(statementLinesTable.id, line.id),
-          ne(statementLinesTable.status, "posted"),
-        ));
-        await tx.update(journalEntriesTable).set(values).where(and(
-          eq(journalEntriesTable.statementLineId, line.id),
-          ne(journalEntriesTable.status, "posted"),
-        ));
-      });
-    }));
-  }));
+  // Scan every client, including clients that opted out. Company and firm
+  // rates still apply to those clients, while resolveExchangeRate enforces
+  // both opt-outs before considering the global catalog.
+  const clients = await db.select().from(clientsTable);
+  await refreshClientRateConversions(clients);
 }
 
 function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functionalCurrency: string) {
@@ -6009,6 +6026,7 @@ router.patch("/workspace/firm-profile", async (req, res) => {
     legalName: parsed.data.legalName.trim(),
     systemRatesEnabled: parsed.data.systemRatesEnabled,
   }).where(eq(firmProfilesTable.id, firm.id)).returning();
+  await refreshFirmRateConversions(saved.id);
   return res.json(UpdateFirmProfileResponse.parse(firmProfileResponse(saved)));
 });
 
@@ -6076,6 +6094,7 @@ router.patch("/clients/:id", async (req, res) => {
   if (!client) {
     return res.status(404).json({ error: "Client workspace not found" });
   }
+  await refreshClientRateConversions([client]);
   return res.json(UpdateClientResponse.parse(clientResponse(client)));
 });
 

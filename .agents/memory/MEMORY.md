@@ -7,7 +7,7 @@
 - [Ledger integrity constraints](ledger-integrity-constraints.md) — keep cross-client relationship checks in idempotent database triggers because composite foreign keys are not stable under this workspace’s schema push.
 - [Workspace classification learning](workspace-classification-learning.md) — classification memory is user-scoped aggregate evidence, never source-client transaction data.
 - [PostgreSQL lock-wait observability](postgres-lock-wait-observability.md) — activity state may be disabled here; use wait events and blocking PIDs to synchronize race tests.
-- [Exchange-rate remediation](exchange-rate-remediation.md) — schedule changes re-resolve workspace conversions so a newly added rate restores reporting coverage.
+- [Exchange-rate remediation](exchange-rate-remediation.md) — refresh unposted conversions and missing posted evidence, but never rewrite an existing posted snapshot.
 - [AI-assisted exchange-rate previews](ai-exchange-rate-csv-previews.md) — unfamiliar CSVs and Excel files are bounded, server-validated previews; users must confirm before any rate is persisted.
 - [Append-only audit bootstrap](append-only-audit-bootstrap.md) — protect audits from update, delete, and truncate; serialize trigger setup across parallel server starts.
 - [Journal transition evidence](journal-transition-evidence.md) — manual and bulk posting transitions share one append-only client-scoped audit history.

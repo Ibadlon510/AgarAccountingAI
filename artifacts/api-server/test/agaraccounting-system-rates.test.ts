@@ -152,7 +152,8 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.equal(adminClients.response.status, 200);
   assert.equal(tenantClients.response.status, 200);
   const clientId = adminClients.body[0]!.id;
-  clientIds.push(clientId, tenantClients.body[0]!.id);
+  const tenantClientId = tenantClients.body[0]!.id;
+  clientIds.push(clientId, tenantClientId);
 
   const denied = await request<{ error: string }>("/agaraccounting/system-rates", tenantAdminId);
   assert.equal(denied.response.status, 403);
@@ -243,6 +244,28 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.match(invalidCurrencyPreview.body.error, /source currency values were not recognized/i);
   assert.deepEqual((await request<unknown[]>("/agaraccounting/system-rates", systemAdminId)).body, []);
 
+  const historicalLine = await request<{
+    id: number;
+    functionalAmount: number | null;
+    exchangeRate: number | null;
+    exchangeRateSourceScope: string;
+    exchangeRateStatus: string;
+  }>("/agaraccounting/statement-lines", systemAdminId, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-08-20",
+      description: "Historical rate gap",
+      currency: "USD",
+      amount: 100,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(historicalLine.response.status, 201);
+  assert.equal(historicalLine.body.functionalAmount, null);
+  assert.equal(historicalLine.body.exchangeRate, null);
+  assert.equal(historicalLine.body.exchangeRateStatus, "missing");
+
   const systemRates = [
     { sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 3.5, source: "System test" },
     { sourceCurrency: "EUR", functionalCurrency: "AED", effectiveDate: "2026-08-01", rate: 4.0, source: "System test" },
@@ -257,6 +280,20 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.equal(imported.response.status, 200);
   assert.equal(imported.body.importedCount, 4);
   assert.equal(imported.body.rates[0]!.effectiveDate, "2026-08-01");
+  const [refreshedHistoricalLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, historicalLine.body.id));
+  const [refreshedHistoricalJournal] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, historicalLine.body.id));
+  assert.equal(refreshedHistoricalLine.functionalAmount, "350.00");
+  assert.equal(refreshedHistoricalLine.exchangeRate, "3.5000000000");
+  assert.equal(refreshedHistoricalLine.exchangeRateEffectiveDate, "2026-08-01");
+  assert.equal(refreshedHistoricalLine.exchangeRateSourceScope, "system");
+  assert.equal(refreshedHistoricalLine.exchangeRateStatus, "prior");
+  assert.equal(refreshedHistoricalJournal.functionalAmount, refreshedHistoricalLine.functionalAmount);
+  assert.equal(refreshedHistoricalJournal.exchangeRate, refreshedHistoricalLine.exchangeRate);
+  assert.equal(refreshedHistoricalJournal.exchangeRateEffectiveDate, refreshedHistoricalLine.exchangeRateEffectiveDate);
+  assert.equal(refreshedHistoricalJournal.exchangeRateSourceScope, refreshedHistoricalLine.exchangeRateSourceScope);
+  assert.equal(refreshedHistoricalJournal.exchangeRateStatus, refreshedHistoricalLine.exchangeRateStatus);
 
   const companyRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?clientId=${clientId}`, systemAdminId, {
     method: "POST",
@@ -301,6 +338,38 @@ test("protects and applies the system catalog with traceable fallback precedence
       direction: "outflow",
     }),
   });
+  const firmOptOutCandidate = await createLine("JPY", "Firm opt-out candidate");
+  assert.equal(firmOptOutCandidate.body.exchangeRateSourceScope, "system");
+  const disabledFirm = await request("/workspace/firm-profile", systemAdminId, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: "System rate test firm",
+      legalName: "System rate test firm LLC",
+      systemRatesEnabled: false,
+    }),
+  });
+  assert.equal(disabledFirm.response.status, 200);
+  const [clearedFirmOptOutLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, firmOptOutCandidate.body.id));
+  const [clearedFirmOptOutJournal] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, firmOptOutCandidate.body.id));
+  assert.equal(clearedFirmOptOutLine.exchangeRate, null);
+  assert.equal(clearedFirmOptOutLine.exchangeRateStatus, "missing");
+  assert.equal(clearedFirmOptOutJournal.exchangeRate, null);
+  assert.equal(clearedFirmOptOutJournal.exchangeRateStatus, "missing");
+  const firmOptedOutLine = await createLine("JPY", "Firm opted out");
+  assert.equal(firmOptedOutLine.body.exchangeRateSourceScope, "none");
+  assert.equal(firmOptedOutLine.body.exchangeRateStatus, "missing");
+  const enabledFirm = await request("/workspace/firm-profile", systemAdminId, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: "System rate test firm",
+      legalName: "System rate test firm LLC",
+      systemRatesEnabled: true,
+    }),
+  });
+  assert.equal(enabledFirm.response.status, 200);
+
   const companyLine = await createLine("USD", "Company precedence");
   const firmLine = await createLine("EUR", "Firm precedence");
   const systemLine = await createLine("GBP", "System precedence");
@@ -311,22 +380,8 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.equal(systemLine.body.exchangeRateSourceScope, "system");
   assert.equal(systemLine.body.exchangeRate, 4.6);
 
-  const updatedClient = await request(`/clients/${clientId}`, systemAdminId, {
-    method: "PATCH",
-    body: JSON.stringify({
-      name: "System rate admin workspace",
-      legalName: "System rate admin workspace LLC",
-      functionalCurrency: "AED",
-      basis: "IFRS",
-      period: "August 2026",
-      systemRatesEnabled: false,
-    }),
-  });
-  assert.equal(updatedClient.response.status, 200);
-  const optedOutLine = await createLine("JPY", "Opted out");
-  assert.equal(optedOutLine.body.exchangeRateSourceScope, "none");
-  assert.equal(optedOutLine.body.exchangeRateStatus, "missing");
-
+  const clientOptOutCandidate = await createLine("JPY", "Client opt-out candidate");
+  assert.equal(clientOptOutCandidate.body.exchangeRateSourceScope, "system");
   const journals = await request<Array<{ id: number; statementLineId: number }>>(
     `/agaraccounting/journal-entries?clientId=${clientId}`,
     systemAdminId,
@@ -342,6 +397,30 @@ test("protects and applies the system catalog with traceable fallback precedence
     body: JSON.stringify({ clientId }),
   })).response.status, 200);
 
+  const updatedClient = await request(`/clients/${clientId}`, systemAdminId, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: "System rate admin workspace",
+      legalName: "System rate admin workspace LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "August 2026",
+      systemRatesEnabled: false,
+    }),
+  });
+  assert.equal(updatedClient.response.status, 200);
+  const [clearedClientOptOutLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, clientOptOutCandidate.body.id));
+  const [clearedClientOptOutJournal] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, clientOptOutCandidate.body.id));
+  assert.equal(clearedClientOptOutLine.exchangeRate, null);
+  assert.equal(clearedClientOptOutLine.exchangeRateStatus, "missing");
+  assert.equal(clearedClientOptOutJournal.exchangeRate, null);
+  assert.equal(clearedClientOptOutJournal.exchangeRateStatus, "missing");
+  const optedOutLine = await createLine("JPY", "Opted out");
+  assert.equal(optedOutLine.body.exchangeRateSourceScope, "none");
+  assert.equal(optedOutLine.body.exchangeRateStatus, "missing");
+
   const gbpRate = imported.body.rates[2]!;
   const updatedSystemRate = await request(`/agaraccounting/system-rates/${gbpRate.id}`, systemAdminId, {
     method: "PATCH",
@@ -352,6 +431,56 @@ test("protects and applies the system catalog with traceable fallback precedence
     .where(eq(database.statementLinesTable.id, systemLine.body.id));
   assert.equal(postedLine.exchangeRate, "4.6000000000");
   assert.equal(postedLine.exchangeRateSourceScope, "system");
+
+  await database.db.update(database.clientsTable).set({ systemRatesEnabled: true })
+    .where(eq(database.clientsTable.id, clientId));
+  await database.db.update(database.clientsTable).set({ systemRatesEnabled: false })
+    .where(eq(database.clientsTable.id, tenantClientId));
+  const postedGapLine = await createLine("AUD", "Posted historical gap");
+  assert.equal(postedGapLine.body.exchangeRateStatus, "missing");
+  await database.db.update(database.statementLinesTable).set({ status: "posted" })
+    .where(eq(database.statementLinesTable.id, postedGapLine.body.id));
+  await database.db.update(database.journalEntriesTable).set({ status: "posted" })
+    .where(eq(database.journalEntriesTable.statementLineId, postedGapLine.body.id));
+  const createdAudRate = await request<{ id: number }>("/agaraccounting/system-rates", systemAdminId, {
+    method: "POST",
+    body: JSON.stringify({
+      sourceCurrency: "AUD",
+      functionalCurrency: "AED",
+      effectiveDate: "2026-08-01",
+      rate: 2.4,
+      source: "System test",
+    }),
+  });
+  assert.equal(createdAudRate.response.status, 201);
+  const [completedPostedLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, postedGapLine.body.id));
+  const [completedPostedJournal] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, postedGapLine.body.id));
+  assert.equal(completedPostedLine.functionalAmount, "240.00");
+  assert.equal(completedPostedLine.exchangeRate, "2.4000000000");
+  assert.equal(completedPostedJournal.functionalAmount, completedPostedLine.functionalAmount);
+  assert.equal(completedPostedJournal.exchangeRate, completedPostedLine.exchangeRate);
+
+  const unpostedAudLine = await createLine("AUD", "Unposted rate removal");
+  assert.equal(unpostedAudLine.body.exchangeRate, 2.4);
+  const deletedAudRate = await request(`/agaraccounting/system-rates/${createdAudRate.body.id}`, systemAdminId, {
+    method: "DELETE",
+  });
+  assert.equal(deletedAudRate.response.status, 204);
+  const [preservedPostedLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, postedGapLine.body.id));
+  const [refreshedUnpostedLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, unpostedAudLine.body.id));
+  const [refreshedUnpostedJournal] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.statementLineId, unpostedAudLine.body.id));
+  assert.equal(preservedPostedLine.exchangeRate, "2.4000000000");
+  assert.equal(refreshedUnpostedLine.functionalAmount, null);
+  assert.equal(refreshedUnpostedLine.exchangeRate, null);
+  assert.equal(refreshedUnpostedLine.exchangeRateStatus, "missing");
+  assert.equal(refreshedUnpostedJournal.functionalAmount, null);
+  assert.equal(refreshedUnpostedJournal.exchangeRate, null);
+  assert.equal(refreshedUnpostedJournal.exchangeRateStatus, "missing");
 
   const dashboard = await request<{
     availablePairs: unknown[];
