@@ -14,6 +14,7 @@ import Rates from '@/pages/Rates';
 
 const queryClient = new QueryClient();
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+const adminHomeUrl = `${basePath}/`;
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 
@@ -38,7 +39,7 @@ function AuthGate() {
 }
 
 function SignInPage() {
-  return <div className="grid min-h-screen place-items-center bg-background px-4"><SignIn routing="path" path={`${basePath}/sign-in`} /></div>;
+  return <div className="grid min-h-screen place-items-center bg-background px-4"><SignIn routing="path" path={`${basePath}/sign-in`} fallbackRedirectUrl={adminHomeUrl} forceRedirectUrl={adminHomeUrl} /></div>;
 }
 
 function NotFound() {

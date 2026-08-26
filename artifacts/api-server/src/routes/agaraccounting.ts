@@ -949,7 +949,6 @@ async function requireSystemRateAdmin(req: Request, res: Response) {
 async function claimInitialSystemRateAdmin(userId: string) {
   return db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agaraccounting-system-rate-admin-grant')::bigint)`);
-    await tx.execute(sql`lock table "users" in share mode`);
     await tx.execute(sql`lock table "agaraccounting_system_rate_admin_bootstrap_state" in share row exclusive mode`);
     await tx.execute(sql`lock table "agaraccounting_system_rate_admins" in share row exclusive mode`);
     const [closedBootstrap] = await tx.select({ id: systemRateAdminBootstrapStateTable.id })
@@ -971,12 +970,6 @@ async function claimInitialSystemRateAdmin(userId: string) {
       });
       return false;
     }
-
-    const users = await tx.select({ id: usersTable.id })
-      .from(usersTable)
-      .orderBy(asc(usersTable.createdAt), asc(usersTable.id))
-      .limit(2);
-    if (users.length !== 1 || users[0]?.id !== userId) return false;
 
     const [closed] = await tx.insert(systemRateAdminBootstrapStateTable).values({
       id: 1,

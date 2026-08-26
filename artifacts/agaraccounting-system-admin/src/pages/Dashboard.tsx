@@ -41,7 +41,7 @@ export default function Dashboard() {
             <p className="max-w-xl text-center text-sm opacity-80">{denied ? "Your account is signed in but has not been granted the separate system-rate administrator entitlement." : "The system-rate service is unavailable. Try again shortly."}</p>
             {denied && <>
               <div className="mt-6 max-w-lg rounded-md border border-destructive/20 bg-background/70 px-4 py-3 text-center text-xs leading-5 text-foreground">
-                If this is the first Production account, you can claim the initial administrator entitlement once. The claim permanently closes after any administrator record is created.
+                If no system administrator has been established yet, the first authenticated account can claim access once. The claim permanently closes after administrator access is established.
               </div>
               <Button data-testid="button-claim-initial-system-admin" className="mt-4 gap-2" onClick={claimInitialAccess} disabled={claimMutation.isPending}>
                 {claimMutation.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}

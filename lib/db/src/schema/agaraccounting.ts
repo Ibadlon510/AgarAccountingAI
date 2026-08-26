@@ -331,7 +331,7 @@ export const systemRateAdminBootstrapStateTable = pgTable("agaraccounting_system
   closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   check("agaraccounting_system_rate_admin_bootstrap_singleton_check", sql`${table.id} = 1`),
-  check("agaraccounting_system_rate_admin_bootstrap_reason_check", sql`${table.reason} in ('initial_claim', 'configured_bootstrap', 'explicit_grant', 'existing_admin')`),
+  check("agaraccounting_system_rate_admin_bootstrap_reason_check", sql`${table.reason} in ('initial_claim', 'explicit_grant', 'existing_admin')`),
 ]);
 
 export const aiProviderConfigsTable = pgTable("agaraccounting_ai_provider_configs", {
