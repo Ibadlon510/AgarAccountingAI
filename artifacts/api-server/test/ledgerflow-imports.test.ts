@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { after, before, test } from "node:test";
 import { eq, inArray } from "drizzle-orm";
 import * as XLSX from "xlsx";
+import { ObjectNotFoundError } from "../src/lib/objectStorage";
 import { objectStorageService } from "../src/routes/storage";
 
 type ImportResult = {
@@ -145,7 +146,7 @@ before(async () => {
   process.env.DATABASE_URL = testDatabaseUrl();
   objectStorageService.getObjectEntityFile = (async (objectPath: string) => {
     const content = statementFiles.get(objectPath);
-    if (!content) throw new Error(`Missing test statement object: ${objectPath}`);
+    if (!content) throw new ObjectNotFoundError();
     return {
       getMetadata: async () => [{ size: String(content.length), contentType: "text/csv" }],
       download: async () => [content],
@@ -386,7 +387,15 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
     headers: { "x-test-user-id": primaryUserId },
   });
   assert.equal(preservedSource.status, 200);
+  assert.equal(preservedSource.headers.get("content-type"), "text/csv");
+  assert.equal(preservedSource.headers.get("content-disposition"), 'inline; filename="undo-review-only.csv"');
   assert.match(Buffer.from(await preservedSource.arrayBuffer()).toString("utf8"), /undo-review-only/);
+  const downloadedSource = await fetch(`${baseUrl}/ledgerflow/statement-imports/${importId}/source?download=true`, {
+    headers: { "x-test-user-id": primaryUserId },
+  });
+  assert.equal(downloadedSource.status, 200);
+  assert.equal(downloadedSource.headers.get("content-disposition"), 'attachment; filename="undo-review-only.csv"');
+  assert.match(Buffer.from(await downloadedSource.arrayBuffer()).toString("utf8"), /undo-review-only/);
   const [audit] = await database.db.select().from(database.statementImportUndoAuditsTable)
     .where(eq(database.statementImportUndoAuditsTable.statementImportId, importId));
   assert.deepEqual(audit?.statementLineIds, [lineId]);
@@ -476,6 +485,7 @@ test("stores a USD statement for confirmation without creating lines, then loads
     outcome: string;
     detectedCurrency: string | null;
     importedLineCount: number;
+    sourceUrl: string | null;
   }>>(`/ledgerflow/statement-imports?clientId=${clientId}`, undefined, primaryUserId);
   assert.equal(history.response.status, 200);
   assert.equal(history.body.length, 1);
@@ -483,6 +493,7 @@ test("stores a USD statement for confirmation without creating lines, then loads
   assert.equal(history.body[0].outcome, "pending_confirmation");
   assert.equal(history.body[0].detectedCurrency, "USD");
   assert.equal(history.body[0].importedLineCount, 0);
+  assert.equal(history.body[0].sourceUrl, null);
 
   const confirmed = await request<ImportResult>("/ledgerflow/import-statement", {
     method: "POST",
@@ -681,6 +692,50 @@ test("lists only successful uploaded files in newest-first order and keeps expir
   );
   assert.equal(teamMemberFiles.response.status, 200);
   assert.deepEqual(teamMemberFiles.body.map((file) => file.id), files.body.map((file) => file.id));
+});
+
+test("serves a private PDF inline with a safe name and downloads it only when requested", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Source preview ${randomUUID()}`);
+  const objectPath = `/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/${randomUUID()}`;
+  const pdf = Buffer.from("%PDF-1.7\nstatement preview fixture");
+  statementFiles.set(objectPath, pdf);
+  const [statementImport] = await database.db.insert(database.statementImportsTable).values({
+    clientId,
+    fileName: "Quarterly statement (final).pdf",
+    mimeType: "application/octet-stream",
+    objectPath,
+    fileHash: randomUUID(),
+    outcome: "completed",
+    importedLineCount: 1,
+    evidenceExpiresAt: new Date(Date.now() + 60_000),
+  }).returning();
+
+  const preview = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source`, {
+    headers: { "x-test-user-id": primaryUserId },
+  });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.headers.get("content-type"), "application/pdf");
+  assert.equal(preview.headers.get("content-disposition"), 'inline; filename="Quarterly_statement__final_.pdf"');
+  assert.deepEqual(Buffer.from(await preview.arrayBuffer()), pdf);
+
+  const download = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source?download=1`, {
+    headers: { "x-test-user-id": primaryUserId },
+  });
+  assert.equal(download.status, 200);
+  assert.equal(download.headers.get("content-disposition"), 'attachment; filename="Quarterly_statement__final_.pdf"');
+  assert.deepEqual(Buffer.from(await download.arrayBuffer()), pdf);
+
+  const inaccessible = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source`, {
+    headers: { "x-test-user-id": secondaryUserId },
+  });
+  assert.equal(inaccessible.status, 403);
+
+  statementFiles.delete(objectPath);
+  const missing = await fetch(`${baseUrl}/ledgerflow/statement-imports/${statementImport.id}/source`, {
+    headers: { "x-test-user-id": primaryUserId },
+  });
+  assert.equal(missing.status, 404);
 });
 
 test("stages deterministic description recodes before separately confirmed approval and posting", async () => {

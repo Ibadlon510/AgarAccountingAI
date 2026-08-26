@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
-  CircleAlert, CircleCheck, CircleHelp, FileCheck2, FileSpreadsheet, Filter, Landmark,
+  CircleAlert, CircleCheck, CircleHelp, Download, FileCheck2, FileSpreadsheet, Filter, Landmark,
   LayoutDashboard, LoaderCircle, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
   Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X
 } from 'lucide-react';
@@ -23,6 +23,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AssistantFAB } from './components/assistant-fab';
 import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
@@ -750,6 +751,7 @@ function FirmSettingsPage() {
 function stripBase(path: string): string {
   return basePath && path.startsWith(basePath) ? path.slice(basePath.length) || "/" : path;
 }
+
 type AgarAccountingUser = {
   id: string;
   externalId?: string | null;
@@ -1225,6 +1227,13 @@ function StatementImportHistory() {
   const confirmMutation = useImportStatement();
   const [feedback, setFeedback] = useState('');
   const [pendingCurrencies, setPendingCurrencies] = useState<Record<number, string>>({});
+  const [sourcePreview, setSourcePreview] = useState<StatementImport | null>(null);
+  const sourceTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeSourcePreview = () => {
+    setSourcePreview(null);
+    requestAnimationFrame(() => sourceTriggerRef.current?.focus());
+  };
 
   const confirmPendingImport = (statementImport: StatementImport) => {
     if (!activeClient || !statementImport.objectPath) return;
@@ -1284,10 +1293,17 @@ function StatementImportHistory() {
     <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Uploads waiting for currency confirmation create no statement lines. Undo is available only while every loaded transaction is still in review and its journal is still suggested.</p></div><button type="button" onClick={() => void importsQuery.refetch()} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-muted-foreground hover:bg-muted"><RefreshCw size={13} /> Refresh</button></div>
     {feedback ? <div className="mt-4 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-primary" role="status">{feedback}</div> : null}
     {importsQuery.isLoading ? <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><LoaderCircle size={14} className="animate-spin" /> Loading import history…</div> : null}
-    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} loaded transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replaceAll('_', ' ')}</span></div>{statementImport.outcome === 'pending_confirmation' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Nothing has been loaded. Confirm the source currency to create review lines.</p> : statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a transaction or journal is changed, approved, or posted.</p> : null}</div><div className="flex shrink-0 flex-wrap items-center gap-2">{statementImport.outcome === 'pending_confirmation' ? <><select data-testid={`select-pending-statement-currency-${statementImport.id}`} aria-label={`Currency for ${statementImport.fileName}`} value={pendingCurrencies[statementImport.id] ?? statementImport.detectedCurrency ?? ''} onChange={(event) => setPendingCurrencies((current) => ({ ...current, [statementImport.id]: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="">Choose currency</option><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select><button data-testid={`button-confirm-pending-statement-${statementImport.id}`} type="button" onClick={() => confirmPendingImport(statementImport)} disabled={confirmMutation.isPending || !statementImport.objectPath} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{confirmMutation.isPending && confirmMutation.variables?.data.importId === statementImport.id ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />} Confirm & load</button></> : null}{statementImport.sourceUrl ? <a href={statementImport.sourceUrl} className="text-xs font-semibold text-primary underline">Source</a> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
+    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} loaded transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replaceAll('_', ' ')}</span></div>{statementImport.outcome === 'pending_confirmation' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Nothing has been loaded. Confirm the source currency to create review lines.</p> : statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a transaction or journal is changed, approved, or posted.</p> : null}</div><div className="flex shrink-0 flex-wrap items-center gap-2">{statementImport.outcome === 'pending_confirmation' ? <><select data-testid={`select-pending-statement-currency-${statementImport.id}`} aria-label={`Currency for ${statementImport.fileName}`} value={pendingCurrencies[statementImport.id] ?? statementImport.detectedCurrency ?? ''} onChange={(event) => setPendingCurrencies((current) => ({ ...current, [statementImport.id]: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="">Choose currency</option><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select><button data-testid={`button-confirm-pending-statement-${statementImport.id}`} type="button" onClick={() => confirmPendingImport(statementImport)} disabled={confirmMutation.isPending || !statementImport.objectPath} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{confirmMutation.isPending && confirmMutation.variables?.data.importId === statementImport.id ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />} Confirm & load</button></> : null}{statementImport.sourceUrl ? <button data-testid={`button-preview-statement-source-${statementImport.id}`} type="button" onClick={(event) => { sourceTriggerRef.current = event.currentTarget; setSourcePreview(statementImport); }} aria-label={`Preview source ${statementImport.fileName}`} className="text-xs font-semibold text-primary underline">Source</button> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
+    <Dialog open={Boolean(sourcePreview)} onOpenChange={(open) => { if (!open) closeSourcePreview(); }}>
+      {sourcePreview ? <StatementSourcePreview source={sourcePreview} onClose={closeSourcePreview} /> : null}
+    </Dialog>
   </section>;
 }
 
+function isBrowserPreviewableStatement(statementImport: StatementImport) {
+  return statementImport.mimeType.toLowerCase() === 'application/pdf'
+    || statementImport.fileName.toLowerCase().endsWith('.pdf');
+}
 function LegacyImportStatementPage() {
   const { activeClient } = useClientWorkspace();
   const importMutation = useImportStatement();
@@ -2464,4 +2480,41 @@ function mutationErrorMessage(error: unknown) {
     }
   }
   return error instanceof Error ? error.message : 'The bulk action could not be applied. Refresh the queue and try again.';
+}
+
+function StatementSourcePreview({ source, onClose }: { source: StatementImport; onClose: () => void }) {
+  const [embedFailed, setEmbedFailed] = useState(false);
+  const downloadUrl = source.sourceUrl ? `${source.sourceUrl}${source.sourceUrl.includes('?') ? '&' : '?'}download=true` : '';
+  const canPreview = isBrowserPreviewableStatement(source);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape, { capture: true });
+    return () => window.removeEventListener('keydown', closeOnEscape, { capture: true });
+  }, [onClose]);
+
+  return <DialogContent data-testid={`dialog-statement-source-preview-${source.id}`} className="flex max-h-[calc(100dvh-2rem)] max-w-5xl flex-col gap-0 overflow-hidden p-0">
+    <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-14">
+      <DialogTitle className="text-base">Source preview</DialogTitle>
+      <DialogDescription className="mt-1 truncate text-xs" title={source.fileName}>{source.fileName}</DialogDescription>
+    </DialogHeader>
+    <div className="min-h-0 flex-1 bg-muted/30 p-4">
+      {canPreview && !embedFailed ? <div className="relative h-[min(65vh,720px)] min-h-[320px] overflow-hidden rounded-md border border-border bg-background">
+        <iframe data-testid={`iframe-statement-source-preview-${source.id}`} title={`Preview of ${source.fileName}`} src={source.sourceUrl ?? undefined} tabIndex={-1} className="h-full w-full border-0" onError={() => setEmbedFailed(true)} />
+      </div> : <div data-testid={`fallback-statement-source-preview-${source.id}`} className="flex min-h-[320px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-background px-6 py-10 text-center">
+        <FileSpreadsheet className="text-primary" size={28} />
+        <h3 className="mt-4 text-sm font-semibold">{embedFailed ? 'This source could not be previewed' : 'This file type cannot be previewed here'}</h3>
+        <p className="mt-2 max-w-md text-xs leading-5 text-muted-foreground">{embedFailed ? 'The source could not be rendered in the preview. It may have expired or is temporarily unavailable.' : 'LedgerFlow can preview PDF statements in the popout. Download this source to inspect the original file.'}</p>
+      </div>}
+    </div>
+    <DialogFooter className="shrink-0 border-t border-border px-5 py-4">
+      {downloadUrl ? <a data-testid={`link-download-statement-source-${source.id}`} href={downloadUrl} download className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-muted-foreground hover:bg-muted"><Download size={14} /> Download source</a> : null}
+      <button data-testid={`button-close-statement-source-preview-${source.id}`} type="button" onClick={onClose} className="h-9 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Close preview</button>
+    </DialogFooter>
+  </DialogContent>;
 }

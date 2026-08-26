@@ -164,7 +164,9 @@ import {
   MAX_STATEMENT_FILE_SIZE,
   parsePdfBankStatementRows,
   scopedStatementObjectPath,
+  safeStatementFileName,
   statementObjectPathForClient,
+  statementSourceContentType,
   statementSourceUrl,
   validateStatementContents,
   validateXlsxArchive,
@@ -3205,21 +3207,27 @@ router.get("/ledgerflow/statement-imports", async (req, res) => {
   const requestedClientId = Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
+  const now = new Date();
   const imports = await db.select().from(statementImportsTable)
     .where(eq(statementImportsTable.clientId, client.id))
     .orderBy(desc(statementImportsTable.createdAt));
-  return res.json(imports.map((statementImport) => ({
-    id: statementImport.id,
-    fileName: statementImport.fileName,
-    mimeType: statementImport.mimeType,
-     objectPath: statementImport.objectPath,
-    outcome: statementImport.outcome,
-    detectedCurrency: statementImport.detectedCurrency,
-    errorMessage: statementImport.errorMessage,
-    importedLineCount: statementImport.importedLineCount,
-    createdAt: statementImport.createdAt.toISOString(),
-    sourceUrl: statementImport.objectPath ? statementSourceUrl(statementImport.id) : null,
-  })));
+  return res.json(imports.map((statementImport) => {
+    const canAccessSource = ["completed", "duplicate", "undone"].includes(statementImport.outcome)
+      && (!statementImport.evidenceExpiresAt || statementImport.evidenceExpiresAt > now)
+      && Boolean(statementImport.objectPath && statementObjectPathForClient(client.id, statementImport.objectPath));
+    return {
+      id: statementImport.id,
+      fileName: statementImport.fileName,
+      mimeType: statementImport.mimeType,
+      objectPath: statementImport.objectPath,
+      outcome: statementImport.outcome,
+      detectedCurrency: statementImport.detectedCurrency,
+      errorMessage: statementImport.errorMessage,
+      importedLineCount: statementImport.importedLineCount,
+      createdAt: statementImport.createdAt.toISOString(),
+      sourceUrl: canAccessSource ? statementSourceUrl(statementImport.id) : null,
+    };
+  }));
 });
 
 router.post("/ledgerflow/statement-imports/:id/undo", async (req, res) => {
@@ -3406,7 +3414,9 @@ router.get("/ledgerflow/statement-imports/:id/source", async (req, res) => {
     const response = await objectStorageService.downloadObject(objectFile);
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
-    res.setHeader("Content-Disposition", `attachment; filename="${statementImport.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
+    res.setHeader("Content-Type", statementSourceContentType(statementImport.fileName, statementImport.mimeType));
+    const disposition = req.query.download === "true" || req.query.download === "1" ? "attachment" : "inline";
+    res.setHeader("Content-Disposition", `${disposition}; filename="${safeStatementFileName(statementImport.fileName)}"`);
     if (response.body) Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
     else res.end();
   } catch (error) {

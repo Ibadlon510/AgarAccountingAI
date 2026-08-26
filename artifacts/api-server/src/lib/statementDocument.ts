@@ -16,6 +16,13 @@ const supportedMimeTypes = new Set([
   "application/octet-stream",
 ]);
 
+const statementMimeTypesByExtension = new Map([
+  [".pdf", "application/pdf"],
+  [".csv", "text/csv"],
+  [".xls", "application/vnd.ms-excel"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+]);
+
 export type ParsedPdfStatementLine = {
   date: string;
   description: string;
@@ -152,6 +159,18 @@ export function validateStatementMetadata(fileName: string, mimeType: string, si
     return "The statement file type does not match its Excel extension.";
   }
   return null;
+}
+
+export function statementSourceContentType(fileName: string, mimeType: string) {
+  const extensionType = statementMimeTypesByExtension.get(extname(fileName).toLocaleLowerCase());
+  if (extensionType) return extensionType;
+  return supportedMimeTypes.has(mimeType.toLocaleLowerCase())
+    ? mimeType.toLocaleLowerCase()
+    : "application/octet-stream";
+}
+
+export function safeStatementFileName(fileName: string) {
+  return fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "statement-source";
 }
 
 export function scopedStatementObjectPath(userId: string, clientId: number, objectPath: string) {
