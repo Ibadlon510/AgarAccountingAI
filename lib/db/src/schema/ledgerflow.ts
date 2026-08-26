@@ -9,6 +9,7 @@ export const usersTable = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   starterClientId: integer("starter_client_id"),
   remediatedLegacyClientId: integer("remediated_legacy_client_id"),
+  onboardingMode: text("onboarding_mode"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
@@ -25,34 +26,79 @@ export const sessionsTable = pgTable(
 
 export const firmProfilesTable = pgTable("ledgerflow_firm_profiles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  ownerUserId: varchar("owner_user_id").notNull().unique(),
+  ownerUserId: varchar("owner_user_id").notNull(),
   name: text("name").notNull(),
   legalName: text("legal_name").notNull(),
+  profileKind: text("profile_kind").notNull().default("accounting_firm"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
+  uniqueIndex("ledgerflow_firm_profiles_owner_kind_idx").on(table.ownerUserId, table.profileKind),
   foreignKey({
     columns: [table.ownerUserId],
     foreignColumns: [usersTable.id],
     name: "ledgerflow_firm_profiles_owner_user_fk",
+  }).onDelete("cascade"),
+  check("ledgerflow_firm_profiles_kind_check", sql`profile_kind in ('accounting_firm', 'internal_rate_container')`),
+]);
+
+export const firmMembershipsTable = pgTable("ledgerflow_firm_memberships", {
+  firmId: integer("firm_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  role: text("role").notNull().default("accountant"),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("ledgerflow_firm_memberships_firm_user_idx").on(table.firmId, table.userId),
+  index("ledgerflow_firm_memberships_user_role_idx").on(table.userId, table.role),
+  check("ledgerflow_firm_memberships_role_check", sql`role in ('owner', 'admin', 'accountant', 'bookkeeper')`),
+  check("ledgerflow_firm_memberships_status_check", sql`status in ('active', 'revoked')`),
+  foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "ledgerflow_firm_memberships_firm_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.userId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_memberships_user_fk",
   }).onDelete("cascade"),
 ]);
 
 export const clientsTable = pgTable("ledgerflow_clients", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   firmId: integer("firm_id"),
+  rateProfileId: integer("rate_profile_id"),
+  ownerUserId: varchar("owner_user_id"),
+  ownershipStatus: text("ownership_status").notNull().default("company_owned"),
+  subscriptionLiableParty: text("subscription_liable_party").notNull().default("company"),
   name: text("name").notNull(),
   legalName: text("legal_name").notNull(),
   functionalCurrency: text("functional_currency").notNull().default("AED"),
   basis: text("basis").notNull().default("IFRS"),
   period: text("period").notNull().default("August 2026"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  transferredAt: timestamp("transferred_at", { withTimezone: true }),
 }, (table) => [
   index("ledgerflow_clients_firm_idx").on(table.firmId),
+  index("ledgerflow_clients_rate_profile_idx").on(table.rateProfileId),
+  index("ledgerflow_clients_owner_idx").on(table.ownerUserId),
+  check("ledgerflow_clients_ownership_status_check", sql`ownership_status in ('company_owned', 'firm_provisional')`),
+  check("ledgerflow_clients_subscription_liable_party_check", sql`subscription_liable_party in ('company', 'firm')`),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
     name: "ledgerflow_clients_firm_fk",
+  }),
+  foreignKey({
+    columns: [table.rateProfileId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "ledgerflow_clients_rate_profile_fk",
+  }),
+  foreignKey({
+    columns: [table.ownerUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_clients_owner_user_fk",
   }),
 ]);
 
@@ -67,7 +113,7 @@ export const clientWorkspacesTable = pgTable(
   (table) => [
     uniqueIndex("ledgerflow_client_workspaces_client_user_idx").on(table.clientId, table.userId),
     index("ledgerflow_client_workspaces_user_role_idx").on(table.userId, table.role),
-    check("ledgerflow_client_workspaces_role_check", sql`role in ('admin', 'bookkeeper')`),
+    check("ledgerflow_client_workspaces_role_check", sql`role in ('owner', 'admin', 'accountant', 'bookkeeper')`),
     foreignKey({
       columns: [table.clientId],
       foreignColumns: [clientsTable.id],
@@ -80,6 +126,121 @@ export const clientWorkspacesTable = pgTable(
     }),
   ],
 );
+
+export const firmCompanyEngagementsTable = pgTable("ledgerflow_firm_company_engagements", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  firmId: integer("firm_id").notNull(),
+  clientId: integer("client_id").notNull(),
+  status: text("status").notNull().default("active"),
+  invitedByUserId: varchar("invited_by_user_id").notNull(),
+  acceptedByUserId: varchar("accepted_by_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("ledgerflow_firm_company_engagements_pair_idx").on(table.firmId, table.clientId),
+  index("ledgerflow_firm_company_engagements_client_status_idx").on(table.clientId, table.status),
+  check("ledgerflow_firm_company_engagements_status_check", sql`status in ('provisional', 'active', 'revoked')`),
+  foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "ledgerflow_firm_company_engagements_firm_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_firm_company_engagements_client_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.invitedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_company_engagements_inviter_fk",
+  }),
+  foreignKey({
+    columns: [table.acceptedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_company_engagements_accepter_fk",
+  }),
+]);
+
+export const firmEngagementMembersTable = pgTable("ledgerflow_firm_engagement_members", {
+  engagementId: integer("engagement_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  role: text("role").notNull().default("bookkeeper"),
+  status: text("status").notNull().default("nominated"),
+  nominatedByUserId: varchar("nominated_by_user_id").notNull(),
+  approvedByUserId: varchar("approved_by_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  previousWorkspaceRole: text("previous_workspace_role"),
+}, (table) => [
+  uniqueIndex("ledgerflow_firm_engagement_members_engagement_user_idx").on(table.engagementId, table.userId),
+  index("ledgerflow_firm_engagement_members_user_status_idx").on(table.userId, table.status),
+  check("ledgerflow_firm_engagement_members_role_check", sql`role in ('accountant', 'bookkeeper')`),
+  check("ledgerflow_firm_engagement_members_status_check", sql`status in ('nominated', 'approved', 'revoked')`),
+  foreignKey({
+    columns: [table.engagementId],
+    foreignColumns: [firmCompanyEngagementsTable.id],
+    name: "ledgerflow_firm_engagement_members_engagement_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.userId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_engagement_members_user_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.nominatedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_engagement_members_nominator_fk",
+  }),
+  foreignKey({
+    columns: [table.approvedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_firm_engagement_members_approver_fk",
+  }),
+]);
+
+export const organizationInvitationsTable = pgTable("ledgerflow_organization_invitations", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  kind: text("kind").notNull(),
+  clientId: integer("client_id"),
+  firmId: integer("firm_id"),
+  email: varchar("email").notNull(),
+  role: text("role"),
+  invitedByUserId: varchar("invited_by_user_id").notNull(),
+  tokenHash: varchar("token_hash").notNull().unique(),
+  status: text("status").notNull().default("pending"),
+  acceptedUserId: varchar("accepted_user_id"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("ledgerflow_organization_invitations_email_status_idx").on(table.email, table.status),
+  index("ledgerflow_organization_invitations_client_idx").on(table.clientId),
+  check("ledgerflow_organization_invitations_kind_check", sql`kind in ('firm_member', 'firm_engagement', 'company_transfer')`),
+  check("ledgerflow_organization_invitations_role_check", sql`role is null or role in ('admin', 'accountant', 'bookkeeper')`),
+  check("ledgerflow_organization_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "ledgerflow_organization_invitations_client_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "ledgerflow_organization_invitations_firm_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.invitedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_organization_invitations_inviter_fk",
+  }),
+  foreignKey({
+    columns: [table.acceptedUserId],
+    foreignColumns: [usersTable.id],
+    name: "ledgerflow_organization_invitations_accepter_fk",
+  }),
+]);
 
 export const workspaceInvitationsTable = pgTable(
   "ledgerflow_workspace_invitations",

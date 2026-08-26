@@ -3,8 +3,8 @@ name: Firm exchange-rate schedules
 description: Explains the deliberate scope of exchange-rate schedules in LedgerFlow.
 ---
 
-Exchange-rate schedules belong to the bookkeeping firm, not to individual clients. Every client managed by that firm reuses the same schedule; different firms must remain isolated.
+Exchange-rate schedules belong to a stable rate profile. Firm-managed companies share the accounting firm's profile; company-only ledgers use an internal company-owner profile. Never select a rate profile from the user who happened to make the request.
 
-**Why:** Bookkeepers should import and maintain a common conversion schedule once rather than duplicate it for every client.
+**Why:** Bookkeepers should maintain a common schedule once, while unrelated companies and firms must remain isolated. Actor-based lookup makes the same company produce different conversions depending on which member imports a statement.
 
-**How to apply:** Keep schedule CRUD, imports, and conversion lookup firm-scoped. Use the active client only to determine its firm and reporting currency.
+**How to apply:** Resolve conversion lookup from the company’s persisted rate profile and reporting currency. Restrict firm-profile mutations to firm owners/admins, and refresh only companies explicitly attached to that profile.

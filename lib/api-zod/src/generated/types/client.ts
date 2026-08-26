@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ClientWorkspaceState } from './clientWorkspaceState';
+import type { OwnershipStatus } from './ownershipStatus';
+import type { SubscriptionLiableParty } from './subscriptionLiableParty';
 
 export interface Client {
   id: number;
@@ -14,6 +16,12 @@ export interface Client {
   functionalCurrency: string;
   basis: string;
   period: string;
+  /** @nullable */
+  ownerUserId?: string | null;
+  /** @nullable */
+  firmId?: number | null;
+  ownershipStatus: OwnershipStatus;
+  subscriptionLiableParty: SubscriptionLiableParty;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
   /** Configuration state for this workspace. Missing memberships are represented by an empty response. */

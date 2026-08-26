@@ -59,6 +59,6 @@ export function getWorkspaceLoadState(
 ): WorkspaceLoadState {
   if (isLoading) return 'loading';
   if (isError) return 'failed';
-  if (!workspaces?.length) return 'missing';
+  if (!workspaces) return 'missing';
   return 'ready';
 }

@@ -48,6 +48,240 @@ export interface FirmProfileInput {
   legalName: string;
 }
 
+export type OrganizationMode = typeof OrganizationMode[keyof typeof OrganizationMode];
+
+
+export const OrganizationMode = {
+  company: 'company',
+  firm: 'firm',
+  both: 'both',
+} as const;
+
+export type OrganizationRole = typeof OrganizationRole[keyof typeof OrganizationRole];
+
+
+export const OrganizationRole = {
+  owner: 'owner',
+  admin: 'admin',
+  accountant: 'accountant',
+  bookkeeper: 'bookkeeper',
+} as const;
+
+export type OwnershipStatus = typeof OwnershipStatus[keyof typeof OwnershipStatus];
+
+
+export const OwnershipStatus = {
+  company_owned: 'company_owned',
+  firm_provisional: 'firm_provisional',
+} as const;
+
+export type SubscriptionLiableParty = typeof SubscriptionLiableParty[keyof typeof SubscriptionLiableParty];
+
+
+export const SubscriptionLiableParty = {
+  company: 'company',
+  firm: 'firm',
+} as const;
+
+export interface OrganizationOnboardingInput {
+  mode: OrganizationMode;
+  /** @minLength 1 */
+  firstName: string;
+  /** @minLength 1 */
+  lastName: string;
+  companyName?: string;
+  companyLegalName?: string;
+  firmName?: string;
+  firmLegalName?: string;
+  functionalCurrency?: string;
+  basis?: string;
+  period?: string;
+}
+
+export type OrganizationInviteInputRole = typeof OrganizationInviteInputRole[keyof typeof OrganizationInviteInputRole];
+
+
+export const OrganizationInviteInputRole = {
+  admin: 'admin',
+  accountant: 'accountant',
+  bookkeeper: 'bookkeeper',
+} as const;
+
+export interface OrganizationInviteInput {
+  /**
+     * @minLength 3
+     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+     */
+  email: string;
+  role?: OrganizationInviteInputRole;
+}
+
+export type FirmEngagementInviteInputRole = typeof FirmEngagementInviteInputRole[keyof typeof FirmEngagementInviteInputRole];
+
+
+export const FirmEngagementInviteInputRole = {
+  admin: 'admin',
+} as const;
+
+export interface FirmEngagementInviteInput {
+  /**
+     * @minLength 3
+     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+     */
+  email: string;
+  firmId: number;
+  role?: FirmEngagementInviteInputRole;
+}
+
+export type FirmNominationInputRole = typeof FirmNominationInputRole[keyof typeof FirmNominationInputRole];
+
+
+export const FirmNominationInputRole = {
+  accountant: 'accountant',
+  bookkeeper: 'bookkeeper',
+} as const;
+
+export interface FirmNominationInput {
+  /**
+     * @minLength 3
+     * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
+     */
+  email: string;
+  role: FirmNominationInputRole;
+}
+
+export interface FirmMembership {
+  firmId: number;
+  firmName: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: OrganizationRole;
+}
+
+export type FirmEngagementMemberRole = typeof FirmEngagementMemberRole[keyof typeof FirmEngagementMemberRole];
+
+
+export const FirmEngagementMemberRole = {
+  accountant: 'accountant',
+  bookkeeper: 'bookkeeper',
+} as const;
+
+export type FirmEngagementMemberStatus = typeof FirmEngagementMemberStatus[keyof typeof FirmEngagementMemberStatus];
+
+
+export const FirmEngagementMemberStatus = {
+  nominated: 'nominated',
+  approved: 'approved',
+  revoked: 'revoked',
+} as const;
+
+export interface FirmEngagementMember {
+  userId: string;
+  name: string;
+  email: string;
+  role: FirmEngagementMemberRole;
+  status: FirmEngagementMemberStatus;
+}
+
+export type FirmEngagementStatus = typeof FirmEngagementStatus[keyof typeof FirmEngagementStatus];
+
+
+export const FirmEngagementStatus = {
+  provisional: 'provisional',
+  active: 'active',
+  revoked: 'revoked',
+} as const;
+
+export interface FirmEngagement {
+  id: number;
+  firmId: number;
+  firmName: string;
+  clientId: number;
+  companyName: string;
+  status: FirmEngagementStatus;
+  canManageFirm: boolean;
+  canManageCompany: boolean;
+  members: FirmEngagementMember[];
+}
+
+export type OrganizationInvitationKind = typeof OrganizationInvitationKind[keyof typeof OrganizationInvitationKind];
+
+
+export const OrganizationInvitationKind = {
+  firm_member: 'firm_member',
+  firm_engagement: 'firm_engagement',
+  company_transfer: 'company_transfer',
+} as const;
+
+export type OrganizationInvitationStatus = typeof OrganizationInvitationStatus[keyof typeof OrganizationInvitationStatus];
+
+
+export const OrganizationInvitationStatus = {
+  pending: 'pending',
+  accepted: 'accepted',
+  revoked: 'revoked',
+  expired: 'expired',
+} as const;
+
+export interface OrganizationInvitation {
+  id: number;
+  kind: OrganizationInvitationKind;
+  email: string;
+  status: OrganizationInvitationStatus;
+  /** @nullable */
+  clientId?: number | null;
+  /** @nullable */
+  firmId?: number | null;
+  /** @nullable */
+  role?: string | null;
+  expiresAt: string;
+  createdAt: string;
+  inviteLink?: string;
+}
+
+/**
+ * Configuration state for this workspace. Missing memberships are represented by an empty response.
+ */
+export type ClientWorkspaceState = typeof ClientWorkspaceState[keyof typeof ClientWorkspaceState];
+
+
+export const ClientWorkspaceState = {
+  starter: 'starter',
+  configured: 'configured',
+  legacy_demo: 'legacy_demo',
+} as const;
+
+export interface Client {
+  id: number;
+  name: string;
+  legalName: string;
+  functionalCurrency: string;
+  basis: string;
+  period: string;
+  /** @nullable */
+  ownerUserId?: string | null;
+  /** @nullable */
+  firmId?: number | null;
+  ownershipStatus: OwnershipStatus;
+  subscriptionLiableParty: SubscriptionLiableParty;
+  /** True only for an untouched legacy demo workspace retained for reference. */
+  legacyDemo: boolean;
+  /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
+  workspaceState: ClientWorkspaceState;
+}
+
+export interface OrganizationContext {
+  onboardingRequired: boolean;
+  mode: OrganizationMode | null;
+  firms: FirmMembership[];
+  firmMembers: FirmMembership[];
+  companies: Client[];
+  managedCompanyIds: number[];
+  engagements: FirmEngagement[];
+  invitations: OrganizationInvitation[];
+}
+
 export interface MobileTokenExchangeRequest {
   /** @minLength 1 */
   code: string;
@@ -74,30 +308,13 @@ export interface HealthStatus {
   status: string;
 }
 
-/**
- * Configuration state for this workspace. Missing memberships are represented by an empty response.
- */
-export type ClientWorkspaceState = typeof ClientWorkspaceState[keyof typeof ClientWorkspaceState];
+export type ClientInputCreationMode = typeof ClientInputCreationMode[keyof typeof ClientInputCreationMode];
 
 
-export const ClientWorkspaceState = {
-  starter: 'starter',
-  configured: 'configured',
-  legacy_demo: 'legacy_demo',
+export const ClientInputCreationMode = {
+  own_company: 'own_company',
+  firm_client: 'firm_client',
 } as const;
-
-export interface Client {
-  id: number;
-  name: string;
-  legalName: string;
-  functionalCurrency: string;
-  basis: string;
-  period: string;
-  /** True only for an untouched legacy demo workspace retained for reference. */
-  legacyDemo: boolean;
-  /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
-  workspaceState: ClientWorkspaceState;
-}
 
 export interface ClientInput {
   name: string;
@@ -105,6 +322,8 @@ export interface ClientInput {
   functionalCurrency?: string;
   basis?: string;
   period?: string;
+  creationMode?: ClientInputCreationMode;
+  firmId?: number;
 }
 
 export interface ClientUpdateInput {
@@ -119,7 +338,18 @@ export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
 
 
 export const WorkspaceRole = {
+  owner: 'owner',
   admin: 'admin',
+  accountant: 'accountant',
+  bookkeeper: 'bookkeeper',
+} as const;
+
+export type WorkspaceAssignableRole = typeof WorkspaceAssignableRole[keyof typeof WorkspaceAssignableRole];
+
+
+export const WorkspaceAssignableRole = {
+  admin: 'admin',
+  accountant: 'accountant',
   bookkeeper: 'bookkeeper',
 } as const;
 
@@ -183,13 +413,13 @@ export interface WorkspaceInvitationInput {
      * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
      */
   email: string;
-  role: WorkspaceRole;
+  role: WorkspaceAssignableRole;
   /** @minItems 1 */
   clientIds: number[];
 }
 
 export interface WorkspaceMemberUpdate {
-  role: WorkspaceRole;
+  role: WorkspaceAssignableRole;
   /** @minItems 1 */
   clientIds: number[];
 }
@@ -1104,12 +1334,55 @@ export interface ReportPackUpdate {
   signatory?: ReportSignatory;
 }
 
+/**
+ * Company ledger whose persisted rate profile is being managed.
+ */
+export type RateScopeClientIdParameter = number;
+
+/**
+ * Accounting firm whose shared rate profile is being managed.
+ */
+export type RateScopeFirmIdParameter = number;
+
 export type BeginBrowserLoginParams = {
 returnTo?: string;
 };
 
 export type LogoutBrowserSessionParams = {
 returnTo?: string;
+};
+
+export type GetExchangeRatesParams = {
+/**
+ * Company ledger whose persisted rate profile is being managed.
+ */
+clientId?: RateScopeClientIdParameter;
+/**
+ * Accounting firm whose shared rate profile is being managed.
+ */
+firmId?: RateScopeFirmIdParameter;
+};
+
+export type CreateExchangeRateParams = {
+/**
+ * Company ledger whose persisted rate profile is being managed.
+ */
+clientId?: RateScopeClientIdParameter;
+/**
+ * Accounting firm whose shared rate profile is being managed.
+ */
+firmId?: RateScopeFirmIdParameter;
+};
+
+export type ImportExchangeRatesParams = {
+/**
+ * Company ledger whose persisted rate profile is being managed.
+ */
+clientId?: RateScopeClientIdParameter;
+/**
+ * Accounting firm whose shared rate profile is being managed.
+ */
+firmId?: RateScopeFirmIdParameter;
 };
 
 export type GetLedgerOverviewParams = {

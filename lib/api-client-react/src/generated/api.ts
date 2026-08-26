@@ -38,6 +38,7 @@ import type {
   Client,
   ClientInput,
   ClientUpdateInput,
+  CreateExchangeRateParams,
   ExchangeRate,
   ExchangeRateImportInput,
   ExchangeRateImportResult,
@@ -46,10 +47,14 @@ import type {
   ExchangeRateParseResult,
   ExchangeRateUpdate,
   FinancialStatements,
+  FirmEngagement,
+  FirmEngagementInviteInput,
+  FirmNominationInput,
   FirmProfile,
   FirmProfileInput,
   GetBankAccountsParams,
   GetBulkTransitionAuditsParams,
+  GetExchangeRatesParams,
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
   GetLedgerOverviewParams,
@@ -60,12 +65,17 @@ import type {
   GetTrialBalanceParams,
   GetUploadedFilesParams,
   HealthStatus,
+  ImportExchangeRatesParams,
   JournalEntry,
   LedgerOverview,
   LogoutBrowserSessionParams,
   LogoutSuccess,
   MobileTokenExchangeRequest,
   MobileTokenExchangeSuccess,
+  OrganizationContext,
+  OrganizationInvitation,
+  OrganizationInviteInput,
+  OrganizationOnboardingInput,
   ReportPack,
   ReportPackInput,
   ReportPackSummary,
@@ -411,6 +421,730 @@ export const useUpdateFirmProfile = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getUpdateFirmProfileMutationOptions(options));
+    }
+
+export const getGetOrganizationContextUrl = () => {
+
+
+
+
+  return `/api/organizations/context`
+}
+
+/**
+ * @summary Get the authenticated user's company and accounting-firm context
+ */
+export const getOrganizationContext = async ( options?: Parameters<typeof customFetch>[1]): Promise<OrganizationContext> => {
+
+  return customFetch<OrganizationContext>(getGetOrganizationContextUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOrganizationContextQueryKey = () => {
+    return [
+    `/api/organizations/context`
+    ] as const;
+    }
+
+
+export const getGetOrganizationContextQueryOptions = <TData = Awaited<ReturnType<typeof getOrganizationContext>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOrganizationContext>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOrganizationContextQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOrganizationContext>>> = ({ signal }) => getOrganizationContext({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOrganizationContext>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOrganizationContextQueryResult = NonNullable<Awaited<ReturnType<typeof getOrganizationContext>>>
+export type GetOrganizationContextQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the authenticated user's company and accounting-firm context
+ */
+
+export function useGetOrganizationContext<TData = Awaited<ReturnType<typeof getOrganizationContext>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOrganizationContext>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOrganizationContextQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteOrganizationOnboardingUrl = () => {
+
+
+
+
+  return `/api/organizations/onboarding`
+}
+
+/**
+ * @summary Complete company, accounting-firm, or dual onboarding
+ */
+export const completeOrganizationOnboarding = async (organizationOnboardingInput: OrganizationOnboardingInput, options?: Parameters<typeof customFetch>[1]): Promise<OrganizationContext> => {
+
+  return customFetch<OrganizationContext>(getCompleteOrganizationOnboardingUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(organizationOnboardingInput)
+  }
+);}
+
+
+
+
+
+export const getCompleteOrganizationOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOrganizationOnboarding>>, TError,{data: BodyType<OrganizationOnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeOrganizationOnboarding>>, TError,{data: BodyType<OrganizationOnboardingInput>}, TContext> => {
+
+const mutationKey = ['completeOrganizationOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeOrganizationOnboarding>>, {data: BodyType<OrganizationOnboardingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  completeOrganizationOnboarding(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteOrganizationOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof completeOrganizationOnboarding>>>
+    export type CompleteOrganizationOnboardingMutationBody = BodyType<OrganizationOnboardingInput>
+    export type CompleteOrganizationOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Complete company, accounting-firm, or dual onboarding
+ */
+export const useCompleteOrganizationOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOrganizationOnboarding>>, TError,{data: BodyType<OrganizationOnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeOrganizationOnboarding>>,
+        TError,
+        {data: BodyType<OrganizationOnboardingInput>},
+        TContext
+      > => {
+      return useMutation(getCompleteOrganizationOnboardingMutationOptions(options));
+    }
+
+export const getInviteFirmMemberUrl = (id: number,) => {
+
+
+
+
+  return `/api/firms/${id}/invitations`
+}
+
+/**
+ * @summary Invite a member to an accounting firm
+ */
+export const inviteFirmMember = async (id: number,
+    organizationInviteInput: OrganizationInviteInput, options?: Parameters<typeof customFetch>[1]): Promise<OrganizationInvitation> => {
+
+  return customFetch<OrganizationInvitation>(getInviteFirmMemberUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(organizationInviteInput)
+  }
+);}
+
+
+
+
+
+export const getInviteFirmMemberMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteFirmMember>>, TError,{id: number;data: BodyType<OrganizationInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inviteFirmMember>>, TError,{id: number;data: BodyType<OrganizationInviteInput>}, TContext> => {
+
+const mutationKey = ['inviteFirmMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inviteFirmMember>>, {id: number;data: BodyType<OrganizationInviteInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  inviteFirmMember(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InviteFirmMemberMutationResult = NonNullable<Awaited<ReturnType<typeof inviteFirmMember>>>
+    export type InviteFirmMemberMutationBody = BodyType<OrganizationInviteInput>
+    export type InviteFirmMemberMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Invite a member to an accounting firm
+ */
+export const useInviteFirmMember = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteFirmMember>>, TError,{id: number;data: BodyType<OrganizationInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof inviteFirmMember>>,
+        TError,
+        {id: number;data: BodyType<OrganizationInviteInput>},
+        TContext
+      > => {
+      return useMutation(getInviteFirmMemberMutationOptions(options));
+    }
+
+export const getInviteAccountingFirmUrl = (id: number,) => {
+
+
+
+
+  return `/api/companies/${id}/firm-invitations`
+}
+
+/**
+ * @summary Invite an accounting firm administrator to serve a company
+ */
+export const inviteAccountingFirm = async (id: number,
+    firmEngagementInviteInput: FirmEngagementInviteInput, options?: Parameters<typeof customFetch>[1]): Promise<OrganizationInvitation> => {
+
+  return customFetch<OrganizationInvitation>(getInviteAccountingFirmUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(firmEngagementInviteInput)
+  }
+);}
+
+
+
+
+
+export const getInviteAccountingFirmMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteAccountingFirm>>, TError,{id: number;data: BodyType<FirmEngagementInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inviteAccountingFirm>>, TError,{id: number;data: BodyType<FirmEngagementInviteInput>}, TContext> => {
+
+const mutationKey = ['inviteAccountingFirm'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inviteAccountingFirm>>, {id: number;data: BodyType<FirmEngagementInviteInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  inviteAccountingFirm(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InviteAccountingFirmMutationResult = NonNullable<Awaited<ReturnType<typeof inviteAccountingFirm>>>
+    export type InviteAccountingFirmMutationBody = BodyType<FirmEngagementInviteInput>
+    export type InviteAccountingFirmMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Invite an accounting firm administrator to serve a company
+ */
+export const useInviteAccountingFirm = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteAccountingFirm>>, TError,{id: number;data: BodyType<FirmEngagementInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof inviteAccountingFirm>>,
+        TError,
+        {id: number;data: BodyType<FirmEngagementInviteInput>},
+        TContext
+      > => {
+      return useMutation(getInviteAccountingFirmMutationOptions(options));
+    }
+
+export const getInviteCompanyOwnerTransferUrl = (id: number,) => {
+
+
+
+
+  return `/api/companies/${id}/transfer-invitations`
+}
+
+/**
+ * @summary Invite a client owner to accept a firm-created company
+ */
+export const inviteCompanyOwnerTransfer = async (id: number,
+    organizationInviteInput: OrganizationInviteInput, options?: Parameters<typeof customFetch>[1]): Promise<OrganizationInvitation> => {
+
+  return customFetch<OrganizationInvitation>(getInviteCompanyOwnerTransferUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(organizationInviteInput)
+  }
+);}
+
+
+
+
+
+export const getInviteCompanyOwnerTransferMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteCompanyOwnerTransfer>>, TError,{id: number;data: BodyType<OrganizationInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof inviteCompanyOwnerTransfer>>, TError,{id: number;data: BodyType<OrganizationInviteInput>}, TContext> => {
+
+const mutationKey = ['inviteCompanyOwnerTransfer'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof inviteCompanyOwnerTransfer>>, {id: number;data: BodyType<OrganizationInviteInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  inviteCompanyOwnerTransfer(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InviteCompanyOwnerTransferMutationResult = NonNullable<Awaited<ReturnType<typeof inviteCompanyOwnerTransfer>>>
+    export type InviteCompanyOwnerTransferMutationBody = BodyType<OrganizationInviteInput>
+    export type InviteCompanyOwnerTransferMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Invite a client owner to accept a firm-created company
+ */
+export const useInviteCompanyOwnerTransfer = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof inviteCompanyOwnerTransfer>>, TError,{id: number;data: BodyType<OrganizationInviteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof inviteCompanyOwnerTransfer>>,
+        TError,
+        {id: number;data: BodyType<OrganizationInviteInput>},
+        TContext
+      > => {
+      return useMutation(getInviteCompanyOwnerTransferMutationOptions(options));
+    }
+
+export const getAcceptOrganizationInvitationUrl = (token: string,) => {
+
+
+
+
+  return `/api/organization-invitations/${token}/accept`
+}
+
+/**
+ * @summary Accept a firm, engagement, or company-transfer invitation
+ */
+export const acceptOrganizationInvitation = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<OrganizationContext> => {
+
+  return customFetch<OrganizationContext>(getAcceptOrganizationInvitationUrl(token),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getAcceptOrganizationInvitationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptOrganizationInvitation>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptOrganizationInvitation>>, TError,{token: string}, TContext> => {
+
+const mutationKey = ['acceptOrganizationInvitation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptOrganizationInvitation>>, {token: string}> = (props) => {
+          const {token} = props ?? {};
+
+          return  acceptOrganizationInvitation(token,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcceptOrganizationInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof acceptOrganizationInvitation>>>
+
+    export type AcceptOrganizationInvitationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Accept a firm, engagement, or company-transfer invitation
+ */
+export const useAcceptOrganizationInvitation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptOrganizationInvitation>>, TError,{token: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof acceptOrganizationInvitation>>,
+        TError,
+        {token: string},
+        TContext
+      > => {
+      return useMutation(getAcceptOrganizationInvitationMutationOptions(options));
+    }
+
+export const getNominateFirmEngagementMemberUrl = (id: number,) => {
+
+
+
+
+  return `/api/engagements/${id}/nominations`
+}
+
+/**
+ * @summary Nominate a firm member for company access
+ */
+export const nominateFirmEngagementMember = async (id: number,
+    firmNominationInput: FirmNominationInput, options?: Parameters<typeof customFetch>[1]): Promise<FirmEngagement> => {
+
+  return customFetch<FirmEngagement>(getNominateFirmEngagementMemberUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(firmNominationInput)
+  }
+);}
+
+
+
+
+
+export const getNominateFirmEngagementMemberMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof nominateFirmEngagementMember>>, TError,{id: number;data: BodyType<FirmNominationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof nominateFirmEngagementMember>>, TError,{id: number;data: BodyType<FirmNominationInput>}, TContext> => {
+
+const mutationKey = ['nominateFirmEngagementMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof nominateFirmEngagementMember>>, {id: number;data: BodyType<FirmNominationInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  nominateFirmEngagementMember(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type NominateFirmEngagementMemberMutationResult = NonNullable<Awaited<ReturnType<typeof nominateFirmEngagementMember>>>
+    export type NominateFirmEngagementMemberMutationBody = BodyType<FirmNominationInput>
+    export type NominateFirmEngagementMemberMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Nominate a firm member for company access
+ */
+export const useNominateFirmEngagementMember = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof nominateFirmEngagementMember>>, TError,{id: number;data: BodyType<FirmNominationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof nominateFirmEngagementMember>>,
+        TError,
+        {id: number;data: BodyType<FirmNominationInput>},
+        TContext
+      > => {
+      return useMutation(getNominateFirmEngagementMemberMutationOptions(options));
+    }
+
+export const getApproveFirmEngagementMemberUrl = (id: number,
+    userId: string,) => {
+
+
+
+
+  return `/api/engagements/${id}/nominations/${userId}/approve`
+}
+
+/**
+ * @summary Approve a nominated firm member for company access
+ */
+export const approveFirmEngagementMember = async (id: number,
+    userId: string, options?: Parameters<typeof customFetch>[1]): Promise<FirmEngagement> => {
+
+  return customFetch<FirmEngagement>(getApproveFirmEngagementMemberUrl(id,userId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getApproveFirmEngagementMemberMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveFirmEngagementMember>>, TError,{id: number;userId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof approveFirmEngagementMember>>, TError,{id: number;userId: string}, TContext> => {
+
+const mutationKey = ['approveFirmEngagementMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveFirmEngagementMember>>, {id: number;userId: string}> = (props) => {
+          const {id,userId} = props ?? {};
+
+          return  approveFirmEngagementMember(id,userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveFirmEngagementMemberMutationResult = NonNullable<Awaited<ReturnType<typeof approveFirmEngagementMember>>>
+
+    export type ApproveFirmEngagementMemberMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Approve a nominated firm member for company access
+ */
+export const useApproveFirmEngagementMember = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveFirmEngagementMember>>, TError,{id: number;userId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof approveFirmEngagementMember>>,
+        TError,
+        {id: number;userId: string},
+        TContext
+      > => {
+      return useMutation(getApproveFirmEngagementMemberMutationOptions(options));
+    }
+
+export const getRevokeFirmEngagementMemberUrl = (id: number,
+    userId: string,) => {
+
+
+
+
+  return `/api/engagements/${id}/members/${userId}`
+}
+
+/**
+ * @summary Revoke one firm's access to a company
+ */
+export const revokeFirmEngagementMember = async (id: number,
+    userId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getRevokeFirmEngagementMemberUrl(id,userId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevokeFirmEngagementMemberMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeFirmEngagementMember>>, TError,{id: number;userId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeFirmEngagementMember>>, TError,{id: number;userId: string}, TContext> => {
+
+const mutationKey = ['revokeFirmEngagementMember'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeFirmEngagementMember>>, {id: number;userId: string}> = (props) => {
+          const {id,userId} = props ?? {};
+
+          return  revokeFirmEngagementMember(id,userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeFirmEngagementMemberMutationResult = NonNullable<Awaited<ReturnType<typeof revokeFirmEngagementMember>>>
+
+    export type RevokeFirmEngagementMemberMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Revoke one firm's access to a company
+ */
+export const useRevokeFirmEngagementMember = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeFirmEngagementMember>>, TError,{id: number;userId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeFirmEngagementMember>>,
+        TError,
+        {id: number;userId: string},
+        TContext
+      > => {
+      return useMutation(getRevokeFirmEngagementMemberMutationOptions(options));
+    }
+
+export const getRevokeFirmEngagementUrl = (id: number,) => {
+
+
+
+
+  return `/api/engagements/${id}`
+}
+
+/**
+ * @summary End an accounting-firm engagement
+ */
+export const revokeFirmEngagement = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getRevokeFirmEngagementUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevokeFirmEngagementMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeFirmEngagement>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeFirmEngagement>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['revokeFirmEngagement'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeFirmEngagement>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  revokeFirmEngagement(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeFirmEngagementMutationResult = NonNullable<Awaited<ReturnType<typeof revokeFirmEngagement>>>
+
+    export type RevokeFirmEngagementMutationError = ErrorType<unknown>
+
+    /**
+ * @summary End an accounting-firm engagement
+ */
+export const useRevokeFirmEngagement = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeFirmEngagement>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeFirmEngagement>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRevokeFirmEngagementMutationOptions(options));
     }
 
 export const getBeginBrowserLoginUrl = (params?: BeginBrowserLoginParams,) => {
@@ -1601,20 +2335,27 @@ export function useGetLedgerflowUsage<TData = Awaited<ReturnType<typeof getLedge
 
 
 
-export const getGetExchangeRatesUrl = () => {
+export const getGetExchangeRatesUrl = (params?: GetExchangeRatesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ledgerflow/exchange-rates`
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/exchange-rates?${stringifiedParams}` : `/api/ledgerflow/exchange-rates`
 }
 
 /**
  * @summary List the authenticated workspace exchange-rate schedule
  */
-export const getExchangeRates = async ( options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate[]> => {
+export const getExchangeRates = async (params?: GetExchangeRatesParams, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate[]> => {
 
-  return customFetch<ExchangeRate[]>(getGetExchangeRatesUrl(),
+  return customFetch<ExchangeRate[]>(getGetExchangeRatesUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1627,23 +2368,23 @@ export const getExchangeRates = async ( options?: Parameters<typeof customFetch>
 
 
 
-export const getGetExchangeRatesQueryKey = () => {
+export const getGetExchangeRatesQueryKey = (params?: GetExchangeRatesParams,) => {
     return [
-    `/api/ledgerflow/exchange-rates`
+    `/api/ledgerflow/exchange-rates`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetExchangeRatesQueryOptions = <TData = Awaited<ReturnType<typeof getExchangeRates>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetExchangeRatesQueryOptions = <TData = Awaited<ReturnType<typeof getExchangeRates>>, TError = ErrorType<unknown>>(params?: GetExchangeRatesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetExchangeRatesQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getGetExchangeRatesQueryKey(params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExchangeRates>>> = ({ signal }) => getExchangeRates({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getExchangeRates>>> = ({ signal }) => getExchangeRates(params, { signal, ...requestOptions });
 
 
 
@@ -1661,11 +2402,11 @@ export type GetExchangeRatesQueryError = ErrorType<unknown>
  */
 
 export function useGetExchangeRates<TData = Awaited<ReturnType<typeof getExchangeRates>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ params?: GetExchangeRatesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getExchangeRates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetExchangeRatesQueryOptions(options)
+  const queryOptions = getGetExchangeRatesQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -1678,20 +2419,28 @@ export function useGetExchangeRates<TData = Awaited<ReturnType<typeof getExchang
 
 
 
-export const getCreateExchangeRateUrl = () => {
+export const getCreateExchangeRateUrl = (params?: CreateExchangeRateParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ledgerflow/exchange-rates`
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/exchange-rates?${stringifiedParams}` : `/api/ledgerflow/exchange-rates`
 }
 
 /**
  * @summary Add a dated workspace exchange rate
  */
-export const createExchangeRate = async (exchangeRateInput: ExchangeRateInput, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate> => {
+export const createExchangeRate = async (exchangeRateInput: ExchangeRateInput,
+    params?: CreateExchangeRateParams, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRate> => {
 
-  return customFetch<ExchangeRate>(getCreateExchangeRateUrl(),
+  return customFetch<ExchangeRate>(getCreateExchangeRateUrl(params),
   {
     ...options,
     method: 'POST',
@@ -1705,8 +2454,8 @@ export const createExchangeRate = async (exchangeRateInput: ExchangeRateInput, o
 
 
 export const getCreateExchangeRateMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>;params?: CreateExchangeRateParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>;params?: CreateExchangeRateParams}, TContext> => {
 
 const mutationKey = ['createExchangeRate'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -1718,10 +2467,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExchangeRate>>, {data: BodyType<ExchangeRateInput>}> = (props) => {
-          const {data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createExchangeRate>>, {data: BodyType<ExchangeRateInput>;params?: CreateExchangeRateParams}> = (props) => {
+          const {data,params} = props ?? {};
 
-          return  createExchangeRate(data,requestOptions)
+          return  createExchangeRate(data,params,requestOptions)
         }
 
 
@@ -1739,11 +2488,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Add a dated workspace exchange rate
  */
 export const useCreateExchangeRate = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createExchangeRate>>, TError,{data: BodyType<ExchangeRateInput>;params?: CreateExchangeRateParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createExchangeRate>>,
         TError,
-        {data: BodyType<ExchangeRateInput>},
+        {data: BodyType<ExchangeRateInput>;params?: CreateExchangeRateParams},
         TContext
       > => {
       return useMutation(getCreateExchangeRateMutationOptions(options));
@@ -1892,20 +2641,28 @@ export const useDeleteExchangeRate = <TError = ErrorType<unknown>,
       return useMutation(getDeleteExchangeRateMutationOptions(options));
     }
 
-export const getImportExchangeRatesUrl = () => {
+export const getImportExchangeRatesUrl = (params?: ImportExchangeRatesParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/ledgerflow/exchange-rates/import`
+  return stringifiedParams.length > 0 ? `/api/ledgerflow/exchange-rates/import?${stringifiedParams}` : `/api/ledgerflow/exchange-rates/import`
 }
 
 /**
  * @summary Import dated workspace exchange rates
  */
-export const importExchangeRates = async (exchangeRateImportInput: ExchangeRateImportInput, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRateImportResult> => {
+export const importExchangeRates = async (exchangeRateImportInput: ExchangeRateImportInput,
+    params?: ImportExchangeRatesParams, options?: Parameters<typeof customFetch>[1]): Promise<ExchangeRateImportResult> => {
 
-  return customFetch<ExchangeRateImportResult>(getImportExchangeRatesUrl(),
+  return customFetch<ExchangeRateImportResult>(getImportExchangeRatesUrl(params),
   {
     ...options,
     method: 'POST',
@@ -1919,8 +2676,8 @@ export const importExchangeRates = async (exchangeRateImportInput: ExchangeRateI
 
 
 export const getImportExchangeRatesMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>;params?: ImportExchangeRatesParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>;params?: ImportExchangeRatesParams}, TContext> => {
 
 const mutationKey = ['importExchangeRates'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -1932,10 +2689,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importExchangeRates>>, {data: BodyType<ExchangeRateImportInput>}> = (props) => {
-          const {data} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importExchangeRates>>, {data: BodyType<ExchangeRateImportInput>;params?: ImportExchangeRatesParams}> = (props) => {
+          const {data,params} = props ?? {};
 
-          return  importExchangeRates(data,requestOptions)
+          return  importExchangeRates(data,params,requestOptions)
         }
 
 
@@ -1953,11 +2710,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
  * @summary Import dated workspace exchange rates
  */
 export const useImportExchangeRates = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importExchangeRates>>, TError,{data: BodyType<ExchangeRateImportInput>;params?: ImportExchangeRatesParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof importExchangeRates>>,
         TError,
-        {data: BodyType<ExchangeRateImportInput>},
+        {data: BodyType<ExchangeRateImportInput>;params?: ImportExchangeRatesParams},
         TContext
       > => {
       return useMutation(getImportExchangeRatesMutationOptions(options));

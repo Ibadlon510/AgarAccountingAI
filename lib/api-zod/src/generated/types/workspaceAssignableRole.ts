@@ -6,11 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
+export type WorkspaceAssignableRole = typeof WorkspaceAssignableRole[keyof typeof WorkspaceAssignableRole];
 
 
-export const WorkspaceRole = {
-  owner: 'owner',
+export const WorkspaceAssignableRole = {
   admin: 'admin',
   accountant: 'accountant',
   bookkeeper: 'bookkeeper',

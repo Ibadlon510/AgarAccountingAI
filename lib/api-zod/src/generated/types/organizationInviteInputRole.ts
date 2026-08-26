@@ -6,11 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
+export type OrganizationInviteInputRole = typeof OrganizationInviteInputRole[keyof typeof OrganizationInviteInputRole];
 
 
-export const WorkspaceRole = {
-  owner: 'owner',
+export const OrganizationInviteInputRole = {
   admin: 'admin',
   accountant: 'accountant',
   bookkeeper: 'bookkeeper',

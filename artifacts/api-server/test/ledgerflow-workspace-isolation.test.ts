@@ -25,6 +25,20 @@ const userIds = [
   `profile-owner-${randomUUID()}`,
   `firm-schedule-owner-${randomUUID()}`,
   `firm-schedule-foreign-${randomUUID()}`,
+  `dual-mode-owner-${randomUUID()}`,
+  `dual-mode-foreign-${randomUUID()}`,
+  `multi-firm-company-${randomUUID()}`,
+  `multi-firm-admin-${randomUUID()}`,
+  `multi-firm-owner-a-${randomUUID()}`,
+  `multi-firm-owner-b-${randomUUID()}`,
+  `scoped-manager-${randomUUID()}`,
+  `scoped-other-owner-${randomUUID()}`,
+  `scoped-target-${randomUUID()}`,
+  `shared-rate-owner-${randomUUID()}`,
+  `shared-rate-admin-${randomUUID()}`,
+  `engagement-firm-owner-${randomUUID()}`,
+  `engagement-unapproved-staff-${randomUUID()}`,
+  `engagement-company-owner-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -127,21 +141,25 @@ before(async () => {
 });
 
 after(async () => {
-  if (database) {
-    if (clientIds.length) {
-      await database.db.delete(database.journalEntriesTable).where(inArray(database.journalEntriesTable.clientId, clientIds));
-      await database.db.delete(database.statementImportsTable).where(inArray(database.statementImportsTable.clientId, clientIds));
-      await database.db.delete(database.statementLinesTable).where(inArray(database.statementLinesTable.clientId, clientIds));
-      await database.db.delete(database.bankAccountsTable).where(inArray(database.bankAccountsTable.clientId, clientIds));
-      await database.db.delete(database.aiActivityTable).where(inArray(database.aiActivityTable.clientId, clientIds));
-      await database.db.delete(database.aiProviderConfigsTable).where(inArray(database.aiProviderConfigsTable.clientId, clientIds));
-      await database.db.delete(database.clientWorkspacesTable).where(inArray(database.clientWorkspacesTable.clientId, clientIds));
-      await database.db.delete(database.clientsTable).where(inArray(database.clientsTable.id, clientIds));
+  try {
+    if (database) {
+      if (clientIds.length) {
+        await database.db.delete(database.journalEntriesTable).where(inArray(database.journalEntriesTable.clientId, clientIds));
+        await database.db.delete(database.statementImportsTable).where(inArray(database.statementImportsTable.clientId, clientIds));
+        await database.db.delete(database.statementLinesTable).where(inArray(database.statementLinesTable.clientId, clientIds));
+        await database.db.delete(database.bankAccountsTable).where(inArray(database.bankAccountsTable.clientId, clientIds));
+        await database.db.delete(database.aiActivityTable).where(inArray(database.aiActivityTable.clientId, clientIds));
+        await database.db.delete(database.aiProviderConfigsTable).where(inArray(database.aiProviderConfigsTable.clientId, clientIds));
+        await database.db.delete(database.clientWorkspacesTable).where(inArray(database.clientWorkspacesTable.clientId, clientIds));
+        await database.db.delete(database.clientsTable).where(inArray(database.clientsTable.id, clientIds));
+      }
+      await database.db.delete(database.exchangeRatesTable).where(inArray(database.exchangeRatesTable.userId, userIds));
+      await database.db.delete(database.clientWorkspacesTable).where(inArray(database.clientWorkspacesTable.userId, userIds));
+      await database.db.delete(database.usersTable).where(inArray(database.usersTable.id, userIds));
     }
-    await database.db.delete(database.exchangeRatesTable).where(inArray(database.exchangeRatesTable.userId, userIds));
-    await database.db.delete(database.usersTable).where(inArray(database.usersTable.id, userIds));
+  } finally {
+    await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
   }
-  await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
 });
 
 test("provisions isolated starter workspaces and configures only the owner's workspace", async () => {
@@ -272,19 +290,227 @@ test("keeps one exchange-rate schedule with its firm while clients remain separa
   assert.equal(savedProfile.response.status, 200);
   assert.equal(savedProfile.body.name, "Shared books firm");
 
-  const createdRate = await request<{ id: number }>("/ledgerflow/exchange-rates", ownerId, {
+  const createdRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${starter.body[0]!.id}`, ownerId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 3.6725, source: "Manual" }),
   });
   assert.equal(createdRate.response.status, 201);
-  const firmRates = await request<Array<{ id: number }>>("/ledgerflow/exchange-rates", ownerId);
+  const firmRates = await request<Array<{ id: number }>>(`/ledgerflow/exchange-rates?clientId=${starter.body[0]!.id}`, ownerId);
   assert.deepEqual(firmRates.body.map((rate) => rate.id), [createdRate.body.id]);
 
   const foreignStarter = await request<Array<{ id: number }>>("/clients", foreignId);
   clientIds.push(foreignStarter.body[0]!.id);
-  const foreignRates = await request<unknown[]>("/ledgerflow/exchange-rates", foreignId);
+  const foreignRates = await request<unknown[]>(`/ledgerflow/exchange-rates?clientId=${foreignStarter.body[0]!.id}`, foreignId);
   assert.equal(foreignRates.response.status, 200);
   assert.deepEqual(foreignRates.body, []);
+});
+
+test("keeps a dual-mode owner's company schedule separate from their accounting firm", async () => {
+  const ownerId = userIds[16]!;
+  const foreignId = userIds[17]!;
+  const onboarding = await request<{
+    firms: Array<{ firmId: number }>;
+  }>("/organizations/onboarding", ownerId, {
+    method: "POST",
+    body: JSON.stringify({
+      mode: "both",
+      firstName: "Dual",
+      lastName: "Owner",
+      companyName: "Owner Company",
+      companyLegalName: "Owner Company LLC",
+      firmName: "Owner Accounting Firm",
+      firmLegalName: "Owner Accounting Firm LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "December 2026",
+    }),
+  });
+  assert.equal(onboarding.response.status, 200);
+  const firmId = onboarding.body.firms[0]!.firmId;
+  const clients = await request<Array<{ id: number }>>("/clients", ownerId);
+  assert.equal(clients.response.status, 200);
+  assert.equal(clients.body.length, 1);
+  const clientId = clients.body[0]!.id;
+  clientIds.push(clientId);
+
+  const firmRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?firmId=${firmId}`, ownerId, {
+    method: "POST",
+    body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 3.67 }),
+  });
+  const companyRate = await request<{ id: number }>(`/ledgerflow/exchange-rates?clientId=${clientId}`, ownerId, {
+    method: "POST",
+    body: JSON.stringify({ sourceCurrency: "EUR", functionalCurrency: "AED", effectiveDate: "2026-12-01", rate: 4.1 }),
+  });
+  assert.equal(firmRate.response.status, 201);
+  assert.equal(companyRate.response.status, 201);
+
+  const firmRates = await request<Array<{ id: number }>>(`/ledgerflow/exchange-rates?firmId=${firmId}`, ownerId);
+  const companyRates = await request<Array<{ id: number }>>(`/ledgerflow/exchange-rates?clientId=${clientId}`, ownerId);
+  assert.deepEqual(firmRates.body.map(({ id }) => id), [firmRate.body.id]);
+  assert.deepEqual(companyRates.body.map(({ id }) => id), [companyRate.body.id]);
+  assert.notEqual(firmRate.body.id, companyRate.body.id);
+
+  const foreignClients = await request<Array<{ id: number }>>("/clients", foreignId);
+  assert.equal(foreignClients.response.status, 200);
+  clientIds.push(...foreignClients.body.map(({ id }) => id));
+  const unauthorizedFirmRead = await request<{ error: string }>(`/ledgerflow/exchange-rates?firmId=${firmId}`, foreignId);
+  assert.equal(unauthorizedFirmRead.response.status, 403);
+
+  assert.ok(database);
+  const profiles = await database.db.select().from(database.firmProfilesTable)
+    .where(eq(database.firmProfilesTable.ownerUserId, ownerId));
+  assert.deepEqual(new Set(profiles.map(({ profileKind }) => profileKind)), new Set(["accounting_firm", "internal_rate_container"]));
+  const [company] = await database.db.select().from(database.clientsTable).where(eq(database.clientsTable.id, clientId));
+  assert.ok(company.rateProfileId);
+  assert.notEqual(company.rateProfileId, firmId);
+});
+
+test("binds invitations and firm-created clients to the explicitly selected firm", async () => {
+  assert.ok(database);
+  const companyUserId = userIds[18];
+  const firmAdminId = userIds[19];
+  const firmOwnerAId = userIds[20];
+  const firmOwnerBId = userIds[21];
+  const email = `multi-firm-${randomUUID()}@example.com`;
+  await database.db.insert(database.usersTable).values([
+    { id: companyUserId, email: `company-${randomUUID()}@example.com`, firstName: "Company", lastName: "Owner", onboardingMode: "company" },
+    { id: firmAdminId, email, firstName: "Firm", lastName: "Admin", onboardingMode: "firm" },
+    { id: firmOwnerAId, email: `owner-a-${randomUUID()}@example.com`, firstName: "Firm", lastName: "Owner A", onboardingMode: "firm" },
+    { id: firmOwnerBId, email: `owner-b-${randomUUID()}@example.com`, firstName: "Firm", lastName: "Owner B", onboardingMode: "firm" },
+  ]);
+  const [company] = await database.db.insert(database.clientsTable).values({
+    ownerUserId: companyUserId, ownershipStatus: "company_owned", subscriptionLiableParty: "company",
+    name: "Selected-firm company", legalName: "Selected-firm company LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+  }).returning();
+  clientIds.push(company.id);
+  await database.db.insert(database.clientWorkspacesTable).values({ clientId: company.id, userId: companyUserId, role: "owner" });
+  const firms = await database.db.insert(database.firmProfilesTable).values([
+    { ownerUserId: firmOwnerAId, name: "Firm A", legalName: "Firm A LLC", profileKind: "accounting_firm" },
+    { ownerUserId: firmOwnerBId, name: "Firm B", legalName: "Firm B LLC", profileKind: "accounting_firm" },
+  ]).returning();
+  await database.db.insert(database.firmMembershipsTable).values(firms.map((firm) => ({ firmId: firm.id, userId: firmAdminId, role: "owner", status: "active" })));
+
+  const invited = await request<{ inviteLink: string }>(`/companies/${company.id}/firm-invitations`, companyUserId, {
+    method: "POST", body: JSON.stringify({ email, firmId: firms[1].id, role: "admin" }),
+  });
+  assert.equal(invited.response.status, 201);
+  const token = new URL(invited.body.inviteLink).searchParams.get("organizationInvite");
+  assert.ok(token);
+  const accepted = await request(`/organization-invitations/${token}/accept`, firmAdminId, { method: "POST" });
+  assert.equal(accepted.response.status, 200);
+  const engagements = await database.db.select().from(database.firmCompanyEngagementsTable).where(eq(database.firmCompanyEngagementsTable.clientId, company.id));
+  assert.deepEqual(engagements.map(({ firmId }) => firmId), [firms[1].id]);
+
+  const created = await request<{ id: number }>("/clients", firmAdminId, {
+    method: "POST", body: JSON.stringify({ name: "Explicit Firm Client", legalName: "Explicit Firm Client LLC", creationMode: "firm_client", firmId: firms[0].id }),
+  });
+  assert.equal(created.response.status, 201);
+  clientIds.push(created.body.id);
+  const [createdRow] = await database.db.select().from(database.clientsTable).where(eq(database.clientsTable.id, created.body.id));
+  assert.equal(createdRow.firmId, firms[0].id);
+});
+
+test("keeps team management scoped when an owner is only a bookkeeper elsewhere", async () => {
+  assert.ok(database);
+  const actorId = userIds[22];
+  const otherOwnerId = userIds[23];
+  const targetId = userIds[24];
+  await database.db.insert(database.usersTable).values([
+    { id: actorId, email: `scoped-manager-${randomUUID()}@example.com` },
+    { id: otherOwnerId, email: `scoped-owner-${randomUUID()}@example.com` },
+    { id: targetId, email: `scoped-target-${randomUUID()}@example.com` },
+  ]);
+  const clients = await database.db.insert(database.clientsTable).values([
+    { ownerUserId: actorId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", name: "Managed A", legalName: "Managed A LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+    { ownerUserId: otherOwnerId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", name: "Read-only B", legalName: "Read-only B LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+  ]).returning();
+  clientIds.push(...clients.map(({ id }) => id));
+  await database.db.insert(database.clientWorkspacesTable).values([
+    { clientId: clients[0].id, userId: actorId, role: "owner" },
+    { clientId: clients[1].id, userId: actorId, role: "bookkeeper" },
+    { clientId: clients[1].id, userId: otherOwnerId, role: "owner" },
+    { clientId: clients[1].id, userId: targetId, role: "accountant" },
+  ]);
+
+  const listed = await request<{ clients: Array<{ id: number }>; members: Array<{ userId: string }> }>("/workspace/members", actorId);
+  assert.equal(listed.response.status, 200);
+  assert.deepEqual(listed.body.clients.map(({ id }) => id), [clients[0].id]);
+  assert.ok(!listed.body.members.some(({ userId }) => userId === targetId));
+
+  const invited = await request("/workspace/invitations", actorId, {
+    method: "POST", body: JSON.stringify({ email: `invite-${randomUUID()}@example.com`, role: "bookkeeper", clientIds: [clients[1].id] }),
+  });
+  assert.equal(invited.response.status, 400);
+  const updated = await request(`/workspace/members/${targetId}`, actorId, {
+    method: "PATCH", body: JSON.stringify({ role: "accountant", clientIds: [clients[1].id] }),
+  });
+  assert.equal(updated.response.status, 400);
+  const removed = await request(`/workspace/members/${targetId}`, actorId, { method: "DELETE" });
+  assert.equal(removed.response.status, 404);
+  const [membership] = await database.db.select().from(database.clientWorkspacesTable)
+    .where(eq(database.clientWorkspacesTable.userId, targetId));
+  assert.equal(membership.clientId, clients[1].id);
+});
+
+test("prevents a delegated company admin from changing an owner-shared rate schedule", async () => {
+  assert.ok(database);
+  const ownerId = userIds[25];
+  const adminId = userIds[26];
+  await database.db.insert(database.usersTable).values([{ id: ownerId }, { id: adminId }]);
+  const clients = await database.db.insert(database.clientsTable).values([
+    { ownerUserId: ownerId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", name: "Owner Company A", legalName: "Owner Company A LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+    { ownerUserId: ownerId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", name: "Owner Company B", legalName: "Owner Company B LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026" },
+  ]).returning();
+  clientIds.push(...clients.map(({ id }) => id));
+  await database.db.insert(database.clientWorkspacesTable).values([
+    { clientId: clients[0].id, userId: ownerId, role: "owner" },
+    { clientId: clients[1].id, userId: ownerId, role: "owner" },
+    { clientId: clients[0].id, userId: adminId, role: "admin" },
+  ]);
+  const created = await request<{ id: number }>("/ledgerflow/exchange-rates?clientId=" + clients[0].id, ownerId, {
+    method: "POST", body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", rate: 3.67, effectiveDate: "2026-08-01" }),
+  });
+  assert.equal(created.response.status, 201);
+  const delegatedCreate = await request("/ledgerflow/exchange-rates?clientId=" + clients[0].id, adminId, {
+    method: "POST", body: JSON.stringify({ sourceCurrency: "EUR", functionalCurrency: "AED", rate: 4.1, effectiveDate: "2026-08-01" }),
+  });
+  assert.equal(delegatedCreate.response.status, 403);
+  const delegatedEdit = await request(`/ledgerflow/exchange-rates/${created.body.id}`, adminId, {
+    method: "PATCH", body: JSON.stringify({ sourceCurrency: "USD", functionalCurrency: "AED", rate: 9.99, effectiveDate: "2026-08-01" }),
+  });
+  assert.equal(delegatedEdit.response.status, 403);
+});
+
+test("hides engagement metadata from firm staff until company approval", async () => {
+  assert.ok(database);
+  const firmOwnerId = userIds[27];
+  const staffId = userIds[28];
+  const companyOwnerId = userIds[29];
+  await database.db.insert(database.usersTable).values([{ id: firmOwnerId }, { id: staffId }, { id: companyOwnerId }]);
+  const [firm] = await database.db.insert(database.firmProfilesTable).values({
+    ownerUserId: firmOwnerId, name: "Private Engagement Firm", legalName: "Private Engagement Firm LLC", profileKind: "accounting_firm",
+  }).returning();
+  await database.db.insert(database.firmMembershipsTable).values([
+    { firmId: firm.id, userId: firmOwnerId, role: "owner", status: "active" },
+    { firmId: firm.id, userId: staffId, role: "accountant", status: "active" },
+  ]);
+  const [client] = await database.db.insert(database.clientsTable).values({
+    ownerUserId: companyOwnerId, ownershipStatus: "company_owned", subscriptionLiableParty: "company",
+    name: "Confidential Client", legalName: "Confidential Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+  }).returning();
+  clientIds.push(client.id);
+  await database.db.insert(database.clientWorkspacesTable).values({ clientId: client.id, userId: companyOwnerId, role: "owner" });
+  const [engagement] = await database.db.insert(database.firmCompanyEngagementsTable).values({
+    firmId: firm.id, clientId: client.id, status: "active", invitedByUserId: companyOwnerId, acceptedByUserId: firmOwnerId, acceptedAt: new Date(),
+  }).returning();
+  await database.db.insert(database.firmEngagementMembersTable).values({
+    engagementId: engagement.id, userId: staffId, role: "accountant", status: "nominated", nominatedByUserId: firmOwnerId,
+  });
+  const context = await request<{ engagements: unknown[] }>("/organizations/context", staffId);
+  assert.equal(context.response.status, 200);
+  assert.deepEqual(context.body.engagements, []);
+  const staffClients = await request<Array<{ id: number }>>("/clients", staffId);
+  clientIds.push(...staffClients.body.map(({ id }) => id));
 });
 
 test("persists onboarding identity before configuring the owner's starter workspace", async () => {
@@ -530,6 +756,10 @@ test("does not remediate an exact demo-shaped workspace that is intentionally sh
     functionalCurrency: "AED",
     basis: "IFRS",
     period: "August 2026",
+    ownerUserId: null,
+    firmId: null,
+    ownershipStatus: "company_owned",
+    subscriptionLiableParty: "company",
     legacyDemo: false,
     workspaceState: "configured",
   }]);

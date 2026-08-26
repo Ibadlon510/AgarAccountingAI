@@ -76,6 +76,196 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FirmProfile"
+  /organizations/context:
+    get:
+      operationId: getOrganizationContext
+      tags: [ledgerflow]
+      summary: Get the authenticated user's company and accounting-firm context
+      responses:
+        "200":
+          description: Organization context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationContext"
+  /organizations/onboarding:
+    post:
+      operationId: completeOrganizationOnboarding
+      tags: [ledgerflow]
+      summary: Complete company, accounting-firm, or dual onboarding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationOnboardingInput"
+      responses:
+        "200":
+          description: Organization onboarding completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationContext"
+  /firms/{id}/invitations:
+    post:
+      operationId: inviteFirmMember
+      tags: [ledgerflow]
+      summary: Invite a member to an accounting firm
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationInviteInput"
+      responses:
+        "201":
+          description: Firm invitation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationInvitation"
+  /companies/{id}/firm-invitations:
+    post:
+      operationId: inviteAccountingFirm
+      tags: [ledgerflow]
+      summary: Invite an accounting firm administrator to serve a company
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FirmEngagementInviteInput"
+      responses:
+        "201":
+          description: Accounting-firm invitation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationInvitation"
+  /companies/{id}/transfer-invitations:
+    post:
+      operationId: inviteCompanyOwnerTransfer
+      tags: [ledgerflow]
+      summary: Invite a client owner to accept a firm-created company
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrganizationInviteInput"
+      responses:
+        "201":
+          description: Company transfer invitation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationInvitation"
+  /organization-invitations/{token}/accept:
+    post:
+      operationId: acceptOrganizationInvitation
+      tags: [ledgerflow]
+      summary: Accept a firm, engagement, or company-transfer invitation
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationContext"
+  /engagements/{id}/nominations:
+    post:
+      operationId: nominateFirmEngagementMember
+      tags: [ledgerflow]
+      summary: Nominate a firm member for company access
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FirmNominationInput"
+      responses:
+        "200":
+          description: Engagement updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmEngagement"
+  /engagements/{id}/nominations/{userId}/approve:
+    post:
+      operationId: approveFirmEngagementMember
+      tags: [ledgerflow]
+      summary: Approve a nominated firm member for company access
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Engagement updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmEngagement"
+  /engagements/{id}/members/{userId}:
+    delete:
+      operationId: revokeFirmEngagementMember
+      tags: [ledgerflow]
+      summary: Revoke one firm's access to a company
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Firm-member access revoked
+  /engagements/{id}:
+    delete:
+      operationId: revokeFirmEngagement
+      tags: [ledgerflow]
+      summary: End an accounting-firm engagement
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Engagement revoked
   /login:
     get:
       operationId: beginBrowserLogin
@@ -323,6 +513,9 @@ paths:
       operationId: getExchangeRates
       tags: [ledgerflow]
       summary: List the authenticated workspace exchange-rate schedule
+      parameters:
+        - $ref: "#/components/parameters/RateScopeClientId"
+        - $ref: "#/components/parameters/RateScopeFirmId"
       responses:
         "200":
           description: Workspace exchange rates
@@ -336,6 +529,9 @@ paths:
       operationId: createExchangeRate
       tags: [ledgerflow]
       summary: Add a dated workspace exchange rate
+      parameters:
+        - $ref: "#/components/parameters/RateScopeClientId"
+        - $ref: "#/components/parameters/RateScopeFirmId"
       requestBody:
         required: true
         content:
@@ -389,6 +585,9 @@ paths:
       operationId: importExchangeRates
       tags: [ledgerflow]
       summary: Import dated workspace exchange rates
+      parameters:
+        - $ref: "#/components/parameters/RateScopeClientId"
+        - $ref: "#/components/parameters/RateScopeFirmId"
       requestBody:
         required: true
         content:
@@ -1052,6 +1251,19 @@ paths:
         "404":
           description: Object not found
 components:
+  parameters:
+    RateScopeClientId:
+      name: clientId
+      in: query
+      required: false
+      schema: { type: number }
+      description: Company ledger whose persisted rate profile is being managed.
+    RateScopeFirmId:
+      name: firmId
+      in: query
+      required: false
+      schema: { type: number }
+      description: Accounting firm whose shared rate profile is being managed.
   schemas:
     AuthUser:
       type: object
@@ -1096,6 +1308,148 @@ components:
       properties:
         name: { type: string, minLength: 1 }
         legalName: { type: string, minLength: 1 }
+    OrganizationMode:
+      type: string
+      enum: [company, firm, both]
+    OrganizationRole:
+      type: string
+      enum: [owner, admin, accountant, bookkeeper]
+    OwnershipStatus:
+      type: string
+      enum: [company_owned, firm_provisional]
+    SubscriptionLiableParty:
+      type: string
+      enum: [company, firm]
+    OrganizationOnboardingInput:
+      type: object
+      required: [mode, firstName, lastName]
+      properties:
+        mode: { $ref: "#/components/schemas/OrganizationMode" }
+        firstName: { type: string, minLength: 1 }
+        lastName: { type: string, minLength: 1 }
+        companyName: { type: string }
+        companyLegalName: { type: string }
+        firmName: { type: string }
+        firmLegalName: { type: string }
+        functionalCurrency: { type: string }
+        basis: { type: string }
+        period: { type: string }
+    OrganizationInviteInput:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, minLength: 3, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+        role:
+          type: string
+          enum: [admin, accountant, bookkeeper]
+    FirmEngagementInviteInput:
+      type: object
+      required: [email, firmId]
+      properties:
+        email: { type: string, minLength: 3, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+        firmId: { type: number }
+        role:
+          type: string
+          enum: [admin]
+    FirmNominationInput:
+      type: object
+      required: [email, role]
+      properties:
+        email: { type: string, minLength: 3, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+        role:
+          type: string
+          enum: [accountant, bookkeeper]
+    FirmMembership:
+      type: object
+      required: [firmId, firmName, userId, name, email, role]
+      properties:
+        firmId: { type: number }
+        firmName: { type: string }
+        userId: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: "#/components/schemas/OrganizationRole" }
+    FirmEngagementMember:
+      type: object
+      required: [userId, name, email, role, status]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        email: { type: string }
+        role:
+          type: string
+          enum: [accountant, bookkeeper]
+        status:
+          type: string
+          enum: [nominated, approved, revoked]
+    FirmEngagement:
+      type: object
+      required: [id, firmId, firmName, clientId, companyName, status, canManageFirm, canManageCompany, members]
+      properties:
+        id: { type: number }
+        firmId: { type: number }
+        firmName: { type: string }
+        clientId: { type: number }
+        companyName: { type: string }
+        status:
+          type: string
+          enum: [provisional, active, revoked]
+        canManageFirm: { type: boolean }
+        canManageCompany: { type: boolean }
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmEngagementMember"
+    OrganizationInvitation:
+      type: object
+      required: [id, kind, email, status, expiresAt, createdAt]
+      properties:
+        id: { type: number }
+        kind:
+          type: string
+          enum: [firm_member, firm_engagement, company_transfer]
+        email: { type: string }
+        status:
+          type: string
+          enum: [pending, accepted, revoked, expired]
+        clientId: { type: ["number", "null"] }
+        firmId: { type: ["number", "null"] }
+        role: { type: ["string", "null"] }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        inviteLink: { type: string }
+    OrganizationContext:
+      type: object
+      required: [onboardingRequired, mode, firms, firmMembers, companies, managedCompanyIds, engagements, invitations]
+      properties:
+        onboardingRequired: { type: boolean }
+        mode:
+          oneOf:
+            - $ref: "#/components/schemas/OrganizationMode"
+            - type: "null"
+        firms:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmMembership"
+        firmMembers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmMembership"
+        companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/Client"
+        managedCompanyIds:
+          type: array
+          items: { type: number }
+        engagements:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmEngagement"
+        invitations:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationInvitation"
     MobileTokenExchangeRequest:
       type: object
       required: [code, code_verifier, redirect_uri, state]
@@ -1124,7 +1478,7 @@ components:
         - status
     Client:
       type: object
-      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState]
+      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty]
       properties:
         id: { type: number }
         name: { type: string }
@@ -1132,6 +1486,10 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+        ownerUserId: { type: ["string", "null"] }
+        firmId: { type: ["number", "null"] }
+        ownershipStatus: { $ref: "#/components/schemas/OwnershipStatus" }
+        subscriptionLiableParty: { $ref: "#/components/schemas/SubscriptionLiableParty" }
         legacyDemo:
           type: boolean
           description: True only for an untouched legacy demo workspace retained for reference.
@@ -1148,6 +1506,10 @@ components:
         functionalCurrency: { type: string }
         basis: { type: string }
         period: { type: string }
+        creationMode:
+          type: string
+          enum: [own_company, firm_client]
+        firmId: { type: number }
     ClientUpdateInput:
       type: object
       required: [name, legalName, functionalCurrency, basis, period]
@@ -1159,7 +1521,10 @@ components:
         period: { type: string }
     WorkspaceRole:
       type: string
-      enum: [admin, bookkeeper]
+      enum: [owner, admin, accountant, bookkeeper]
+    WorkspaceAssignableRole:
+      type: string
+      enum: [admin, accountant, bookkeeper]
     WorkspaceMembershipClient:
       type: object
       required: [id, name]
@@ -1221,7 +1586,7 @@ components:
       required: [email, role, clientIds]
       properties:
         email: { type: string, minLength: 3, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
-        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        role: { $ref: "#/components/schemas/WorkspaceAssignableRole" }
         clientIds:
           type: array
           minItems: 1
@@ -1230,7 +1595,7 @@ components:
       type: object
       required: [role, clientIds]
       properties:
-        role: { $ref: "#/components/schemas/WorkspaceRole" }
+        role: { $ref: "#/components/schemas/WorkspaceAssignableRole" }
         clientIds:
           type: array
           minItems: 1

@@ -6,12 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
+export type FirmNominationInputRole = typeof FirmNominationInputRole[keyof typeof FirmNominationInputRole];
 
 
-export const WorkspaceRole = {
-  owner: 'owner',
-  admin: 'admin',
+export const FirmNominationInputRole = {
   accountant: 'accountant',
   bookkeeper: 'bookkeeper',
 } as const;

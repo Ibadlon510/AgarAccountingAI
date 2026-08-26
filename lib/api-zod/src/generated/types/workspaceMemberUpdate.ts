@@ -5,10 +5,10 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { WorkspaceRole } from './workspaceRole';
+import type { WorkspaceAssignableRole } from './workspaceAssignableRole';
 
 export interface WorkspaceMemberUpdate {
-  role: WorkspaceRole;
+  role: WorkspaceAssignableRole;
   /** @minItems 1 */
   clientIds: number[];
 }

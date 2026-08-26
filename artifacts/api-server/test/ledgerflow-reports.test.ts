@@ -451,7 +451,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
     const missingRate = await request<TrialBalanceRow[]>(`/ledgerflow/trial-balance?clientId=${lifecycleClientId}`);
     assert.equal(missingRate.body.find((row) => row.account === "Rate coverage required")?.missingRateCount, 1);
 
-    const addedRate = await request("/ledgerflow/exchange-rates", {
+    const addedRate = await request(`/ledgerflow/exchange-rates?clientId=${lifecycleClientId}`, {
       method: "POST",
       body: JSON.stringify({
         sourceCurrency: "USD",

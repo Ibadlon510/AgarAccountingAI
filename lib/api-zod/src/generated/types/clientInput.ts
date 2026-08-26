@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ClientInputCreationMode } from './clientInputCreationMode';
 
 export interface ClientInput {
   name: string;
@@ -12,4 +13,6 @@ export interface ClientInput {
   functionalCurrency?: string;
   basis?: string;
   period?: string;
+  creationMode?: ClientInputCreationMode;
+  firmId?: number;
 }

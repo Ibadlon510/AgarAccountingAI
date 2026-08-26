@@ -12,11 +12,12 @@ import {
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetLedgerflowUsageQueryKey, getGetFirmProfileQueryKey, useApproveJournalEntry,
   useCreateClient, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetReportPack, useGetReportPacks,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetLedgerflowAISettings, useGetLedgerflowUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
-  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateFirmProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile
+  getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveLedgerflowAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestLedgerflowAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateLedgerflowAISettings, useUpdateLedgerflowAccountProfile, useUpdateFirmProfile, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
+  useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember
+  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -163,11 +164,134 @@ const clerkAppearance = {
   },
 };
 
+
+function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number, activeClient: Client }) {
+  const orgContext = useOrgContext();
+  const canManageCompany = orgContext?.managedCompanyIds.includes(clientId) ?? false;
+  const inviteFirm = useInviteAccountingFirm();
+  const inviteTransfer = useInviteCompanyOwnerTransfer();
+  const approveMember = useApproveFirmEngagementMember();
+  const revokeMember = useRevokeFirmEngagementMember();
+  const revokeEngagement = useRevokeFirmEngagement();
+  
+  const [email, setEmail] = useState('');
+  const [firmId, setFirmId] = useState('');
+  const [transferEmail, setTransferEmail] = useState('');
+
+  const engagement = orgContext?.engagements?.find(e => e.clientId === clientId);
+  const firmInvites = orgContext?.invitations?.filter(inv => inv.clientId === clientId && inv.kind === 'firm_engagement');
+  const transferInvites = orgContext?.invitations?.filter(inv => inv.clientId === clientId && inv.kind === 'company_transfer');
+
+  const handleInvite = (e: React.FormEvent) => {
+    e.preventDefault();
+    inviteFirm.mutate({ id: clientId, data: { email, firmId: Number(firmId), role: 'admin' } }, {
+      onSuccess: () => {
+        setEmail('');
+        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+      }
+    });
+  };
+
+  const handleTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    inviteTransfer.mutate({ id: clientId, data: { email: transferEmail } }, {
+      onSuccess: () => {
+        setTransferEmail('');
+        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+      }
+    });
+  };
+
+  return (
+    <section id="firm-access" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6 mt-6">
+      <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Delegation & Control</div>
+      <h2 className="mt-2 text-base font-semibold">Firm access</h2>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Manage external accounting firms hired to work on this company.</p>
+
+      {canManageCompany && activeClient.ownershipStatus === 'firm_provisional' ? (
+        <div className="mt-5 rounded border border-[#f59e0b]/30 bg-[#f59e0b]/10 p-4 text-[11px] leading-5 text-[#d97706]">
+          <strong>Firm Provisional Company:</strong> This company was created by a firm and the firm is liable for subscription costs. You can transfer ownership to a client.
+          
+          <form onSubmit={handleTransfer} className="mt-3 flex gap-2">
+            <input required type="email" value={transferEmail} onChange={e => setTransferEmail(e.target.value)} placeholder="Client owner email" className="h-9 flex-1 rounded border border-[#f59e0b]/30 bg-background px-3 text-xs" />
+            <button disabled={inviteTransfer.isPending} className="h-9 rounded bg-[#d97706] px-4 text-xs font-semibold text-[#fffbeb] disabled:opacity-50">Invite client to take ownership</button>
+          </form>
+
+          {transferInvites && transferInvites.length > 0 && (
+            <div className="mt-3 divide-y divide-[#f59e0b]/20 border-t border-[#f59e0b]/20 pt-2">
+              {transferInvites.map(inv => (
+                <div key={inv.id} className="flex justify-between py-2">
+                  <span><strong>{inv.email}</strong> · Invited</span>
+                  <span className="font-mono text-[9px] uppercase">{inv.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {canManageCompany && !engagement && activeClient.ownershipStatus !== 'firm_provisional' && (
+        <form onSubmit={handleInvite} className="mt-5 grid items-end gap-3 sm:grid-cols-[1fr_9rem_auto]">
+          <label className="flex-1 text-xs font-medium">Accounting firm administrator email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder="admin@firm.com" /></label>
+          <label className="text-xs font-medium">Firm ID<input required min="1" type="number" value={firmId} onChange={e => setFirmId(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+          <button disabled={inviteFirm.isPending} className="h-10 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Invite firm</button>
+        </form>
+      )}
+
+      {firmInvites && firmInvites.length > 0 && !engagement && (
+         <div className="mt-5 divide-y rounded-md border border-border">
+          {firmInvites.map(inv => (
+            <div key={inv.id} className="flex items-center justify-between p-3 text-xs bg-muted/50">
+              <div><strong>{inv.email}</strong> · Firm invited</div>
+              <div className="font-mono text-[10px] uppercase text-muted-foreground">{inv.status}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {engagement && (
+        <div className="mt-5 rounded-md border border-border p-4">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="text-sm font-semibold">{engagement.firmName}</h3>
+              <div className="font-mono text-[10px] uppercase text-muted-foreground mt-1">{engagement.status}</div>
+            </div>
+            {engagement.canManageCompany && <button onClick={() => { if(confirm("Revoke this firm's access to your company?")) revokeEngagement.mutate({ id: engagement.id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke Firm Access</button>}
+          </div>
+
+          <div className="mt-4 border-t border-border pt-4">
+            <h4 className="text-xs font-semibold">Firm Members Working on Your Account</h4>
+            <div className="mt-2 space-y-2">
+              {engagement.members.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">No firm members nominated yet.</p>
+              ) : engagement.members.map(m => (
+                <div key={m.userId} className="flex items-center justify-between text-[11px]">
+                  <span>{m.name} ({m.email}) - {m.role}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[9px] uppercase text-muted-foreground">{m.status}</span>
+                    {engagement.canManageCompany && m.status === 'nominated' && (
+                      <button onClick={() => approveMember.mutate({ id: engagement.id, userId: m.userId }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) })} className="rounded bg-primary/10 px-2 py-1 text-primary hover:bg-primary/20">Approve</button>
+                    )}
+                    {engagement.canManageCompany && (m.status === 'nominated' || m.status === 'approved') && (
+                      <button onClick={() => revokeMember.mutate({ id: engagement.id, userId: m.userId }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) })} className="rounded bg-destructive/10 px-2 py-1 text-destructive hover:bg-destructive/20">Revoke</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ClientSettingsPage() {
   const { activeClient } = useClientWorkspace();
   const [, setLocation] = useLocation();
   const mutation = useUpdateClient();
-  const ratesQuery = useGetExchangeRates({ query: { queryKey: getGetExchangeRatesQueryKey() } });
+  const rateScope = { clientId: activeClient?.id };
+  const ratesQuery = useGetExchangeRates(rateScope, { query: { queryKey: getGetExchangeRatesQueryKey(rateScope), enabled: !!activeClient } });
   const createRate = useCreateExchangeRate();
   const updateRate = useUpdateExchangeRate();
   const deleteRate = useDeleteExchangeRate();
@@ -195,7 +319,7 @@ function ClientSettingsPage() {
     setRateForm({ sourceCurrency: 'USD', functionalCurrency: activeClient.functionalCurrency, effectiveDate: new Date().toISOString().slice(0, 10), rate: '', source: 'Manual', note: '' });
   };
   const invalidateRates = () => {
-    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey(rateScope) });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
   };
@@ -214,7 +338,7 @@ function ClientSettingsPage() {
     const data = { ...rateForm, sourceCurrency: rateForm.sourceCurrency.toUpperCase(), functionalCurrency: rateForm.functionalCurrency.toUpperCase(), rate: Number(rateForm.rate), note: rateForm.note || null };
     const options = { onSuccess: () => { invalidateRates(); resetRateForm(); } };
     if (editingRateId) updateRate.mutate({ id: editingRateId, data }, options);
-    else createRate.mutate({ data }, options);
+    else createRate.mutate({ data, params: rateScope }, options);
   };
   const editRate = (rate: ExchangeRate) => {
     setEditingRateId(rate.id);
@@ -222,7 +346,7 @@ function ClientSettingsPage() {
   };
   const importParsedRates = async (rates: ExchangeRateInput[], source: 'csv' | 'ai') => {
     try {
-      const result = await importRates.mutateAsync({ data: { rates } });
+      const result = await importRates.mutateAsync({ data: { rates }, params: rateScope });
       invalidateRates();
       setRatePreview(null);
       setRateImportNotice(`${result.importedCount + result.updatedCount} rate${result.importedCount + result.updatedCount === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`);
@@ -276,6 +400,7 @@ function ClientSettingsPage() {
         <nav className="mt-2 space-y-1">
           {[
             ['#client-profile', 'Client profile'],
+            ['#firm-access', 'Firm access'],
             ['#bank-accounts', 'Bank accounts'],
             ['#ai-connection', 'AI connection'],
           ].map(([href, label]) => <a key={href} href={href} data-testid={`link-settings-${label.toLowerCase().replace(/ & /g, '-').replace(/ /g, '-')}`} className="block rounded-md px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground">{label}</a>)}
@@ -299,6 +424,7 @@ function ClientSettingsPage() {
             <div className="flex justify-end sm:col-span-2"><button data-testid="button-page-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save profile settings'}</button></div>
           </form>
         </section>
+        <ClientFirmAccessSection clientId={activeClient.id} activeClient={activeClient} />
         {ratePreview && <><section id="exchange-rates" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Shared conversion library</div><h2 className="mt-2 text-base font-semibold">Exchange-rate schedule</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">Enter functional-currency units for one source-currency unit. LedgerFlow uses the exact date first, then the latest prior rate. CSV and Excel layouts without standard headers are prepared for your review with AI.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-[11px] font-semibold hover:bg-muted"><UploadCloud size={14} /> {parseRates.isPending ? 'Detecting layout…' : importRates.isPending ? 'Importing…' : 'Import file'}<input data-testid="input-page-exchange-rate-import" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={parseRates.isPending || importRates.isPending} className="sr-only" onChange={(event) => { const file = event.target.files?.[0]; event.currentTarget.value = ''; void importRateFile(file); }} /></label></div>
           <form onSubmit={saveRate} className="mt-5 grid gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4 md:grid-cols-6">
@@ -348,11 +474,116 @@ function ClientSettingsPage() {
   </div>;
 }
 
+
+function FirmMembersSection({ firmId, members, invitations }: { firmId: number, members: FirmMembership[], invitations: OrganizationInvitation[] }) {
+  const [email, setEmail] = useState('');
+  const invite = useInviteFirmMember();
+  
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    invite.mutate({ id: firmId, data: { email, role: 'accountant' } }, {
+      onSuccess: () => {
+        setEmail('');
+        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+      }
+    });
+  };
+
+  const firmInvitations = invitations.filter(inv => inv.firmId === firmId && inv.kind === 'firm_member');
+
+  return (
+    <section className="rounded-lg border border-card-border bg-card p-5 md:p-6 mt-6">
+      <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Firm Access</div>
+      <h2 className="mt-2 text-base font-semibold">Firm Members</h2>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Manage accountants and bookkeepers in your firm.</p>
+
+      <form onSubmit={submit} className="mt-5 flex items-end gap-3">
+        <label className="flex-1 text-xs font-medium">Email address<input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder="colleague@firm.com" /></label>
+        <button disabled={invite.isPending} className="h-10 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Invite member</button>
+      </form>
+
+      <div className="mt-5 divide-y rounded-md border border-border">
+        {members.map(m => (
+          <div key={m.userId} className="flex items-center justify-between p-3 text-xs">
+            <div><strong>{m.name}</strong> · {m.email}</div>
+            <div className="font-mono text-[10px] uppercase text-muted-foreground">{m.role}</div>
+          </div>
+        ))}
+        {firmInvitations.map(inv => (
+          <div key={inv.id} className="flex items-center justify-between p-3 text-xs bg-muted/50">
+            <div><strong>{inv.email}</strong> · Invited</div>
+            <div className="font-mono text-[10px] uppercase text-muted-foreground">{inv.status}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FirmEngagementsSection({ engagements }: { engagements: FirmEngagement[] }) {
+  const nominate = useNominateFirmEngagementMember();
+  const revoke = useRevokeFirmEngagement();
+  
+  return (
+    <section className="rounded-lg border border-card-border bg-card p-5 md:p-6 mt-6">
+      <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client relationships</div>
+      <h2 className="mt-2 text-base font-semibold">Firm Engagements</h2>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Companies that have hired your firm for bookkeeping.</p>
+
+      {engagements.length === 0 ? (
+        <p className="mt-4 text-xs text-muted-foreground">No active engagements.</p>
+      ) : (
+        <div className="mt-5 space-y-4">
+          {engagements.map(eng => (
+            <div key={eng.id} className="rounded-md border border-border p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">{eng.companyName}</h3>
+                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">{eng.status} engagement</div>
+                </div>
+                {eng.canManageCompany && <button onClick={() => { if(confirm("Revoke engagement?")) revoke.mutate({ id: eng.id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke</button>}
+              </div>
+
+              <div className="mt-4 border-t border-border pt-4">
+                <h4 className="text-xs font-semibold">Assigned team</h4>
+                <div className="mt-2 space-y-2">
+                  {eng.members.map(m => (
+                    <div key={m.userId} className="flex items-center justify-between text-[11px]">
+                      <span>{m.name} ({m.email}) - {m.role}</span>
+                      <span className="font-mono text-[9px] uppercase text-muted-foreground">{m.status}</span>
+                    </div>
+                  ))}
+                </div>
+                
+                {eng.canManageFirm && eng.status === 'active' && <form className="mt-3 flex gap-2" onSubmit={e => {
+                  e.preventDefault();
+                  const form = new FormData(e.currentTarget);
+                  nominate.mutate({ id: eng.id, data: { email: form.get('email') as string, role: 'bookkeeper' } }, {
+                    onSuccess: () => {
+                      (e.target as HTMLFormElement).reset();
+                      queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+                    }
+                  });
+                }}>
+                  <input name="email" required type="email" placeholder="Assign firm member by email" className="h-8 flex-1 rounded border border-input bg-background px-2 text-xs" />
+                  <button className="h-8 rounded bg-secondary px-3 text-xs font-semibold text-secondary-foreground hover:bg-secondary/80">Nominate</button>
+                </form>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function FirmSettingsPage() {
+  const orgContext = useOrgContext();
+  const firmRateScope = { firmId: orgContext?.firms[0]?.firmId };
   const firmQuery = useGetFirmProfile({ query: { queryKey: getGetFirmProfileQueryKey() } });
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
   const saveFirm = useUpdateFirmProfile();
-  const ratesQuery = useGetExchangeRates({ query: { queryKey: getGetExchangeRatesQueryKey() } });
+  const ratesQuery = useGetExchangeRates(firmRateScope, { query: { queryKey: getGetExchangeRatesQueryKey(firmRateScope), enabled: !!firmRateScope.firmId } });
   const createRate = useCreateExchangeRate();
   const deleteRate = useDeleteExchangeRate();
   const importRates = useImportExchangeRates();
@@ -368,7 +599,7 @@ function FirmSettingsPage() {
     if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName });
   }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName]);
   const refreshRates = () => {
-    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey(firmRateScope) });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
   };
@@ -384,7 +615,7 @@ function FirmSettingsPage() {
   }, [ratePage, firmRatePageCount]);
   const importParsedRates = async (rates: ExchangeRateInput[], source: 'csv' | 'ai') => {
     try {
-      const result = await importRates.mutateAsync({ data: { rates } });
+      const result = await importRates.mutateAsync({ data: { rates }, params: firmRateScope });
       refreshRates();
       setRatePage(1);
       setRatePreview(null);
@@ -466,7 +697,7 @@ function FirmSettingsPage() {
             />
           </label>
         </div>
-        <form onSubmit={(event) => { event.preventDefault(); createRate.mutate({ data: { ...rate, sourceCurrency: rate.sourceCurrency.toUpperCase(), functionalCurrency: rate.functionalCurrency.toUpperCase(), rate: Number(rate.rate), source: 'Manual', note: null } }, { onSuccess: () => { refreshRates(); setRate({ ...rate, rate: '' }); setRatePage(1); } }); }} className="mt-5 grid gap-3 sm:grid-cols-5">
+        <form onSubmit={(event) => { event.preventDefault(); createRate.mutate({ data: { ...rate, sourceCurrency: rate.sourceCurrency.toUpperCase(), functionalCurrency: rate.functionalCurrency.toUpperCase(), rate: Number(rate.rate), source: 'Manual', note: null }, params: firmRateScope }, { onSuccess: () => { refreshRates(); setRate({ ...rate, rate: '' }); setRatePage(1); } }); }} className="mt-5 grid gap-3 sm:grid-cols-5">
           <input aria-label="Source currency" value={rate.sourceCurrency} maxLength={3} onChange={(event) => setRate({ ...rate, sourceCurrency: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
           <input aria-label="Functional currency" value={rate.functionalCurrency} maxLength={3} onChange={(event) => setRate({ ...rate, functionalCurrency: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
           <input aria-label="Effective date" type="date" value={rate.effectiveDate} onChange={(event) => setRate({ ...rate, effectiveDate: event.target.value })} className="h-9 rounded border border-input bg-background px-2 text-xs" />
@@ -500,6 +731,8 @@ function FirmSettingsPage() {
           </div>
         </div>}
       </section>
+      {orgContext?.firms.length ? <FirmMembersSection firmId={orgContext.firms[0].firmId} members={orgContext.firmMembers.filter((member) => member.firmId === orgContext.firms[0].firmId)} invitations={orgContext.invitations} /> : null}
+      {orgContext?.engagements ? <FirmEngagementsSection engagements={orgContext.engagements} /> : null}
       <WorkspaceUsageSection />
       <section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><TeamAccessSection /></section>
     </div>
@@ -526,19 +759,44 @@ export function useClientWorkspace() {
 
 function AddClientDialog({ onClose }: { onClose: () => void }) {
   const { setActiveClientId } = useClientWorkspace();
+  const orgContext = useOrgContext();
   const mutation = useCreateClient();
   const [form, setForm] = useState({ name: '', legalName: '', functionalCurrency: 'AED', basis: 'IFRS', period: '' });
+  
+  const [creationMode, setCreationMode] = useState<'own_company' | 'firm_client'>(
+    orgContext?.mode === 'firm' ? 'firm_client' : 'own_company'
+  );
+  const [firmId, setFirmId] = useState(orgContext?.firms[0]?.firmId ?? 0);
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    mutation.mutate({ data: form }, {
+    mutation.mutate({ data: { ...form, creationMode, ...(creationMode === 'firm_client' ? { firmId } : {}) } }, {
       onSuccess: (client) => {
         queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
         setActiveClientId(client.id);
         onClose();
       },
     });
   };
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="add-client-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client workspace setup</div><h2 id="add-client-title" className="mt-2 text-lg font-semibold">Add client</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Create a separate client workspace and set its own reporting context.</p></div><button data-testid="button-close-add-client" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div><form onSubmit={submit} className="mt-6 space-y-4"><label className="block text-xs font-medium">Client name<input data-testid="input-client-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Northstar Advisory" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-client-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} placeholder="e.g. Northstar Advisory FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-client-currency" required value={form.functionalCurrency} onChange={(event) => setForm({ ...form, functionalCurrency: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 py-0 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-client-basis" required value={form.basis} onChange={(event) => setForm({ ...form, basis: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 py-0 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium">Close period<input data-testid="input-client-period" type="month" required value={periodToMonthInput(form.period)} onChange={(event) => setForm({ ...form, period: monthInputToPeriod(event.target.value) })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive">This client could not be created. Check the details and try again.</p>}<button data-testid="button-submit-client" disabled={mutation.isPending} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Creating workspace…' : <><Plus size={14} /> Create client workspace</>}</button></form></div></div>;
+
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/35 p-4 backdrop-blur-sm"><div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-lg border border-card-border bg-card p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="add-client-title"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client workspace setup</div><h2 id="add-client-title" className="mt-2 text-lg font-semibold">Add client</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Create a separate client workspace and set its own reporting context.</p></div><button data-testid="button-close-add-client" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X size={17} /></button></div>
+  
+  {orgContext?.mode === 'both' && (
+    <div className="mt-5 flex gap-2 border-b border-border">
+      <button type="button" onClick={() => setCreationMode('own_company')} className={`pb-2 text-sm font-semibold ${creationMode === 'own_company' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}>Own Company</button>
+      <button type="button" onClick={() => setCreationMode('firm_client')} className={`pb-2 ml-4 text-sm font-semibold ${creationMode === 'firm_client' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}>Firm Client</button>
+    </div>
+  )}
+
+  {creationMode === 'firm_client' && (
+    <div className="mt-4 rounded border border-[#f59e0b]/30 bg-[#f59e0b]/10 p-3 text-[11px] leading-5 text-[#d97706]">
+      <strong>Provisional Control:</strong> This company is created under firm control. The firm is liable for subscription costs until ownership is successfully transferred to the client.
+      <label className="mt-3 block">Accounting firm<select required value={firmId} onChange={(event) => setFirmId(Number(event.target.value))} className="mt-1 h-9 w-full rounded border border-input bg-background px-2 text-xs text-foreground">{orgContext?.firms.map((firm) => <option key={firm.firmId} value={firm.firmId}>{firm.firmName}</option>)}</select></label>
+    </div>
+  )}
+
+  <form onSubmit={submit} className="mt-6 space-y-4"><label className="block text-xs font-medium">Client name<input data-testid="input-client-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Northstar Advisory" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal name<input data-testid="input-client-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} placeholder="e.g. Northstar Advisory FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Functional currency<select data-testid="select-client-currency" required value={form.functionalCurrency} onChange={(event) => setForm({ ...form, functionalCurrency: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 py-0 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option></select></label><label className="block text-xs font-medium">Reporting basis<select data-testid="select-client-basis" required value={form.basis} onChange={(event) => setForm({ ...form, basis: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 py-0 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label><label className="block text-xs font-medium">Close period<input data-testid="input-client-period" type="month" required value={periodToMonthInput(form.period)} onChange={(event) => setForm({ ...form, period: monthInputToPeriod(event.target.value) })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{mutation.isError && <p className="text-xs text-destructive">This client could not be created. Check the details and try again.</p>}<button data-testid="button-submit-client" disabled={mutation.isPending} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Creating workspace…' : <><Plus size={14} /> Create client workspace</>}</button></form></div></div>;
 }
 
 function TeamAccessSection() {
@@ -553,6 +811,7 @@ function TeamAccessSection() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: getGetWorkspaceMembersQueryKey() });
   const toggle = (id: number) => setForm((current) => ({ ...current, clientIds: current.clientIds.includes(id) ? current.clientIds.filter((item) => item !== id) : [...current.clientIds, id] }));
   const toggleMemberClient = (member: WorkspaceMember, clientId: number) => {
+    if (member.role === 'owner') return;
     const clientIds = member.clients.some((client) => client.id === clientId)
       ? member.clients.filter((client) => client.id !== clientId).map((client) => client.id)
       : [...member.clients.map((client) => client.id), clientId];
@@ -564,7 +823,7 @@ function TeamAccessSection() {
     {team.isLoading ? <p className="mt-4 text-xs text-muted-foreground">Loading team access…</p> : team.isError ? <p className="mt-4 text-xs text-destructive">Team access could not be loaded.</p> : <>
       <div className="mt-4 divide-y rounded border border-border">{data?.members.map((member: WorkspaceMember) => <div key={member.userId} data-testid={`row-workspace-member-${member.userId}`} className="flex flex-wrap items-center justify-between gap-3 p-3 text-xs">
         <div><strong>{member.name}</strong> · {member.role}<div className="mt-2 flex flex-wrap gap-3 text-[11px]">{data?.canManage && !member.isCurrentUser ? data.clients.map((client) => <label key={client.id}><input data-testid={`checkbox-member-client-${member.userId}-${client.id}`} type="checkbox" checked={member.clients.some((assigned) => assigned.id === client.id)} disabled={updateMember.isPending} onChange={() => toggleMemberClient(member, client.id)} /> {client.name}</label>) : member.clients.map((client) => <span key={client.id}>{client.name}</span>)}</div></div>
-        {data?.canManage && !member.isCurrentUser && <span className="flex gap-2"><select value={member.role} disabled={updateMember.isPending} onChange={(event) => updateMember.mutate({ userId: member.userId, data: { role: event.target.value as 'admin' | 'bookkeeper', clientIds: member.clients.map((client) => client.id) } }, { onSuccess: refresh })} className="rounded border border-input bg-card px-1 text-[11px]"><option value="admin">Admin</option><option value="bookkeeper">Bookkeeper</option></select><button data-testid={`button-remove-member-${member.userId}`} onClick={() => removeMember.mutate({ userId: member.userId }, { onSuccess: refresh })} className="text-destructive"><Trash2 size={14} /></button></span>}
+        {data?.canManage && !member.isCurrentUser && member.role !== 'owner' && <span className="flex gap-2"><select value={member.role} disabled={updateMember.isPending} onChange={(event) => updateMember.mutate({ userId: member.userId, data: { role: event.target.value as 'admin' | 'bookkeeper', clientIds: member.clients.map((client) => client.id) } }, { onSuccess: refresh })} className="rounded border border-input bg-card px-1 text-[11px]"><option value="admin">Admin</option><option value="bookkeeper">Bookkeeper</option></select><button data-testid={`button-remove-member-${member.userId}`} onClick={() => removeMember.mutate({ userId: member.userId }, { onSuccess: refresh })} className="text-destructive"><Trash2 size={14} /></button></span>}
       </div>)}</div>
       {data?.canManage && <form onSubmit={(event) => {
         event.preventDefault();
@@ -661,7 +920,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[78px] items-center border-b border-sidebar-border px-5"><div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"><Landmark size={19} strokeWidth={2.2} /></div><div className={`${collapsed ? 'md:hidden' : ''}`}><div className="font-display text-[22px] leading-none tracking-tight text-sidebar-foreground">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/50">Review desk</div></div></div><button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button></div>
       <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
-       <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>{activeClient ? `${activeClient.basis} / ${activeClient.functionalCurrency}` : '—'}</span><span>{activeClient?.period ?? '—'}</span></div></div></div>
+       <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>{activeClient ? `${activeClient.basis} / ${activeClient.functionalCurrency}` : '—'}</span><span>{activeClient?.ownershipStatus === 'firm_provisional' ? 'Firm Provisional' : activeClient?.ownershipStatus === 'company_owned' ? 'Company Owned' : activeClient?.period ?? '—'}</span></div></div></div>
     </aside>
       <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}><header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8"><div className="flex items-center gap-3"><button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button><button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button><div className="hidden h-5 w-px bg-border md:block" /><div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div></div><div className="flex items-center gap-2 md:gap-3"><select data-testid="select-client-workspace" value={activeClient?.id ?? ''} onChange={(event) => setActiveClientId(Number(event.target.value))} className="hidden h-9 max-w-[180px] rounded-md border border-input bg-card px-2 text-xs font-semibold md:block">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button data-testid="button-add-client" onClick={() => setCreateClientOpen(true)} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} /><span className="hidden sm:inline">Add client</span></button><div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div><button data-testid="button-help" onClick={() => setHelpOpen(true)} aria-label="Open help" className="grid size-8 place-items-center rounded-full border border-border bg-card text-muted-foreground hover:text-foreground"><CircleHelp size={16} /></button><div ref={accountMenuRef} className="relative"><button data-testid="button-account-menu" type="button" onClick={() => setAccountMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={accountMenuOpen} aria-label={`Open account menu for ${displayName}`} className="group flex items-center gap-2 rounded-full border border-border bg-card pl-1 pr-2.5 py-1 text-left hover:border-primary/40"><span className="grid size-7 place-items-center rounded-full bg-primary font-mono text-[10px] font-medium text-primary-foreground">{initials}</span><span className="hidden max-w-[120px] truncate text-[11px] font-semibold sm:inline">{displayName}</span><ChevronDown size={13} className={`text-muted-foreground transition-transform ${accountMenuOpen ? 'rotate-180' : ''}`} /></button>{accountMenuOpen && <div role="menu" aria-label="Account menu" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-56 rounded-lg border border-border bg-card p-1.5 shadow-xl"><div className="border-b border-border px-3 py-2.5"><div className="truncate text-xs font-semibold">{displayName}</div><div className="mt-0.5 truncate text-[10px] text-muted-foreground">{user.primaryEmailAddress?.emailAddress ?? 'Account owner'}</div></div><Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link><button data-testid="button-logout" type="button" role="menuitem" onClick={onLogout} className="mt-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"><LogOut size={14} /> Sign out</button></div>}</div></div></header><main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>{createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}{settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}{helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}</div>
      {settingsOpen && <div className="fixed inset-0 z-[60] overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm"><div className="mx-auto my-5 w-full max-w-3xl rounded-lg border border-card-border bg-card p-6 shadow-2xl"><div className="flex justify-end"><button data-testid="button-close-team-settings" onClick={() => setSettingsOpen(false)} className="text-xs text-muted-foreground">Close</button></div><TeamAccessSection /><WorkspaceUsageSection /></div></div>}
@@ -703,10 +962,34 @@ function Metric({ label, value, note, accent = false }: { label: string; value: 
   return <div className={`rounded-lg border p-5 ${accent ? 'border-primary/30 bg-primary text-primary-foreground' : 'border-card-border bg-card'} lift-hover`}><div className={`font-mono text-[10px] uppercase tracking-[.13em] ${accent ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{label}</div><div className="mt-3 font-display text-[31px] leading-none">{value}</div><div className={`mt-3 text-[11px] ${accent ? 'text-primary-foreground/65' : 'text-muted-foreground'}`}>{note}</div></div>;
 }
 
+function ZeroClientsHome() {
+  const orgContext = useOrgContext();
+  return <div data-testid="zero-clients-home">
+    <PageHeading eyebrow="Welcome to LedgerFlow" title="Your workspace is ready." description={orgContext?.mode === 'firm' ? "Your firm does not have any active bookkeeping clients yet." : "You do not have any companies set up yet."} action={null} />
+    <section className="rounded-lg border border-card-border bg-card p-6">
+      <div className="grid size-11 place-items-center rounded-lg bg-primary/10 text-primary">
+        <Landmark size={21} />
+      </div>
+      <h2 className="mt-5 font-display text-[29px] leading-none">Start with your first client</h2>
+      <p className="mt-3 max-w-2xl text-[13px] leading-6 text-muted-foreground">
+        LedgerFlow allows you to manage multiple companies. Add a client workspace to import statements and begin reviewing.
+      </p>
+      <div className="mt-5">
+        <span className="text-sm font-medium">Use the "Add client" button in the navigation bar to begin.</span>
+      </div>
+    </section>
+  </div>;
+}
+
 function Home() {
   const { activeClient, clients, setActiveClientId } = useClientWorkspace();
-  const params = { clientId: activeClient?.id ?? 1 };
-  const query = useGetLedgerOverview(params, { query: { queryKey: getGetLedgerOverviewQueryKey(params) } });
+  const params = { clientId: activeClient?.id ?? 0 };
+  const query = useGetLedgerOverview(params, { query: { queryKey: getGetLedgerOverviewQueryKey(params), enabled: !!activeClient } });
+
+  if (!activeClient && clients.length === 0) {
+    return <ZeroClientsHome />;
+  }
+
   const overview = query.data;
   const legacyDemoWorkspace = clients.find((client) => client.legacyDemo);
   const cleanWorkspace = clients.find((client) => !client.legacyDemo);
@@ -719,8 +1002,9 @@ function Home() {
     />;
   }
   if (overview && overview.totalLines === 0) return <EmptyWorkspaceHome workspaceName={activeClient?.name ?? "Your private workspace"} />;
-  return <div><PageHeading eyebrow="Monday, June 24 · Close control" title="Good morning, Alex." description="A clear view of what moved, what needs your judgment, and what is ready to stand behind." action={<Link href="/statement-lines" data-testid="link-review-lines" className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Review open lines <ArrowRight size={14} /></Link>} /><QueryState loading={query.isLoading} error={query.isError} empty={!overview} onRetry={() => query.refetch()}>{overview && <div className="space-y-6"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Close progress" value={`${overview.completionPercent}%`} note={`${overview.pendingReview} items still need review`} accent /><Metric label="Statement lines" value={overview.totalLines.toLocaleString()} note={`${overview.currencies.length} currencies in scope`} /><Metric label="Posted amount" value={money(overview.postedAmount)} note={`Through ${overview.period}`} /><Metric label="Currencies" value={overview.currencies.join(' · ')} note="Active bank feeds" /></div><div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]"><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Close control / {overview.period}</div><h2 className="mt-2 text-base font-semibold">The desk at a glance</h2></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">Active</span></div><div className="mt-6 flex items-end gap-5"><div className="relative size-[148px] shrink-0 rounded-full" style={{ background: `conic-gradient(hsl(var(--accent)) ${overview.completionPercent}%, hsl(var(--muted)) 0)` }}><div className="absolute inset-[10px] grid place-items-center rounded-full bg-card"><span className="font-display text-[34px]">{overview.completionPercent}<small className="text-lg">%</small></span></div></div><div className="pb-2"><p className="text-sm font-medium leading-6">Your review queue is moving well.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">LedgerFlow has surfaced the evidence beside each suggestion so the final call stays yours.</p><Link href="/journal-entries" data-testid="link-view-suggestions" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">Inspect AI suggestions <ChevronRight size={13} /></Link></div></div><div className="mt-7 grid grid-cols-3 border-t border-border pt-4"><div><div className="font-mono text-lg">{overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Need judgment</div></div><div><div className="font-mono text-lg">{overview.totalLines - overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Cleared lines</div></div><div><div className="font-mono text-lg">{overview.currencies.length}</div><div className="mt-1 text-[10px] text-muted-foreground">Currencies</div></div></div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-5 md:p-6"><div className="flex items-center gap-2 text-accent-foreground"><Sparkles size={16} /><span className="font-mono text-[10px] uppercase tracking-[.15em]">LedgerFlow note</span></div><h2 className="mt-5 font-display text-[27px] leading-[1.02]">A second pair of eyes, not another black box.</h2><p className="mt-4 text-[12px] leading-5 text-accent-foreground/70">Every suggestion is anchored to a bank line, a confidence score, and the accounts it touches. Approve only what you can explain.</p><div className="mt-8 flex items-center gap-2 border-t border-accent/20 pt-4 text-[11px] font-semibold text-accent-foreground"><CircleCheck size={15} /> Evidence attached to every decision</div></section></div><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Next actions</div><h2 className="mt-2 text-base font-semibold">Keep the close moving</h2></div><span className="font-mono text-[10px] text-muted-foreground">3 lanes</span></div><div className="mt-5 grid gap-3 md:grid-cols-3"><ActionCard index="01" title="Review statement lines" detail={`${overview.pendingReview} lines are waiting for a call`} href="/statement-lines" icon={Table2} /><ActionCard index="02" title="Approve journal entries" detail="Confirm the postings LedgerFlow prepared" href="/journal-entries" icon={BookOpenCheck} /><ActionCard index="03" title="Check the trial balance" detail="Make sure debits and credits agree" href="/trial-balance" icon={BarChart3} /></div></section></div>}</QueryState></div>;
+  return <div><PageHeading eyebrow="Monday, June 24 · Close control" title="Good morning, Alex." description="A clear view of what moved, what needs your judgment, and what is ready to stand behind." action={<Link href="/statement-lines" data-testid="link-review-lines" className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Review open lines <ArrowRight size={14} /></Link>} /><QueryState loading={query.isLoading} error={query.isError} empty={!overview} onRetry={() => query.refetch()}>{overview && <div className="space-y-6"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Close progress" value={`${overview.completionPercent}%`} note={`${overview.pendingReview} items still need review`} accent /><Metric label="Statement lines" value={overview.totalLines.toLocaleString()} note={`${overview.currencies.length} currencies in scope`} /><Metric label="Posted amount" value={money(overview.postedAmount)} note={`Through ${overview.period}`} /><Metric label="Currencies" value={overview.currencies.join(' · ')} note="Active bank feeds" /></div><div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]"><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Close control / {overview.period}</div><h2 className="mt-2 text-base font-semibold">The desk at a glance</h2></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">Active</span></div><div className="mt-6 flex items-end gap-5"><div className="relative size-[148px] shrink-0 rounded-full" style={{ background: `conic-gradient(hsl(var(--accent)) ${overview.completionPercent}%, hsl(var(--muted)) 0)` }}><div className="absolute inset-[10px] grid place-items-center rounded-full bg-card"><span className="font-display text-[34px]">{overview.completionPercent}<small className="text-lg">%</small></span></div></div><div className="pb-2"><p className="text-sm font-medium leading-6">Your review queue is moving well.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">LedgerFlow has surfaced the evidence beside each suggestion so the final call stays yours.</p><Link href="/journal-entries" data-testid="link-view-suggestions" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">Inspect AI suggestions <ChevronRight size={13} /></Link></div></div><div className="mt-7 grid grid-cols-3 border-t border-border pt-4"><div><div className="font-mono text-lg">{overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Need judgment</div></div><div><div className="font-mono text-lg">{overview.totalLines - overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Cleared lines</div></div><div><div className="font-mono text-lg">{overview.currencies.length}</div><div className="mt-1 text-[10px] text-muted-foreground">Currencies</div></div></div></section><section className="flex flex-col justify-between rounded-lg border border-primary/20 bg-primary/5 p-5 md:p-6"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Assurance model</div><h2 className="mt-2 text-base font-semibold">Ready for audit</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Every confirmed journal entry is backed by a deterministic transition record and a link to the original bank statement line.</p><p className="mt-2 text-[11px] leading-5 text-muted-foreground">AI does not post unapproved journal entries or modify the base reports it touches. Approve only what you can explain.</p><div className="mt-8 flex items-center gap-2 border-t border-accent/20 pt-4 text-[11px] font-semibold text-accent-foreground"><CircleCheck size={15} /> Evidence attached to every decision</div></div></section></div><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Next actions</div><h2 className="mt-2 text-base font-semibold">Keep the close moving</h2></div><span className="font-mono text-[10px] text-muted-foreground">3 lanes</span></div><div className="mt-5 grid gap-3 md:grid-cols-3"><ActionCard index="01" title="Review statement lines" detail={`${overview.pendingReview} lines are waiting for a call`} href="/statement-lines" icon={Table2} /><ActionCard index="02" title="Approve journal entries" detail="Confirm the postings LedgerFlow prepared" href="/journal-entries" icon={BookOpenCheck} /><ActionCard index="03" title="Check the trial balance" detail="Make sure debits and credits agree" href="/trial-balance" icon={BarChart3} /></div></section></div>}</QueryState></div>;
 }
+
 function LegacyDemoWorkspaceHome({ activeClient, legacyDemoWorkspace, cleanWorkspace, onSelectWorkspace }: { activeClient: Client | undefined; legacyDemoWorkspace: Client; cleanWorkspace: Client | undefined; onSelectWorkspace: (id: number) => void }) {
   const viewingLegacyWorkspace = activeClient?.id === legacyDemoWorkspace.id;
   return <div data-testid="legacy-demo-workspace-notice"><PageHeading eyebrow="Workspace restored" title={viewingLegacyWorkspace ? "You are viewing preserved demo data." : "Your clean workspace is ready."} description={viewingLegacyWorkspace ? "This older workspace is retained exactly as it was so no bookkeeping evidence is lost. It is not your active bookkeeping workspace." : "We found an untouched legacy demo workspace from an earlier LedgerFlow setup and created this private, empty workspace for your real books."} action={viewingLegacyWorkspace && cleanWorkspace ? <button data-testid="button-return-to-clean-workspace" onClick={() => onSelectWorkspace(cleanWorkspace.id)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">Return to clean workspace <ArrowRight size={14} /></button> : <Link href="/import-statement" data-testid="link-import-clean-workspace" className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">Import a statement <UploadCloud size={14} /></Link>} /><section className="rounded-lg border border-accent/25 bg-accent/10 p-6 md:p-8"><div className="flex items-start gap-3"><CircleAlert className="mt-0.5 shrink-0 text-accent-foreground" size={20} /><div><h2 className="text-base font-semibold text-accent-foreground">Your previous demo workspace is preserved.</h2><p className="mt-2 max-w-2xl text-xs leading-5 text-accent-foreground/75">No statement lines, journals, uploads, or audit evidence were deleted. {viewingLegacyWorkspace ? "Use the workspace selector to return to your private workspace when you are ready to work with real data." : "You can inspect the preserved workspace at any time; select it below only if you need to review the old demo records."}</p></div></div><div className="mt-6 flex flex-wrap gap-3">{!viewingLegacyWorkspace && <button data-testid="button-view-preserved-demo-workspace" onClick={() => onSelectWorkspace(legacyDemoWorkspace.id)} className="rounded-md border border-accent/30 bg-card px-3 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent/10">View preserved demo workspace</button>}<Link href="/import-statement" className="rounded-md border border-accent/30 bg-card px-3 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent/10">Import real evidence</Link></div></section></div>;
@@ -1384,77 +1668,104 @@ type CompanyOnboardingUser = {
   primaryEmailAddress: { emailAddress: string } | null;
 };
 
-function CompanyOnboarding({ starterWorkspace, user, onComplete, onLogout }: { starterWorkspace?: Client; user: CompanyOnboardingUser; onComplete: (workspace: Client) => Promise<void> | void; onLogout: () => void }) {
-  const create = useCreateClient();
-  const update = useUpdateClient();
+function CompanyOnboarding({ user, onComplete, onLogout }: { user: CompanyOnboardingUser; onComplete: () => Promise<void> | void; onLogout: () => void }) {
+  const [mode, setMode] = useState<'company' | 'firm' | 'both'>('company');
+  const create = useCompleteOrganizationOnboarding();
   const updateProfile = useUpdateLedgerflowAccountProfile();
-  const [form, setForm] = useState<ClientUpdateInput>(() => ({
-    name: starterWorkspace?.name ?? '',
-    legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
-    functionalCurrency: starterWorkspace?.functionalCurrency ?? 'AED',
-    basis: starterWorkspace?.basis ?? 'IFRS',
-    period: starterWorkspace?.period === 'August 2026' ? '' : starterWorkspace?.period ?? '',
-  }));
-  const [validationMessage, setValidationMessage] = useState('');
+  
   const [profile, setProfile] = useState({
     firstName: user.firstName ?? '',
     lastName: user.lastName ?? '',
     workEmail: user.primaryEmailAddress?.emailAddress ?? '',
   });
-  const pending = create.isPending || update.isPending || updateProfile.isPending;
-  const error = create.error || update.error || updateProfile.error;
+  
+  const [form, setForm] = useState({
+    companyName: '',
+    companyLegalName: '',
+    firmName: '',
+    firmLegalName: '',
+  });
+  
+  const [validationMessage, setValidationMessage] = useState('');
+  const pending = create.isPending || updateProfile.isPending;
+  const error = create.error || updateProfile.error;
 
-  useEffect(() => {
-    setForm({
-      name: starterWorkspace?.name ?? '',
-      legalName: starterWorkspace?.legalName === 'Legal entity to be configured' ? '' : starterWorkspace?.legalName ?? '',
-      functionalCurrency: starterWorkspace?.functionalCurrency ?? 'AED',
-      basis: starterWorkspace?.basis ?? 'IFRS',
-      period: starterWorkspace?.period === 'August 2026' ? '' : starterWorkspace?.period ?? '',
-    });
-  }, [starterWorkspace?.id]);
-
-  const set = (field: keyof ClientUpdateInput, value: string) => {
-    setValidationMessage('');
-    setForm((current) => ({ ...current, [field]: value }));
-  };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    const data = { ...form, name: form.name.trim(), legalName: form.legalName.trim(), functionalCurrency: 'AED', basis: 'IFRS', period: 'August 2026' };
     const personal = {
       firstName: profile.firstName.trim(),
       lastName: profile.lastName.trim(),
-      workEmail: profile.workEmail.trim(),
     };
-    if (!personal.firstName || !personal.lastName || !personal.workEmail) {
-      setValidationMessage('Add your full name and work email to continue.');
+    if (!personal.firstName || !personal.lastName) {
+      setValidationMessage('Add your full name to continue.');
       return;
     }
-    if (!data.name || !data.legalName) {
+    if ((mode === 'company' || mode === 'both') && (!form.companyName.trim() || !form.companyLegalName.trim())) {
       setValidationMessage('Add your company name and legal name to continue.');
+      return;
+    }
+    if ((mode === 'firm' || mode === 'both') && (!form.firmName.trim() || !form.firmLegalName.trim())) {
+      setValidationMessage('Add your accounting firm name and legal name to continue.');
       return;
     }
     setValidationMessage('');
     try {
       await updateProfile.mutateAsync({
-        data: { firstName: personal.firstName, lastName: personal.lastName },
+        data: personal,
       });
-      const workspace = starterWorkspace
-        ? await update.mutateAsync({ id: starterWorkspace.id, data })
-        : await create.mutateAsync({ data });
-      await onComplete(workspace);
+      await create.mutateAsync({
+        data: {
+          mode: mode as OrganizationMode,
+          firstName: personal.firstName,
+          lastName: personal.lastName,
+          ...(mode === 'company' || mode === 'both' ? {
+             companyName: form.companyName.trim(),
+             companyLegalName: form.companyLegalName.trim(),
+             functionalCurrency: 'AED',
+             basis: 'IFRS',
+             period: 'August 2026'
+          } : {}),
+          ...(mode === 'firm' || mode === 'both' ? {
+             firmName: form.firmName.trim(),
+             firmLegalName: form.firmLegalName.trim()
+          } : {})
+        }
+      });
+      await onComplete();
     } catch {
       setValidationMessage('We couldn’t save your account details. Check your connection and try again.');
     }
   };
 
-  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="company-onboarding"><div className="w-full max-w-2xl"><div className="mb-6 flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Private bookkeeping workspace</div></div></div><button data-testid="button-onboarding-logout" onClick={onLogout} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Sign out</button></div><section className="rounded-lg border border-card-border bg-card p-6 shadow-md sm:p-9"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Personal details and company registration</div><h1 className="mt-3 font-display text-[38px] leading-[.98] tracking-tight">Set up your LedgerFlow account.</h1><p className="mt-4 max-w-xl text-[13px] leading-6 text-muted-foreground">First, confirm who you are and register your bookkeeping company. After you enter the workspace, you can add the clients you do bookkeeping for and set each client’s accounting details.</p><form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><div className="text-xs font-semibold">Your details</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">Your full name and work email identify the account owner. You can add more profile details later.</p></div><label className="block text-xs font-medium">First name<input data-testid="input-onboarding-first-name" required minLength={1} value={profile.firstName} onChange={(event) => setProfile({ ...profile, firstName: event.target.value })} placeholder="e.g. Aisha" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Last name<input data-testid="input-onboarding-last-name" required minLength={1} value={profile.lastName} onChange={(event) => setProfile({ ...profile, lastName: event.target.value })} placeholder="e.g. Rahman" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium sm:col-span-2">Work email<input data-testid="input-onboarding-work-email" type="email" readOnly required value={profile.workEmail} className="mt-1.5 h-10 w-full cursor-not-allowed rounded-md border border-input bg-muted px-3 text-sm outline-none" /><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">This is the verified email on your LedgerFlow account.</span></label><div className="sm:col-span-2"><div className="text-xs font-semibold">Your company</div></div><label className="block text-xs font-medium">Company name<input data-testid="input-onboarding-company-name" required minLength={1} value={form.name} onChange={(event) => set('name', event.target.value)} placeholder="e.g. Northstar Bookkeeping" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal company name<input data-testid="input-onboarding-legal-company-name" required minLength={1} value={form.legalName} onChange={(event) => set('legalName', event.target.value)} placeholder="e.g. Northstar Bookkeeping FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>{(validationMessage || error) && <div data-testid="onboarding-error" className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive sm:col-span-2"><CircleAlert className="mt-0.5 shrink-0" size={14} /><span>{validationMessage || 'Company setup could not be saved. Check the details and try again.'}</span></div>}<div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] leading-5 text-muted-foreground">Client currency, reporting basis, and close period are collected when you add each bookkeeping client.</p><button data-testid="button-submit-onboarding" disabled={pending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">{pending ? <><LoaderCircle size={14} className="animate-spin" /> Saving account…</> : <><Check size={14} /> Save and open workspace</>}</button></div></form></section></div></main>;
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="company-onboarding"><div className="w-full max-w-2xl"><div className="mb-6 flex items-center justify-between"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm"><Landmark size={20} strokeWidth={2.2} /></div><div><div className="font-display text-[25px] leading-none tracking-tight">LedgerFlow</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Private bookkeeping workspace</div></div></div><button data-testid="button-onboarding-logout" onClick={onLogout} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Sign out</button></div><section className="rounded-lg border border-card-border bg-card p-6 shadow-md sm:p-9"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Personal details and account setup</div><h1 className="mt-3 font-display text-[38px] leading-[.98] tracking-tight">Set up your LedgerFlow account.</h1><p className="mt-4 max-w-xl text-[13px] leading-6 text-muted-foreground">First, tell us how you will use LedgerFlow. You can use it for your own company, for an accounting firm, or both.</p>
+    
+    <div className="mt-6 flex gap-2 border-b border-border">
+      <button type="button" onClick={() => setMode('company')} className={`pb-2 text-sm font-semibold ${mode === 'company' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}>Own Company</button>
+      <button type="button" onClick={() => setMode('firm')} className={`pb-2 ml-4 text-sm font-semibold ${mode === 'firm' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}>Accounting Firm</button>
+      <button type="button" onClick={() => setMode('both')} className={`pb-2 ml-4 text-sm font-semibold ${mode === 'both' ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}>Both</button>
+    </div>
+
+    <form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><div className="text-xs font-semibold">Your details</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">Your full name and work email identify the account owner.</p></div><label className="block text-xs font-medium">First name<input data-testid="input-onboarding-first-name" required minLength={1} value={profile.firstName} onChange={(event) => setProfile({ ...profile, firstName: event.target.value })} placeholder="e.g. Aisha" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Last name<input data-testid="input-onboarding-last-name" required minLength={1} value={profile.lastName} onChange={(event) => setProfile({ ...profile, lastName: event.target.value })} placeholder="e.g. Rahman" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium sm:col-span-2">Work email<input data-testid="input-onboarding-work-email" type="email" readOnly required value={profile.workEmail} className="mt-1.5 h-10 w-full cursor-not-allowed rounded-md border border-input bg-muted px-3 text-sm outline-none" /><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">This is the verified email on your LedgerFlow account.</span></label>
+    
+    {(mode === 'company' || mode === 'both') && <>
+      <div className="sm:col-span-2"><div className="text-xs font-semibold">Your company</div></div><label className="block text-xs font-medium">Company name<input data-testid="input-onboarding-company-name" required minLength={1} value={form.companyName} onChange={(event) => setForm({ ...form, companyName: event.target.value })} placeholder="e.g. Northstar Bookkeeping" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal company name<input data-testid="input-onboarding-legal-company-name" required minLength={1} value={form.companyLegalName} onChange={(event) => setForm({ ...form, companyLegalName: event.target.value })} placeholder="e.g. Northstar Bookkeeping FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
+    </>}
+
+    {(mode === 'firm' || mode === 'both') && <>
+      <div className="sm:col-span-2"><div className="text-xs font-semibold">Your accounting firm</div></div><label className="block text-xs font-medium">Firm name<input data-testid="input-onboarding-firm-name" required minLength={1} value={form.firmName} onChange={(event) => setForm({ ...form, firmName: event.target.value })} placeholder="e.g. Northstar Bookkeeping" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label><label className="block text-xs font-medium">Legal firm name<input data-testid="input-onboarding-legal-firm-name" required minLength={1} value={form.firmLegalName} onChange={(event) => setForm({ ...form, firmLegalName: event.target.value })} placeholder="e.g. Northstar Bookkeeping FZ-LLC" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
+    </>}
+    
+    {(validationMessage || error) && <div data-testid="onboarding-error" className="flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-xs leading-5 text-destructive sm:col-span-2"><CircleAlert className="mt-0.5 shrink-0" size={14} /><span>{validationMessage || 'Account setup could not be saved. Check the details and try again.'}</span></div>}<div className="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] leading-5 text-muted-foreground"></p><button data-testid="button-submit-onboarding" disabled={pending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">{pending ? <><LoaderCircle size={14} className="animate-spin" /> Saving account…</> : <><Check size={14} /> Save and open workspace</>}</button></div></form></section></div></main>;
 }
 
 function LedgerFlowApp({ user, profileUser, onLogout }: { user: LedgerFlowUser; profileUser: CompanyOnboardingUser; onLogout: () => void }) {
+  const orgQuery = useGetOrganizationContext({ query: { queryKey: getGetOrganizationContextQueryKey() } });
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
-  const clients = clientsQuery.data ?? [];
-  const workspaceLoadState = getWorkspaceLoadState(clientsQuery.isLoading, clientsQuery.isError, clientsQuery.data);
+  
+  const orgContext = orgQuery.data;
+  const clients = orgContext?.companies ?? clientsQuery.data ?? [];
+  
+  const workspaceLoadState = getWorkspaceLoadState(orgQuery.isLoading || clientsQuery.isLoading, orgQuery.isError || clientsQuery.isError, clients);
   const storageKey = getActiveWorkspaceStorageKey(user.externalId ?? user.id);
   const [activeClientId, setActiveClientId] = useState<number | null>(() => {
     const saved = Number(window.localStorage.getItem(storageKey));
@@ -1464,13 +1775,17 @@ function LedgerFlowApp({ user, profileUser, onLogout }: { user: LedgerFlowUser; 
   const [, setLocation] = useLocation();
   const selectedClient = selectWorkspaceForSession(clients, activeClientId, allowLegacyDemoSelection);
   useEffect(() => {
-    if (!clients.length) return;
+    if (!clients.length) {
+      if (activeClientId !== null) setActiveClientId(null);
+      return;
+    }
     if (selectedClient && activeClientId !== selectedClient.id) {
       setAllowLegacyDemoSelection(false);
       setActiveClientId(selectedClient.id);
     }
     if (selectedClient) window.localStorage.setItem(storageKey, String(selectedClient.id));
   }, [activeClientId, clients.length, selectedClient, storageKey]);
+  
   const chooseClient = (id: number) => {
     const client = clients.find((candidate) => candidate.id === id);
     if (client) {
@@ -1478,20 +1793,21 @@ function LedgerFlowApp({ user, profileUser, onLogout }: { user: LedgerFlowUser; 
       setActiveClientId(client.id);
     }
   };
+
   if (workspaceLoadState === 'loading') return <AuthLoadingState label="Loading your workspaces" />;
-  if (workspaceLoadState === 'failed') return <WorkspaceRecoveryState onRetry={() => clientsQuery.refetch()} />;
-  const starterWorkspace = clients.find((client) => client.workspaceState === 'starter');
-  if (workspaceLoadState === 'missing' || requiresWorkspaceOnboarding(clients)) {
-    const completeOnboarding = async (workspace: Client) => {
+  if (workspaceLoadState === 'failed') return <WorkspaceRecoveryState onRetry={() => { orgQuery.refetch(); clientsQuery.refetch(); }} />;
+
+  if (orgContext?.onboardingRequired) {
+    const completeOnboarding = async () => {
+      await queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
       await queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
       setAllowLegacyDemoSelection(false);
-      setActiveClientId(workspace.id);
-      window.localStorage.setItem(storageKey, String(workspace.id));
       setLocation('/user-portal');
     };
-    return <CompanyOnboarding starterWorkspace={starterWorkspace} user={profileUser} onComplete={completeOnboarding} onLogout={onLogout} />;
+    return <CompanyOnboarding user={profileUser} onComplete={completeOnboarding} onLogout={onLogout} />;
   }
-  return <TooltipProvider><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider><Toaster /></TooltipProvider>;
+
+  return <TooltipProvider><OrgContext.Provider value={orgContext}><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider></OrgContext.Provider><Toaster /></TooltipProvider>;
 }
 
 function AuthBoundary() {
@@ -1500,6 +1816,7 @@ function AuthBoundary() {
   const { signOut } = useClerk();
   const [location] = useLocation();
   const inviteToken = new URLSearchParams(window.location.search).get("invite");
+  const orgToken = new URLSearchParams(window.location.search).get("organizationInvite");
   const currentUserId = user ? user.externalId ?? user.id : null;
   const [cacheReadyForUserId, setCacheReadyForUserId] = useState<string | null>(null);
 
@@ -1513,7 +1830,7 @@ function AuthBoundary() {
   if (!isLoaded) return <AuthLoadingState />;
   if (!isSignedIn || !user) return <AccessScreen />;
   if (cacheReadyForUserId !== currentUserId) return <AuthLoadingState label="Preparing your secure workspace" />;
-  if (location === "/" && !inviteToken) return <Redirect to="/user-portal" />;
+  if (location === "/" && !inviteToken && !orgToken) return <Redirect to="/user-portal" />;
 
   const handleLogout = () => {
     clearUserScopedState(queryClient, currentUserId, window.localStorage);
@@ -1524,29 +1841,63 @@ function AuthBoundary() {
 
 function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
-  const token = useMemo(() => new URLSearchParams(window.location.search).get("invite"), [location]);
-  const accept = useAcceptWorkspaceInvitation();
+  const searchParams = useMemo(() => new URLSearchParams(window.location.search), [location]);
+  const workspaceToken = searchParams.get("invite");
+  const orgToken = searchParams.get("organizationInvite");
+  
+  const acceptWorkspace = useAcceptWorkspaceInvitation();
+  const acceptOrg = useAcceptOrganizationInvitation();
   const [message, setMessage] = useState("");
   const clearToken = () => setLocation("/user-portal", { replace: true });
+  
   useEffect(() => {
-    if (!token) return;
-    accept.mutate({ token }, {
-      onSuccess: () => {
-        clearToken();
-        queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
-      },
-      onError: (error) => setMessage(error instanceof Error ? error.message : "This invitation could not be accepted."),
-    });
-  }, [token]);
-  if (!token) return <>{children}</>;
-  if (accept.isPending) return <AuthLoadingState label="Joining your invited workspace" />;
+    if (workspaceToken) {
+      acceptWorkspace.mutate({ token: workspaceToken }, {
+        onSuccess: () => {
+          clearToken();
+          queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+        },
+        onError: (error) => setMessage(error instanceof Error ? error.message : "This workspace invitation could not be accepted."),
+      });
+    } else if (orgToken) {
+      acceptOrg.mutate({ token: orgToken }, {
+        onSuccess: () => {
+          clearToken();
+          queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+        },
+        onError: (error) => setMessage(error instanceof Error ? error.message : "This organization invitation could not be accepted."),
+      });
+    }
+  }, [workspaceToken, orgToken]);
+  
+  if (!workspaceToken && !orgToken) return <>{children}</>;
+  if (acceptWorkspace.isPending || acceptOrg.isPending) return <AuthLoadingState label="Joining your invited workspace" />;
   if (!message) return <AuthLoadingState label="Joining your invited workspace" />;
-  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm"><CircleAlert className="mx-auto text-destructive" size={20} /><h1 className="mt-3 text-base font-semibold">We couldn’t join that workspace</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">{message}</p><div className="mt-5 flex justify-center gap-2"><button type="button" onClick={() => { setMessage(""); accept.reset(); accept.mutate({ token }, { onSuccess: () => { clearToken(); queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() }); }, onError: (error) => setMessage(error instanceof Error ? error.message : "This invitation could not be accepted.") }); }} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Try again</button><button type="button" onClick={clearToken} className="rounded-md border border-border px-3 py-2 text-xs font-semibold">Continue without invite</button></div></div></main>;
+  
+  const retry = () => {
+    setMessage("");
+    if (workspaceToken) {
+      acceptWorkspace.reset();
+      acceptWorkspace.mutate({ token: workspaceToken }, { onSuccess: () => { clearToken(); queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() }); }, onError: (error) => setMessage(error instanceof Error ? error.message : "This workspace invitation could not be accepted.") });
+    } else if (orgToken) {
+      acceptOrg.reset();
+      acceptOrg.mutate({ token: orgToken }, { onSuccess: () => { clearToken(); queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() }); }, onError: (error) => setMessage(error instanceof Error ? error.message : "This organization invitation could not be accepted.") });
+    }
+  };
+
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm"><CircleAlert className="mx-auto text-destructive" size={20} /><h1 className="mt-3 text-base font-semibold">We couldn’t join that workspace</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">{message}</p><div className="mt-5 flex justify-center gap-2"><button type="button" onClick={retry} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Try again</button><button type="button" onClick={clearToken} className="rounded-md border border-border px-3 py-2 text-xs font-semibold">Continue without invite</button></div></div></main>;
 }
+
 function App() {
   return <WouterRouter base={basePath}><ClerkProviderWithRoutes /></WouterRouter>;
 }
 export default App;
+
+export const OrgContext = createContext<OrganizationContext | undefined>(undefined);
+export function useOrgContext() {
+  return useContext(OrgContext);
+}
 
 function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
   return <div className="grid min-h-[100dvh] place-items-center bg-background px-5" data-testid="auth-recovery-state"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm" role="alert"><div className="mx-auto grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive"><CircleAlert size={19} /></div><h1 className="mt-4 text-base font-semibold">We couldn’t verify your access</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">LedgerFlow could not reach the session service. Your bookkeeping data has not been opened.</p><button data-testid="button-retry-auth" onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground"><RefreshCw size={14} /> Try again</button></div></div>;

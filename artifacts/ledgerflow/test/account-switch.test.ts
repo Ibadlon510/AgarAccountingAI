@@ -109,7 +109,7 @@ test('defaults a remediated account away from saved demo data but allows an expl
 test('keeps missing, failed, and ready workspace states distinct', () => {
   assert.equal(getWorkspaceLoadState(true, false, undefined), 'loading');
   assert.equal(getWorkspaceLoadState(false, true, undefined), 'failed');
-  assert.equal(getWorkspaceLoadState(false, false, []), 'missing');
+  assert.equal(getWorkspaceLoadState(false, false, []), 'ready');
   assert.equal(getWorkspaceLoadState(false, false, [{ id: 1 }]), 'ready');
 });
 

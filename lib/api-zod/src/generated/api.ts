@@ -71,6 +71,416 @@ export const UpdateFirmProfileResponse = zod.object({
 
 
 /**
+ * @summary Get the authenticated user's company and accounting-firm context
+ */
+export const GetOrganizationContextResponse = zod.object({
+  "onboardingRequired": zod.boolean(),
+  "mode": zod.union([zod.enum(['company', 'firm', 'both']),zod.null()]),
+  "firms": zod.array(zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
+})),
+  "firmMembers": zod.array(zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
+})),
+  "companies": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string(),
+  "ownerUserId": zod.string().nullish(),
+  "firmId": zod.number().nullish(),
+  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
+  "subscriptionLiableParty": zod.enum(['company', 'firm']),
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
+  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
+})),
+  "managedCompanyIds": zod.array(zod.number()),
+  "engagements": zod.array(zod.object({
+  "id": zod.number(),
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "clientId": zod.number(),
+  "companyName": zod.string(),
+  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "canManageFirm": zod.boolean(),
+  "canManageCompany": zod.boolean(),
+  "members": zod.array(zod.object({
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['accountant', 'bookkeeper']),
+  "status": zod.enum(['nominated', 'approved', 'revoked'])
+}))
+})),
+  "invitations": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "email": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clientId": zod.number().nullish(),
+  "firmId": zod.number().nullish(),
+  "role": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Complete company, accounting-firm, or dual onboarding
+ */
+
+
+
+
+export const CompleteOrganizationOnboardingBody = zod.object({
+  "mode": zod.enum(['company', 'firm', 'both']),
+  "firstName": zod.string().min(1),
+  "lastName": zod.string().min(1),
+  "companyName": zod.string().optional(),
+  "companyLegalName": zod.string().optional(),
+  "firmName": zod.string().optional(),
+  "firmLegalName": zod.string().optional(),
+  "functionalCurrency": zod.string().optional(),
+  "basis": zod.string().optional(),
+  "period": zod.string().optional()
+})
+
+export const CompleteOrganizationOnboardingResponse = zod.object({
+  "onboardingRequired": zod.boolean(),
+  "mode": zod.union([zod.enum(['company', 'firm', 'both']),zod.null()]),
+  "firms": zod.array(zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
+})),
+  "firmMembers": zod.array(zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
+})),
+  "companies": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string(),
+  "ownerUserId": zod.string().nullish(),
+  "firmId": zod.number().nullish(),
+  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
+  "subscriptionLiableParty": zod.enum(['company', 'firm']),
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
+  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
+})),
+  "managedCompanyIds": zod.array(zod.number()),
+  "engagements": zod.array(zod.object({
+  "id": zod.number(),
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "clientId": zod.number(),
+  "companyName": zod.string(),
+  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "canManageFirm": zod.boolean(),
+  "canManageCompany": zod.boolean(),
+  "members": zod.array(zod.object({
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['accountant', 'bookkeeper']),
+  "status": zod.enum(['nominated', 'approved', 'revoked'])
+}))
+})),
+  "invitations": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "email": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clientId": zod.number().nullish(),
+  "firmId": zod.number().nullish(),
+  "role": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Invite a member to an accounting firm
+ */
+export const InviteFirmMemberParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const inviteFirmMemberBodyEmailMin = 3;
+
+
+export const inviteFirmMemberBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+
+export const InviteFirmMemberBody = zod.object({
+  "email": zod.string().min(inviteFirmMemberBodyEmailMin).regex(inviteFirmMemberBodyEmailRegExp),
+  "role": zod.enum(['admin', 'accountant', 'bookkeeper']).optional()
+})
+
+export const InviteFirmMemberResponse = zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "email": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clientId": zod.number().nullish(),
+  "firmId": zod.number().nullish(),
+  "role": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+})
+
+
+/**
+ * @summary Invite an accounting firm administrator to serve a company
+ */
+export const InviteAccountingFirmParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const inviteAccountingFirmBodyEmailMin = 3;
+
+
+export const inviteAccountingFirmBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+
+export const InviteAccountingFirmBody = zod.object({
+  "email": zod.string().min(inviteAccountingFirmBodyEmailMin).regex(inviteAccountingFirmBodyEmailRegExp),
+  "firmId": zod.number(),
+  "role": zod.enum(['admin']).optional()
+})
+
+export const InviteAccountingFirmResponse = zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "email": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clientId": zod.number().nullish(),
+  "firmId": zod.number().nullish(),
+  "role": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+})
+
+
+/**
+ * @summary Invite a client owner to accept a firm-created company
+ */
+export const InviteCompanyOwnerTransferParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const inviteCompanyOwnerTransferBodyEmailMin = 3;
+
+
+export const inviteCompanyOwnerTransferBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+
+export const InviteCompanyOwnerTransferBody = zod.object({
+  "email": zod.string().min(inviteCompanyOwnerTransferBodyEmailMin).regex(inviteCompanyOwnerTransferBodyEmailRegExp),
+  "role": zod.enum(['admin', 'accountant', 'bookkeeper']).optional()
+})
+
+export const InviteCompanyOwnerTransferResponse = zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "email": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clientId": zod.number().nullish(),
+  "firmId": zod.number().nullish(),
+  "role": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+})
+
+
+/**
+ * @summary Accept a firm, engagement, or company-transfer invitation
+ */
+export const AcceptOrganizationInvitationParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const AcceptOrganizationInvitationResponse = zod.object({
+  "onboardingRequired": zod.boolean(),
+  "mode": zod.union([zod.enum(['company', 'firm', 'both']),zod.null()]),
+  "firms": zod.array(zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
+})),
+  "firmMembers": zod.array(zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper'])
+})),
+  "companies": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string(),
+  "ownerUserId": zod.string().nullish(),
+  "firmId": zod.number().nullish(),
+  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
+  "subscriptionLiableParty": zod.enum(['company', 'firm']),
+  "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
+  "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
+})),
+  "managedCompanyIds": zod.array(zod.number()),
+  "engagements": zod.array(zod.object({
+  "id": zod.number(),
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "clientId": zod.number(),
+  "companyName": zod.string(),
+  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "canManageFirm": zod.boolean(),
+  "canManageCompany": zod.boolean(),
+  "members": zod.array(zod.object({
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['accountant', 'bookkeeper']),
+  "status": zod.enum(['nominated', 'approved', 'revoked'])
+}))
+})),
+  "invitations": zod.array(zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "email": zod.string(),
+  "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
+  "clientId": zod.number().nullish(),
+  "firmId": zod.number().nullish(),
+  "role": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
+  "inviteLink": zod.string().optional()
+}))
+})
+
+
+/**
+ * @summary Nominate a firm member for company access
+ */
+export const NominateFirmEngagementMemberParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const nominateFirmEngagementMemberBodyEmailMin = 3;
+
+
+export const nominateFirmEngagementMemberBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+
+export const NominateFirmEngagementMemberBody = zod.object({
+  "email": zod.string().min(nominateFirmEngagementMemberBodyEmailMin).regex(nominateFirmEngagementMemberBodyEmailRegExp),
+  "role": zod.enum(['accountant', 'bookkeeper'])
+})
+
+export const NominateFirmEngagementMemberResponse = zod.object({
+  "id": zod.number(),
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "clientId": zod.number(),
+  "companyName": zod.string(),
+  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "canManageFirm": zod.boolean(),
+  "canManageCompany": zod.boolean(),
+  "members": zod.array(zod.object({
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['accountant', 'bookkeeper']),
+  "status": zod.enum(['nominated', 'approved', 'revoked'])
+}))
+})
+
+
+/**
+ * @summary Approve a nominated firm member for company access
+ */
+export const ApproveFirmEngagementMemberParams = zod.object({
+  "id": zod.coerce.number(),
+  "userId": zod.coerce.string()
+})
+
+export const ApproveFirmEngagementMemberResponse = zod.object({
+  "id": zod.number(),
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "clientId": zod.number(),
+  "companyName": zod.string(),
+  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "canManageFirm": zod.boolean(),
+  "canManageCompany": zod.boolean(),
+  "members": zod.array(zod.object({
+  "userId": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['accountant', 'bookkeeper']),
+  "status": zod.enum(['nominated', 'approved', 'revoked'])
+}))
+})
+
+
+/**
+ * @summary Revoke one firm's access to a company
+ */
+export const RevokeFirmEngagementMemberParams = zod.object({
+  "id": zod.coerce.number(),
+  "userId": zod.coerce.string()
+})
+
+export const RevokeFirmEngagementMemberResponse = zod.void()
+
+
+/**
+ * @summary End an accounting-firm engagement
+ */
+export const RevokeFirmEngagementParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RevokeFirmEngagementResponse = zod.void()
+
+
+/**
  * @summary Start the browser OIDC login flow
  */
 export const BeginBrowserLoginQueryParams = zod.object({
@@ -139,6 +549,10 @@ export const GetClientsResponseItem = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
+  "ownerUserId": zod.string().nullish(),
+  "firmId": zod.number().nullish(),
+  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
+  "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
@@ -153,7 +567,9 @@ export const CreateClientBody = zod.object({
   "legalName": zod.string(),
   "functionalCurrency": zod.string().optional(),
   "basis": zod.string().optional(),
-  "period": zod.string().optional()
+  "period": zod.string().optional(),
+  "creationMode": zod.enum(['own_company', 'firm_client']).optional(),
+  "firmId": zod.number().optional()
 })
 
 export const CreateClientResponse = zod.object({
@@ -163,6 +579,10 @@ export const CreateClientResponse = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
+  "ownerUserId": zod.string().nullish(),
+  "firmId": zod.number().nullish(),
+  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
+  "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
@@ -190,6 +610,10 @@ export const UpdateClientResponse = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
+  "ownerUserId": zod.string().nullish(),
+  "firmId": zod.number().nullish(),
+  "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
+  "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
@@ -199,7 +623,7 @@ export const UpdateClientResponse = zod.object({
  * @summary Review workspace members and invitations
  */
 export const GetWorkspaceMembersResponse = zod.object({
-  "currentRole": zod.enum(['admin', 'bookkeeper']),
+  "currentRole": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "canManage": zod.boolean(),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -209,7 +633,7 @@ export const GetWorkspaceMembersResponse = zod.object({
   "userId": zod.string(),
   "email": zod.string(),
   "name": zod.string(),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "status": zod.enum(['active']),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -220,7 +644,7 @@ export const GetWorkspaceMembersResponse = zod.object({
   "invitations": zod.array(zod.object({
   "id": zod.number(),
   "email": zod.string(),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -247,7 +671,7 @@ export const UpdateWorkspaceMemberParams = zod.object({
 
 
 export const UpdateWorkspaceMemberBody = zod.object({
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
   "clientIds": zod.array(zod.number()).min(1)
 })
 
@@ -255,7 +679,7 @@ export const UpdateWorkspaceMemberResponse = zod.object({
   "userId": zod.string(),
   "email": zod.string(),
   "name": zod.string(),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "status": zod.enum(['active']),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -287,14 +711,14 @@ export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^
 
 export const CreateWorkspaceInvitationBody = zod.object({
   "email": zod.string().min(createWorkspaceInvitationBodyEmailMin).regex(createWorkspaceInvitationBodyEmailRegExp),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
   "clientIds": zod.array(zod.number()).min(1)
 })
 
 export const CreateWorkspaceInvitationResponse = zod.object({
   "id": zod.number(),
   "email": zod.string(),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -329,7 +753,7 @@ export const ResendWorkspaceInvitationParams = zod.object({
 export const ResendWorkspaceInvitationResponse = zod.object({
   "id": zod.number(),
   "email": zod.string(),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -355,7 +779,7 @@ export const AcceptWorkspaceInvitationResponse = zod.object({
   "userId": zod.string(),
   "email": zod.string(),
   "name": zod.string(),
-  "role": zod.enum(['admin', 'bookkeeper']),
+  "role": zod.enum(['owner', 'admin', 'accountant', 'bookkeeper']),
   "status": zod.enum(['active']),
   "clients": zod.array(zod.object({
   "id": zod.number(),
@@ -451,6 +875,11 @@ export const GetLedgerflowUsageResponse = zod.object({
 /**
  * @summary List the authenticated workspace exchange-rate schedule
  */
+export const GetExchangeRatesQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional().describe('Company ledger whose persisted rate profile is being managed.'),
+  "firmId": zod.coerce.number().optional().describe('Accounting firm whose shared rate profile is being managed.')
+})
+
 export const getExchangeRatesResponseSourceCurrencyMin = 3;
 export const getExchangeRatesResponseSourceCurrencyMax = 3;
 
@@ -476,6 +905,11 @@ export const GetExchangeRatesResponse = zod.array(GetExchangeRatesResponseItem)
 /**
  * @summary Add a dated workspace exchange rate
  */
+export const CreateExchangeRateQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional().describe('Company ledger whose persisted rate profile is being managed.'),
+  "firmId": zod.coerce.number().optional().describe('Accounting firm whose shared rate profile is being managed.')
+})
+
 export const createExchangeRateBodySourceCurrencyMin = 3;
 export const createExchangeRateBodySourceCurrencyMax = 3;
 
@@ -576,6 +1010,11 @@ export const DeleteExchangeRateResponse = zod.void()
 /**
  * @summary Import dated workspace exchange rates
  */
+export const ImportExchangeRatesQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional().describe('Company ledger whose persisted rate profile is being managed.'),
+  "firmId": zod.coerce.number().optional().describe('Accounting firm whose shared rate profile is being managed.')
+})
+
 export const importExchangeRatesBodyRatesItemSourceCurrencyMin = 3;
 export const importExchangeRatesBodyRatesItemSourceCurrencyMax = 3;
 

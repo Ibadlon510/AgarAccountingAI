@@ -5,15 +5,13 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { WorkspaceAssignableRole } from './workspaceAssignableRole';
+import type { FirmNominationInputRole } from './firmNominationInputRole';
 
-export interface WorkspaceInvitationInput {
+export interface FirmNominationInput {
   /**
      * @minLength 3
      * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
      */
   email: string;
-  role: WorkspaceAssignableRole;
-  /** @minItems 1 */
-  clientIds: number[];
+  role: FirmNominationInputRole;
 }
