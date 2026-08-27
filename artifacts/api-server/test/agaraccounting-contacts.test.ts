@@ -216,14 +216,20 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   const unidentifiedSupplierFromList = unidentifiedSupplierResponse.body.find((line) => line.id === unidentifiedSupplier.id);
   assert.equal(unidentifiedSupplierFromList?.contactDecisionState, "needs_identification");
   assert.match(unidentifiedSupplierFromList?.contactSuggestionStatus ?? "", /needs_identification/);
+  // Posting no longer requires supplier/customer identification up front: an
+  // entirely unidentified line posts through as unlinked instead of blocking.
   const unidentifiedEntry = await entryFor(unidentifiedSupplier.id);
-  const unidentifiedPost = await request<{ error: string }>(
-    `/agaraccounting/journal-entries/${unidentifiedEntry.id}/post`,
-    { method: "POST", body: JSON.stringify({ clientId }) },
-  );
-  assert.equal(unidentifiedPost.response.status, 409);
-  assert.match(unidentifiedPost.body.error, /Identify this customer or supplier|still needs a real supplier identity/i);
-  const rejectedGenericIdentity = await request<{ error: string }>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
+  const unidentifiedPost = await post(unidentifiedEntry.id);
+  assert.equal(unidentifiedPost.response.status, 200);
+  const postedUnidentified = (await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`))
+    .body.find((line) => line.id === unidentifiedSupplier.id);
+  assert.equal(postedUnidentified?.contactId, null);
+
+  // A generic "Unknown supplier" identity is still rejected, and a real but
+  // unconfirmed proposal still can't be silently posted as that contact —
+  // only an explicitly accepted, non-generic identity creates one on posting.
+  const proposalLine = await createLine("CARD PAYMENT 1111");
+  const rejectedGenericIdentity = await request<{ error: string }>(`/agaraccounting/statement-lines/${proposalLine.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({
       clientId,
@@ -236,7 +242,7 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   });
   assert.equal(rejectedGenericIdentity.response.status, 400);
   assert.match(rejectedGenericIdentity.body.error, /real, non-generic name/i);
-  const unconfirmedSupplier = await request<Line>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
+  const unconfirmedSupplier = await request<Line>(`/agaraccounting/statement-lines/${proposalLine.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({
       clientId,
@@ -248,13 +254,9 @@ test("uses client-scoped contact history without bypassing posting or chart safe
     }),
   });
   assert.equal(unconfirmedSupplier.response.status, 200);
-  assert.equal(
-    (await request(`/agaraccounting/journal-entries/${unidentifiedEntry.id}/post`, {
-      method: "POST", body: JSON.stringify({ clientId }),
-    })).response.status,
-    409,
-  );
-  const identifiedSupplier = await request<Line>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
+  const proposalEntry = await entryFor(proposalLine.id);
+  assert.equal((await post(proposalEntry.id)).response.status, 409);
+  const identifiedSupplier = await request<Line>(`/agaraccounting/statement-lines/${proposalLine.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({
       clientId,
@@ -267,7 +269,7 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   });
   assert.equal(identifiedSupplier.response.status, 200);
   assert.equal(identifiedSupplier.body.contactDecisionState, "named_proposal");
-  assert.equal((await post(unidentifiedEntry.id)).response.status, 200);
+  assert.equal((await post(proposalEntry.id)).response.status, 200);
   const contactsAfterIdentification = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
   assert.ok(contactsAfterIdentification.body.some((item) => item.displayName === "Real Supplies"));
   assert.equal(
@@ -834,7 +836,7 @@ test("reuses a prior client mapping for a legacy unresolved line at posting", as
   assert.equal(postedLegacyMatch?.contactId, contact.body.id);
 });
 
-test("requires confirmation when a recurring learned account differs from the draft journal", async () => {
+test("posts through a stale learned-account recommendation, while recode confirmation still protects against a wrong one", async () => {
   const created = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
@@ -877,19 +879,33 @@ test("requires confirmation when a recurring learned account differs from the dr
   assert.equal(refreshed?.accountSuggestion, "Bank charges");
   assert.equal(refreshed?.journalAccount, "General expenses");
   assert.equal(refreshed?.accountConfirmationRequired, true);
-  const blockedPost = await request<{ error: string }>(
-    `/agaraccounting/journal-entries/${recurringEntry.id}/post`,
-    { method: "POST", body: JSON.stringify({ clientId }) },
-  );
-  assert.equal(blockedPost.response.status, 409);
-  assert.match(blockedPost.body.error, /confirm the learned account/i);
+
+  // Posting no longer requires the mismatch to be reconciled first: it goes
+  // through with whatever account is already on the draft entry.
+  const postedDespiteMismatch = await post(recurringEntry.id);
+  assert.equal(postedDespiteMismatch.response.status, 200);
+  const [postedEntry] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.id, recurringEntry.id));
+  assert.equal(postedEntry?.debitAccount, "General expenses");
+  assert.equal(postedEntry?.status, "posted");
+
+  // The separate explicit recode-confirmation flow is unaffected: it still
+  // rejects confirming a stale/wrong suggestion, and still applies a correct
+  // one, ahead of posting that entry too.
+  const secondRecurring = await createLine("Payment reference Z88R21: Emirates, NBD bank service fee transaction 992244");
+  assert.equal(secondRecurring.contactId, bank.body.id);
+  const secondRecurringEntry = await entryFor(secondRecurring.id);
+  await database.db.update(database.journalEntriesTable).set({ debitAccount: "General expenses" })
+    .where(eq(database.journalEntriesTable.id, secondRecurringEntry.id));
+  await database.db.update(database.statementLinesTable).set({ contactSuggestionEvidenceCount: null })
+    .where(eq(database.statementLinesTable.id, secondRecurring.id));
 
   const stale = await request<{ error: string }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
       clientId,
       type: "recode_lines",
-      lineIds: [recurring.id],
+      lineIds: [secondRecurring.id],
       accountSuggestion: "Office expenses",
       confidence: 0.9,
       confirmLearnedSuggestion: true,
@@ -903,7 +919,7 @@ test("requires confirmation when a recurring learned account differs from the dr
     body: JSON.stringify({
       clientId,
       type: "recode_lines",
-      lineIds: [recurring.id],
+      lineIds: [secondRecurring.id],
       accountSuggestion: "Bank charges",
       confidence: 0.9,
       confirmLearnedSuggestion: true,
@@ -911,13 +927,14 @@ test("requires confirmation when a recurring learned account differs from the dr
   });
   assert.equal(confirmedTreatment.response.status, 200);
   const [storedLine] = await database.db.select().from(database.statementLinesTable)
-    .where(eq(database.statementLinesTable.id, recurring.id));
+    .where(eq(database.statementLinesTable.id, secondRecurring.id));
   const [storedEntry] = await database.db.select().from(database.journalEntriesTable)
-    .where(eq(database.journalEntriesTable.id, recurringEntry.id));
+    .where(eq(database.journalEntriesTable.id, secondRecurringEntry.id));
   assert.equal(storedLine?.accountSuggestion, "Bank charges");
   assert.equal(storedEntry?.debitAccount, "Bank charges");
   assert.equal(storedEntry?.status, "draft");
   assert.equal(storedLine?.status, "draft");
+  assert.equal((await post(secondRecurringEntry.id)).response.status, 200);
 
   await Promise.all(Array.from({ length: 30 }, (_, index) =>
     createLine(`Monthly bank service charge payment reference PERF-${index}-2026`)
