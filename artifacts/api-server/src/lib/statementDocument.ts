@@ -31,6 +31,16 @@ export type ParsedPdfStatementLine = {
   currency: string;
 };
 
+type DelimitedStatementColumns = {
+  headerRowIndex: number;
+  date: number;
+  description: number;
+  amount: number;
+  debit: number;
+  credit: number;
+  balance: number;
+};
+
 const pdfRecordStart = /^(\d{4}-\d{2}-\d{2})(?:\s+(.*))?$/;
 const monetaryToken = /\(?-?(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}\)?/g;
 
@@ -132,6 +142,195 @@ export function parsePdfBankStatementRows(text: string, currency: string): Parse
     previousBalance = balanceCell.value;
   }
   return rows;
+}
+
+function delimitedRows(text: string) {
+  const normalizedText = text.replace(/^\uFEFF/, "");
+  const delimiterSample = normalizedText.split(/\r?\n/).slice(0, 20).join("\n");
+  const delimiter = [",", ";", "\t"].reduce((best, candidate) => {
+    const count = [...delimiterSample].filter((character) => character === candidate).length;
+    return count > best.count ? { value: candidate, count } : best;
+  }, { value: ",", count: -1 }).value;
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+
+  for (let index = 0; index < normalizedText.length; index += 1) {
+    const character = normalizedText[index];
+    const next = normalizedText[index + 1];
+    if (character === "\"") {
+      if (quoted && next === "\"") {
+        cell += "\"";
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (!quoted && character === delimiter) {
+      row.push(cell.trim());
+      cell = "";
+    } else if (!quoted && (character === "\n" || character === "\r")) {
+      if (character === "\r" && next === "\n") index += 1;
+      row.push(cell.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += character;
+    }
+  }
+
+  row.push(cell.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function delimitedStatementColumns(rows: string[][]): DelimitedStatementColumns | null {
+  for (let headerRowIndex = 0; headerRowIndex < Math.min(rows.length, 30); headerRowIndex += 1) {
+    const headers = rows[headerRowIndex].map((cell) => cell.trim().toLowerCase());
+    const date = headers.findIndex((header) => /\b(date|transaction date|value date)\b/.test(header));
+    const descriptionColumn = headers.findIndex((header) => /\b(description|narration|narrative|details|transaction|memo|remarks|particulars)\b/.test(header));
+    const referenceColumn = headers.findIndex((header) => /\breference\b/.test(header));
+    const description = descriptionColumn >= 0 ? descriptionColumn : referenceColumn;
+    const debit = headers.findIndex((header) => /\b(debit|withdrawal|paid out)\b/.test(header));
+    const credit = headers.findIndex((header) => /\b(credit|deposit|paid in)\b/.test(header));
+    const amount = headers.findIndex((header) => /\b(amount|transaction amount|value)\b/.test(header));
+    const balance = headers.findIndex((header) => /\bbalance\b/.test(header));
+    if (date >= 0 && description >= 0 && (amount >= 0 || debit >= 0 || credit >= 0)) {
+      return { headerRowIndex, date, description, amount, debit, credit, balance };
+    }
+  }
+  return null;
+}
+
+const statementMonths = new Map([
+  ["jan", 1], ["january", 1],
+  ["feb", 2], ["february", 2],
+  ["mar", 3], ["march", 3],
+  ["apr", 4], ["april", 4],
+  ["may", 5],
+  ["jun", 6], ["june", 6],
+  ["jul", 7], ["july", 7],
+  ["aug", 8], ["august", 8],
+  ["sep", 9], ["sept", 9], ["september", 9],
+  ["oct", 10], ["october", 10],
+  ["nov", 11], ["november", 11],
+  ["dec", 12], ["december", 12],
+]);
+
+function isoDate(year: number, month: number, day: number) {
+  const candidate = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  const parsed = new Date(`${candidate}T00:00:00.000Z`);
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() + 1 === month
+    && parsed.getUTCDate() === day
+    ? candidate
+    : null;
+}
+
+type NumericDateOrder = "day-first" | "month-first" | null;
+
+function inferNumericDateOrder(values: string[]): NumericDateOrder {
+  let foundDayFirst = false;
+  let foundMonthFirst = false;
+  for (const value of values) {
+    const match = value.trim().match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+    if (!match) continue;
+    const first = Number(match[1]);
+    const second = Number(match[2]);
+    if (first > 12 && second <= 12) foundDayFirst = true;
+    if (second > 12 && first <= 12) foundMonthFirst = true;
+  }
+  if (foundDayFirst === foundMonthFirst) return null;
+  return foundDayFirst ? "day-first" : "month-first";
+}
+
+export function normalizeStatementDate(value: string, numericDateOrder: NumericDateOrder = null) {
+  const trimmed = value.trim().replace(/^"|"$/g, "");
+  const yearFirst = trimmed.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+  if (yearFirst) return isoDate(Number(yearFirst[1]), Number(yearFirst[2]), Number(yearFirst[3]));
+
+  const dayMonthName = trimmed.match(/^(\d{1,2})[\s./-]+([a-z]{3,9})[\s,./-]+(\d{4})$/i);
+  if (dayMonthName) {
+    const month = statementMonths.get(dayMonthName[2].toLowerCase());
+    return month ? isoDate(Number(dayMonthName[3]), month, Number(dayMonthName[1])) : null;
+  }
+
+  const monthNameDay = trimmed.match(/^([a-z]{3,9})[\s./-]+(\d{1,2}),?[\s./-]+(\d{4})$/i);
+  if (monthNameDay) {
+    const month = statementMonths.get(monthNameDay[1].toLowerCase());
+    return month ? isoDate(Number(monthNameDay[3]), month, Number(monthNameDay[2])) : null;
+  }
+
+  const numeric = trimmed.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/);
+  if (!numeric) return null;
+  const first = Number(numeric[1]);
+  const second = Number(numeric[2]);
+  const year = Number(numeric[3]);
+  const order = first > 12
+    ? "day-first"
+    : second > 12
+      ? "month-first"
+      : numericDateOrder;
+  if (!order) return null;
+  return order === "day-first"
+    ? isoDate(year, second, first)
+    : isoDate(year, first, second);
+}
+
+function numericCell(value: string) {
+  const normalized = value.trim();
+  const negative = normalized.startsWith("-") || (normalized.startsWith("(") && normalized.endsWith(")"));
+  const numeric = Number(normalized.replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(numeric)) return 0;
+  return negative ? -Math.abs(numeric) : numeric;
+}
+
+export function parseDelimitedBankStatementRows(text: string, currency: string): ParsedPdfStatementLine[] {
+  const rows = delimitedRows(text);
+  const columns = delimitedStatementColumns(rows);
+  if (!columns) return [];
+  const bodyRows = rows.slice(columns.headerRowIndex + 1);
+  const numericDateOrder = inferNumericDateOrder(bodyRows.map((row) => row[columns.date] ?? ""));
+
+  return bodyRows.flatMap((cells): ParsedPdfStatementLine[] => {
+    const date = normalizeStatementDate(cells[columns.date] ?? "", numericDateOrder);
+    if (!date) return [];
+    const description = (cells[columns.description] ?? "").replace(/\s+/g, " ").trim() || "Imported bank activity";
+    const debit = columns.debit >= 0 ? Math.abs(numericCell(cells[columns.debit] ?? "")) : 0;
+    const credit = columns.credit >= 0 ? Math.abs(numericCell(cells[columns.credit] ?? "")) : 0;
+    const amountValue = columns.amount >= 0 ? numericCell(cells[columns.amount] ?? "") : 0;
+    const hasDebitCreditColumns = columns.debit >= 0 || columns.credit >= 0;
+    if (hasDebitCreditColumns && debit > 0 && credit > 0) return [];
+    const amount = hasDebitCreditColumns ? debit || credit : Math.abs(amountValue);
+    if (amount <= 0) return [];
+    const direction = hasDebitCreditColumns
+      ? (debit > 0 ? "outflow" : "inflow")
+      : (amountValue < 0 ? "outflow" : "inflow");
+    return [{ date, description, amount, direction, currency }];
+  });
+}
+
+export function hasDelimitedBankStatementStructure(
+  text: string,
+  parsedRows: ParsedPdfStatementLine[],
+  hasSelectedBankAccount: boolean,
+) {
+  const rows = delimitedRows(text);
+  const columns = delimitedStatementColumns(rows);
+  if (!columns) return false;
+  const hasExplicitTransactionColumns = columns.debit >= 0 || columns.credit >= 0 || columns.balance >= 0;
+  const hasMixedTransactionDirections = parsedRows.length >= 2
+    && new Set(parsedRows.map((line) => line.direction)).size > 1;
+  const accountSummary = rows
+    .slice(0, columns.headerRowIndex + 1)
+    .flat()
+    .join(" ");
+  const hasBankStatementTitle = /\b(?:bank statement|account transactions? statement(?: report)?|account statement)\b/i.test(accountSummary);
+  const hasBankAccountIdentifier = /\b(iban|swift|bic|routing number|sort code)\b[\s:#-]*[a-z0-9]/i.test(accountSummary);
+  const hasBankProvenance = hasBankStatementTitle || hasBankAccountIdentifier;
+  return (hasExplicitTransactionColumns || hasMixedTransactionDirections)
+    && (hasBankProvenance || hasSelectedBankAccount);
 }
 
 export function validateStatementMetadata(fileName: string, mimeType: string, size: number) {

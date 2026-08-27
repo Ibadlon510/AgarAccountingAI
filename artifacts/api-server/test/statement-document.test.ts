@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPdfBankStatementTable, parsePdfBankStatementRows } from "../src/lib/statementDocument";
+import {
+  hasDelimitedBankStatementStructure,
+  hasPdfBankStatementTable,
+  normalizeStatementDate,
+  parseDelimitedBankStatementRows,
+  parsePdfBankStatementRows,
+} from "../src/lib/statementDocument";
 
 const mashreqMultiLinePdfText = `
 Account Number
@@ -110,4 +116,57 @@ Cash and cash equivalents
 `;
   assert.equal(hasPdfBankStatementTable(financialReportText), false);
   assert.deepEqual(parsePdfBankStatementRows(financialReportText, "AED"), []);
+});
+
+test("parses a Mashreq Excel export with month-name dates and multiline quoted descriptions", () => {
+  const extractedWorkbookCsv = `
+,Account transactions Statement Report,,,,,
+Account Holder Name,Triwill Industrial Products Trading LTD,,,,,
+Account Number,019101445593,,,,,
+Account Currency,AED,,,,,
+Account Transactions for the period,01 Jan 2026 to 17 Aug 2026,,,,,
+Date,Value Date,Reference Number,Description,Credit,Debit,Balance
+17 Jan 2026,17 Jan 2026,033AACT260174435,"Acct to Acct transfer FUND TRANSFER
+TRIWILL INDUSTRIAL PRODUCTS TRADING SRN: M170126273128WYM","+20,000.00",,"20,683.95"
+19 Jan 2026,19 Jan 2026,030POSB2601928Kh,Visa Purchase AD PORT MAQTA GATEWAY,,"-12,850.00","7,833.95"
+`;
+  const rows = parseDelimitedBankStatementRows(extractedWorkbookCsv, "AED");
+
+  assert.equal(hasDelimitedBankStatementStructure(extractedWorkbookCsv, rows, false), true);
+  assert.deepEqual(rows, [
+    {
+      date: "2026-01-17",
+      description: "Acct to Acct transfer FUND TRANSFER TRIWILL INDUSTRIAL PRODUCTS TRADING SRN: M170126273128WYM",
+      amount: 20_000,
+      direction: "inflow",
+      currency: "AED",
+    },
+    {
+      date: "2026-01-19",
+      description: "Visa Purchase AD PORT MAQTA GATEWAY",
+      amount: 12_850,
+      direction: "outflow",
+      currency: "AED",
+    },
+  ]);
+});
+
+test("normalizes unambiguous bank-export dates without guessing ambiguous numeric dates", () => {
+  assert.equal(normalizeStatementDate("17 Jan 2026"), "2026-01-17");
+  assert.equal(normalizeStatementDate("January 19, 2026"), "2026-01-19");
+  assert.equal(normalizeStatementDate("2026/02/06"), "2026-02-06");
+  assert.equal(normalizeStatementDate("01/02/2026"), null);
+  assert.equal(normalizeStatementDate("31/02/2026"), null);
+});
+
+test("keeps a general-ledger table outside the bank-statement fallback", () => {
+  const generalLedger = `
+Date,Description,Debit,Credit,Balance
+2026-08-20,Office expense,18.50,,981.50
+2026-08-21,Accrued revenue,,3000.00,3981.50
+`;
+  const rows = parseDelimitedBankStatementRows(generalLedger, "AED");
+
+  assert.equal(rows.length, 2);
+  assert.equal(hasDelimitedBankStatementStructure(generalLedger, rows, false), false);
 });

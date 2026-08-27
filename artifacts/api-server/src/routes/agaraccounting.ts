@@ -208,8 +208,10 @@ import {
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import { objectStorageService } from "./storage";
 import {
+  hasDelimitedBankStatementStructure,
   hasPdfBankStatementTable,
   MAX_STATEMENT_FILE_SIZE,
+  parseDelimitedBankStatementRows,
   parsePdfBankStatementRows,
   scopedStatementObjectPath,
   safeStatementFileName,
@@ -3702,70 +3704,6 @@ function prepareBulkActionRecommendation(
   };
 }
 
-type StatementColumns = {
-  headerRowIndex: number;
-  date: number;
-  description: number;
-  amount: number;
-  debit: number;
-  credit: number;
-  balance: number;
-};
-
-function statementColumns(text: string): StatementColumns | null {
-  const rows = text.split(/\r?\n/);
-  for (let headerRowIndex = 0; headerRowIndex < Math.min(rows.length, 20); headerRowIndex += 1) {
-    const headers = rows[headerRowIndex].split(/,|\t|;/).map((cell) => cell.trim().toLowerCase());
-    const date = headers.findIndex((header) => /\b(date|transaction date|value date)\b/.test(header));
-    const description = headers.findIndex((header) => /\b(description|narration|narrative|details|transaction|memo|reference|remarks|particulars)\b/.test(header));
-    const debit = headers.findIndex((header) => /\b(debit|withdrawal|paid out)\b/.test(header));
-    const credit = headers.findIndex((header) => /\b(credit|deposit|paid in)\b/.test(header));
-    const amount = headers.findIndex((header) => /\b(amount|transaction amount|value)\b/.test(header));
-    const balance = headers.findIndex((header) => /\bbalance\b/.test(header));
-    if (date >= 0 && description >= 0 && (amount >= 0 || debit >= 0 || credit >= 0)) {
-      return { headerRowIndex, date, description, amount, debit, credit, balance };
-    }
-  }
-  return null;
-}
-
-function numericCell(value: string) {
-  const numeric = Number(value.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(numeric) ? numeric : 0;
-}
-
-function normalizeRows(text: string, currency: string): ParsedBankLine[] {
-  const columns = statementColumns(text);
-  if (!columns) return [];
-  const rows = text.split(/\r?\n/).slice(columns.headerRowIndex + 1);
-  const parsedRows: Array<ParsedBankLine | null> = rows.map((row): ParsedBankLine | null => {
-    const cells = row.split(/,|\t|;/).map((cell) => cell.trim().replace(/^"|"$/g, ""));
-    const date = cells[columns.date] ?? "";
-    if (!isIsoDate(date)) return null;
-    const description = cells[columns.description]?.trim() || "Imported bank activity";
-    const debit = columns.debit >= 0 ? Math.abs(numericCell(cells[columns.debit] ?? "")) : 0;
-    const credit = columns.credit >= 0 ? Math.abs(numericCell(cells[columns.credit] ?? "")) : 0;
-    const amountValue = columns.amount >= 0 ? numericCell(cells[columns.amount] ?? "") : 0;
-    const hasDebitCreditColumns = columns.debit >= 0 || columns.credit >= 0;
-    if (hasDebitCreditColumns && debit > 0 && credit > 0) return null;
-    const amount = hasDebitCreditColumns ? debit || credit : Math.abs(amountValue);
-    if (amount <= 0) return null;
-    const direction = hasDebitCreditColumns
-      ? (debit > 0 ? "outflow" : "inflow")
-      : (/^-/.test(cells[columns.amount] ?? "") || /^\(.*\)$/.test(cells[columns.amount] ?? "") ? "outflow" : "inflow");
-    return {
-      date,
-      description,
-      amount,
-      direction,
-      currency,
-      accountSuggestion: suggestAccount(description, direction),
-      confidence: 0.75,
-    };
-  });
-  return parsedRows.filter((line): line is ParsedBankLine => line !== null);
-}
-
 const supportedStatementCurrencies = new Set(["AED", "USD", "EUR", "GBP", "CAD", "AUD", "CHF", "JPY", "SAR", "QAR", "KWD", "BHD", "OMR"]);
 
 function statementCurrencyFromText(text: string) {
@@ -3794,23 +3732,6 @@ function detectedStatementCurrency(
   ].map((currency) => typeof currency === "string" ? currency.trim().toUpperCase() : "")
     .filter((currency) => supportedStatementCurrencies.has(currency)));
   return extractedCurrencies.size === 1 ? [...extractedCurrencies][0] : null;
-}
-
-function hasBankStatementStructure(text: string, parsedRows: ParsedBankLine[], hasSelectedBankAccount: boolean) {
-  const columns = statementColumns(text);
-  if (!columns) return false;
-  const hasExplicitTransactionColumns = columns.debit >= 0 || columns.credit >= 0 || columns.balance >= 0;
-  const hasMixedTransactionDirections = parsedRows.length >= 2
-    && new Set(parsedRows.map((line) => line.direction)).size > 1;
-  const accountSummary = text
-    .split(/\r?\n/)
-    .slice(0, columns.headerRowIndex + 1)
-    .join(" ");
-  const hasBankStatementTitle = /\bbank statement\b/i.test(accountSummary);
-  const hasBankAccountIdentifier = /\b(iban|swift|bic|routing number|sort code)\b[\s:#-]*[a-z0-9]/i.test(accountSummary);
-  const hasBankProvenance = hasBankStatementTitle || hasBankAccountIdentifier;
-  return (hasExplicitTransactionColumns || hasMixedTransactionDirections)
-    && (hasBankProvenance || hasSelectedBankAccount);
 }
 
 router.post("/agaraccounting/import-statement", async (req, res) => {
@@ -3966,7 +3887,11 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const isPdfStatement = mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
     const textCurrency = statementCurrencyFromText(extractedText);
     const fallbackCurrency = normalizeCurrency(currency ?? textCurrency ?? client.functionalCurrency);
-    const delimitedFallback = normalizeRows(extractedText, fallbackCurrency);
+    const delimitedFallback: ParsedBankLine[] = parseDelimitedBankStatementRows(extractedText, fallbackCurrency).map((line): ParsedBankLine => ({
+      ...line,
+      accountSuggestion: suggestAccount(line.description, line.direction),
+      confidence: 0.75,
+    }));
     const pdfFallback: ParsedBankLine[] = isPdfStatement
       ? parsePdfBankStatementRows(extractedText, fallbackCurrency).map((line) => ({
         ...line,
@@ -3978,7 +3903,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const hasRecognizedPdfTable = isPdfStatement
       && hasPdfBankStatementTable(extractedText)
       && pdfFallback.length > 0;
-    if (!hasRecognizedPdfTable && !hasBankStatementStructure(extractedText, fallback, bankAccountId != null)) {
+    if (!hasRecognizedPdfTable && !hasDelimitedBankStatementStructure(extractedText, fallback, bankAccountId != null)) {
       if (confirmed) {
         await recordFailedStatementImport({
           clientId: scopedClientId,
