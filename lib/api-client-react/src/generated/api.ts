@@ -75,6 +75,7 @@ import type {
   GetReportPacksParams,
   GetStatementImportsParams,
   GetStatementLinesParams,
+  GetTrialBalanceAccountTransactionsParams,
   GetTrialBalanceParams,
   GetUaeCorporateTaxSummaryParams,
   GetUploadedFilesParams,
@@ -116,6 +117,7 @@ import type {
   SystemRateInput,
   SystemRateParseInput,
   SystemRateUpdate,
+  TrialBalanceAccountTransaction,
   TrialBalanceRow,
   UaeCorporateTaxSummary,
   UnpostJournalEntryInput,
@@ -6057,6 +6059,90 @@ export function useGetTrialBalance<TData = Awaited<ReturnType<typeof getTrialBal
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTrialBalanceQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTrialBalanceAccountTransactionsUrl = (params: GetTrialBalanceAccountTransactionsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/trial-balance/transactions?${stringifiedParams}` : `/api/agaraccounting/trial-balance/transactions`
+}
+
+/**
+ * @summary List the posted transactions that make up one trial balance account's balance
+ */
+export const getTrialBalanceAccountTransactions = async (params: GetTrialBalanceAccountTransactionsParams, options?: Parameters<typeof customFetch>[1]): Promise<TrialBalanceAccountTransaction[]> => {
+
+  return customFetch<TrialBalanceAccountTransaction[]>(getGetTrialBalanceAccountTransactionsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTrialBalanceAccountTransactionsQueryKey = (params?: GetTrialBalanceAccountTransactionsParams,) => {
+    return [
+    `/api/agaraccounting/trial-balance/transactions`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetTrialBalanceAccountTransactionsQueryOptions = <TData = Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>, TError = ErrorType<unknown>>(params: GetTrialBalanceAccountTransactionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTrialBalanceAccountTransactionsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>> = ({ signal }) => getTrialBalanceAccountTransactions(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTrialBalanceAccountTransactionsQueryResult = NonNullable<Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>>
+export type GetTrialBalanceAccountTransactionsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the posted transactions that make up one trial balance account's balance
+ */
+
+export function useGetTrialBalanceAccountTransactions<TData = Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>, TError = ErrorType<unknown>>(
+ params: GetTrialBalanceAccountTransactionsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrialBalanceAccountTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTrialBalanceAccountTransactionsQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

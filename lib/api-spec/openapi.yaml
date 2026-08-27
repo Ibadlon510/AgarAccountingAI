@@ -1457,6 +1457,29 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TrialBalanceRow"
+  /agaraccounting/trial-balance/transactions:
+    get:
+      operationId: getTrialBalanceAccountTransactions
+      tags: [agaraccounting]
+      summary: List the posted transactions that make up one trial balance account's balance
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: account
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Transactions posted against the requested account
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrialBalanceAccountTransaction"
   /agaraccounting/financial-statements:
     get:
       operationId: getFinancialStatements
@@ -2877,6 +2900,13 @@ components:
       required: [clientId]
       properties:
         clientId: { type: number }
+        accountSuggestion: { type: ["string", "null"] }
+        contactId: { type: ["number", "null"] }
+        proposedContactName: { type: ["string", "null"], minLength: 1, maxLength: 160 }
+        proposedContactType:
+          type: ["string", "null"]
+          enum: [customer, supplier, both, null]
+        proposedContactAlias: { type: ["string", "null"], minLength: 1, maxLength: 160 }
     UnpostJournalEntryInput:
       type: object
       required: [clientId]
@@ -3219,6 +3249,20 @@ components:
         missingRateCurrencies:
           type: array
           items: { type: string }
+    TrialBalanceAccountTransaction:
+      type: object
+      required: [entryId, statementLineId, date, description, side, amount, currency, functionalAmount, functionalCurrency]
+      properties:
+        entryId: { type: number }
+        statementLineId: { type: number }
+        date: { type: string }
+        description: { type: string }
+        side: { type: string, enum: [debit, credit] }
+        amount: { type: number }
+        currency: { type: string }
+        functionalAmount: { type: ["number", "null"] }
+        functionalCurrency: { type: ["string", "null"] }
+        counterAccount: { type: string }
     StatementSection:
       type: object
       required: [label, amount]

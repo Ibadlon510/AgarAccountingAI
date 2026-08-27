@@ -47,3 +47,11 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Local pnpm store (created running inside the dev container)
+.pnpm-store/

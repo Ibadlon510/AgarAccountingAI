@@ -9,17 +9,17 @@ import {
 } from 'lucide-react';
 import {
   getGetBankAccountsQueryKey, getGetBulkTransitionAuditsQueryKey, getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetLedgerflowAccountsQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey, getGetUaeCorporateTaxSummaryQueryKey,
-  getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetExchangeRatesQueryKey, getGetAgarAccountingUsageQueryKey, getGetFirmProfileQueryKey,
+  getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetTrialBalanceAccountTransactionsQueryKey, getGetExchangeRatesQueryKey, getGetAgarAccountingUsageQueryKey, getGetFirmProfileQueryKey,
   useArchiveLedgerflowAccount, useCreateClient, useCreateLedgerflowAccount, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetLedgerflowAccounts, useGetReportPack, useGetReportPacks, useGetUaeCorporateTaxSummary,
-  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useImportStatement, useParseExchangeRates,
+  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
   useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement,
-  useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, useLinkStatementLineContact, usePreviewContactMerge, useMergeContacts
+  useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
   Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement,
-  Contact, ContactHistory, StatementLineContactInput, ContactInput, ContactMergePreview
+  Contact, ContactHistory, ContactInput, ContactMergePreview
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -1277,12 +1277,26 @@ function ImportStatementPage() {
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
   const [activityStage, setActivityStage] = useState<ImportActivityStage | null>(null);
   const [activeQueueIndex, setActiveQueueIndex] = useState<number | null>(null);
-  const [dismissedPreviewIds, setDismissedPreviewIds] = useState<Set<number>>(() => new Set());
+  const [dismissedPreviewIds, setDismissedPreviewIds] = useState<Set<number>>(() => {
+    try {
+      const stored = sessionStorage.getItem('agaraccounting:dismissed-statement-preview-ids');
+      return stored ? new Set(JSON.parse(stored) as number[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
   const activeClientIdRef = useRef(activeClient?.id);
 
   useEffect(() => {
     activeClientIdRef.current = activeClient?.id;
   }, [activeClient?.id]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('agaraccounting:dismissed-statement-preview-ids', JSON.stringify([...dismissedPreviewIds]));
+    } catch {
+      // sessionStorage unavailable (e.g. private browsing) — dismissal just won't survive navigation
+    }
+  }, [dismissedPreviewIds]);
   useEffect(() => {
     const pending = importsQuery.data?.find((statementImport) =>
       statementImport.outcome === 'pending_confirmation'
@@ -2137,6 +2151,14 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, fromTestId, toTes
   </div>;
 }
 
+type PostLineDecision = {
+  accountSuggestion: string | null;
+  contactId: number | null;
+  proposedContactName: string | null;
+  proposedContactAlias: string | null;
+  proposedContactType: 'customer' | 'supplier' | 'both' | null;
+};
+
 function StatementLinesPage() {
   const { activeClient } = useClientWorkspace();
   const [currency, setCurrency] = useState('all'); const [status, setStatus] = useState('all'); const [direction, setDirection] = useState<'all' | 'inflow' | 'outflow'>('all'); const [search, setSearch] = useState(''); const [addOpen, setAddOpen] = useState(false);
@@ -2154,7 +2176,6 @@ function StatementLinesPage() {
   const journalQuery = useGetJournalEntries(journalParams, { query: { queryKey: getGetJournalEntriesQueryKey(journalParams) } });
   const bankAccountsQuery = useGetBankAccounts(journalParams);
   const post = usePostJournalEntry();
-  const confirmClassification = useConfirmAICopilotAction();
   const bulkMutation = useConfirmAICopilotAction();
   const entriesByLine = useMemo(() => new Map((journalQuery.data ?? []).map((entry) => [entry.statementLineId, entry])), [journalQuery.data]);
   const bankAccountsById = useMemo(() => new Map((bankAccountsQuery.data ?? []).map((account) => [account.id, account])), [bankAccountsQuery.data]);
@@ -2222,22 +2243,12 @@ function StatementLinesPage() {
   useEffect(() => {
     if (linePage > linePageCount) setLinePage(linePageCount);
   }, [linePage, linePageCount]);
-  const postEntry = (entry: JournalEntry) => post.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, { onSuccess: refreshPostedData });
+  const postEntry = (entry: JournalEntry, decision: PostLineDecision) => post.mutate({ id: entry.id, data: { clientId: journalParams.clientId, ...decision } }, { onSuccess: refreshPostedData });
   const unpost = useUnpostJournalEntry();
   const unpostEntry = (entry: JournalEntry) => {
     if (!window.confirm('Unpost this journal entry? It will leave live reports and return to draft.')) return;
     unpost.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, { onSuccess: refreshPostedData });
   };
-  const confirmClassificationForLine = (line: StatementLine, accountSuggestion: string) => confirmClassification.mutate({
-    data: {
-      clientId: journalParams.clientId,
-      type: 'recode_lines',
-      lineIds: [line.id],
-      accountSuggestion,
-      confidence: line.confidence ?? 0.85,
-      confirmLearnedSuggestion: line.suggestionSource === 'workspace_learning' && accountSuggestion === line.accountSuggestion,
-    },
-  }, { onSuccess: refreshPostedData });
   const openBulkAction = (type: BulkStatementAction['type'], trigger: HTMLButtonElement) => {
     const eligible = allDraft;
     if (!eligible) return;
@@ -2297,7 +2308,7 @@ function StatementLinesPage() {
       <div className="overflow-hidden rounded-lg border border-card-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div>
         {selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue ? 'text-destructive' : 'text-muted-foreground'}`}>{selectionIssue ?? 'Draft entries selected · recoding and posting are available.'}</p></div>}
-         <div className="overflow-x-auto"><table className="w-full min-w-[1100px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[280px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[120px] px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || confirmClassification.isPending && confirmClassification.variables?.data.lineIds?.includes(line.id) || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={post.isError || unpost.isError || confirmClassification.isError || bulkMutation.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onApproveAndPost={postEntry} onPost={postEntry} onUnpost={unpostEntry} onConfirmClassification={confirmClassificationForLine} />)}</tbody></table></div>
+         <div className="overflow-x-auto"><table className="w-full min-w-[1100px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[280px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[120px] px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={post.isError || unpost.isError || bulkMutation.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onPost={postEntry} onUnpost={unpostEntry} />)}</tbody></table></div>
         {rows.length > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, rows.length)} of {rows.length} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
       </div>
     </QueryState>
@@ -2310,7 +2321,7 @@ function StatementRow({ line }: { line: StatementLine }) {
   return <tr data-testid={`row-statement-line-${line.id}`} className="group transition-colors hover:bg-secondary/30"><td className="whitespace-nowrap px-5 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td><td className="max-w-[250px] px-4 py-4"><div className="truncate text-[12px] font-semibold">{line.description}</div><div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="rounded bg-muted px-1.5 py-0.5">{line.source}</span><span>· {line.currency}</span></div></td><td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div className="mt-1 text-[10px] text-muted-foreground">AI suggestion</div></td><td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td><td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-2"><div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${confidence > 85 ? 'bg-primary' : 'bg-accent'}`} style={{ width: `${confidence}%` }} /></div><span className="font-mono text-[10px]">{confidence}%</span></div>}</td><td className="px-4 py-4"><StatusPill status={line.status} /></td></tr>;
 }
 
-function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onApproveAndPost, onPost, onUnpost, onConfirmClassification }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: boolean; onToggle: () => void; onToggleSelected: () => void; onApproveAndPost: (entry: JournalEntry) => void; onPost: (entry: JournalEntry) => void; onUnpost: (entry: JournalEntry) => void; onConfirmClassification: (line: StatementLine, accountSuggestion: string) => void }) {
+function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onPost, onUnpost }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: boolean; onToggle: () => void; onToggleSelected: () => void; onPost: (entry: JournalEntry, decision: PostLineDecision) => void; onUnpost: (entry: JournalEntry) => void }) {
   const { activeClient } = useClientWorkspace();
   const accountParams = { clientId: activeClient?.id ?? 0 };
   const accountQuery = useGetLedgerflowAccounts(accountParams, { query: { queryKey: getGetLedgerflowAccountsQueryKey(accountParams) } });
@@ -2340,7 +2351,6 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const baseCurrency = functionalCurrency ?? entry?.currency ?? line.currency;
   const isForeignCurrency = Boolean(entry && functionalCurrency && entry.currency !== functionalCurrency);
 
-  const linkContact = useLinkStatementLineContact();
   const contactsQuery = useGetContacts({ clientId: activeClient?.id ?? 0 }, { query: { queryKey: getGetContactsQueryKey({ clientId: activeClient?.id ?? 0 }), enabled: expanded } });
   const contacts = contactsQuery.data ?? [];
   const canEditContact = entry?.status.toLowerCase() === 'draft';
@@ -2359,44 +2369,17 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     : line.proposedContactSource === 'heuristic_description'
       ? 'Narration fallback'
       : (line.proposedContactSource ?? 'Description').replaceAll('_', ' ');
-  const needsContactConfirmation = needsIdentification
-    || (line.contactDecisionState === 'named_proposal' && line.contactReviewDisposition !== 'accepted');
-  const showContactProposalEditor = needsIdentification || (hasTemporaryProposal && line.contactReviewDisposition !== 'accepted');
+  // Nothing here requires a separate confirm step anymore: whatever contact is
+  // selected (or typed as a proposal) and whichever account is chosen below is
+  // applied atomically when the line is posted.
+  const showContactProposalEditor = selectedContactId === '';
+  const willCreateContact = selectedContactId === '' && proposedContactName.trim() !== '';
   useEffect(() => {
     setSelectedContactId(line.contactId ? String(line.contactId) : '');
     setProposedContactName(line.proposedContactName ?? '');
     setProposedContactAlias(line.proposedContactAlias ?? '');
     setProposedContactType(line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'));
   }, [line.contactId, line.proposedContactName, line.proposedContactAlias, line.proposedContactType, line.direction]);
-
-  const handleLinkContact = () => {
-    linkContact.mutate({ id: line.id, data: {
-      clientId: activeClient?.id ?? 0,
-      contactId: selectedContactId ? Number(selectedContactId) : null,
-      contactReviewDisposition: selectedContactId ? 'replaced' : 'dismissed',
-    } }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
-      }
-    });
-  };
-  const reviewProposal = (contactReviewDisposition: 'pending' | 'accepted' | 'dismissed') => {
-    const data: StatementLineContactInput = {
-      clientId: activeClient?.id ?? 0,
-      contactId: null,
-      proposedContactName,
-      proposedContactAlias,
-      proposedContactType,
-      contactReviewDisposition,
-    };
-    linkContact.mutate({ id: line.id, data }, {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
-      },
-    });
-  };
 
   const toggleFromRow = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -2405,15 +2388,18 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       onToggle();
     }
   };
+  const postDecision: PostLineDecision = {
+    accountSuggestion: selectedAccount || null,
+    contactId: selectedContactId ? Number(selectedContactId) : null,
+    proposedContactName: selectedContactId ? null : (proposedContactName.trim() || null),
+    proposedContactAlias: selectedContactId ? null : (proposedContactAlias.trim() || null),
+    proposedContactType: selectedContactId ? null : proposedContactType,
+  };
   const rowAction = posted
     ? <div data-testid={`posted-line-${line.id}`} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary"><CircleCheck size={14} /> Posted</div>
     : !entry
       ? <span className="text-[11px] text-muted-foreground">{journalLoading ? 'Loading…' : 'Unavailable'}</span>
-      : accountConfirmationRequired
-        ? <span data-testid={`account-confirmation-required-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-accent-foreground"><CircleAlert size={13} /> Confirm account</span>
-      : needsContactConfirmation
-        ? <span data-testid={`contact-required-before-posting-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-destructive"><CircleAlert size={13} /> Contact needed</span>
-        : <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {hasTemporaryProposal ? 'Post & create' : 'Post'}</>}</button>;
+      : <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry, postDecision); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {willCreateContact ? 'Post & create' : 'Post'}</>}</button>;
 
   return <>
     <tr data-testid={`row-statement-line-${line.id}`} tabIndex={0} aria-expanded={expanded} aria-selected={selected} onClick={onToggle} onKeyDown={toggleFromRow} className={`group cursor-pointer transition-colors hover:bg-secondary/30 focus:outline-none focus-visible:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${expanded ? 'bg-secondary/20' : ''}`}>
@@ -2465,55 +2451,35 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
          </div>}
 
          <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
-           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-             <label className="block text-[11px] font-semibold">Contact
-               <select data-testid={`select-contact-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
-                  <option value="">{hasTemporaryProposal ? 'Use temporary proposal' : needsIdentification ? `Identify ${likelyContactType} below` : 'No contact'}</option>
-                 {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
-               </select>
-             </label>
-             {canEditContact && selectedContactId !== (line.contactId ? String(line.contactId) : '') && (
-               <button data-testid={`button-update-contact-${line.id}`} onClick={handleLinkContact} disabled={linkContact.isPending} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                 <Check size={13} /> {selectedContactId === '' ? 'Keep unlinked' : 'Use existing contact'}
-               </button>
-             )}
-           </div>
-            {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className={`mt-3 rounded-md border p-3 ${needsIdentification ? 'border-destructive/25 bg-destructive/5' : 'border-accent/25 bg-accent/5'}`}>
-             <div className="flex flex-wrap items-start justify-between gap-2">
-                 <div><div className="text-[11px] font-semibold">{needsIdentification ? `Identify the ${likelyContactType}` : 'Temporary contact proposal'}</div><p className="mt-1 text-[10px] text-muted-foreground">{needsIdentification ? `Enter the real ${likelyContactType} name and a statement alias, or select an existing contact above. Generic “Unknown” contacts will not be created.` : 'Review these client-scoped details. Confirming saves the proposal for posting; posting creates or reuses the matching profile.'}</p></div>
-                <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${needsIdentification ? 'bg-destructive/10 text-destructive' : 'bg-accent/15 text-accent-foreground'}`}>{line.contactReviewDisposition === 'accepted' ? 'Accepted for posting' : needsIdentification ? 'Identity required' : 'Review pending'}</span>
-             </div>
+           <label className="block text-[11px] font-semibold">Contact
+             <select data-testid={`select-contact-${line.id}`} disabled={!canEditContact} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
+               <option value="">{needsIdentification ? `Identify ${likelyContactType} below` : 'No contact'}</option>
+               {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
+             </select>
+           </label>
+            {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className="mt-3 rounded-md border border-border bg-background p-3">
+             <div className="text-[11px] font-semibold">{likelyContactType === 'customer' ? 'Customer' : 'Supplier'} identity</div>
+             <p className="mt-1 text-[10px] text-muted-foreground">Enter a real name and statement alias to create this contact when the line posts, or leave both blank to post unlinked.</p>
              <div className="mt-3 grid gap-2 md:grid-cols-3">
-               <label className="text-[10px] font-semibold">Display name<input data-testid={`input-proposed-contact-name-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={proposedContactName} onChange={(event) => setProposedContactName(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
-               <label className="text-[10px] font-semibold">Alias<input data-testid={`input-proposed-contact-alias-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={proposedContactAlias} onChange={(event) => setProposedContactAlias(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
-               <label className="text-[10px] font-semibold">Type<select data-testid={`select-proposed-contact-type-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={proposedContactType} onChange={(event) => setProposedContactType(event.target.value as 'customer' | 'supplier' | 'both')} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"><option value="customer">Customer</option><option value="supplier">Supplier</option><option value="both">Customer & supplier</option></select></label>
+               <label className="text-[10px] font-semibold">Display name<input data-testid={`input-proposed-contact-name-${line.id}`} disabled={!canEditContact} value={proposedContactName} onChange={(event) => setProposedContactName(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
+               <label className="text-[10px] font-semibold">Alias<input data-testid={`input-proposed-contact-alias-${line.id}`} disabled={!canEditContact} value={proposedContactAlias} onChange={(event) => setProposedContactAlias(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
+               <label className="text-[10px] font-semibold">Type<select data-testid={`select-proposed-contact-type-${line.id}`} disabled={!canEditContact} value={proposedContactType} onChange={(event) => setProposedContactType(event.target.value as 'customer' | 'supplier' | 'both')} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"><option value="customer">Customer</option><option value="supplier">Supplier</option><option value="both">Customer & supplier</option></select></label>
              </div>
-             {canEditContact && <div className="mt-3 flex flex-wrap gap-2">
-                <button data-testid={`button-save-contact-proposal-${line.id}`} onClick={() => reviewProposal('pending')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[10px] font-semibold text-primary disabled:opacity-50">Save real identity</button>
-                <button data-testid={`button-accept-contact-proposal-${line.id}`} onClick={() => reviewProposal('accepted')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground disabled:opacity-50">Confirm for posting</button>
-               <button data-testid={`button-dismiss-contact-proposal-${line.id}`} onClick={() => reviewProposal('dismissed')} disabled={linkContact.isPending} className="rounded-md border border-border px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground disabled:opacity-50">Keep unlinked</button>
-             </div>}
            </div>}
            {line.contactSuggestionReason && <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{line.contactSuggestionReason}</p>}
-            {linkContact.isError && <p className="mt-2 text-[10px] font-semibold text-destructive">The contact could not be updated. Refresh the line and review its draft status.</p>}
          </div>
 
-         {canConfirmClassification && <div className={`mt-4 rounded-md border p-3 ${accountConfirmationRequired ? 'border-accent/35 bg-accent/10' : 'border-primary/20 bg-primary/5'}`}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <label className="block text-[11px] font-semibold">Classification decision
-              <select data-testid={`select-account-suggestion-${line.id}`} value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary">
-                {!accounts.length && <option value="">No active accounts available</option>}
-                {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
-              </select>
-            </label>
-            <button data-testid={`button-confirm-classification-${line.id}`} onClick={() => onConfirmClassification(line, selectedAccount)} disabled={processing || !selectedAccount} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary/30 bg-background px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50">
-               <Check size={13} /> {line.suggestionSource === 'workspace_learning' && selectedAccount === line.accountSuggestion ? 'Confirm learned account' : 'Confirm account'}
-            </button>
-          </div>
-           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{accountConfirmationRequired ? `The learned recommendation is ${line.accountSuggestion}, but the linked journal still uses ${line.journalAccount}. Confirming revalidates the recommendation and updates both records; it does not approve or post the entry.` : line.suggestionSource === 'workspace_learning' ? `This account is already reflected in the suggested journal and is based on ${line.supportingPatternCount} confirmed workspace pattern${line.supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
+         {canConfirmClassification && <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
+          <label className="block text-[11px] font-semibold">Classification decision
+            <select data-testid={`select-account-suggestion-${line.id}`} value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary">
+              {!accounts.length && <option value="">No active accounts available</option>}
+              {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
+            </select>
+          </label>
+           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{accountConfirmationRequired ? `The recommendation changed to ${line.accountSuggestion}. This will be applied automatically when the line posts.` : line.suggestionSource === 'workspace_learning' ? `Based on ${line.supportingPatternCount} confirmed workspace pattern${line.supportingPatternCount === 1 ? '' : 's'}. Applied when the line posts.` : 'Applied when the line posts. Choose another account if this one is wrong.'}</p>
         </div>}
         <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : accountConfirmationRequired && needsContactConfirmation ? `The account was learned, but it still needs confirmation and the ${likelyContactType} still needs resolution. Posting remains a separate decision.` : accountConfirmationRequired ? 'Confirm the learned account first. Posting remains a separate decision.' : needsContactConfirmation ? `The account recommendation is available; contact identification is the remaining blocker. Identify and confirm the ${likelyContactType}, select an existing contact, or explicitly keep the line unlinked.` : 'This draft is ready to post. Use the Post action in the row above when the entry makes sense.'}</p>
+          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : 'This draft is ready to post. Use the Post action in the row above whenever the entry makes sense.'}</p>
         </div>
         {actionError && <p className="mt-3 text-xs text-destructive">The journal entry could not be updated. Refresh this line and try again.</p>}
       </section>}
@@ -2612,10 +2578,39 @@ function exportTrialBalance(rows: Array<{ account: string; category: string; deb
   URL.revokeObjectURL(url);
 }
 
+function TrialBalanceTransactionsRow({ account, currency, colSpan }: { account: string; currency: string; colSpan: number }) {
+  const { activeClient } = useClientWorkspace();
+  const params = { clientId: activeClient?.id ?? 1, account };
+  const query = useGetTrialBalanceAccountTransactions(params, { query: { queryKey: getGetTrialBalanceAccountTransactionsQueryKey(params) } });
+  const transactions = query.data ?? [];
+  return <tr data-testid={`row-trial-balance-transactions-${account}`}><td colSpan={colSpan} className="bg-secondary/20 px-5 py-4">
+    {query.isLoading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw size={13} className="animate-spin" /> Loading transactions…</div>
+      : query.isError ? <div className="text-xs text-destructive">Transactions could not be loaded. <button type="button" onClick={() => query.refetch()} className="font-semibold underline">Retry</button></div>
+      : !transactions.length ? <div className="text-xs text-muted-foreground">No posted transactions for this account.</div>
+      : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-[11px]"><thead className="font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><tr><th className="pb-2 pr-3 font-medium">Date</th><th className="pb-2 pr-3 font-medium">Description</th><th className="pb-2 pr-3 font-medium">Counter account</th><th className="pb-2 pr-3 text-right font-medium">Debit</th><th className="pb-2 text-right font-medium">Credit</th></tr></thead><tbody className="divide-y divide-border/60">{transactions.map((transaction) => <tr key={transaction.entryId} data-testid={`row-trial-balance-transaction-${transaction.entryId}`}><td className="py-2 pr-3 font-mono text-muted-foreground">{shortDate(transaction.date)}</td><td className="py-2 pr-3">{transaction.description}</td><td className="py-2 pr-3 text-muted-foreground">{transaction.counterAccount}</td><td className="py-2 pr-3 text-right font-mono">{transaction.side === 'debit' ? money(transaction.functionalAmount ?? transaction.amount, currency) : '—'}</td><td className="py-2 text-right font-mono">{transaction.side === 'credit' ? money(transaction.functionalAmount ?? transaction.amount, currency) : '—'}</td></tr>)}</tbody></table></div>}
+  </td></tr>;
+}
+
 function TrialBalancePage() {
   const { activeClient } = useClientWorkspace(); const params = { clientId: activeClient?.id ?? 1 };
   const query = useGetTrialBalance(params, { query: { queryKey: getGetTrialBalanceQueryKey(params) } }); const rows = query.data ?? []; const debit = rows.reduce((sum, row) => sum + row.debit, 0); const credit = rows.reduce((sum, row) => sum + row.credit, 0); const balanced = Math.abs(debit - credit) < 0.01;
-  return <div><PageHeading eyebrow="Control check / double-entry" title="Trial balance" description="One place to see every account's movement and confirm the ledger is ready to become financial statements." action={<div className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${balanced ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{balanced ? <CircleCheck size={15} /> : <CircleAlert size={15} />}{balanced ? 'In balance' : 'Review variance'}</div>} /><QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}><div className="space-y-5"><div className="grid gap-3 sm:grid-cols-3"><Metric label="Total debits" value={money(debit)} note={`${rows.length} accounts in scope`} /><Metric label="Total credits" value={money(credit)} note="Across all categories" /><Metric label="Variance" value={money(Math.abs(debit - credit))} note={balanced ? 'Debits and credits agree' : 'Needs investigation'} accent={!balanced} /></div><div className="overflow-hidden rounded-lg border border-card-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Account balances</span><span className="ml-2 font-mono text-[10px] text-muted-foreground">as of close</span></div><button data-testid="button-export-trial-balance" onClick={() => exportTrialBalance(rows, activeClient?.name ?? 'AgarAccounting AI', activeClient?.functionalCurrency ?? 'AED')} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold hover:bg-muted"><ArrowDownLeft size={13} /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="px-5 py-3 font-medium">Account</th><th className="px-4 py-3 font-medium">Category</th><th className="px-4 py-3 text-right font-medium">Debit</th><th className="px-4 py-3 text-right font-medium">Credit</th><th className="px-5 py-3 text-right font-medium">Balance</th></tr></thead><tbody className="divide-y divide-border">{rows.map((row, index) => <tr data-testid={`row-trial-balance-${index}`} key={`${row.account}-${index}`} className="hover:bg-secondary/25"><td className="px-5 py-3.5 text-[12px] font-semibold">{row.account}</td><td className="px-4 py-3.5 text-[11px] text-muted-foreground">{row.category}</td><td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.debit ? money(row.debit) : '—'}</td><td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.credit ? money(row.credit) : '—'}</td><td className={`px-5 py-3.5 text-right font-mono text-[11px] font-medium ${row.balance < 0 ? 'text-destructive' : ''}`}>{money(row.balance)}</td></tr>)}</tbody><tfoot className="border-t-2 border-border bg-muted/35"><tr><td colSpan={2} className="px-5 py-3 text-[11px] font-semibold">Totals</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(debit)}</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(credit)}</td><td className="px-5 py-3 text-right font-mono text-[11px] font-semibold">{money(debit - credit)}</td></tr></tfoot></table></div></div></div></QueryState></div>;
+  const currency = activeClient?.functionalCurrency ?? 'AED';
+  const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
+  return <div><PageHeading eyebrow="Control check / double-entry" title="Trial balance" description="One place to see every account's movement and confirm the ledger is ready to become financial statements." action={<div className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold ${balanced ? 'bg-primary/10 text-primary' : 'bg-accent/15 text-accent-foreground'}`}>{balanced ? <CircleCheck size={15} /> : <CircleAlert size={15} />}{balanced ? 'In balance' : 'Review variance'}</div>} /><QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}><div className="space-y-5"><div className="grid gap-3 sm:grid-cols-3"><Metric label="Total debits" value={money(debit, currency)} note={`${rows.length} accounts in scope`} /><Metric label="Total credits" value={money(credit, currency)} note="Across all categories" /><Metric label="Variance" value={money(Math.abs(debit - credit), currency)} note={balanced ? 'Debits and credits agree' : 'Needs investigation'} accent={!balanced} /></div><div className="overflow-hidden rounded-lg border border-card-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Account balances</span><span className="ml-2 font-mono text-[10px] text-muted-foreground">as of close</span></div><button data-testid="button-export-trial-balance" onClick={() => exportTrialBalance(rows, activeClient?.name ?? 'AgarAccounting AI', currency)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold hover:bg-muted"><ArrowDownLeft size={13} /> Export CSV</button></div><div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-8 px-2 py-3"></th><th className="px-3 py-3 font-medium">Account</th><th className="px-4 py-3 font-medium">Category</th><th className="px-4 py-3 text-right font-medium">Debit</th><th className="px-4 py-3 text-right font-medium">Credit</th><th className="px-5 py-3 text-right font-medium">Balance</th></tr></thead><tbody className="divide-y divide-border">{rows.map((row, index) => {
+    const expandable = row.account !== 'Rate coverage required';
+    const expanded = expandedAccount === row.account;
+    return <Fragment key={`${row.account}-${index}`}>
+      <tr data-testid={`row-trial-balance-${index}`} className={`${expandable ? 'cursor-pointer' : ''} hover:bg-secondary/25`} onClick={() => expandable && setExpandedAccount(expanded ? null : row.account)}>
+        <td className="px-2 py-3.5 text-muted-foreground">{expandable && (expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}</td>
+        <td className="px-3 py-3.5 text-[12px] font-semibold">{row.account}</td>
+        <td className="px-4 py-3.5 text-[11px] text-muted-foreground">{row.category}</td>
+        <td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.debit ? money(row.debit, currency) : '—'}</td>
+        <td className="px-4 py-3.5 text-right font-mono text-[11px]">{row.credit ? money(row.credit, currency) : '—'}</td>
+        <td className={`px-5 py-3.5 text-right font-mono text-[11px] font-medium ${row.balance < 0 ? 'text-destructive' : ''}`}>{money(row.balance, currency)}</td>
+      </tr>
+      {expanded && <TrialBalanceTransactionsRow account={row.account} currency={currency} colSpan={6} />}
+    </Fragment>;
+  })}</tbody><tfoot className="border-t-2 border-border bg-muted/35"><tr><td colSpan={3} className="px-5 py-3 text-[11px] font-semibold">Totals</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(debit, currency)}</td><td className="px-4 py-3 text-right font-mono text-[11px] font-semibold">{money(credit, currency)}</td><td className="px-5 py-3 text-right font-mono text-[11px] font-semibold">{money(debit - credit, currency)}</td></tr></tfoot></table></div></div></div></QueryState></div>;
 }
 
 function SectionTree({ sections, level = 0 }: { sections: StatementSection[]; level?: number }) {

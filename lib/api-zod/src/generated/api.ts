@@ -2511,8 +2511,19 @@ export const PostJournalEntryParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const postJournalEntryBodyProposedContactNameMax = 160;
+
+export const postJournalEntryBodyProposedContactAliasMax = 160;
+
+
+
 export const PostJournalEntryBody = zod.object({
-  "clientId": zod.number()
+  "clientId": zod.number(),
+  "accountSuggestion": zod.string().nullish(),
+  "contactId": zod.number().nullish(),
+  "proposedContactName": zod.string().min(1).max(postJournalEntryBodyProposedContactNameMax).nullish(),
+  "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "proposedContactAlias": zod.string().min(1).max(postJournalEntryBodyProposedContactAliasMax).nullish()
 })
 
 export const PostJournalEntryResponse = zod.object({
@@ -2592,6 +2603,29 @@ export const GetTrialBalanceResponseItem = zod.object({
   "missingRateCurrencies": zod.array(zod.string())
 })
 export const GetTrialBalanceResponse = zod.array(GetTrialBalanceResponseItem)
+
+
+/**
+ * @summary List the posted transactions that make up one trial balance account's balance
+ */
+export const GetTrialBalanceAccountTransactionsQueryParams = zod.object({
+  "clientId": zod.coerce.number().optional(),
+  "account": zod.coerce.string()
+})
+
+export const GetTrialBalanceAccountTransactionsResponseItem = zod.object({
+  "entryId": zod.number(),
+  "statementLineId": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "side": zod.enum(['debit', 'credit']),
+  "amount": zod.number(),
+  "currency": zod.string(),
+  "functionalAmount": zod.number().nullable(),
+  "functionalCurrency": zod.string().nullable(),
+  "counterAccount": zod.string().optional()
+})
+export const GetTrialBalanceAccountTransactionsResponse = zod.array(GetTrialBalanceAccountTransactionsResponseItem)
 
 
 /**
@@ -3433,3 +3467,5 @@ export const GetUaeCorporateTaxSummaryResponse = zod.object({
   "reviewAmount": zod.number()
 }))
 })
+
+

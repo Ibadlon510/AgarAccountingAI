@@ -144,9 +144,9 @@ export function parsePdfBankStatementRows(text: string, currency: string): Parse
   return rows;
 }
 
-function delimitedRows(text: string) {
+export function delimitedRows(text: string, sampleLines = 20) {
   const normalizedText = text.replace(/^\uFEFF/, "");
-  const delimiterSample = normalizedText.split(/\r?\n/).slice(0, 20).join("\n");
+  const delimiterSample = normalizedText.split(/\r?\n/).slice(0, sampleLines).join("\n");
   const delimiter = [",", ";", "\t"].reduce((best, candidate) => {
     const count = [...delimiterSample].filter((character) => character === candidate).length;
     return count > best.count ? { value: candidate, count } : best;
@@ -241,7 +241,8 @@ function inferNumericDateOrder(values: string[]): NumericDateOrder {
     if (first > 12 && second <= 12) foundDayFirst = true;
     if (second > 12 && first <= 12) foundMonthFirst = true;
   }
-  if (foundDayFirst === foundMonthFirst) return null;
+  if (foundDayFirst && foundMonthFirst) return null;
+  if (!foundDayFirst && !foundMonthFirst) return "day-first";
   return foundDayFirst ? "day-first" : "month-first";
 }
 

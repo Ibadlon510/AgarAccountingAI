@@ -1534,8 +1534,38 @@ export interface BankAccountInput {
   currency: string;
 }
 
+/**
+ * @nullable
+ */
+export type PostJournalEntryInputProposedContactType = typeof PostJournalEntryInputProposedContactType[keyof typeof PostJournalEntryInputProposedContactType] | null;
+
+
+export const PostJournalEntryInputProposedContactType = {
+  customer: 'customer',
+  supplier: 'supplier',
+  both: 'both',
+} as const;
+
 export interface PostJournalEntryInput {
   clientId: number;
+  /** @nullable */
+  accountSuggestion?: string | null;
+  /** @nullable */
+  contactId?: number | null;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactName?: string | null;
+  /** @nullable */
+  proposedContactType?: PostJournalEntryInputProposedContactType;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactAlias?: string | null;
 }
 
 export interface UnpostJournalEntryInput {
@@ -1928,6 +1958,29 @@ export interface TrialBalanceRow {
   missingRateCurrencies: string[];
 }
 
+export type TrialBalanceAccountTransactionSide = typeof TrialBalanceAccountTransactionSide[keyof typeof TrialBalanceAccountTransactionSide];
+
+
+export const TrialBalanceAccountTransactionSide = {
+  debit: 'debit',
+  credit: 'credit',
+} as const;
+
+export interface TrialBalanceAccountTransaction {
+  entryId: number;
+  statementLineId: number;
+  date: string;
+  description: string;
+  side: TrialBalanceAccountTransactionSide;
+  amount: number;
+  currency: string;
+  /** @nullable */
+  functionalAmount: number | null;
+  /** @nullable */
+  functionalCurrency: string | null;
+  counterAccount?: string;
+}
+
 export interface StatementSection {
   label: string;
   amount: number;
@@ -2264,6 +2317,11 @@ export type GetTrialBalanceParams = {
 clientId?: number;
 };
 
+export type GetTrialBalanceAccountTransactionsParams = {
+clientId?: number;
+account: string;
+};
+
 export type GetFinancialStatementsParams = {
 clientId?: number;
 period?: string;
@@ -2282,3 +2340,4 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
+

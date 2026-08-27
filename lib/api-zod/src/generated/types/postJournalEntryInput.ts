@@ -5,7 +5,26 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { PostJournalEntryInputProposedContactType } from './postJournalEntryInputProposedContactType';
 
 export interface PostJournalEntryInput {
   clientId: number;
+  /** @nullable */
+  accountSuggestion?: string | null;
+  /** @nullable */
+  contactId?: number | null;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactName?: string | null;
+  /** @nullable */
+  proposedContactType?: PostJournalEntryInputProposedContactType;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     * @nullable
+     */
+  proposedContactAlias?: string | null;
 }

@@ -102,6 +102,8 @@ import {
   GetContactHistoryResponse,
   GetUploadedFilesResponse,
   GetTrialBalanceResponse,
+  GetTrialBalanceAccountTransactionsQueryParams,
+  GetTrialBalanceAccountTransactionsResponse,
   PostJournalEntryBody,
   ImportStatementBody,
   ImportStatementResponse,
@@ -208,6 +210,7 @@ import {
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import { objectStorageService } from "./storage";
 import {
+  delimitedRows,
   hasDelimitedBankStatementStructure,
   hasPdfBankStatementTable,
   MAX_STATEMENT_FILE_SIZE,
@@ -342,42 +345,7 @@ function exchangeRateCsvKey(value: string) {
 }
 
 function exchangeRateCsvRows(content: string) {
-  const text = content.replace(/^\uFEFF/, "");
-  const delimiterSample = text.split(/\r?\n/).slice(0, 12).join("\n");
-  const delimiter = [",", ";", "\t"].reduce((best, candidate) => {
-    const count = [...delimiterSample].filter((character) => character === candidate).length;
-    return count > best.count ? { value: candidate, count } : best;
-  }, { value: ",", count: -1 }).value;
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-  for (let index = 0; index < text.length; index += 1) {
-    const character = text[index];
-    const next = text[index + 1];
-    if (character === "\"") {
-      if (quoted && next === "\"") {
-        cell += "\"";
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
-    } else if (!quoted && character === delimiter) {
-      row.push(cell.trim());
-      cell = "";
-    } else if (!quoted && (character === "\n" || character === "\r")) {
-      if (character === "\r" && next === "\n") index += 1;
-      row.push(cell.trim());
-      if (row.some(Boolean)) rows.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += character;
-    }
-  }
-  row.push(cell.trim());
-  if (row.some(Boolean)) rows.push(row);
-  return rows;
+  return delimitedRows(content, 12);
 }
 
 function exchangeRateCsvDate(value: string) {
@@ -2627,6 +2595,11 @@ async function materializeProposedContact(
   const alias = line.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160);
   const normalizedAlias = alias ? normalizeContactAlias(alias) : "";
   const contactType = line.proposedContactType;
+  if (!displayName && !alias && !contactType) {
+    // Nothing was ever proposed for this line — that's an intentional "leave
+    // unlinked", not an incomplete review. Posting should not block on it.
+    return { line, entry, createdContact: false };
+  }
   if (
     !displayName
     || !alias
@@ -2806,6 +2779,20 @@ async function hasUnconfirmedLearnedTreatment(
   if (!learned) return false;
   const journalAccount = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
   return learned.accountSuggestion !== journalAccount;
+}
+
+async function hasUnconfirmedAccountRecommendation(
+  executor: Pick<typeof db, "select">,
+  clientId: number,
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect,
+) {
+  if (line.contactSuggestionEvidenceCount == null) return false;
+  const contactSuggestion = await resolveContactSuggestion(executor, clientId, line.description, line.direction, line.contactId, line);
+  const recommendedAccount = contactSuggestion.accountSuggestion;
+  if (!recommendedAccount) return false;
+  const journalAccount = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  return recommendedAccount !== journalAccount;
 }
 
 type SuggestionSource = "ai" | "heuristic" | "workspace_learning";
@@ -3542,7 +3529,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "unconfirmed_learned_treatment") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "unconfirmed_learned_treatment" | "unconfirmed_account_recommendation") {
     super(kind);
   }
 }
@@ -5742,7 +5729,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             body.clientId,
             materialized.line,
             materialized.entry,
-            true,
+            false,
           );
           if (validation) throw new BulkActionValidationError(validation);
           if (await hasUnconfirmedLearnedTreatment(
@@ -5753,6 +5740,14 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             materialized.entry,
           )) {
             throw new BulkActionValidationError("unconfirmed_learned_treatment");
+          }
+          if (await hasUnconfirmedAccountRecommendation(
+            tx,
+            body.clientId,
+            materialized.line,
+            materialized.entry,
+          )) {
+            throw new BulkActionValidationError("unconfirmed_account_recommendation");
           }
         }
         if (materializedPairs.some(({ entry }) => isMissingExchangeRate(entry, client.functionalCurrency))
@@ -5839,6 +5834,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         }
         if (error.kind === "unconfirmed_learned_treatment") {
           return res.status(409).json({ error: "Confirm each learned account recommendation before posting the selected entries." });
+        }
+        if (error.kind === "unconfirmed_account_recommendation") {
+          return res.status(409).json({ error: "The recommended account changed for at least one selected entry. Confirm the account before posting the selected entries." });
         }
         return res.status(409).json({ error: "Only draft entries can be bulk posted. Posted entries were rejected." });
       }
@@ -8088,8 +8086,8 @@ router.get("/agaraccounting/journal-entries", async (req, res) => {
 
 router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
   const { id } = PostJournalEntryParams.parse({ id: Number(req.params.id) });
-  const { clientId } = PostJournalEntryBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, clientId);
+  const body = PostJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
 
   let result;
@@ -8102,30 +8100,76 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
       if (!entry) return { kind: "not_found" as const };
       if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
 
-      const [line] = await tx.select().from(statementLinesTable).where(and(
+      let [line] = await tx.select().from(statementLinesTable).where(and(
         eq(statementLinesTable.id, entry.statementLineId),
         eq(statementLinesTable.clientId, client.id),
       )).for("update");
       if (!line) return { kind: "not_found" as const };
       if (journalLifecycleStatus(line.status) !== "draft") return { kind: "line_conflict" as const };
-      const materialized = await materializeProposedContact(tx, line, entry);
+
+      // The UI no longer has a separate "confirm contact" step: whatever contact
+      // selection or proposed identity is currently shown is applied atomically
+      // as part of posting. A present-but-empty value means "leave unlinked" —
+      // there is deliberately no hard block on posting without a contact.
+      if (
+        body.contactId !== undefined
+        || body.proposedContactName !== undefined
+        || body.proposedContactAlias !== undefined
+        || body.proposedContactType !== undefined
+      ) {
+        if (body.contactId != null) {
+          const [contact] = await tx.select({ id: contactsTable.id }).from(contactsTable).where(and(
+            eq(contactsTable.id, body.contactId),
+            eq(contactsTable.clientId, client.id),
+            eq(contactsTable.status, "active"),
+          )).limit(1);
+          if (!contact) return { kind: "contact_not_found" as const };
+        }
+        const proposedContactName = body.contactId != null ? null : body.proposedContactName?.trim().replace(/\s+/g, " ").slice(0, 160) || null;
+        const [updatedLine] = await tx.update(statementLinesTable).set({
+          contactId: body.contactId ?? null,
+          proposedContactName,
+          proposedContactAlias: body.contactId != null ? null : body.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160) || null,
+          proposedContactType: body.contactId != null ? null : body.proposedContactType ?? null,
+          contactReviewDisposition: body.contactId != null ? "replaced" : proposedContactName ? "accepted" : "dismissed",
+        }).where(and(
+          eq(statementLinesTable.id, line.id),
+          eq(statementLinesTable.clientId, client.id),
+        )).returning();
+        if (!updatedLine) return { kind: "not_found" as const };
+        line = updatedLine;
+      }
+
+      // Likewise, whatever account is currently shown as the classification
+      // decision is applied at post time rather than requiring a separate
+      // "confirm account" step beforehand.
+      let workingEntry = entry;
+      if (body.accountSuggestion) {
+        const [account] = await tx.select({ id: accountClassificationsTable.id }).from(accountClassificationsTable).where(and(
+          eq(accountClassificationsTable.clientId, client.id),
+          eq(accountClassificationsTable.accountName, body.accountSuggestion),
+          eq(accountClassificationsTable.isActive, true),
+        )).limit(1);
+        if (!account) return { kind: "account_not_found" as const };
+        const [updatedEntry] = await tx.update(journalEntriesTable).set(
+          line.direction === "inflow" ? { creditAccount: body.accountSuggestion } : { debitAccount: body.accountSuggestion },
+        ).where(and(
+          eq(journalEntriesTable.id, workingEntry.id),
+          eq(journalEntriesTable.clientId, client.id),
+        )).returning();
+        if (!updatedEntry) return { kind: "not_found" as const };
+        workingEntry = updatedEntry;
+      }
+
+      const materialized = await materializeProposedContact(tx, line, workingEntry);
       const treatmentValidation = await validateCurrentContactTreatment(
         tx,
         client.id,
         materialized.line,
         materialized.entry,
-        true,
+        false,
       );
       if (treatmentValidation) return { kind: treatmentValidation };
-      if (await hasUnconfirmedLearnedTreatment(
-        tx,
-        currentUserId(req),
-        client.id,
-        materialized.line,
-        materialized.entry,
-      )) {
-        return { kind: "unconfirmed_learned_treatment" as const };
-      }
       if (isMissingExchangeRate(materialized.entry, client.functionalCurrency)
         || isMissingExchangeRate(materialized.line, client.functionalCurrency)) {
         return { kind: "missing_exchange_rate" as const, entry: materialized.entry, line: materialized.line };
@@ -8190,8 +8234,12 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     res.status(409).json({ error: "Identify this customer or supplier, select an existing contact, or explicitly keep the line unlinked before posting." });
     return;
   }
-  if (result.kind === "unconfirmed_learned_treatment") {
-    res.status(409).json({ error: "A learned account recommendation differs from this draft journal treatment. Confirm the learned account before posting." });
+  if (result.kind === "contact_not_found") {
+    res.status(400).json({ error: "Selected contact was not found for this client." });
+    return;
+  }
+  if (result.kind === "account_not_found") {
+    res.status(400).json({ error: "Selected account was not found for this client." });
     return;
   }
   if (result.kind === "missing_exchange_rate") {
@@ -8313,6 +8361,35 @@ router.get("/agaraccounting/trial-balance", async (req, res) => {
     });
   }
   res.json(GetTrialBalanceResponse.parse(rows));
+});
+
+router.get("/agaraccounting/trial-balance/transactions", async (req, res) => {
+  const { account } = GetTrialBalanceAccountTransactionsQueryParams.parse(req.query);
+  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
+  const client = await requireOwnedClient(req, res, requestedClientId);
+  if (!client) return;
+  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+  const eligibility = reportingEligibility(entries, functionalCurrency);
+  const transactions = eligibility.eligibleEntries
+    .filter((entry) => entry.debitAccount === account || entry.creditAccount === account)
+    .map((entry) => {
+      const side = entry.debitAccount === account ? "debit" as const : "credit" as const;
+      return {
+        entryId: entry.id,
+        statementLineId: entry.statementLineId,
+        date: entry.date,
+        description: entry.memo,
+        side,
+        amount: number(entry.amount),
+        currency: entry.currency,
+        functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
+        functionalCurrency: entry.functionalCurrency,
+        counterAccount: side === "debit" ? entry.creditAccount : entry.debitAccount,
+      };
+    })
+    .sort((left, right) => left.date.localeCompare(right.date) || left.entryId - right.entryId);
+  res.json(GetTrialBalanceAccountTransactionsResponse.parse(transactions));
 });
 
 router.get("/agaraccounting/financial-statements", async (req, res) => {
