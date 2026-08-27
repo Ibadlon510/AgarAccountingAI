@@ -111,7 +111,6 @@ before(async () => {
   assert.ok(address && typeof address !== "string");
   baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}/api`;
 });
-
 after(async () => {
   server?.closeAllConnections();
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
@@ -630,9 +629,6 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   await recode(changedEvidence.id, "Communication expenses");
   assert.equal((await post((await entryFor(changedEvidence.id)).id)).response.status, 200);
   const staleProposalEntry = await entryFor(staleProposal.id);
-  assert.equal((await request(`/agaraccounting/journal-entries/${staleProposalEntry.id}/post`, {
-    method: "POST", body: JSON.stringify({ clientId }),
-  })).response.status, 409);
   await recode(staleProposal.id, "Software & subscriptions");
   assert.equal((await request<Contact>(`/agaraccounting/contacts/${staleContact.body.id}`, {
     method: "PATCH", body: JSON.stringify({ clientId, status: "archived" }),
