@@ -381,19 +381,16 @@ test("protects and applies the system catalog with traceable fallback precedence
 
   const clientOptOutCandidate = await createLine("JPY", "Client opt-out candidate");
   assert.equal(clientOptOutCandidate.body.exchangeRateSourceScope, "system");
-  const journals = await request<Array<{ id: number; statementLineId: number }>>(
+  const journals = await request<Array<{ id: number; statementLineId: number; status: string }>>(
     `/agaraccounting/journal-entries?clientId=${clientId}`,
     systemAdminId,
   );
   const systemJournal = journals.body.find((entry) => entry.statementLineId === systemLine.body.id);
   assert.ok(systemJournal);
+  assert.equal(systemJournal.status, "draft");
   assert.equal((await request(`/agaraccounting/statement-lines/${systemLine.body.id}/contact`, systemAdminId, {
     method: "PATCH",
     body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
-  })).response.status, 200);
-  assert.equal((await request(`/agaraccounting/journal-entries/${systemJournal.id}/approve`, systemAdminId, {
-    method: "POST",
-    body: JSON.stringify({ clientId }),
   })).response.status, 200);
   assert.equal((await request(`/agaraccounting/journal-entries/${systemJournal.id}/post`, systemAdminId, {
     method: "POST",

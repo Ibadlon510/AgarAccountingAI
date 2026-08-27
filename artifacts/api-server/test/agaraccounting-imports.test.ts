@@ -30,6 +30,7 @@ type ImportResult = {
     id: number;
     bankAccountId: number | null;
     currency: string;
+    status?: string;
     proposedContactName?: string | null;
     proposedContactAlias?: string | null;
     proposedContactConfidence?: number | null;
@@ -55,6 +56,7 @@ type StatementLine = {
   bankAccountId: number | null;
   description: string;
   currency: string;
+  status: string;
 };
 
 type AIRecommendation = {
@@ -473,7 +475,7 @@ test("keeps existing alias precedence consistent from import preview through con
   assert.equal(confirmed.body.lines[0]?.proposedContactName, null);
 });
 
-test("undoes only a review-only import, preserves evidence and audit IDs, and is idempotent", async () => {
+test("undoes an unchanged draft import, preserves evidence and audit IDs, and is idempotent", async () => {
   assert.ok(database);
   const clientId = await createClient(`Review-only undo ${randomUUID()}`);
   const imported = await importStatement(clientId, "undo-review-only.csv", "undo-review-only");
@@ -485,6 +487,8 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
   const [entry] = await database.db.select().from(database.journalEntriesTable)
     .where(eq(database.journalEntriesTable.statementLineId, lineId));
   assert.ok(entry);
+  assert.equal(imported.body.lines[0]?.status, "draft");
+  assert.equal(entry.status, "draft");
 
   const undone = await request<{
     outcome: "undone";
@@ -540,7 +544,7 @@ test("undoes only a review-only import, preserves evidence and audit IDs, and is
   assert.deepEqual(trialBalance.body, []);
 });
 
-test("blocks changed imports and isolates the statement-import undo mutation", async () => {
+test("blocks posted imports and isolates the statement-import undo mutation", async () => {
   assert.ok(database);
   const clientId = await createClient(`Blocked import undo ${randomUUID()}`);
   const imported = await importStatement(clientId, "undo-blocked.csv", "undo-blocked");
@@ -553,7 +557,7 @@ test("blocks changed imports and isolates the statement-import undo mutation", a
     .where(eq(database.journalEntriesTable.statementLineId, lineId));
   assert.ok(entry);
   await database.db.update(database.journalEntriesTable)
-    .set({ status: "approved" })
+    .set({ status: "posted" })
     .where(eq(database.journalEntriesTable.id, entry.id));
 
   const foreign = await request<{ error: string }>(`/agaraccounting/statement-imports/${importId}/undo`, {
@@ -567,7 +571,7 @@ test("blocks changed imports and isolates the statement-import undo mutation", a
     body: JSON.stringify({ clientId }),
   });
   assert.equal(blocked.response.status, 409);
-  assert.match(blocked.body.error, /changed, approved, or posted/i);
+  assert.match(blocked.body.error, /changed or posted/i);
   assert.equal((await statementLines(clientId)).length, 1);
   const [storedImport] = await database.db.select().from(database.statementImportsTable)
     .where(eq(database.statementImportsTable.id, importId));
@@ -575,6 +579,7 @@ test("blocks changed imports and isolates the statement-import undo mutation", a
   const audits = await database.db.select().from(database.statementImportUndoAuditsTable)
     .where(eq(database.statementImportUndoAuditsTable.statementImportId, importId));
   assert.equal(audits.length, 0);
+
 });
 
 test("stores a USD statement for confirmation without creating lines, then loads it only after confirmation", async () => {
@@ -861,7 +866,7 @@ test("serves a private PDF inline with a safe name and downloads it only when re
   assert.equal(missing.status, 404);
 });
 
-test("stages deterministic description recodes before separately confirmed approval and posting", async () => {
+test("stages deterministic description recodes before directly posting draft entries", async () => {
   const clientId = await createClient(`AI action scope ${randomUUID()}`);
   const createdLine = await request<{ id: number; accountSuggestion: string }>("/agaraccounting/statement-lines", {
     method: "POST",
@@ -927,47 +932,23 @@ test("stages deterministic description recodes before separately confirmed appro
   assert.equal(journalEntries.response.status, 200);
   const entry = journalEntries.body.find((item) => item.statementLineId === createdLine.body.id);
   assert.ok(entry);
-  assert.equal(entry.status, "suggested");
+  assert.equal(entry.status, "draft");
   assert.equal((await request(`/agaraccounting/statement-lines/${createdLine.body.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
   })).response.status, 200);
 
-  const approvalCard = await request<CopilotResponse>("/agaraccounting/ai-chat", {
+  const approvalRequest = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({ clientId, message: "Approve all suggested entries." }),
   });
-  assert.equal(approvalCard.response.status, 200);
-  assert.equal(approvalCard.body.recommendations[0]?.type, "bulk_approve_entries");
-
-  const approval = await request<{ toStatus: string; entryCount: number }>("/agaraccounting/ai-actions/confirm", {
-    method: "POST",
-    body: JSON.stringify({
-      type: "bulk_approve_entries",
-      clientId,
-      entryIds: approvalCard.body.recommendations[0]?.entryIds,
-      statementLineIds: approvalCard.body.recommendations[0]?.statementLineIds,
-    }),
-  });
-  assert.equal(approval.response.status, 200);
-  assert.equal(approval.body.toStatus, "approved");
-  assert.equal(approval.body.entryCount, 1);
-
-  const repeatedApproval = await request<{ error: string }>("/agaraccounting/ai-actions/confirm", {
-    method: "POST",
-    body: JSON.stringify({
-      type: "bulk_approve_entries",
-      clientId,
-      entryIds: approvalCard.body.recommendations[0]?.entryIds,
-      statementLineIds: approvalCard.body.recommendations[0]?.statementLineIds,
-    }),
-  });
-  assert.equal(repeatedApproval.response.status, 409);
-  assert.match(repeatedApproval.body.error, /only suggested entries/i);
+  assert.equal(approvalRequest.response.status, 200);
+  assert.deepEqual(approvalRequest.body.recommendations, []);
+  assert.match(approvalRequest.body.answer, /approval is no longer a separate stage/i);
 
   const postingCard = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
-    body: JSON.stringify({ clientId, message: "Post all approved entries." }),
+    body: JSON.stringify({ clientId, message: "Post all draft entries." }),
   });
   assert.equal(postingCard.response.status, 200);
   assert.equal(postingCard.body.recommendations[0]?.type, "bulk_post_entries");
@@ -985,7 +966,7 @@ test("stages deterministic description recodes before separately confirmed appro
 
   const audits = await request<Array<{ transition: string; actor: { id: string } }>>(`/agaraccounting/bulk-transition-audits?clientId=${clientId}`);
   assert.equal(audits.response.status, 200);
-  assert.deepEqual(audits.body.map((audit) => audit.transition).sort(), ["bulk_approve_entries", "bulk_post_entries"]);
+  assert.deepEqual(audits.body.map((audit) => audit.transition), ["bulk_post_entries"]);
   assert.ok(audits.body.every((audit) => audit.actor.id === primaryUserId));
 });
 
@@ -1000,7 +981,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
       currency: index % 2 === 0 ? "USD" : "AED",
       amount: String(100 + index),
       direction: "outflow" as const,
-      status: "needs_review" as const,
+      status: "draft" as const,
       source: "Copilot test",
       accountSuggestion: "Software & subscriptions",
       confidence: "0.90",
@@ -1012,7 +993,7 @@ test("persists isolated copilot threads and returns complete grounded results ac
     date: line.date,
     memo: line.description,
     currency: line.currency,
-    status: "suggested" as const,
+    status: "draft" as const,
     confidence: "0.90",
     debitAccount: "Software & subscriptions",
     creditAccount: "Bank / cash",
@@ -1339,7 +1320,7 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   assert.ok(aiRequests.some((item) => item.path === "/v1/chat/completions" && item.credential === "agaraccounting-test-openai-key"));
 });
 
-test("prepares description-scoped recoding, approval, and posting as separate confirmed actions", async () => {
+test("prepares description-scoped recoding and direct draft posting as separate confirmed actions", async () => {
   const clientId = await createClient(`AI batch scope ${randomUUID()}`);
   for (const [date, amount] of [["2026-08-23", 150], ["2026-08-24", 250]] as const) {
     const created = await request<{ id: number }>("/agaraccounting/statement-lines", {
@@ -1375,7 +1356,6 @@ test("prepares description-scoped recoding, approval, and posting as separate co
 
   for (const mixedInstruction of [
     "All transactions with description SUNWEB GROUP GMBH must be posted as revenue and post them.",
-    "All transactions with description SUNWEB GROUP GMBH must be posted as revenue and approve them.",
   ]) {
     const mixedRequest = await request<{ answer: string; recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
       method: "POST",
@@ -1399,35 +1379,22 @@ test("prepares description-scoped recoding, approval, and posting as separate co
   assert.equal(recodeConfirmation.response.status, 200);
   assert.equal(recodeConfirmation.body.updatedLineCount, 2);
 
-  const approval = await request<{ recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
+  const approvalRequest = await request<{ answer: string; recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
       message: "Approve all pending entries with description SUNWEB GROUP GMBH.",
     }),
   });
-  assert.equal(approval.response.status, 200);
-  const approvalRecommendation = approval.body.recommendations[0];
-  assert.equal(approvalRecommendation?.type, "bulk_approve_entries");
-  assert.equal(approvalRecommendation?.entryCount, 2);
-
-  const approvalConfirmation = await request<{ toStatus: string }>("/agaraccounting/ai-actions/confirm", {
-    method: "POST",
-    body: JSON.stringify({
-      clientId,
-      type: approvalRecommendation?.type,
-      entryIds: approvalRecommendation?.entryIds,
-      statementLineIds: approvalRecommendation?.statementLineIds,
-    }),
-  });
-  assert.equal(approvalConfirmation.response.status, 200);
-  assert.equal(approvalConfirmation.body.toStatus, "approved");
+  assert.equal(approvalRequest.response.status, 200);
+  assert.deepEqual(approvalRequest.body.recommendations, []);
+  assert.match(approvalRequest.body.answer, /approval is no longer a separate stage/i);
 
   const posting = await request<{ recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
       clientId,
-      message: "Post all approved entries with description SUNWEB GROUP GMBH.",
+      message: "Post all draft entries with description SUNWEB GROUP GMBH.",
     }),
   });
   assert.equal(posting.response.status, 200);
@@ -1482,10 +1449,10 @@ test("filters statement lines by receipts or payments with client, currency, and
   assert.ok(payments.body.every((line) => line.direction === "outflow"));
 
   const combined = await request<Array<{ description: string; currency: string; status: string }>>(
-    `/agaraccounting/statement-lines?clientId=${clientId}&direction=outflow&currency=USD&status=needs_review`,
+    `/agaraccounting/statement-lines?clientId=${clientId}&direction=outflow&currency=USD&status=draft`,
   );
   assert.deepEqual(combined.body.map((line) => line.description), ["Direction payment USD"]);
-  assert.ok(combined.body.every((line) => line.currency === "USD" && line.status === "needs_review"));
+  assert.ok(combined.body.every((line) => line.currency === "USD" && line.status === "draft"));
 
   const empty = await request<unknown[]>(
     `/agaraccounting/statement-lines?clientId=${clientId}&direction=inflow&currency=GBP`,

@@ -129,7 +129,7 @@ after(async () => {
   }
 });
 
-test("posting a journal entry updates client-scoped reports", async () => {
+test("posting a draft journal entry updates client-scoped reports", async () => {
   const client = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
@@ -140,7 +140,7 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(client.response.status, 201);
   clientId = client.body.id;
 
-  const line = await request<{ id: number; accountSuggestion: string }>("/agaraccounting/statement-lines", {
+  const line = await request<{ id: number; status: string; accountSuggestion: string }>("/agaraccounting/statement-lines", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -152,6 +152,7 @@ test("posting a journal entry updates client-scoped reports", async () => {
     }),
   });
   assert.equal(line.response.status, 201);
+  assert.equal(line.body.status, "draft");
   assert.equal(line.body.accountSuggestion, "Inter-account transfer");
   assert.equal((await request(`/agaraccounting/statement-lines/${line.body.id}/contact`, {
     method: "PATCH",
@@ -169,7 +170,7 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(entries.response.status, 200);
   const entry = entries.body.find((item) => item.statementLineId === line.body.id);
   assert.ok(entry, "Expected a journal entry for the new statement line");
-  assert.equal(entry.status, "suggested");
+  assert.equal(entry.status, "draft");
 
   const [beforeTrialBalance, beforeStatements, forbiddenReport] = await Promise.all([
     request<TrialBalanceRow[]>(`/agaraccounting/trial-balance?clientId=${clientId}`),
@@ -180,20 +181,7 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(beforeStatements.response.status, 200);
   assert.equal(forbiddenReport.response.status, 403);
 
-  const forbiddenApproval = await request<{ error: string }>(`/agaraccounting/journal-entries/${entry.id}/approve`, {
-    method: "POST",
-    body: JSON.stringify({ clientId }),
-  }, secondaryUserId);
-  assert.equal(forbiddenApproval.response.status, 403);
-
-  const approval = await request<{ status: string }>(`/agaraccounting/journal-entries/${entry.id}/approve`, {
-    method: "POST",
-    body: JSON.stringify({ clientId }),
-  });
-  assert.equal(approval.response.status, 200);
-  assert.equal(approval.body.status, "approved");
-
-  const [approvedTrialBalance, approvedStatements, forbiddenPost] = await Promise.all([
+  const [draftTrialBalance, draftStatements, forbiddenPost] = await Promise.all([
     request<TrialBalanceRow[]>(`/agaraccounting/trial-balance?clientId=${clientId}`),
     request<FinancialStatements>(`/agaraccounting/financial-statements?clientId=${clientId}`),
     request<{ error: string }>(`/agaraccounting/journal-entries/${entry.id}/post`, {
@@ -201,8 +189,8 @@ test("posting a journal entry updates client-scoped reports", async () => {
       body: JSON.stringify({ clientId }),
     }, secondaryUserId),
   ]);
-  assert.deepEqual(approvedTrialBalance.body, beforeTrialBalance.body);
-  assert.deepEqual(approvedStatements.body, beforeStatements.body);
+  assert.deepEqual(draftTrialBalance.body, beforeTrialBalance.body);
+  assert.deepEqual(draftStatements.body, beforeStatements.body);
   assert.equal(forbiddenPost.response.status, 403);
 
   const posting = await request<{ status: string }>(`/agaraccounting/journal-entries/${entry.id}/post`, {
@@ -244,7 +232,7 @@ test("posting a journal entry updates client-scoped reports", async () => {
   assert.equal(postedNetIncome - beforeNetIncome, 0);
   assert.equal(postedCashFlow - beforeCashFlow, 0);
 
-  const transferLine = await request<{ id: number; accountSuggestion: string }>("/agaraccounting/statement-lines", {
+  const transferLine = await request<{ id: number; status: string; accountSuggestion: string }>("/agaraccounting/statement-lines", {
     method: "POST",
     body: JSON.stringify({
       clientId,
@@ -256,18 +244,16 @@ test("posting a journal entry updates client-scoped reports", async () => {
     }),
   });
   assert.equal(transferLine.response.status, 201);
+  assert.equal(transferLine.body.status, "draft");
   assert.equal(transferLine.body.accountSuggestion, "Inter-account transfer");
   assert.equal((await request(`/agaraccounting/statement-lines/${transferLine.body.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
   })).response.status, 200);
-  const transferEntries = await request<Array<{ id: number; statementLineId: number }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
+  const transferEntries = await request<Array<{ id: number; statementLineId: number; status: string }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
   const transferEntry = transferEntries.body.find((entry) => entry.statementLineId === transferLine.body.id);
   assert.ok(transferEntry);
-  assert.equal((await request(`/agaraccounting/journal-entries/${transferEntry.id}/approve`, {
-    method: "POST",
-    body: JSON.stringify({ clientId }),
-  })).response.status, 200);
+  assert.equal(transferEntry.status, "draft");
   assert.equal((await request(`/agaraccounting/journal-entries/${transferEntry.id}/post`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
@@ -307,7 +293,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
   const lifecycleClientId = lifecycleClient.body.id;
 
   try {
-    const line = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    const line = await request<{ id: number; status: string }>("/agaraccounting/statement-lines", {
       method: "POST",
       body: JSON.stringify({
         clientId: lifecycleClientId,
@@ -319,6 +305,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
       }),
     });
     assert.equal(line.response.status, 201);
+    assert.equal(line.body.status, "draft");
     assert.equal((await request(`/agaraccounting/statement-lines/${line.body.id}/contact`, {
       method: "PATCH",
       body: JSON.stringify({ clientId: lifecycleClientId, contactId: null, contactReviewDisposition: "dismissed" }),
@@ -328,10 +315,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
     );
     const entry = entries.body.find((candidate) => candidate.statementLineId === line.body.id);
     assert.ok(entry);
-    assert.equal((await request(`/agaraccounting/journal-entries/${entry.id}/approve`, {
-      method: "POST",
-      body: JSON.stringify({ clientId: lifecycleClientId }),
-    })).response.status, 200);
+    assert.equal(entry.status, "draft");
 
     const [beforeTrialBalance, beforeStatements] = await Promise.all([
       request<TrialBalanceRow[]>(`/agaraccounting/trial-balance?clientId=${lifecycleClientId}`),
@@ -364,7 +348,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
     assert.ok(postAudit);
     assert.deepEqual(postAudit.entryIds, [entry.id]);
     assert.deepEqual(postAudit.statementLineIds, [line.body.id]);
-    assert.equal(postAudit.fromStatus, "approved");
+    assert.equal(postAudit.fromStatus, "draft");
     assert.equal(postAudit.toStatus, "posted");
     assert.equal(postAudit.actor.id, primaryUserId);
     assert.ok(Date.parse(postAudit.confirmedAt));
@@ -403,7 +387,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
       body: JSON.stringify({ clientId: lifecycleClientId }),
     });
     assert.equal(unpost.response.status, 200);
-    assert.equal(unpost.body.status, "approved");
+    assert.equal(unpost.body.status, "draft");
     const repeatedUnpost = await request<{ error: string }>(`/agaraccounting/journal-entries/${entry.id}/unpost`, {
       method: "POST",
       body: JSON.stringify({ clientId: lifecycleClientId }),
@@ -418,13 +402,13 @@ test("posting can be reversed without rewriting reports or accountability eviden
     ]);
     assert.deepEqual(unpostedTrialBalance.body, beforeTrialBalance.body);
     assert.deepEqual(unpostedStatements.body.incomeStatement, beforeStatements.body.incomeStatement);
-    assert.equal(unpostedLine.body.find((candidate) => candidate.id === line.body.id)?.status, "needs_review");
+    assert.equal(unpostedLine.body.find((candidate) => candidate.id === line.body.id)?.status, "draft");
     const unpostAudit = unpostedAudits.body.find((audit) => audit.transition === "unpost_entry");
     assert.ok(unpostAudit);
     assert.deepEqual(unpostAudit.entryIds, [entry.id]);
     assert.deepEqual(unpostAudit.statementLineIds, [line.body.id]);
     assert.equal(unpostAudit.fromStatus, "posted");
-    assert.equal(unpostAudit.toStatus, "approved");
+    assert.equal(unpostAudit.toStatus, "draft");
     assert.equal(unpostAudit.actor.id, primaryUserId);
 
     const refreshedDraft = await request<{ snapshot: { traceability: { postedEntryCount: number } } }>("/agaraccounting/report-packs", {
@@ -440,7 +424,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
     assert.equal(refreshedDraft.response.status, 201);
     assert.equal(refreshedDraft.body.snapshot.traceability.postedEntryCount, 0);
 
-    const foreignLine = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    const foreignLine = await request<{ id: number; status: string }>("/agaraccounting/statement-lines", {
       method: "POST",
       body: JSON.stringify({
         clientId: lifecycleClientId,
@@ -451,21 +435,24 @@ test("posting can be reversed without rewriting reports or accountability eviden
         direction: "outflow",
       }),
     });
+    assert.equal(foreignLine.response.status, 201);
+    assert.equal(foreignLine.body.status, "draft");
     assert.equal((await request(`/agaraccounting/statement-lines/${foreignLine.body.id}/contact`, {
       method: "PATCH",
       body: JSON.stringify({ clientId: lifecycleClientId, contactId: null, contactReviewDisposition: "dismissed" }),
     })).response.status, 200);
-    const foreignEntries = await request<Array<{ id: number; statementLineId: number }>>(`/agaraccounting/journal-entries?clientId=${lifecycleClientId}`);
+    const foreignEntries = await request<Array<{ id: number; statementLineId: number; status: string }>>(`/agaraccounting/journal-entries?clientId=${lifecycleClientId}`);
     const foreignEntry = foreignEntries.body.find((candidate) => candidate.statementLineId === foreignLine.body.id);
     assert.ok(foreignEntry);
-    const blockedApproval = await request<{ error: string }>(`/agaraccounting/journal-entries/${foreignEntry.id}/approve`, {
+    assert.equal(foreignEntry.status, "draft");
+    const blockedPostingAfterRateDeletion = await request<{ error: string }>(`/agaraccounting/journal-entries/${foreignEntry.id}/post`, {
       method: "POST",
       body: JSON.stringify({ clientId: lifecycleClientId }),
     });
-    assert.equal(blockedApproval.response.status, 409);
-    assert.match(blockedApproval.body.error, /exchange rate required before approval/i);
-    const stillSuggested = await request<Array<{ id: number; status: string }>>(`/agaraccounting/journal-entries?clientId=${lifecycleClientId}`);
-    assert.equal(stillSuggested.body.find((candidate) => candidate.id === foreignEntry.id)?.status, "suggested");
+    assert.equal(blockedPostingAfterRateDeletion.response.status, 409);
+    assert.match(blockedPostingAfterRateDeletion.body.error, /exchange rate required before posting/i);
+    const stillDraft = await request<Array<{ id: number; status: string }>>(`/agaraccounting/journal-entries?clientId=${lifecycleClientId}`);
+    assert.equal(stillDraft.body.find((candidate) => candidate.id === foreignEntry.id)?.status, "draft");
 
     const addedRate = await request<{ id: number }>(`/agaraccounting/exchange-rates?clientId=${lifecycleClientId}`, {
       method: "POST",
@@ -477,11 +464,6 @@ test("posting can be reversed without rewriting reports or accountability eviden
       }),
     });
     assert.equal(addedRate.response.status, 201);
-    assert.equal((await request(`/agaraccounting/journal-entries/${foreignEntry.id}/approve`, {
-      method: "POST",
-      body: JSON.stringify({ clientId: lifecycleClientId }),
-    })).response.status, 200);
-
     const deletedRate = await fetch(`${baseUrl}/agaraccounting/exchange-rates/${addedRate.body.id}`, {
       method: "DELETE",
       headers: {

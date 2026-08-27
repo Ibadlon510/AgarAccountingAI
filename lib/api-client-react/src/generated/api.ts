@@ -33,7 +33,6 @@ import type {
   AIProviderSettingsTestInput,
   AccountProfile,
   AccountProfileInput,
-  ApproveJournalEntryInput,
   AuthUserEnvelope,
   BankAccount,
   BankAccountInput,
@@ -95,6 +94,7 @@ import type {
   OrganizationInvitation,
   OrganizationInviteInput,
   OrganizationOnboardingInput,
+  PostJournalEntryInput,
   ReportPack,
   ReportPackInput,
   ReportPackSummary,
@@ -5841,78 +5841,6 @@ export function useGetJournalEntries<TData = Awaited<ReturnType<typeof getJourna
 
 
 
-export const getApproveJournalEntryUrl = (id: number,) => {
-
-
-
-
-  return `/api/agaraccounting/journal-entries/${id}/approve`
-}
-
-/**
- * @summary Approve a suggested journal entry
- */
-export const approveJournalEntry = async (id: number,
-    approveJournalEntryInput: ApproveJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
-
-  return customFetch<JournalEntry>(getApproveJournalEntryUrl(id),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(approveJournalEntryInput)
-  }
-);}
-
-
-
-
-
-export const getApproveJournalEntryMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext> => {
-
-const mutationKey = ['approveJournalEntry'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveJournalEntry>>, {id: number;data: BodyType<ApproveJournalEntryInput>}> = (props) => {
-          const {id,data} = props ?? {};
-
-          return  approveJournalEntry(id,data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ApproveJournalEntryMutationResult = NonNullable<Awaited<ReturnType<typeof approveJournalEntry>>>
-    export type ApproveJournalEntryMutationBody = BodyType<ApproveJournalEntryInput>
-    export type ApproveJournalEntryMutationError = ErrorType<unknown>
-
-    /**
- * @summary Approve a suggested journal entry
- */
-export const useApproveJournalEntry = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof approveJournalEntry>>,
-        TError,
-        {id: number;data: BodyType<ApproveJournalEntryInput>},
-        TContext
-      > => {
-      return useMutation(getApproveJournalEntryMutationOptions(options));
-    }
-
 export const getPostJournalEntryUrl = (id: number,) => {
 
 
@@ -5922,17 +5850,17 @@ export const getPostJournalEntryUrl = (id: number,) => {
 }
 
 /**
- * @summary Post an approved journal entry to the ledger
+ * @summary Post an eligible draft journal entry to the ledger
  */
 export const postJournalEntry = async (id: number,
-    approveJournalEntryInput: ApproveJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
+    postJournalEntryInput: PostJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
 
   return customFetch<JournalEntry>(getPostJournalEntryUrl(id),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(approveJournalEntryInput)
+    body: JSON.stringify(postJournalEntryInput)
   }
 );}
 
@@ -5941,8 +5869,8 @@ export const postJournalEntry = async (id: number,
 
 
 export const getPostJournalEntryMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<PostJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<PostJournalEntryInput>}, TContext> => {
 
 const mutationKey = ['postJournalEntry'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -5954,7 +5882,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postJournalEntry>>, {id: number;data: BodyType<ApproveJournalEntryInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof postJournalEntry>>, {id: number;data: BodyType<PostJournalEntryInput>}> = (props) => {
           const {id,data} = props ?? {};
 
           return  postJournalEntry(id,data,requestOptions)
@@ -5968,18 +5896,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type PostJournalEntryMutationResult = NonNullable<Awaited<ReturnType<typeof postJournalEntry>>>
-    export type PostJournalEntryMutationBody = BodyType<ApproveJournalEntryInput>
+    export type PostJournalEntryMutationBody = BodyType<PostJournalEntryInput>
     export type PostJournalEntryMutationError = ErrorType<void>
 
     /**
- * @summary Post an approved journal entry to the ledger
+ * @summary Post an eligible draft journal entry to the ledger
  */
 export const usePostJournalEntry = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<ApproveJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postJournalEntry>>, TError,{id: number;data: BodyType<PostJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof postJournalEntry>>,
         TError,
-        {id: number;data: BodyType<ApproveJournalEntryInput>},
+        {id: number;data: BodyType<PostJournalEntryInput>},
         TContext
       > => {
       return useMutation(getPostJournalEntryMutationOptions(options));
@@ -5994,7 +5922,7 @@ export const getUnpostJournalEntryUrl = (id: number,) => {
 }
 
 /**
- * @summary Return a posted journal entry to approved and remove it from live reports
+ * @summary Return a posted journal entry to draft and remove it from live reports
  */
 export const unpostJournalEntry = async (id: number,
     unpostJournalEntryInput: UnpostJournalEntryInput, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntry> => {
@@ -6044,7 +5972,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type UnpostJournalEntryMutationError = ErrorType<void>
 
     /**
- * @summary Return a posted journal entry to approved and remove it from live reports
+ * @summary Return a posted journal entry to draft and remove it from live reports
  */
 export const useUnpostJournalEntry = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof unpostJournalEntry>>, TError,{id: number;data: BodyType<UnpostJournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

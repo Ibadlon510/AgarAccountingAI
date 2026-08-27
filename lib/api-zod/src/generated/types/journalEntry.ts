@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { JournalEntryExchangeRateSourceScope } from './journalEntryExchangeRateSourceScope';
+import type { JournalEntryStatus } from './journalEntryStatus';
 import type { JournalLine } from './journalLine';
 
 export interface JournalEntry {
@@ -18,7 +19,7 @@ export interface JournalEntry {
   date: string;
   memo: string;
   currency: string;
-  status: string;
+  status: JournalEntryStatus;
   confidence: number;
   lines: JournalLine[];
   /** @nullable */

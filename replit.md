@@ -32,14 +32,14 @@ AgarAccounting AI System is an AI-assisted bookkeeping workspace that takes mult
 
 ## Architecture decisions
 
-- Every suggested entry remains linked to its statement line and needs explicit approval before it is treated as posted.
+- Every draft entry remains linked to its statement line and needs an explicit user posting confirmation before it is included in live reports.
 - The first release uses a small seed dataset so the complete close workflow is visible on first launch.
 - Financial reports are read-only workflow outputs; source correction happens at statement-line and journal-entry stages.
 
 ## Product
 
 - Review bank statement lines by currency, create manual lines, and track AI account suggestions with confidence.
-- Review and approve double-entry journal suggestions.
+- Review and post double-entry journal drafts.
 - Inspect a trial balance, income statement, balance sheet, and indirect cash-flow statement for the selected period.
 
 ## User preferences

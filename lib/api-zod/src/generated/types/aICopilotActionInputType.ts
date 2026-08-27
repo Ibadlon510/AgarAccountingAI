@@ -12,6 +12,5 @@ export type AICopilotActionInputType = typeof AICopilotActionInputType[keyof typ
 export const AICopilotActionInputType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
-  bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
 } as const;

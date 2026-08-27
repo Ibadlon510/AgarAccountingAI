@@ -4,8 +4,7 @@ import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, ne, or, sq
 import { createHash, randomBytes } from "node:crypto";
 import * as XLSX from "xlsx";
 import {
-  ApproveJournalEntryParams,
-  ApproveJournalEntryBody,
+  PostJournalEntryParams,
   UnpostJournalEntryParams,
   UnpostJournalEntryBody,
   UnpostJournalEntryResponse,
@@ -61,7 +60,7 @@ import {
   ParseExchangeRatesResponse,
   ParseSystemRatesBody,
   ParseSystemRatesResponse,
-  ApproveJournalEntryResponse,
+  PostJournalEntryResponse,
   GetAgarAccountingUsageResponse,
   UpdateClientParams,
   UpdateClientBody,
@@ -238,6 +237,11 @@ import { buildReportPdf } from "../lib/reportPdf";
 const router: IRouter = Router();
 type AccountingTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DRAFT_JOURNAL_STATUSES = ["draft", "suggested", "approved", "needs_review"] as const;
+
+function journalLifecycleStatus(status: string): "draft" | "posted" {
+  return status === "posted" ? "posted" : "draft";
+}
 
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, contactName: string | null = null) {
   return {
@@ -248,7 +252,7 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
     date: calendarDate(entry.date),
     memo: entry.memo,
     currency: entry.currency,
-    status: entry.status,
+    status: journalLifecycleStatus(entry.status),
     confidence: number(entry.confidence),
     functionalCurrency: entry.functionalCurrency,
     functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
@@ -269,10 +273,10 @@ function number(value: string | null | undefined) {
 const legacyDemoRows = [
   { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
   { date: "2026-08-05", description: "STRIPE PAYOUT 8472", currency: "USD", amount: "12450.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.99" },
-  { date: "2026-08-07", description: "AWS EMEA", currency: "USD", amount: "624.50", direction: "outflow", status: "needs_review", accountSuggestion: "Software & subscriptions", confidence: "0.91" },
-  { date: "2026-08-10", description: "AL FARAJ OFFICE SUPPLIES", currency: "AED", amount: "389.00", direction: "outflow", status: "needs_review", accountSuggestion: "Office expenses", confidence: "0.87" },
+  { date: "2026-08-07", description: "AWS EMEA", currency: "USD", amount: "624.50", direction: "outflow", status: "draft", accountSuggestion: "Software & subscriptions", confidence: "0.91" },
+  { date: "2026-08-10", description: "AL FARAJ OFFICE SUPPLIES", currency: "AED", amount: "389.00", direction: "outflow", status: "draft", accountSuggestion: "Office expenses", confidence: "0.87" },
   { date: "2026-08-12", description: "CLIENT RETAINER — NORTHSTAR", currency: "AED", amount: "28750.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.97" },
-  { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "needs_review", accountSuggestion: "Communication expenses", confidence: "0.84" },
+  { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "draft", accountSuggestion: "Communication expenses", confidence: "0.84" },
 ] as const;
 
 type WorkspaceState = "starter" | "configured" | "legacy_demo";
@@ -887,7 +891,7 @@ function isMissingExchangeRate(record: ExchangeRateCoverageRecord, functionalCur
 function exchangeRateRequiredMessage(
   records: ExchangeRateCoverageRecord[],
   functionalCurrency: string,
-  action: "approval" | "posting",
+  action: "posting",
 ) {
   const normalizedFunctionalCurrency = normalizeCurrency(functionalCurrency);
   const missing = records.filter((record) => isMissingExchangeRate(record, normalizedFunctionalCurrency));
@@ -1802,7 +1806,7 @@ async function isUntouchedLegacyDemoWorkspace(
     );
     if (!line) return false;
     const entry = entries.find((candidate) => candidate.statementLineId === line.id);
-    const expectedStatus = seed.status === "posted" ? "posted" : "suggested";
+    const expectedStatus = seed.status === "posted" ? "posted" : "draft";
     const expectedDebit = seed.direction === "inflow" ? "Bank / cash" : seed.accountSuggestion;
     const expectedCredit = seed.direction === "inflow" ? seed.accountSuggestion : "Bank / cash";
     return entry?.date === seed.date
@@ -2368,7 +2372,11 @@ async function resolveContactSuggestion(
   }
 
   const evidence = await executor.select({
-    accountSuggestion: contactClassificationEvidenceTable.accountSuggestion,
+    accountSuggestion: sql<string>`CASE
+      WHEN ${contactClassificationEvidenceTable.direction} = 'inflow'
+      THEN ${journalEntriesTable.creditAccount}
+      ELSE ${journalEntriesTable.debitAccount}
+    END`,
     direction: contactClassificationEvidenceTable.direction,
     entryStatus: journalEntriesTable.status,
   }).from(contactClassificationEvidenceTable)
@@ -2380,7 +2388,7 @@ async function resolveContactSuggestion(
       eq(contactClassificationEvidenceTable.clientId, clientId),
       eq(contactClassificationEvidenceTable.contactId, contact.id),
       eq(contactClassificationEvidenceTable.direction, direction),
-      inArray(journalEntriesTable.status, ["approved", "posted"]),
+      eq(journalEntriesTable.status, "posted"),
     ));
   if (!evidence.length) {
     return {
@@ -2389,7 +2397,7 @@ async function resolveContactSuggestion(
       contactType: contact.contactType as ContactSuggestion["contactType"],
       contactMatchConfidence: matchConfidence,
       contactSuggestionStatus: "no_history",
-      contactSuggestionReason: `${matchReason ?? `Matched ${contact.displayName}`}, but there is no approved or posted ${direction} history yet.`,
+      contactSuggestionReason: `${matchReason ?? `Matched ${contact.displayName}`}, but there is no previously posted ${direction} history yet.`,
       proposedContactName: null,
       proposedContactType: null,
       proposedContactAlias: null,
@@ -2455,8 +2463,8 @@ async function resolveContactSuggestion(
     contactMatchConfidence: matchConfidence,
     contactSuggestionStatus: weak ? "weak" : "supported",
     contactSuggestionReason: weak
-      ? `Matched ${contact.displayName}. One approved treatment supports ${accountSuggestion}; review before approval.`
-      : `Matched ${contact.displayName}. ${supportingPatternCount} approved or posted items consistently used ${accountSuggestion}.`,
+      ? `Matched ${contact.displayName}. One previously posted treatment supports ${accountSuggestion}; review before posting.`
+      : `Matched ${contact.displayName}. ${supportingPatternCount} posted items consistently used ${accountSuggestion}.`,
     proposedContactName: null,
     proposedContactType: null,
     proposedContactAlias: null,
@@ -2815,6 +2823,7 @@ function statementLineResponse(
     : null;
   return {
     ...line,
+    status: journalLifecycleStatus(line.status),
     date: calendarDate(line.date),
     amount: number(line.amount),
     contactId: contactSuggestion?.contactId ?? line.contactId,
@@ -2894,7 +2903,7 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
     date: line.date,
     memo: line.description,
     currency: line.currency,
-    status: "suggested",
+    status: "draft",
     confidence: line.confidence ?? "0.80",
     ...journalAccountsForSuggestion(line.direction, account),
     debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
@@ -3018,7 +3027,7 @@ type BankAccountDraft = {
 type AICopilotRecommendation = {
   id: string;
   clientId: number;
-  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account" | "bulk_approve_entries" | "bulk_post_entries";
+  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account" | "bulk_post_entries";
   title: string;
   summary: string;
   lineIds?: number[];
@@ -3090,7 +3099,7 @@ function conciseMerchantScopesFromMessage(message: string) {
     .replace(/\blines?\b/gi, " ")
     .replace(/\bpayments?\b/gi, " ")
     .replace(/\b(?:charges?|expenses?|activity|transfers?)\b/gi, " ")
-    .replace(/\b(?:all|each|every|the|these|those|approved|pending|suggested|eligible|posted|now|please)\b/gi, " ")
+    .replace(/\b(?:all|each|every|the|these|those|draft|approved|pending|suggested|eligible|posted|now|please)\b/gi, " ")
     .replace(/\b(?:in|this|that|workspace|for|me|to)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -3159,12 +3168,12 @@ function prepareDescriptionRecodeRecommendation(
     return { error: `I could not find any unposted statement lines with a description matching “${descriptionScope}” in this client workspace.` };
   }
 
-  const suggestedEntryLineIds = new Set(entries
-    .filter((entry) => entry.clientId === clientId && entry.status === "suggested")
+  const draftEntryLineIds = new Set(entries
+    .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
     .map((entry) => entry.statementLineId));
-  const eligibleLines = matchingLines.filter((line) => suggestedEntryLineIds.has(line.id));
+  const eligibleLines = matchingLines.filter((line) => draftEntryLineIds.has(line.id));
   if (eligibleLines.length !== matchingLines.length) {
-    return { error: `I found ${matchingLines.length} matching transaction${matchingLines.length === 1 ? "" : "s"}, but only ${eligibleLines.length} are still suggested and eligible to recode. Review approved or posted items separately.` };
+    return { error: `I found ${matchingLines.length} matching transaction${matchingLines.length === 1 ? "" : "s"}, but only ${eligibleLines.length} are still draft and eligible to recode. Review posted items separately.` };
   }
 
   const lineIds = eligibleLines.map((line) => line.id);
@@ -3175,7 +3184,7 @@ function prepareDescriptionRecodeRecommendation(
       clientId,
       type: "recode_lines",
       title: `Classify ${lineIds.length} transaction${lineIds.length === 1 ? "" : "s"} as ${accountSuggestion}`,
-      summary: `Apply ${accountSuggestion} to still-suggested transactions whose description contains “${descriptionScope}”.${postingRequested ? " Confirm this classification first; approval and posting must be requested and confirmed separately." : ""}`,
+      summary: `Apply ${accountSuggestion} to draft transactions whose description contains “${descriptionScope}”.${postingRequested ? " Confirm this classification first, then request posting separately." : ""}`,
       lineIds,
       accountSuggestion,
       confidence: 0.9,
@@ -3337,7 +3346,7 @@ function defaultAICopilotRecommendations(
       clientId,
       type: "recode_lines",
       title: `Confirm ${firstSuggestion.accountSuggestion} learned from this workspace`,
-      summary: `${matchingAccountLines.length} pending transaction${matchingAccountLines.length === 1 ? "" : "s"} match a confirmed workspace pattern. Confirm or override the suggested account before approval. Supporting confirmations: ${firstSuggestion.supportingPatternCount}.`,
+      summary: `${matchingAccountLines.length} draft transaction${matchingAccountLines.length === 1 ? "" : "s"} match a confirmed workspace pattern. Confirm or override the suggested account before posting. Supporting confirmations: ${firstSuggestion.supportingPatternCount}.`,
       lineIds: matchingAccountLines.map((line) => line.id),
       accountSuggestion: firstSuggestion.accountSuggestion,
       confidence: firstSuggestion.confidence,
@@ -3361,7 +3370,7 @@ function defaultAICopilotRecommendations(
       clientId,
       type: "review_group",
       title: `Review ${members.length} ${accountSuggestion} suggestions together`,
-      summary: "These transactions already share the same proposed counter-account. Inspect one pattern before approving any of them.",
+      summary: "These transactions already share the same proposed counter-account. Inspect the pattern before posting any of them.",
       lineIds: members.slice(0, 20).map((line) => line.id),
       accountSuggestion,
       requiresConfirmation: false,
@@ -3372,8 +3381,8 @@ function defaultAICopilotRecommendations(
       id: "next-review-step",
       clientId,
       type: "next_step",
-      title: `${pendingLines.length} lines are waiting for review`,
-      summary: "Confirm the suggested accounts, then approve the journal entries you stand behind. AI will never post them for you.",
+      title: `${pendingLines.length} draft lines are waiting for review`,
+      summary: "Confirm the suggested accounts, then post the journal entries you stand behind. AI will never post them without your confirmation.",
       requiresConfirmation: false,
     });
   }
@@ -3390,7 +3399,7 @@ function defaultAICopilotRecommendations(
   return recommendations.slice(0, 3);
 }
 
-type BulkActionType = "bulk_approve_entries" | "bulk_post_entries";
+type BulkActionType = "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
   constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required") {
@@ -3417,11 +3426,10 @@ function effectiveEntryStatus(
   lines: Array<typeof statementLinesTable.$inferSelect>,
 ) {
   const line = lines.find((candidate) => candidate.id === entry.statementLineId);
-  return entry.status === "posted" || line?.status === "posted" ? "posted" : entry.status;
+  return entry.status === "posted" || line?.status === "posted" ? "posted" : "draft";
 }
 
 function bulkStatusConflictError(
-  action: "approve" | "post",
   entries: Array<typeof journalEntriesTable.$inferSelect>,
   lines: Array<typeof statementLinesTable.$inferSelect>,
 ) {
@@ -3431,22 +3439,13 @@ function bulkStatusConflictError(
   if (entries.length > 1 && new Set(entries.map((entry) => {
     return effectiveEntryStatus(entry, lines);
   })).size > 1) {
-    return `I found ${count} ${noun} with mixed statuses: ${statuses}. I will not silently narrow this merchant group to a subset. ${action === "post" ? "Approve any suggested entries first, then ask me to post the group once every matching entry is approved." : "Ask me to approve only a merchant group whose entries are still suggested; already approved or posted entries need no approval."}`;
+    return `I found ${count} ${noun} with mixed statuses: ${statuses}. I will not silently narrow this merchant group to a subset. Ask me to post only a scope whose entries are all still draft.`;
   }
 
-  if (action === "post" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "suggested")) {
-    return `I found ${count} ${noun}, but they are still suggested and need approval first. Ask me to approve these matching entries, then request posting after they are approved.`;
-  }
-  if (action === "post" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "posted")) {
+  if (entries.every((entry) => effectiveEntryStatus(entry, lines) === "posted")) {
     return `I found ${count} ${noun}, but they are already posted. Nothing changed; ask me to review a different merchant scope if more work is expected.`;
   }
-  if (action === "approve" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "approved")) {
-    return `I found ${count} ${noun}, but they are already approved. Ask me to post them when you are ready.`;
-  }
-  if (action === "approve" && entries.every((entry) => effectiveEntryStatus(entry, lines) === "posted")) {
-    return `I found ${count} ${noun}, but they are already posted. Nothing changed; ask me to review a different merchant scope.`;
-  }
-  return `I found ${count} ${noun}, but their statuses are ${statuses}. Ask me for a scope containing only ${action === "post" ? "approved" : "suggested"} entries before confirming.`;
+  return `I found ${count} ${noun}, but their statuses are ${statuses}. Ask me for a scope containing only draft entries before confirming.`;
 }
 
 function prepareBulkActionRecommendation(
@@ -3459,16 +3458,15 @@ function prepareBulkActionRecommendation(
   const asksToApprove = /\b(?:approve|approval|approving)\b/.test(normalized);
   const asksToPost = /\b(?:post|posted|posting)\b/.test(normalized);
   if (!asksToApprove && !asksToPost) return null;
-  if (asksToApprove && asksToPost) {
-    return { error: "Please choose one transition at a time: approve the entries first, or post entries that are already approved." };
+  if (asksToApprove) {
+    return { error: "Journal approval is no longer a separate stage. Review the draft entries, then ask me to prepare a posting confirmation for the exact draft scope." };
   }
 
-  const type: BulkActionType = asksToApprove ? "bulk_approve_entries" : "bulk_post_entries";
-  const expectedStatus = asksToApprove ? "suggested" : "approved";
-  const targetStatus = asksToApprove ? "approved" : "posted";
+  const type: BulkActionType = "bulk_post_entries";
+  const expectedStatus = "draft";
+  const targetStatus = "posted";
   const allRequested = /\b(?:all|every|each)\b/.test(normalized);
-  const pendingRequested = /\b(?:pending|review|reviewing|suggested|eligible)\b/.test(normalized);
-  const approvedRequested = /\bapproved\b/.test(normalized);
+  const draftRequested = /\b(?:draft|pending|review|reviewing|suggested|eligible)\b/.test(normalized);
   const descriptionScopes = descriptionScopesFromMessage(message);
   const idMatches = normalized.match(/(?:\bje\b|\bjournal entries?\b|\bentries?\b)\s*(?:ids?\s*)?#?\s*\d+(?:\s*(?:,|and)\s*#?\s*\d+)*/g) ?? [];
   const requestedIds = [...new Set(idMatches.flatMap((match) => {
@@ -3480,45 +3478,30 @@ function prepareBulkActionRecommendation(
   let scopeDescription: string;
   if (allRequested) {
     if (requestedIds.length || /\ball\s+clients?\b|\bother\s+client\b/.test(normalized)) {
-      return { error: "I cannot safely infer a qualified bulk scope. Use “approve all pending entries”, “post all approved entries”, or list specific journal entry IDs." };
+      return { error: "I cannot safely infer a qualified bulk scope. Use “post all draft entries” or list specific journal entry IDs." };
     }
-    if (type === "bulk_approve_entries") {
-      if (!descriptionScopes.length && (!pendingRequested || approvedRequested)) {
-        return { error: "For bulk approval, specify all pending or suggested entries. Entries that are already approved or posted need a separate scope." };
-      }
-      selectedEntries = entries.filter((entry) =>
-        (descriptionScopes.length ? true : entry.status === "suggested")
-          && (!descriptionScopes.length || Boolean(lines.find((line) =>
-            line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes),
-          ))),
-      );
-      scopeDescription = descriptionScopes.length
-        ? `entries whose statement description contains “${descriptionScopes.join("” or “")}”`
-        : "all suggested entries";
-    } else {
-      if (!descriptionScopes.length && (!approvedRequested || pendingRequested)) {
-        return { error: "For bulk posting, specify all approved entries. Suggested entries must be approved first." };
-      }
-      selectedEntries = entries.filter((entry) =>
-        (descriptionScopes.length ? true : entry.status === "approved")
-          && (!descriptionScopes.length || Boolean(lines.find((line) =>
-            line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes),
-          ))),
-      );
-      scopeDescription = descriptionScopes.length
-        ? `entries whose statement description contains “${descriptionScopes.join("” or “")}”`
-        : "all approved entries";
+    if (!descriptionScopes.length && !draftRequested) {
+      return { error: "For bulk posting, specify all draft or pending entries. Posted entries need a separate scope." };
     }
+    selectedEntries = entries.filter((entry) =>
+      (descriptionScopes.length ? true : effectiveEntryStatus(entry, lines) === "draft")
+        && (!descriptionScopes.length || Boolean(lines.find((line) =>
+          line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes),
+        ))),
+    );
+    scopeDescription = descriptionScopes.length
+      ? `entries whose statement description contains “${descriptionScopes.join("” or “")}”`
+      : "all draft entries";
     if (!descriptionScopes.length) {
       const tokens = normalized.match(/[a-z]+/g) ?? [];
       const supportedScopeWords = new Set([
-        "please", "can", "could", "would", "you", "approve", "approval", "approving", "post", "posted", "posting",
-        "all", "every", "each", "pending", "review", "reviewing", "suggested", "eligible", "approved",
+        "please", "can", "could", "would", "you", "post", "posted", "posting",
+        "all", "every", "each", "draft", "pending", "review", "reviewing", "suggested", "eligible",
         "journal", "entry", "entries", "the", "these", "those", "to", "now", "currently", "available",
         "in", "this", "workspace", "for", "me",
       ]);
       if (tokens.some((token) => !supportedScopeWords.has(token))) {
-        return { error: "I cannot safely infer a qualified bulk scope. Use “approve all pending entries”, “post all approved entries”, or say which statement description the entries must match." };
+        return { error: "I cannot safely infer a qualified bulk scope. Use “post all draft entries” or say which statement description the entries must match." };
       }
     }
   } else if (requestedIds.length) {
@@ -3540,7 +3523,7 @@ function prepareBulkActionRecommendation(
       return normalized.includes(entryMemo) || Boolean(line && normalized.includes(line.description.toLowerCase()));
     });
     if (matchingEntries.length !== 1) {
-      return { error: "I need a clear scope. Say “approve all pending entries”, “post all approved entries”, or name specific journal entry IDs." };
+      return { error: "I need a clear scope. Say “post all draft entries” or name specific journal entry IDs." };
     }
     selectedEntries = matchingEntries;
     scopeDescription = "the requested journal entry";
@@ -3550,10 +3533,10 @@ function prepareBulkActionRecommendation(
     return { error: `I could not find any journal entries with a statement description matching “${descriptionScopes.join("” or “")}” in this client workspace.` };
   }
   if (!selectedEntries.length) {
-    return { error: `There are no eligible entries to ${asksToApprove ? "approve" : "post"} in that scope.` };
+    return { error: "There are no eligible draft entries to post in that scope." };
   }
   if (selectedEntries.some((entry) => effectiveEntryStatus(entry, lines) !== expectedStatus)) {
-    return { error: bulkStatusConflictError(asksToApprove ? "approve" : "post", selectedEntries, lines) };
+    return { error: bulkStatusConflictError(selectedEntries, lines) };
   }
 
   const selectedLineIds = [...new Set(selectedEntries.map((entry) => entry.statementLineId))];
@@ -3562,14 +3545,13 @@ function prepareBulkActionRecommendation(
     return { error: "The requested entries do not have a complete statement-line scope in this client workspace." };
   }
   const entryIds = selectedEntries.map((entry) => entry.id);
-  const titleVerb = asksToApprove ? "Approve" : "Post";
   return {
     recommendation: {
       id: `${type}-${entryIds.join("-")}`,
       clientId,
       type,
-      title: `${titleVerb} ${selectedEntries.length} journal ${selectedEntries.length === 1 ? "entry" : "entries"}`,
-      summary: `${titleVerb} ${scopeDescription}: ${selectedEntries.map((entry) => `JE-${String(entry.id).padStart(4, "0")} · ${entry.memo}`).join("; ")}. This moves ${selectedLines.length} statement ${selectedLines.length === 1 ? "line" : "lines"} from ${expectedStatus} to ${targetStatus}.`,
+      title: `Post ${selectedEntries.length} journal ${selectedEntries.length === 1 ? "entry" : "entries"}`,
+      summary: `Post ${scopeDescription}: ${selectedEntries.map((entry) => `JE-${String(entry.id).padStart(4, "0")} · ${entry.memo}`).join("; ")}. This moves ${selectedLines.length} statement ${selectedLines.length === 1 ? "line" : "lines"} from draft to posted.`,
       entryIds,
       statementLineIds: selectedLineIds,
       entryCount: selectedEntries.length,
@@ -4038,7 +4020,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
             currency: currencyValue,
             amount: Math.abs(Number(line.amount)),
             direction: line.direction,
-            status: "needs_review",
+            status: "draft",
             source: `Preview: ${fileName}`,
             contactId: contactSuggestion.contactId,
             contactName: contactSuggestion.contactName,
@@ -4169,7 +4151,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           currency: currencyValue,
           amount,
           direction: line.direction,
-          status: "needs_review" as const,
+          status: "draft" as const,
           source: `Imported: ${fileName}`,
           accountSuggestion,
           confidence,
@@ -4428,12 +4410,12 @@ router.post("/agaraccounting/statement-imports/:id/undo", async (req, res) => {
           ))
           .for("update")
         : [];
-      const changedLine = lines.find((line) => line.status !== "needs_review");
-      const changedEntry = entries.find((entry) => entry.status !== "suggested");
+      const changedLine = lines.find((line) => journalLifecycleStatus(line.status) !== "draft");
+      const changedEntry = entries.find((entry) => journalLifecycleStatus(entry.status) !== "draft");
       if (entries.length !== lines.length || changedLine || changedEntry) {
         return {
           kind: "blocked" as const,
-          message: "This import cannot be undone because one or more transactions were changed, approved, or posted.",
+          message: "This import cannot be undone because one or more transactions were changed or posted.",
         };
       }
 
@@ -4710,8 +4692,8 @@ function accountingFilters(
   if (/\binflows?\b/.test(normalized)) filters.direction = "inflow";
   const currency = message.match(/\b(AED|USD|EUR|GBP)\b/i)?.[1];
   if (currency) filters.currency = currency.toUpperCase();
-  const status = normalized.match(/\b(needs_review|suggested|approved|posted|pending_confirmation|completed|duplicate|failed|undone)\b/)?.[1];
-  if (status) filters.status = status;
+  const status = normalized.match(/\b(draft|needs_review|suggested|approved|posted|pending_confirmation|completed|duplicate|failed|undone)\b/)?.[1];
+  if (status) filters.status = ["needs_review", "suggested", "approved"].includes(status) ? "draft" : status;
   const recordId = message.match(/\b(?:SL|JE|IMP|line|entry|import)[-\s#]*(\d+)\b/i)?.[1];
   if (recordId) filters.recordId = Number(recordId);
   const dates = [...message.matchAll(/\b(\d{4}-\d{2}-\d{2})\b/g)].map((match) => match[1]);
@@ -4744,7 +4726,9 @@ function lineMatchesAccountingFilters(
     && (filters.maxAmount === undefined || amount <= filters.maxAmount)
     && (!filters.direction || line.direction === filters.direction)
     && (!filters.currency || line.currency.toUpperCase() === filters.currency)
-    && (!filters.status || line.status === filters.status || entry?.status === filters.status)
+    && (!filters.status
+      || journalLifecycleStatus(line.status) === filters.status
+      || (entry && journalLifecycleStatus(entry.status) === filters.status))
     && (!filters.merchant || line.description.toLowerCase().includes(filters.merchant.toLowerCase()))
     && (!filters.account || account.includes(filters.account.toLowerCase()));
 }
@@ -4782,7 +4766,7 @@ function accountingResultForLines(
       currency: line.currency,
       amount: number(line.amount),
       direction: line.direction,
-      status: line.status,
+      status: journalLifecycleStatus(line.status),
       account: suggestion.accountSuggestion,
       href: `/statement-lines?lineId=${line.id}`,
     };
@@ -5222,7 +5206,7 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
   const asksToTransition = asksForLedgerTransition(message, clientAccountNames);
   if (asksToClassify && asksToTransition) {
     await sendChatResponse({
-      answer: "Classification and ledger posting are separate steps. Confirm the classification card first, then ask me to prepare either an approval or a posting confirmation for the eligible entries.",
+      answer: "Classification and ledger posting are separate steps. Confirm the classification card first, then ask me to prepare a posting confirmation for the eligible draft entries.",
     });
     return;
   }
@@ -5234,7 +5218,7 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
   }
   if (descriptionRecode?.recommendation) {
     await sendChatResponse({
-      answer: "I prepared this client-scoped classification for your confirmation. Nothing has changed yet; approval and posting remain separate confirmations.",
+      answer: "I prepared this client-scoped classification for your confirmation. Nothing has changed yet; posting remains a separate confirmation.",
       recommendations: [descriptionRecode.recommendation],
     });
     return;
@@ -5286,7 +5270,7 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
     const completion = await completeAI(client.id, [
         {
           role: "system",
-          content: "You are AgarAccounting AI System's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_approve_entries|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"suggested|approved\",\"toStatus\":\"approved|posted\",\"statusTransition\":{\"from\":\"suggested|approved\",\"to\":\"approved|posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. State when evidence is incomplete instead of guessing. AI never approves or posts entries without a separate explicit confirmation. Only propose bulk_approve_entries or bulk_post_entries when the user explicitly requests that single transition and the scope is unambiguous. A bulk approval may include only suggested entries; bulk posting may include only approved entries. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar pending transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
+          content: "You are AgarAccounting AI System's bookkeeping copilot. Return JSON only: {\"answer\":\"string\",\"recommendations\":[{\"type\":\"next_step|review_group|recode_lines|create_bank_account|bulk_post_entries\",\"title\":\"string\",\"summary\":\"string\",\"lineIds\":[1],\"entryIds\":[1],\"statementLineIds\":[1],\"entryCount\":1,\"lineCount\":1,\"fromStatus\":\"draft\",\"toStatus\":\"posted\",\"statusTransition\":{\"from\":\"draft\",\"to\":\"posted\"},\"accountSuggestion\":\"string|null\",\"confidence\":0.0,\"bankAccount\":{\"name\":\"string\",\"bankName\":\"string|null\",\"accountNumberLast4\":\"1234|null\",\"currency\":\"AED\"}|null}]}. Be concise and use only supplied context. State when evidence is incomplete instead of guessing. AI never posts entries without a separate explicit user confirmation. Only propose bulk_post_entries when the user explicitly requests posting and the draft scope is unambiguous. Use the supplied entry IDs and statement-line IDs exactly; never invent IDs. You may propose grouping similar draft transactions and recoding them to a counterpart account, but only when supplied line IDs support it. For a recode_lines proposal provide at least one valid line ID and an accountSuggestion. For create_bank_account, only propose a setup card when the user asks for it and the name is clear. Never invent account numbers; use only a supplied masked last four digits. Return at most 3 recommendations.",
         },
         ...priorTurns.reverse().map((turn) => ({
           role: turn.role === "assistant" ? "assistant" as const : "user" as const,
@@ -5300,9 +5284,9 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
             bankAccounts: bankAccounts.map(bankAccountResponse),
              reviewQueue: scopedLines.filter((line) => line.status !== "posted").map((line) => {
                const suggestion = lineSuggestions.get(line.id);
-               return { id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: line.status, accountSuggestion: suggestion?.accountSuggestion, suggestionSource: suggestion?.suggestionSource, supportingPatternCount: suggestion?.supportingPatternCount };
+               return { id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: journalLifecycleStatus(line.status), accountSuggestion: suggestion?.accountSuggestion, suggestionSource: suggestion?.suggestionSource, supportingPatternCount: suggestion?.supportingPatternCount };
              }),
-             journalEntries: scopedEntries.filter((entry) => entry.status !== "posted").map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: entry.status, debit: entry.debitAccount, credit: entry.creditAccount })),
+             journalEntries: scopedEntries.filter((entry) => entry.status !== "posted").map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: journalLifecycleStatus(entry.status), debit: entry.debitAccount, credit: entry.creditAccount })),
             imports: imports.map((item) => ({ id: item.id, fileName: item.fileName, outcome: item.outcome, detectedCurrency: item.detectedCurrency, importedLineCount: item.importedLineCount, createdAt: item.createdAt })),
             question: message,
           }),
@@ -5473,7 +5457,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
 
-  if (body.type === "bulk_approve_entries" || body.type === "bulk_post_entries") {
+  if (body.type === "bulk_post_entries") {
     const entryIds = [...new Set(body.entryIds ?? [])];
     const statementLineIds = [...new Set(body.statementLineIds ?? [])];
     if (!entryIds.length || !statementLineIds.length || entryIds.length !== statementLineIds.length) {
@@ -5502,62 +5486,58 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           throw new BulkActionValidationError("invalid_scope");
         }
 
-        const expectedStatus = body.type === "bulk_approve_entries" ? "suggested" : "approved";
-        const resultingStatus = body.type === "bulk_approve_entries" ? "approved" : "posted";
-        if (entries.some((entry) => entry.status !== expectedStatus)
-          || (body.type === "bulk_post_entries" && lines.some((line) => line.status === "posted"))) {
+        const expectedStatus = "draft";
+        const resultingStatus = "posted";
+        if (entries.some((entry) => journalLifecycleStatus(entry.status) !== expectedStatus)
+          || lines.some((line) => journalLifecycleStatus(line.status) !== expectedStatus)) {
           throw new BulkActionValidationError("invalid_status");
         }
+        const materializedPairs: Array<{
+          line: typeof statementLinesTable.$inferSelect;
+          entry: typeof journalEntriesTable.$inferSelect;
+        }> = [];
         for (const line of lines) {
           const entry = entries.find((candidate) => candidate.statementLineId === line.id);
           if (!entry) throw new BulkActionValidationError("invalid_scope");
+          const materialized = await materializeProposedContact(tx, line, entry);
+          materializedPairs.push({ line: materialized.line, entry: materialized.entry });
           const validation = await validateCurrentContactTreatment(
             tx,
             body.clientId,
-            line,
-            entry,
-            body.type === "bulk_approve_entries",
+            materialized.line,
+            materialized.entry,
+            true,
           );
           if (validation) throw new BulkActionValidationError(validation);
         }
-        if (entries.some((entry) => isMissingExchangeRate(entry, client.functionalCurrency))
-          || lines.some((line) => isMissingExchangeRate(line, client.functionalCurrency))) {
+        if (materializedPairs.some(({ entry }) => isMissingExchangeRate(entry, client.functionalCurrency))
+          || materializedPairs.some(({ line }) => isMissingExchangeRate(line, client.functionalCurrency))) {
           throw new BulkActionValidationError("missing_exchange_rate");
         }
 
-        let postingLines = lines;
-        if (body.type === "bulk_post_entries") {
-          const materializedLines: Array<typeof statementLinesTable.$inferSelect> = [];
-          for (const line of lines) {
-            const entry = entries.find((candidate) => candidate.statementLineId === line.id);
-            if (!entry) throw new BulkActionValidationError("invalid_scope");
-            const materialized = await materializeProposedContact(tx, line, entry);
-            materializedLines.push(materialized.line);
-          }
-          postingLines = materializedLines;
-        }
+        const materializedLines = materializedPairs.map(({ line }) => line);
+        let postingLines = materializedLines;
 
         const updatedEntries = await tx.update(journalEntriesTable)
           .set({ status: resultingStatus })
           .where(and(
             eq(journalEntriesTable.clientId, body.clientId),
             inArray(journalEntriesTable.id, entryIds),
-            eq(journalEntriesTable.status, expectedStatus),
+            inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
           ))
           .returning();
         if (updatedEntries.length !== entryIds.length) throw new BulkActionValidationError("invalid_status");
 
-        if (body.type === "bulk_post_entries") {
-          const updatedLines = await tx.update(statementLinesTable)
-            .set({ status: "posted" })
-            .where(and(
-              eq(statementLinesTable.clientId, body.clientId),
-              inArray(statementLinesTable.id, statementLineIds),
-            ))
-            .returning();
-          if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
-          postingLines = updatedLines;
-        }
+        const updatedLines = await tx.update(statementLinesTable)
+          .set({ status: "posted" })
+          .where(and(
+            eq(statementLinesTable.clientId, body.clientId),
+            inArray(statementLinesTable.id, statementLineIds),
+            inArray(statementLinesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+          ))
+          .returning();
+        if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
+        postingLines = updatedLines;
 
         await tx.insert(bulkTransitionAuditsTable).values({
           clientId: body.clientId,
@@ -5596,7 +5576,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
                 inArray(journalEntriesTable.id, entryIds),
               )),
               client.functionalCurrency,
-              body.type === "bulk_approve_entries" ? "approval" : "posting",
+              "posting",
             ),
           });
         }
@@ -5610,12 +5590,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           return res.status(409).json({ error: "The contact history supporting one or more proposals changed. Review the updated evidence before confirming." });
         }
         if (error.kind === "contact_identification_required") {
-          return res.status(409).json({ error: "Identify or explicitly dismiss every unknown customer or supplier before approving the selected entries." });
+          return res.status(409).json({ error: "Identify or explicitly dismiss every unknown customer or supplier before posting the selected entries." });
         }
-        const statusMessage = body.type === "bulk_approve_entries"
-          ? "Only suggested entries can be bulk approved. Posted or already approved entries were rejected."
-          : "Only approved entries can be bulk posted. Suggested or posted entries were rejected.";
-        return res.status(409).json({ error: statusMessage });
+        return res.status(409).json({ error: "Only draft entries can be bulk posted. Posted entries were rejected." });
       }
       throw error;
     }
@@ -5686,9 +5663,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
       if (
         lockedEntries.length !== lockedLines.length
         || entryLineIds.size !== lockedLines.length
-        || lockedEntries.some((entry) => entry.status !== "suggested")
+        || lockedEntries.some((entry) => journalLifecycleStatus(entry.status) !== "draft")
       ) {
-        throw new RecodeConflictError("Only still-suggested journal entries can be recoded. Review approved entries individually.");
+        throw new RecodeConflictError("Only draft journal entries can be recoded. Review posted entries individually.");
       }
 
       for (const line of lockedLines) {
@@ -5700,7 +5677,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         }).where(and(
           eq(journalEntriesTable.clientId, client.id),
           eq(journalEntriesTable.statementLineId, line.id),
-          eq(journalEntriesTable.status, "suggested"),
+          inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
         )).returning({ id: journalEntriesTable.id });
         if (!updatedEntry) throw new RecodeConflictError("A selected journal entry changed while its classification was being confirmed.");
       }
@@ -7290,7 +7267,9 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
   const lines = await db.select().from(statementLinesTable).where(and(
     eq(statementLinesTable.clientId, client.id),
     parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
-    parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
+    parsed.status === "draft"
+      ? inArray(statementLinesTable.status, [...DRAFT_JOURNAL_STATUSES])
+      : parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
     parsed.direction ? eq(statementLinesTable.direction, parsed.direction) : undefined,
   )).orderBy(asc(statementLinesTable.date));
   const responses = await Promise.all(lines.map(async (line) => statementLineResponse(
@@ -7340,7 +7319,7 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
     ...body,
     clientId: client.id,
     amount: String(body.amount),
-    status: "needs_review",
+    status: "draft",
     source: "Manual entry",
     accountSuggestion: workspaceSuggestion?.accountSuggestion || suggestAccount(body.description, body.direction),
     confidence: (workspaceSuggestion?.confidence ?? 0.75).toFixed(2),
@@ -7391,7 +7370,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
       eq(journalEntriesTable.clientId, client.id),
     )).for("update");
     if (!entry) return { kind: "not_found" as const };
-    if (entry.status !== "suggested" || line.status === "posted") return { kind: "locked" as const };
+    if (journalLifecycleStatus(entry.status) !== "draft" || line.status === "posted") return { kind: "locked" as const };
 
     const contactReviewDisposition = body.contactReviewDisposition
       ?? (body.contactId == null ? "dismissed" : "replaced");
@@ -7479,7 +7458,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     }).where(and(
       eq(journalEntriesTable.id, entry.id),
       eq(journalEntriesTable.clientId, client.id),
-      eq(journalEntriesTable.status, "suggested"),
+      inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
     ));
     return { kind: "updated" as const, line: updatedLine };
     });
@@ -7495,7 +7474,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     return;
   }
   if (result.kind === "locked") {
-    res.status(409).json({ error: "Approved or posted accounting activity cannot be relinked. Correct it with an explicit reversing or correcting entry so the confirmed history remains intact." });
+    res.status(409).json({ error: "Posted accounting activity cannot be relinked. Unpost it before changing the contact, or use an explicit reversing or correcting entry so the confirmed history remains intact." });
     return;
   }
   if (result.kind === "invalid_proposal") {
@@ -7813,7 +7792,11 @@ router.get("/agaraccounting/clients/:clientId/contacts/:id/history", async (req,
     amount: statementLinesTable.amount,
     currency: statementLinesTable.currency,
     direction: statementLinesTable.direction,
-    accountTreatment: contactClassificationEvidenceTable.accountSuggestion,
+    accountTreatment: sql<string>`CASE
+      WHEN ${contactClassificationEvidenceTable.direction} = 'inflow'
+      THEN ${journalEntriesTable.creditAccount}
+      ELSE ${journalEntriesTable.debitAccount}
+    END`,
   }).from(contactClassificationEvidenceTable)
     .innerJoin(statementLinesTable, and(
       eq(statementLinesTable.id, contactClassificationEvidenceTable.statementLineId),
@@ -7826,7 +7809,7 @@ router.get("/agaraccounting/clients/:clientId/contacts/:id/history", async (req,
     .where(and(
       eq(contactClassificationEvidenceTable.clientId, client.id),
       eq(contactClassificationEvidenceTable.contactId, contact.id),
-      inArray(journalEntriesTable.status, ["approved", "posted"]),
+      eq(journalEntriesTable.status, "posted"),
     ))
     .orderBy(desc(statementLinesTable.date));
   const summaries = new Map<string, { count: number; currencies: Set<string> }>();
@@ -7855,78 +7838,8 @@ router.get("/agaraccounting/journal-entries", async (req, res) => {
   res.json(GetJournalEntriesResponse.parse(entries.map((entry) => journalEntryResponse(entry))));
 });
 
-router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
-  const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
-  const { clientId } = ApproveJournalEntryBody.parse(req.body);
-  const client = await requireOwnedClient(req, res, clientId);
-  if (!client) return;
-
-  const result = await db.transaction(async (tx) => {
-    const [entry] = await tx.select().from(journalEntriesTable).where(and(
-      eq(journalEntriesTable.id, id),
-      eq(journalEntriesTable.clientId, client.id),
-    )).for("update");
-    if (!entry || entry.status !== "suggested") return { kind: "not_available" as const };
-    const [line] = await tx.select().from(statementLinesTable).where(and(
-      eq(statementLinesTable.id, entry.statementLineId),
-      eq(statementLinesTable.clientId, client.id),
-    )).for("update");
-    if (!line) return { kind: "not_available" as const };
-    const treatmentValidation = await validateCurrentContactTreatment(tx, client.id, line, entry, true);
-    if (treatmentValidation) return { kind: treatmentValidation };
-    if (isMissingExchangeRate(entry, client.functionalCurrency)
-      || isMissingExchangeRate(line, client.functionalCurrency)) {
-      return { kind: "missing_exchange_rate" as const, entry, line };
-    }
-    const [approvedEntry] = await tx.update(journalEntriesTable).set({ status: "approved" }).where(and(
-      eq(journalEntriesTable.id, id),
-      eq(journalEntriesTable.clientId, client.id),
-      eq(journalEntriesTable.status, "suggested"),
-    )).returning();
-    if (!approvedEntry) return { kind: "not_available" as const };
-    await recordContactEvidence(tx, currentUserId(req), line, approvedEntry);
-    return { kind: "approved" as const, entry: approvedEntry, line };
-  });
-  if (result.kind === "not_available") {
-    res.status(409).json({ error: "This journal entry is not available for approval for this client" });
-    return;
-  }
-  if (result.kind === "stale_contact") {
-    res.status(409).json({ error: "The matched contact changed or was archived. Review the contact before approving this entry." });
-    return;
-  }
-  if (result.kind === "stale_treatment") {
-    res.status(409).json({ error: "The proposed account is no longer active in this client's chart. Review the treatment before approving." });
-    return;
-  }
-  if (result.kind === "stale_evidence") {
-    res.status(409).json({ error: "The contact history supporting this proposal changed. Review the updated evidence before approving." });
-    return;
-  }
-  if (result.kind === "contact_identification_required") {
-    res.status(409).json({ error: "Identify this customer or supplier, select an existing contact, or explicitly keep the line unlinked before approval." });
-    return;
-  }
-  if (result.kind === "missing_exchange_rate") {
-    res.status(409).json({
-      error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "approval"),
-    });
-    return;
-  }
-  if (result.kind !== "approved") {
-    throw new Error("Unexpected journal approval result.");
-  }
-  const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
-  try {
-    await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
-  } catch (error) {
-    req.log.warn({ err: error }, "Classification learning could not be recorded after approval");
-  }
-  return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
-});
-
 router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
-  const { id } = ApproveJournalEntryParams.parse({ id: Number(req.params.id) });
+  const { id } = PostJournalEntryParams.parse({ id: Number(req.params.id) });
   const { clientId } = PostJournalEntryBody.parse(req.body);
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
@@ -7939,45 +7852,51 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         eq(journalEntriesTable.clientId, client.id),
       )).for("update");
       if (!entry) return { kind: "not_found" as const };
-      if (entry.status !== "approved") return { kind: "not_approved" as const };
+      if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
 
       const [line] = await tx.select().from(statementLinesTable).where(and(
         eq(statementLinesTable.id, entry.statementLineId),
         eq(statementLinesTable.clientId, client.id),
       )).for("update");
       if (!line) return { kind: "not_found" as const };
-      if (line.status === "posted") return { kind: "line_conflict" as const };
-      const treatmentValidation = await validateCurrentContactTreatment(tx, client.id, line, entry, false);
+      if (journalLifecycleStatus(line.status) !== "draft") return { kind: "line_conflict" as const };
+      const materialized = await materializeProposedContact(tx, line, entry);
+      const treatmentValidation = await validateCurrentContactTreatment(
+        tx,
+        client.id,
+        materialized.line,
+        materialized.entry,
+        true,
+      );
       if (treatmentValidation) return { kind: treatmentValidation };
-      if (isMissingExchangeRate(entry, client.functionalCurrency)
-        || isMissingExchangeRate(line, client.functionalCurrency)) {
-        return { kind: "missing_exchange_rate" as const, entry, line };
+      if (isMissingExchangeRate(materialized.entry, client.functionalCurrency)
+        || isMissingExchangeRate(materialized.line, client.functionalCurrency)) {
+        return { kind: "missing_exchange_rate" as const, entry: materialized.entry, line: materialized.line };
       }
 
-      const materialized = await materializeProposedContact(tx, line, entry);
       const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
         eq(journalEntriesTable.id, materialized.entry.id),
         eq(journalEntriesTable.clientId, client.id),
-        eq(journalEntriesTable.status, "approved"),
+        inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
       )).returning();
-      if (!postedEntry) return { kind: "not_approved" as const };
+      if (!postedEntry) return { kind: "not_draft" as const };
 
       const [postedLine] = await tx.update(statementLinesTable).set({ status: "posted" }).where(and(
         eq(statementLinesTable.id, materialized.line.id),
         eq(statementLinesTable.clientId, client.id),
-        ne(statementLinesTable.status, "posted"),
+        inArray(statementLinesTable.status, [...DRAFT_JOURNAL_STATUSES]),
       )).returning();
       if (!postedLine) throw new Error("The linked statement line could not be posted.");
       await recordContactEvidence(tx, currentUserId(req), postedLine, postedEntry);
       await recordJournalTransitionAudit(tx, req, {
         clientId: client.id,
         transition: "post_entry",
-        fromStatus: "approved",
+        fromStatus: "draft",
         toStatus: "posted",
         entryId: postedEntry.id,
         statementLineId: postedLine.id,
       });
-      return { kind: "posted" as const, entry: postedEntry };
+      return { kind: "posted" as const, entry: postedEntry, line: postedLine };
     });
   } catch (error) {
     if (error instanceof ContactMaterializationError) {
@@ -7990,8 +7909,8 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     res.status(404).json({ error: "Journal entry not found for this client" });
     return;
   }
-  if (result.kind === "not_approved") {
-    res.status(409).json({ error: "Journal entry must be approved before posting" });
+  if (result.kind === "not_draft") {
+    res.status(409).json({ error: "Journal entry must be draft before posting" });
     return;
   }
   if (result.kind === "line_conflict") {
@@ -7999,15 +7918,19 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     return;
   }
   if (result.kind === "stale_contact") {
-    res.status(409).json({ error: "The matched contact changed or was archived after approval. Review the entry before posting." });
+    res.status(409).json({ error: "The matched contact changed or was archived. Review the entry before posting." });
     return;
   }
   if (result.kind === "stale_treatment") {
-    res.status(409).json({ error: "The approved account is no longer active in this client's chart. Review the entry before posting." });
+    res.status(409).json({ error: "The draft account is no longer active in this client's chart. Review the entry before posting." });
     return;
   }
   if (result.kind === "stale_evidence") {
     res.status(409).json({ error: "The supporting contact history changed. Review the entry before posting." });
+    return;
+  }
+  if (result.kind === "contact_identification_required") {
+    res.status(409).json({ error: "Identify this customer or supplier, select an existing contact, or explicitly keep the line unlinked before posting." });
     return;
   }
   if (result.kind === "missing_exchange_rate") {
@@ -8019,7 +7942,13 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
   if (result.kind !== "posted") {
     throw new Error("Unexpected journal posting result.");
   }
-  return res.json(ApproveJournalEntryResponse.parse(journalEntryResponse(result.entry)));
+  const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
+  try {
+    await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
+  } catch (error) {
+    req.log.warn({ err: error }, "Classification learning could not be recorded after posting");
+  }
+  return res.json(PostJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
 
 router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
@@ -8043,28 +7972,28 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
     if (!line) return { kind: "not_found" as const };
     if (line.status !== "posted") return { kind: "line_conflict" as const };
 
-    const [approvedEntry] = await tx.update(journalEntriesTable).set({ status: "approved" }).where(and(
+    const [draftEntry] = await tx.update(journalEntriesTable).set({ status: "draft" }).where(and(
       eq(journalEntriesTable.id, entry.id),
       eq(journalEntriesTable.clientId, client.id),
       eq(journalEntriesTable.status, "posted"),
     )).returning();
-    if (!approvedEntry) return { kind: "not_posted" as const };
+    if (!draftEntry) return { kind: "not_posted" as const };
 
-    const [approvedLine] = await tx.update(statementLinesTable).set({ status: "needs_review" }).where(and(
+    const [draftLine] = await tx.update(statementLinesTable).set({ status: "draft" }).where(and(
       eq(statementLinesTable.id, line.id),
       eq(statementLinesTable.clientId, client.id),
       eq(statementLinesTable.status, "posted"),
     )).returning();
-    if (!approvedLine) throw new Error("The linked statement line could not be returned to review.");
+    if (!draftLine) throw new Error("The linked statement line could not be returned to draft.");
     await recordJournalTransitionAudit(tx, req, {
       clientId: client.id,
       transition: "unpost_entry",
       fromStatus: "posted",
-      toStatus: "approved",
-      entryId: approvedEntry.id,
-      statementLineId: approvedLine.id,
+      toStatus: "draft",
+      entryId: draftEntry.id,
+      statementLineId: draftLine.id,
     });
-    return { kind: "unposted" as const, entry: approvedEntry };
+    return { kind: "unposted" as const, entry: draftEntry };
   });
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Journal entry not found for this client" });

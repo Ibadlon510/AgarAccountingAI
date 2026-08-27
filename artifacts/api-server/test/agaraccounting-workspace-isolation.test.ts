@@ -44,10 +44,10 @@ const clientIds: number[] = [];
 const legacyDemoRows = [
   { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
   { date: "2026-08-05", description: "STRIPE PAYOUT 8472", currency: "USD", amount: "12450.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.99" },
-  { date: "2026-08-07", description: "AWS EMEA", currency: "USD", amount: "624.50", direction: "outflow", status: "needs_review", accountSuggestion: "Software & subscriptions", confidence: "0.91" },
-  { date: "2026-08-10", description: "AL FARAJ OFFICE SUPPLIES", currency: "AED", amount: "389.00", direction: "outflow", status: "needs_review", accountSuggestion: "Office expenses", confidence: "0.87" },
+  { date: "2026-08-07", description: "AWS EMEA", currency: "USD", amount: "624.50", direction: "outflow", status: "draft", accountSuggestion: "Software & subscriptions", confidence: "0.91" },
+  { date: "2026-08-10", description: "AL FARAJ OFFICE SUPPLIES", currency: "AED", amount: "389.00", direction: "outflow", status: "draft", accountSuggestion: "Office expenses", confidence: "0.87" },
   { date: "2026-08-12", description: "CLIENT RETAINER — NORTHSTAR", currency: "AED", amount: "28750.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.97" },
-  { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "needs_review", accountSuggestion: "Communication expenses", confidence: "0.84" },
+  { date: "2026-08-15", description: "GULF TELECOM", currency: "AED", amount: "475.00", direction: "outflow", status: "draft", accountSuggestion: "Communication expenses", confidence: "0.84" },
 ] as const;
 
 function testDatabaseUrl() {
@@ -94,7 +94,7 @@ async function seedLegacyDemoWorkspace(ownerId: string, memberIds = [ownerId]) {
     date: line.date,
     memo: line.description,
     currency: line.currency,
-    status: line.status === "posted" ? "posted" : "suggested",
+    status: line.status === "posted" ? "posted" : "draft",
     confidence: line.confidence ?? "0.80",
     debitAccount: line.direction === "inflow" ? "Bank / cash" : (line.accountSuggestion ?? "Uncategorized"),
     creditAccount: line.direction === "inflow" ? (line.accountSuggestion ?? "Uncategorized") : "Bank / cash",
@@ -823,7 +823,7 @@ test("does not remediate a legacy-shaped starter when the account also owns anot
     currency: "AED",
     amount: "100.00",
     direction: "inflow",
-    status: "needs_review",
+    status: "draft",
     source: "Manual entry",
   });
   await database.db.update(database.usersTable)

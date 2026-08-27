@@ -498,7 +498,7 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   currency: text("currency").notNull(),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
   direction: text("direction").notNull(),
-  status: text("status").notNull().default("needs_review"),
+  status: text("status").notNull().default("draft"),
   source: text("source").notNull().default("Bank statement"),
   accountSuggestion: text("account_suggestion"),
   contactId: integer("contact_id"),
@@ -530,6 +530,10 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   contactReviewDispositionCheck: check(
     "agaraccounting_statement_lines_contact_review_disposition_check",
     sql`${table.contactReviewDisposition} in ('pending', 'accepted', 'replaced', 'dismissed')`,
+  ),
+  statusCheck: check(
+    "agaraccounting_statement_lines_status_check",
+    sql`${table.status} in ('draft', 'posted')`,
   ),
   proposedContactShapeCheck: check(
     "agaraccounting_statement_lines_proposed_contact_shape_check",
@@ -577,7 +581,7 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   date: text("date").notNull(),
   memo: text("memo").notNull(),
   currency: text("currency").notNull(),
-  status: text("status").notNull().default("suggested"),
+  status: text("status").notNull().default("draft"),
   confidence: numeric("confidence", { precision: 5, scale: 2 }).notNull(),
   debitAccount: text("debit_account").notNull(),
   creditAccount: text("credit_account").notNull(),
@@ -595,6 +599,10 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
 }, (table) => ({
   statementLineUnique: uniqueIndex("agaraccounting_journal_entries_statement_line_id_idx").on(table.statementLineId),
   idClientUnique: uniqueIndex("agaraccounting_journal_entries_id_client_idx").on(table.id, table.clientId),
+  statusCheck: check(
+    "agaraccounting_journal_entries_status_check",
+    sql`${table.status} in ('draft', 'posted')`,
+  ),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],

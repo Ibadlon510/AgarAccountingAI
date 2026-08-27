@@ -194,16 +194,16 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
   const confirmMutation = useConfirmAICopilotAction();
   const queryClient = useQueryClient();
 
-  const isBulkAction = rec.type === 'bulk_approve_entries' || rec.type === 'bulk_post_entries';
+  const isBulkAction = rec.type === 'bulk_post_entries';
   const isConfirmable = rec.requiresConfirmation && (rec.type === 'recode_lines' || rec.type === 'create_bank_account' || isBulkAction);
   const isNavigable = rec.type === 'next_step' || rec.type === 'review_group';
-  const actionLabel = rec.type === 'bulk_approve_entries' ? 'approval' : rec.type === 'bulk_post_entries' ? 'posting' : 'proposal';
+  const actionLabel = rec.type === 'bulk_post_entries' ? 'posting' : 'proposal';
 
   const handleConfirm = () => {
     confirmMutation.mutate({
       data: {
         clientId: rec.clientId,
-        type: rec.type as 'recode_lines' | 'create_bank_account' | 'bulk_approve_entries' | 'bulk_post_entries',
+        type: rec.type as 'recode_lines' | 'create_bank_account' | 'bulk_post_entries',
         lineIds: rec.lineIds,
         entryIds: rec.entryIds,
         statementLineIds: rec.statementLineIds,
@@ -280,7 +280,7 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
         <div className="mt-3 border-t border-border/60 pt-3">
           {confirmMutation.isSuccess ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-primary">
-              <Check size={13} /> {actionLabel === 'approval' ? 'Approval confirmed' : actionLabel === 'posting' ? 'Posting confirmed' : 'Applied successfully'}
+              <Check size={13} /> {actionLabel === 'posting' ? 'Posting confirmed' : 'Applied successfully'}
             </div>
           ) : confirmMutation.isError ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
@@ -288,13 +288,13 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
             </div>
           ) : (
             <button
-              data-testid={rec.type === 'bulk_approve_entries' ? `button-confirm-bulk-approval-${rec.id}` : rec.type === 'bulk_post_entries' ? `button-confirm-bulk-posting-${rec.id}` : `button-confirm-ai-proposal-${rec.id}`}
+              data-testid={rec.type === 'bulk_post_entries' ? `button-confirm-bulk-posting-${rec.id}` : `button-confirm-ai-proposal-${rec.id}`}
               onClick={handleConfirm}
               disabled={confirmMutation.isPending}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-sm disabled:opacity-50"
             >
               {confirmMutation.isPending && <Loader2 size={12} className="animate-spin" />}
-              {confirmMutation.isPending ? 'Applying...' : rec.type === 'bulk_approve_entries' ? 'Confirm approval' : rec.type === 'bulk_post_entries' ? 'Confirm posting' : 'Confirm proposal'}
+              {confirmMutation.isPending ? 'Applying...' : rec.type === 'bulk_post_entries' ? 'Confirm posting' : 'Confirm proposal'}
             </button>
           )}
         </div>

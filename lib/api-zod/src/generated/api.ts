@@ -1434,7 +1434,7 @@ export const GetStatementLinesResponseItem = zod.object({
   "currency": zod.string(),
   "amount": zod.number(),
   "direction": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "source": zod.string(),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
@@ -1485,7 +1485,7 @@ export const CreateStatementLineResponse = zod.object({
   "currency": zod.string(),
   "amount": zod.number(),
   "direction": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "source": zod.string(),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
@@ -1543,7 +1543,7 @@ export const LinkStatementLineContactResponse = zod.object({
   "currency": zod.string(),
   "amount": zod.number(),
   "direction": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "source": zod.string(),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
@@ -1859,7 +1859,7 @@ export const ImportStatementResponse = zod.object({
   "currency": zod.string(),
   "amount": zod.number(),
   "direction": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "source": zod.string(),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
@@ -2008,7 +2008,7 @@ export const AskAgarAccountingAIResponse = zod.object({
   "recommendations": zod.array(zod.object({
   "id": zod.string(),
   "clientId": zod.number(),
-  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account', 'bulk_approve_entries', 'bulk_post_entries']),
+  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account', 'bulk_post_entries']),
   "title": zod.string(),
   "summary": zod.string(),
   "lineIds": zod.array(zod.number()).optional(),
@@ -2304,7 +2304,7 @@ export const confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp = 
 
 export const ConfirmAICopilotActionBody = zod.object({
   "clientId": zod.number(),
-  "type": zod.enum(['recode_lines', 'create_bank_account', 'bulk_approve_entries', 'bulk_post_entries']),
+  "type": zod.enum(['recode_lines', 'create_bank_account', 'bulk_post_entries']),
   "lineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyLineIdsMax).optional(),
   "entryIds": zod.array(zod.number()).max(confirmAICopilotActionBodyEntryIdsMax).optional(),
   "statementLineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyStatementLineIdsMax).optional(),
@@ -2335,7 +2335,7 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
   "account": zod.string(),
@@ -2401,7 +2401,7 @@ export const GetJournalEntriesResponseItem = zod.object({
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
   "account": zod.string(),
@@ -2419,42 +2419,7 @@ export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem
 
 
 /**
- * @summary Approve a suggested journal entry
- */
-export const ApproveJournalEntryParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const ApproveJournalEntryBody = zod.object({
-  "clientId": zod.number()
-})
-
-export const ApproveJournalEntryResponse = zod.object({
-  "id": zod.number(),
-  "statementLineId": zod.number(),
-  "contactId": zod.number().nullish(),
-  "contactName": zod.string().nullish(),
-  "date": zod.string(),
-  "memo": zod.string(),
-  "currency": zod.string(),
-  "status": zod.string(),
-  "confidence": zod.number(),
-  "lines": zod.array(zod.object({
-  "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
-})),
-  "functionalCurrency": zod.string().nullish(),
-  "functionalAmount": zod.number().nullish(),
-  "exchangeRate": zod.number().nullish(),
-  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
-  "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
-})
-
-
-/**
- * @summary Post an approved journal entry to the ledger
+ * @summary Post an eligible draft journal entry to the ledger
  */
 export const PostJournalEntryParams = zod.object({
   "id": zod.coerce.number()
@@ -2472,7 +2437,7 @@ export const PostJournalEntryResponse = zod.object({
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
   "account": zod.string(),
@@ -2489,7 +2454,7 @@ export const PostJournalEntryResponse = zod.object({
 
 
 /**
- * @summary Return a posted journal entry to approved and remove it from live reports
+ * @summary Return a posted journal entry to draft and remove it from live reports
  */
 export const UnpostJournalEntryParams = zod.object({
   "id": zod.coerce.number()
@@ -2507,7 +2472,7 @@ export const UnpostJournalEntryResponse = zod.object({
   "date": zod.string(),
   "memo": zod.string(),
   "currency": zod.string(),
-  "status": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
   "account": zod.string(),

@@ -951,6 +951,14 @@ export interface LedgerOverview {
   missingRateCurrencies: string[];
 }
 
+export type StatementLineStatus = typeof StatementLineStatus[keyof typeof StatementLineStatus];
+
+
+export const StatementLineStatus = {
+  draft: 'draft',
+  posted: 'posted',
+} as const;
+
 /**
  * @nullable
  */
@@ -1030,7 +1038,7 @@ export interface StatementLine {
   currency: string;
   amount: number;
   direction: string;
-  status: string;
+  status: StatementLineStatus;
   source: string;
   /** @nullable */
   contactId?: number | null;
@@ -1502,7 +1510,7 @@ export interface BankAccountInput {
   currency: string;
 }
 
-export interface ApproveJournalEntryInput {
+export interface PostJournalEntryInput {
   clientId: number;
 }
 
@@ -1561,7 +1569,6 @@ export const AICopilotRecommendationType = {
   review_group: 'review_group',
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
-  bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
 } as const;
 
@@ -1774,7 +1781,6 @@ export type AICopilotActionInputType = typeof AICopilotActionInputType[keyof typ
 export const AICopilotActionInputType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
-  bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
 } as const;
 
@@ -1793,6 +1799,14 @@ export interface AICopilotActionInput {
   confidence?: number | null;
   bankAccount?: BankAccountDraft | null;
 }
+
+export type JournalEntryStatus = typeof JournalEntryStatus[keyof typeof JournalEntryStatus];
+
+
+export const JournalEntryStatus = {
+  draft: 'draft',
+  posted: 'posted',
+} as const;
 
 export interface JournalLine {
   account: string;
@@ -1820,7 +1834,7 @@ export interface JournalEntry {
   date: string;
   memo: string;
   currency: string;
-  status: string;
+  status: JournalEntryStatus;
   confidence: number;
   lines: JournalLine[];
   /** @nullable */

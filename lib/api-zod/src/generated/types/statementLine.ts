@@ -11,6 +11,7 @@ import type { StatementLineContactSuggestionStatus } from './statementLineContac
 import type { StatementLineContactType } from './statementLineContactType';
 import type { StatementLineExchangeRateSourceScope } from './statementLineExchangeRateSourceScope';
 import type { StatementLineProposedContactType } from './statementLineProposedContactType';
+import type { StatementLineStatus } from './statementLineStatus';
 
 export interface StatementLine {
   id: number;
@@ -21,7 +22,7 @@ export interface StatementLine {
   currency: string;
   amount: number;
   direction: string;
-  status: string;
+  status: StatementLineStatus;
   source: string;
   /** @nullable */
   contactId?: number | null;

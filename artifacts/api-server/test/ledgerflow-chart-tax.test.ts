@@ -70,17 +70,14 @@ async function createPostableLine(description: string, amount: number, direction
     method: "PATCH",
     body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
   })).response.status, 200);
-  const entries = await request<Array<{ id: number; statementLineId: number }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
+  const entries = await request<Array<{ id: number; statementLineId: number; status: string }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
   const entry = entries.body.find((candidate) => candidate.statementLineId === line.body.id);
   assert.ok(entry);
+  assert.equal(entry.status, "draft");
   return { line: line.body, entry };
 }
 
-async function approveAndPost(entryId: number) {
-  assert.equal((await request(`/agaraccounting/journal-entries/${entryId}/approve`, {
-    method: "POST",
-    body: JSON.stringify({ clientId }),
-  })).response.status, 200);
+async function post(entryId: number) {
   assert.equal((await request(`/agaraccounting/journal-entries/${entryId}/post`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
@@ -345,9 +342,9 @@ test("calculates posted-only UAE tax adjustments and standard AED threshold arit
   const travel = await createPostableLine("AIRLINE BUSINESS TRIP", 100, "outflow");
   const entertainment = await createPostableLine("SUPPLIER DINNER ENTERTAINMENT", 200, "outflow");
   const uncertain = await createPostableLine("TRAVEL HOTEL PURPOSE UNCERTAIN", 50, "outflow");
-  await approveAndPost(revenue.entry.id);
-  await approveAndPost(travel.entry.id);
-  await approveAndPost(entertainment.entry.id);
+  await post(revenue.entry.id);
+  await post(travel.entry.id);
+  await post(entertainment.entry.id);
 
   const summary = await request<{
     accountingProfitBeforeTax: number;
@@ -379,7 +376,7 @@ test("calculates posted-only UAE tax adjustments and standard AED threshold arit
   assert.equal(financialStatements.response.status, 200);
   assert.deepEqual(financialStatements.body.taxSummary, summary.body);
 
-  await approveAndPost(uncertain.entry.id);
+  await post(uncertain.entry.id);
   const withReview = await request<{ reviewRequiredAmount: number }>(
     `/agaraccounting/uae-corporate-tax?clientId=${clientId}&period=2026`,
   );

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -64,6 +64,7 @@ async function entryFor(lineId: number) {
   assert.equal(entries.response.status, 200);
   const entry = entries.body.find((candidate) => candidate.statementLineId === lineId);
   assert.ok(entry, `Expected journal entry for statement line ${lineId}.`);
+  assert.equal(entry.status, "draft");
   return entry;
 }
 
@@ -79,14 +80,6 @@ async function recode(lineId: number, accountSuggestion: string) {
     body: JSON.stringify({ clientId, type: "recode_lines", lineIds: [lineId], accountSuggestion, confidence: 0.9 }),
   });
   assert.equal(result.response.status, 200);
-}
-
-async function approve(entryId: number) {
-  const result = await request<{ status: string }>(`/agaraccounting/journal-entries/${entryId}/approve`, {
-    method: "POST", body: JSON.stringify({ clientId }),
-  });
-  assert.equal(result.response.status, 200);
-  assert.equal(result.body.status, "approved");
 }
 
 async function post(entryId: number) {
@@ -124,7 +117,7 @@ after(async () => {
   await database.pool.end();
 });
 
-test("uses client-scoped contact history without bypassing approval or chart safeguards", async () => {
+test("uses client-scoped contact history without bypassing posting or chart safeguards", async () => {
   const created = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({ name: `Contacts ${randomUUID()}`, legalName: "Contacts Test LLC", functionalCurrency: "AED", basis: "IFRS", period: "2026" }),
@@ -217,20 +210,12 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(unidentifiedSupplierFromList?.contactDecisionState, "needs_identification");
   assert.match(unidentifiedSupplierFromList?.contactSuggestionStatus ?? "", /needs_identification/);
   const unidentifiedEntry = await entryFor(unidentifiedSupplier.id);
-  const unidentifiedApproval = await request<{ error: string }>(
-    `/agaraccounting/journal-entries/${unidentifiedEntry.id}/approve`,
+  const unidentifiedPost = await request<{ error: string }>(
+    `/agaraccounting/journal-entries/${unidentifiedEntry.id}/post`,
     { method: "POST", body: JSON.stringify({ clientId }) },
   );
-  assert.equal(unidentifiedApproval.response.status, 409);
-  assert.match(unidentifiedApproval.body.error, /Identify this customer or supplier/i);
-  await database.db.update(database.journalEntriesTable)
-    .set({ status: "approved" })
-    .where(eq(database.journalEntriesTable.id, unidentifiedEntry.id));
-  const unidentifiedPost = await post(unidentifiedEntry.id);
   assert.equal(unidentifiedPost.response.status, 409);
-  await database.db.update(database.journalEntriesTable)
-    .set({ status: "suggested" })
-    .where(eq(database.journalEntriesTable.id, unidentifiedEntry.id));
+  assert.match(unidentifiedPost.body.error, /Identify this customer or supplier|still needs a real supplier identity/i);
   const rejectedGenericIdentity = await request<{ error: string }>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({
@@ -257,7 +242,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   assert.equal(unconfirmedSupplier.response.status, 200);
   assert.equal(
-    (await request(`/agaraccounting/journal-entries/${unidentifiedEntry.id}/approve`, {
+    (await request(`/agaraccounting/journal-entries/${unidentifiedEntry.id}/post`, {
       method: "POST", body: JSON.stringify({ clientId }),
     })).response.status,
     409,
@@ -275,7 +260,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   assert.equal(identifiedSupplier.response.status, 200);
   assert.equal(identifiedSupplier.body.contactDecisionState, "named_proposal");
-  await approve(unidentifiedEntry.id);
   assert.equal((await post(unidentifiedEntry.id)).response.status, 200);
   const contactsAfterIdentification = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
   assert.ok(contactsAfterIdentification.body.some((item) => item.displayName === "Real Supplies"));
@@ -298,7 +282,15 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(dismissedCustomer.response.status, 200);
   assert.equal(dismissedCustomer.body.contactDecisionState, "dismissed");
   const unidentifiedCustomerEntry = await entryFor(unidentifiedCustomer.id);
-  await approve(unidentifiedCustomerEntry.id);
+  const postedCustomer = await post(unidentifiedCustomerEntry.id);
+  assert.equal(postedCustomer.response.status, 200);
+  assert.equal(postedCustomer.body.status, "posted");
+  const unpostedCustomer = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${unidentifiedCustomerEntry.id}/unpost`,
+    { method: "POST", body: JSON.stringify({ clientId }) },
+  );
+  assert.equal(unpostedCustomer.response.status, 200);
+  assert.equal(unpostedCustomer.body.status, "draft");
   assert.equal((await post(unidentifiedCustomerEntry.id)).response.status, 200);
 
   const legacyLine = await createLine("LEGACY CONTACT NAME");
@@ -343,17 +335,10 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(ambiguousPerson.proposedContactAlias, null);
 
   const pendingTemporaryEntry = await entryFor(temporary.id);
-  assert.equal((await request(`/agaraccounting/journal-entries/${pendingTemporaryEntry.id}/approve`, {
+  assert.equal((await request(`/agaraccounting/journal-entries/${pendingTemporaryEntry.id}/post`, {
     method: "POST",
     body: JSON.stringify({ clientId }),
   })).response.status, 409);
-  await database.db.update(database.journalEntriesTable)
-    .set({ status: "approved" })
-    .where(eq(database.journalEntriesTable.id, pendingTemporaryEntry.id));
-  assert.equal((await post(pendingTemporaryEntry.id)).response.status, 409);
-  await database.db.update(database.journalEntriesTable)
-    .set({ status: "suggested" })
-    .where(eq(database.journalEntriesTable.id, pendingTemporaryEntry.id));
   assert.equal((await request(`/agaraccounting/statement-lines/${temporary.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({ clientId, contactId: contact.body.id, contactReviewDisposition: "dismissed" }),
@@ -385,15 +370,14 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   assert.equal(editedTemporary.response.status, 200);
   assert.equal(editedTemporary.body.contactReviewDisposition, "accepted");
-  const contactsBeforeApproval = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
+  const contactsBeforePost = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
   const temporaryEntry = await entryFor(temporary.id);
-  await approve(temporaryEntry.id);
-  const contactsAfterApproval = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
-  assert.equal(contactsAfterApproval.body.length, contactsBeforeApproval.body.length);
-  assert.equal(contactsAfterApproval.body.some((item) => item.displayName === "Nova Office Supply"), false);
-  const temporaryPost = await post(temporaryEntry.id);
-  assert.equal(temporaryPost.response.status, 200);
+  assert.equal((await request(`/agaraccounting/journal-entries/${temporaryEntry.id}/post`, {
+    method: "POST", body: JSON.stringify({ clientId }),
+  })).response.status, 200);
   const contactsAfterPost = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
+  assert.equal(contactsAfterPost.body.length, contactsBeforePost.body.length + 1);
+  assert.ok(contactsAfterPost.body.some((item) => item.displayName === "Nova Office Supply"));
   const materialized = contactsAfterPost.body.find((item) => item.displayName === "Nova Office Supply");
   assert.ok(materialized);
   assert.ok(materialized.aliases.includes("NOVA OFFICE SUPPLY"));
@@ -420,7 +404,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(dismissedReview.body.contactReviewDisposition, "dismissed");
   assert.equal(dismissedReview.body.contactDecisionState, "dismissed");
   const dismissedEntry = await entryFor(dismissed.id);
-  await approve(dismissedEntry.id);
   assert.equal((await post(dismissedEntry.id)).response.status, 200);
   const [postedDismissed] = await database.db.select().from(database.statementLinesTable)
     .where(eq(database.statementLinesTable.id, dismissed.id));
@@ -445,7 +428,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
     assert.equal(reviewed.response.status, 200);
   }
   const concurrentEntries = await Promise.all(concurrentLines.map(async (line) => entryFor(line.id)));
-  await Promise.all(concurrentEntries.map((entry) => approve(entry.id)));
   const concurrentPosts = await Promise.all(concurrentEntries.map((entry) => post(entry.id)));
   assert.deepEqual(concurrentPosts.map((result) => result.response.status), [200, 200]);
   const parallelContacts = (await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`)).body
@@ -463,14 +445,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   ]);
   const bulkProposalEntries = await Promise.all(bulkProposalLines.map(async (line) => entryFor(line.id)));
 
-  const pendingBulkApprovals = await Promise.all(bulkProposalEntries.map((entry) => request<{ error: string }>(
-    `/agaraccounting/journal-entries/${entry.id}/approve`,
-    { method: "POST", body: JSON.stringify({ clientId }) },
-  )));
-  assert.deepEqual(pendingBulkApprovals.map((result) => result.response.status), [409, 409]);
-  await database.db.update(database.journalEntriesTable)
-    .set({ status: "approved" })
-    .where(inArray(database.journalEntriesTable.id, bulkProposalEntries.map((entry) => entry.id)));
   const pendingBulkPost = await request<{ error: string }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
@@ -481,9 +455,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
     }),
   });
   assert.equal(pendingBulkPost.response.status, 409);
-  await database.db.update(database.journalEntriesTable)
-    .set({ status: "suggested" })
-    .where(inArray(database.journalEntriesTable.id, bulkProposalEntries.map((entry) => entry.id)));
   for (const line of bulkProposalLines) {
     const accepted = await request<Line>(`/agaraccounting/statement-lines/${line.id}/contact`, {
       method: "PATCH",
@@ -498,7 +469,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
     });
     assert.equal(accepted.response.status, 200);
   }
-  await Promise.all(bulkProposalEntries.map((entry) => approve(entry.id)));
   const bulkPost = await request<{ entryCount: number; lineCount: number }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
     body: JSON.stringify({
@@ -522,19 +492,18 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(first.contactDecisionState, "matched");
   assert.equal(first.contactSuggestionStatus, "no_history");
   const firstEntry = await entryFor(first.id);
-  assert.equal((await request(`/agaraccounting/journal-entries/${firstEntry.id}/post`, {
-    method: "POST", body: JSON.stringify({ clientId }),
-  })).response.status, 409);
   const correction = await link(first.id, contact.body.id);
   assert.equal(correction.response.status, 200);
   await recode(first.id, contactAccount.body.accountName);
-  await approve(firstEntry.id);
+  assert.equal((await request(`/agaraccounting/journal-entries/${firstEntry.id}/post`, {
+    method: "POST", body: JSON.stringify({ clientId }),
+  })).response.status, 200);
 
   const evidence = await database.db.select().from(database.contactClassificationEvidenceTable)
     .where(eq(database.contactClassificationEvidenceTable.statementLineId, first.id));
   assert.equal(evidence.length, 1);
   assert.equal(evidence[0]?.accountSuggestion, contactAccount.body.accountName);
-  assert.equal(evidence[0]?.entryStatus, "approved");
+  assert.equal(evidence[0]?.entryStatus, "posted");
   assert.equal((await link(first.id, contact.body.id)).response.status, 409);
 
   const weak = await createLine("ACME BANK SEPTEMBER");
@@ -543,9 +512,11 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(weak.accountSuggestion, contactAccount.body.accountName);
   assert.equal(weak.supportingPatternCount, 1);
   const weakEntry = await entryFor(weak.id);
-  await approve(weakEntry.id);
+  assert.equal((await request(`/agaraccounting/journal-entries/${weakEntry.id}/post`, {
+    method: "POST", body: JSON.stringify({ clientId }),
+  })).response.status, 200);
 
-  // A deterministic client-scoped rate makes the EUR history approval valid.
+  // A deterministic client-scoped rate makes the EUR history posting valid.
   const rate = await request("/agaraccounting/exchange-rates?clientId=" + clientId, {
     method: "POST",
     body: JSON.stringify({ sourceCurrency: "EUR", functionalCurrency: "AED", effectiveDate: "2026-09-01", rate: 4 }),
@@ -556,7 +527,6 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(supported.accountSuggestion, contactAccount.body.accountName);
   assert.equal(supported.functionalAmount, 200);
   const supportedEntry = await entryFor(supported.id);
-  await approve(supportedEntry.id);
   assert.equal((await request(`/agaraccounting/journal-entries/${supportedEntry.id}/post`, {
     method: "POST", body: JSON.stringify({ clientId }),
   })).response.status, 200);
@@ -566,7 +536,41 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   );
   assert.equal(history.response.status, 200);
   assert.deepEqual(history.body.treatmentSummary, [{ accountTreatment: contactAccount.body.accountName, count: 3, currencies: ["AED", "EUR"] }]);
-  assert.deepEqual(new Set(history.body.history.map((row) => row.status)), new Set(["approved", "posted"]));
+  assert.deepEqual(new Set(history.body.history.map((row) => row.status)), new Set(["posted"]));
+
+  const reopenedAccount = await request<{ accountName: string }>("/agaraccounting/accounts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      accountCode: "5966",
+      accountName: "Reopened contact treatment",
+      displayName: "Reopened contact treatment",
+      statementSection: "expense",
+      currentNonCurrent: "not_applicable",
+      cashFlowCategory: "operating",
+      taxTreatment: "ordinary_deductible",
+      taxTreatmentReason: "Explicit treatment selected after reopening a posted entry.",
+    }),
+  });
+  assert.equal(reopenedAccount.response.status, 201);
+  assert.equal((await request(`/agaraccounting/journal-entries/${supportedEntry.id}/unpost`, {
+    method: "POST", body: JSON.stringify({ clientId }),
+  })).response.status, 200);
+  await recode(supported.id, reopenedAccount.body.accountName);
+  const afterReopen = await createLine("ACME BANK AFTER REOPEN");
+  assert.equal(afterReopen.contactSuggestionStatus, "supported");
+  assert.equal(afterReopen.accountSuggestion, contactAccount.body.accountName);
+  assert.equal(afterReopen.supportingPatternCount, 2);
+  const historyAfterReopen = await request<{ history: Array<{ statementLineId: number }>; treatmentSummary: Array<{ accountTreatment: string; count: number }> }>(
+    `/agaraccounting/clients/${clientId}/contacts/${contact.body.id}/history`,
+  );
+  assert.equal(historyAfterReopen.response.status, 200);
+  assert.equal(historyAfterReopen.body.history.some((row) => row.statementLineId === supported.id), false);
+  assert.deepEqual(historyAfterReopen.body.treatmentSummary, [{
+    accountTreatment: contactAccount.body.accountName,
+    count: 2,
+    currencies: ["AED"],
+  }]);
 
   assert.equal((await request(`/agaraccounting/accounts/${contactAccount.body.id}/archive`, {
     method: "POST", body: JSON.stringify({ clientId }),
@@ -589,11 +593,11 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   const conflictSeed = await createLine("CONFLICT VENDOR SOFTWARE");
   assert.equal(conflictSeed.contactId, conflictContact.body.id);
   await recode(conflictSeed.id, "Software & subscriptions");
-  await approve((await entryFor(conflictSeed.id)).id);
+  assert.equal((await post((await entryFor(conflictSeed.id)).id)).response.status, 200);
   const conflictCorrection = await createLine("CONFLICT VENDOR COMMUNICATIONS");
   assert.equal(conflictCorrection.contactSuggestionStatus, "weak");
   await recode(conflictCorrection.id, "Communication expenses");
-  await approve((await entryFor(conflictCorrection.id)).id);
+  assert.equal((await post((await entryFor(conflictCorrection.id)).id)).response.status, 200);
   const conflicting = await createLine("CONFLICT VENDOR FINAL CHECK");
   assert.equal(conflicting.contactDecisionState, "matched");
   assert.equal(conflicting.contactSuggestionStatus, "conflicting");
@@ -609,23 +613,21 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   const staleSeed = await createLine("STALE VENDOR SOFTWARE");
   await recode(staleSeed.id, "Software & subscriptions");
-  await approve((await entryFor(staleSeed.id)).id);
+  assert.equal((await post((await entryFor(staleSeed.id)).id)).response.status, 200);
   const staleProposal = await createLine("STALE VENDOR PENDING");
   assert.equal(staleProposal.contactSuggestionStatus, "weak");
   const changedEvidence = await createLine("STALE VENDOR PHONE");
   await recode(changedEvidence.id, "Communication expenses");
-  await approve((await entryFor(changedEvidence.id)).id);
+  assert.equal((await post((await entryFor(changedEvidence.id)).id)).response.status, 200);
   const staleProposalEntry = await entryFor(staleProposal.id);
-  assert.equal((await request(`/agaraccounting/journal-entries/${staleProposalEntry.id}/approve`, {
+  assert.equal((await request(`/agaraccounting/journal-entries/${staleProposalEntry.id}/post`, {
     method: "POST", body: JSON.stringify({ clientId }),
   })).response.status, 409);
   await recode(staleProposal.id, "Software & subscriptions");
-  await approve(staleProposalEntry.id);
-  const postAfterArchiveEntry = await entryFor(staleSeed.id);
   assert.equal((await request<Contact>(`/agaraccounting/contacts/${staleContact.body.id}`, {
     method: "PATCH", body: JSON.stringify({ clientId, status: "archived" }),
   })).response.status, 200);
-  assert.equal((await request(`/agaraccounting/journal-entries/${postAfterArchiveEntry.id}/post`, {
+  assert.equal((await request(`/agaraccounting/journal-entries/${staleProposalEntry.id}/post`, {
     method: "POST", body: JSON.stringify({ clientId }),
   })).response.status, 409);
 
@@ -657,14 +659,13 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(confirmedMergeLine.contactId, duplicate.body.id);
   await recode(confirmedMergeLine.id, "Software & subscriptions");
   const confirmedMergeEntry = await entryFor(confirmedMergeLine.id);
-  await approve(confirmedMergeEntry.id);
   assert.equal((await request(`/agaraccounting/journal-entries/${confirmedMergeEntry.id}/post`, {
     method: "POST", body: JSON.stringify({ clientId }),
   })).response.status, 200);
   const reviewMergeLine = await createLine("MERGE VENDOR SOURCE PENDING");
   const reviewMergeEntry = await entryFor(reviewMergeLine.id);
   assert.equal(reviewMergeLine.contactId, duplicate.body.id);
-  assert.equal(reviewMergeEntry.status, "suggested");
+  assert.equal(reviewMergeEntry.status, "draft");
 
   const previewPath = "/agaraccounting/contacts/merge/preview";
   const mergeInput = {
@@ -722,7 +723,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   const mergedLines = await database.db.select().from(database.statementLinesTable)
     .where(eq(database.statementLinesTable.contactId, survivor.body.id));
   assert.ok(mergedLines.some((line) => line.id === confirmedMergeLine.id && line.status === "posted"));
-  assert.ok(mergedLines.some((line) => line.id === reviewMergeLine.id && line.status === "needs_review"));
+  assert.ok(mergedLines.some((line) => line.id === reviewMergeLine.id && line.status === "draft"));
   const mergedEntries = await database.db.select().from(database.journalEntriesTable)
     .where(eq(database.journalEntriesTable.contactId, survivor.body.id));
   assert.ok(mergedEntries.some((entry) =>
@@ -730,7 +731,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
     && entry.status === "posted"
     && entry.debitAccount === "Software & subscriptions",
   ));
-  assert.ok(mergedEntries.some((entry) => entry.id === reviewMergeEntry.id && entry.status === "suggested"));
+  assert.ok(mergedEntries.some((entry) => entry.id === reviewMergeEntry.id && entry.status === "draft"));
   const mergedEvidence = await database.db.select().from(database.contactClassificationEvidenceTable)
     .where(eq(database.contactClassificationEvidenceTable.statementLineId, confirmedMergeLine.id));
   assert.equal(mergedEvidence[0]?.contactId, survivor.body.id);
@@ -811,7 +812,7 @@ test("reuses a prior client mapping for a legacy unresolved line at posting", as
   }).where(eq(database.statementLinesTable.id, legacyLine.id));
   await database.db.update(database.journalEntriesTable).set({
     contactId: null,
-    status: "approved",
+    status: "draft",
   }).where(eq(database.journalEntriesTable.id, legacyEntry.id));
 
   const displayedLegacyMatch = (await request<Line[]>(

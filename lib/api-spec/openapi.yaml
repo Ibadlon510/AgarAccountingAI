@@ -1380,35 +1380,11 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/JournalEntry"
-  /agaraccounting/journal-entries/{id}/approve:
-    post:
-      operationId: approveJournalEntry
-      tags: [agaraccounting]
-      summary: Approve a suggested journal entry
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: number
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ApproveJournalEntryInput"
-      responses:
-        "200":
-          description: Approved journal entry
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/JournalEntry"
   /agaraccounting/journal-entries/{id}/post:
     post:
       operationId: postJournalEntry
       tags: [agaraccounting]
-      summary: Post an approved journal entry to the ledger
+      summary: Post an eligible draft journal entry to the ledger
       parameters:
         - name: id
           in: path
@@ -1420,7 +1396,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ApproveJournalEntryInput"
+              $ref: "#/components/schemas/PostJournalEntryInput"
       responses:
         "200":
           description: Posted journal entry
@@ -1429,12 +1405,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/JournalEntry"
         "409":
-          description: Journal entry must be approved before posting
+          description: Draft journal entry is not eligible for posting
   /agaraccounting/journal-entries/{id}/unpost:
     post:
       operationId: unpostJournalEntry
       tags: [agaraccounting]
-      summary: Return a posted journal entry to approved and remove it from live reports
+      summary: Return a posted journal entry to draft and remove it from live reports
       parameters:
         - name: id
           in: path
@@ -1449,7 +1425,7 @@ paths:
               $ref: "#/components/schemas/UnpostJournalEntryInput"
       responses:
         "200":
-          description: Approved journal entry removed from live reports
+          description: Draft journal entry removed from live reports
           content:
             application/json:
               schema:
@@ -2543,7 +2519,7 @@ components:
         currency: { type: string }
         amount: { type: number }
         direction: { type: string }
-        status: { type: string }
+        status: { type: string, enum: [draft, posted] }
         source: { type: string }
         contactId: { type: ["number", "null"] }
         contactName: { type: ["string", "null"] }
@@ -2875,7 +2851,7 @@ components:
         bankName: { type: ["string", "null"] }
         accountNumberLast4: { type: ["string", "null"], pattern: "^[0-9]{4}$" }
         currency: { type: string, minLength: 3, maxLength: 3 }
-    ApproveJournalEntryInput:
+    PostJournalEntryInput:
       type: object
       required: [clientId]
       properties:
@@ -3063,7 +3039,7 @@ components:
       properties:
         id: { type: string }
         clientId: { type: number }
-        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account, bulk_approve_entries, bulk_post_entries] }
+        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account, bulk_post_entries] }
         title: { type: string }
         summary: { type: string }
         lineIds:
@@ -3107,7 +3083,7 @@ components:
       required: [clientId, type]
       properties:
         clientId: { type: number }
-        type: { type: string, enum: [recode_lines, create_bank_account, bulk_approve_entries, bulk_post_entries] }
+        type: { type: string, enum: [recode_lines, create_bank_account, bulk_post_entries] }
         lineIds:
           type: array
           items: { type: number }
@@ -3194,7 +3170,7 @@ components:
         date: { type: string }
         memo: { type: string }
         currency: { type: string }
-        status: { type: string }
+        status: { type: string, enum: [draft, posted] }
         confidence: { type: number }
         lines:
           type: array
