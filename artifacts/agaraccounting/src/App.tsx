@@ -63,6 +63,10 @@ const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 };
+const isDateInRange = (value: string, from: string, to: string) => {
+  const day = value.slice(0, 10);
+  return (!from || day >= from) && (!to || day <= to);
+};
 const dashboardGreeting = (date: Date) => {
   const hour = date.getHours();
   const options = hour < 5
@@ -2000,9 +2004,21 @@ function ContactMergeDialog({ contacts, clientId, onClose, onMerged }: { contact
   </div>;
 }
 
+function DateRangeFilter({ from, to, onFromChange, onToChange, fromTestId, toTestId, clearTestId }: { from: string; to: string; onFromChange: (value: string) => void; onToChange: (value: string) => void; fromTestId: string; toTestId: string; clearTestId: string }) {
+  const invalid = Boolean(from && to && from > to);
+  return <div className="flex flex-wrap items-end gap-2" data-testid={`${fromTestId}-group`}>
+    <span className="mr-1 pb-2 text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">Date range</span>
+    <label className="text-[10px] font-semibold text-muted-foreground">From<input data-testid={fromTestId} type="date" aria-label="From date" value={from} onChange={(event) => onFromChange(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs font-normal text-foreground outline-none focus:border-primary" /></label>
+    <label className="text-[10px] font-semibold text-muted-foreground">To<input data-testid={toTestId} type="date" aria-label="To date" value={to} onChange={(event) => onToChange(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs font-normal text-foreground outline-none focus:border-primary" /></label>
+    {(from || to) && <button data-testid={clearTestId} type="button" onClick={() => { onFromChange(''); onToChange(''); }} className="h-9 rounded-md px-2 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">Clear</button>}
+    {invalid && <span data-testid={`${fromTestId}-error`} role="alert" className="basis-full text-[10px] font-semibold text-destructive">From date must be on or before the To date.</span>}
+  </div>;
+}
+
 function StatementLinesPage() {
   const { activeClient } = useClientWorkspace();
   const [currency, setCurrency] = useState('all'); const [status, setStatus] = useState('all'); const [direction, setDirection] = useState<'all' | 'inflow' | 'outflow'>('all'); const [search, setSearch] = useState(''); const [addOpen, setAddOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState(''); const [dateTo, setDateTo] = useState('');
   const [linePage, setLinePage] = useState(1);
   const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
   const [selectedLineIds, setSelectedLineIds] = useState<number[]>([]);
@@ -2019,7 +2035,7 @@ function StatementLinesPage() {
   const bulkMutation = useConfirmAICopilotAction();
   const entriesByLine = useMemo(() => new Map((journalQuery.data ?? []).map((entry) => [entry.statementLineId, entry])), [journalQuery.data]);
   const bankAccountsById = useMemo(() => new Map((bankAccountsQuery.data ?? []).map((account) => [account.id, account])), [bankAccountsQuery.data]);
-  const rows = useMemo(() => (query.data ?? []).filter((line) => `${line.description} ${line.accountSuggestion ?? ''}`.toLowerCase().includes(search.toLowerCase())), [query.data, search]);
+  const rows = useMemo(() => (query.data ?? []).filter((line) => isDateInRange(line.date, dateFrom, dateTo) && `${line.description} ${line.accountSuggestion ?? ''}`.toLowerCase().includes(search.toLowerCase())), [query.data, search, dateFrom, dateTo]);
   const linePageCount = Math.max(1, Math.ceil(rows.length / STATEMENT_LINES_PAGE_SIZE));
   const currentLinePage = Math.min(linePage, linePageCount);
   const visibleRows = rows.slice((currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE, currentLinePage * STATEMENT_LINES_PAGE_SIZE);
@@ -2057,7 +2073,7 @@ function StatementLinesPage() {
   }, [rows, activeClient?.id]);
   useEffect(() => {
     setLinePage(1);
-  }, [activeClient?.id, currency, status, direction, search]);
+  }, [activeClient?.id, currency, status, direction, search, dateFrom, dateTo]);
   useEffect(() => {
     if (linePage > linePageCount) setLinePage(linePageCount);
   }, [linePage, linePageCount]);
@@ -2119,9 +2135,10 @@ function StatementLinesPage() {
   const toggleLineSelection = (lineId: number) => setSelectedLineIds((current) => current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]);
   return <div>
     <PageHeading eyebrow="Evidence review / bank activity" title="Statement lines" description="Start with the source. Review each movement, inspect its linked draft journal entry, then post only the entries you stand behind." action={<button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>} />
-    <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card p-3 md:flex-row md:items-center">
+     <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card p-3 md:flex-row md:items-end">
       <div className="relative flex-1"><Search className="absolute left-3 top-2.5 text-muted-foreground" size={15} /><input data-testid="input-search-lines" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search descriptions or account suggestions" className="h-9 w-full rounded-md border-0 bg-background pl-9 pr-3 text-xs outline-none ring-1 ring-border focus:ring-primary" /></div>
-      <div className="flex items-center gap-2"><Filter size={14} className="text-muted-foreground" /><select data-testid="select-direction-filter" aria-label="Filter by statement type" value={direction} onChange={(event) => setDirection(event.target.value as 'all' | 'inflow' | 'outflow')} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All types</option><option value="inflow">Receipts · inflow</option><option value="outflow">Payments · outflow</option></select><select data-testid="select-currency-filter" value={currency} onChange={(event) => setCurrency(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All currencies</option>{currencies.map((item) => <option key={item}>{item}</option>)}</select><select data-testid="select-status-filter" value={status} onChange={(event) => setStatus(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 py-0 text-xs"><option value="all">All statuses</option><option value="draft">Draft</option><option value="posted">Posted</option></select></div>
+       <div className="flex flex-wrap items-center gap-2"><Filter size={14} className="text-muted-foreground" /><select data-testid="select-direction-filter" aria-label="Filter by statement type" value={direction} onChange={(event) => setDirection(event.target.value as 'all' | 'inflow' | 'outflow')} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All types</option><option value="inflow">Receipts · inflow</option><option value="outflow">Payments · outflow</option></select><select data-testid="select-currency-filter" value={currency} onChange={(event) => setCurrency(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All currencies</option>{currencies.map((item) => <option key={item}>{item}</option>)}</select><select data-testid="select-status-filter" value={status} onChange={(event) => setStatus(event.target.value)} className="h-9 rounded-md border border-input bg-background px-2 py-0 text-xs"><option value="all">All statuses</option><option value="draft">Draft</option><option value="posted">Posted</option></select></div>
+       <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-statement-lines-date-from" toTestId="input-statement-lines-date-to" clearTestId="button-clear-statement-lines-date-filter" />
     </div>
     <QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} onRetry={() => query.refetch()}>
       <div className="overflow-hidden rounded-lg border border-card-border bg-card">
@@ -2361,7 +2378,8 @@ function JournalEntriesPage() {
   const entries = query.data ?? [];
   const [selected, setSelected] = useState<number | null>(null);
   const [filter, setFilter] = useState('all');
-  const filtered = entries.filter((item) => filter === 'all' || item.status.toLowerCase() === filter);
+  const [dateFrom, setDateFrom] = useState(''); const [dateTo, setDateTo] = useState('');
+  const filtered = useMemo(() => entries.filter((item) => (filter === 'all' || item.status.toLowerCase() === filter) && isDateInRange(item.date, dateFrom, dateTo)), [entries, filter, dateFrom, dateTo]);
   const refreshJournalData = () => {
     queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
@@ -2377,7 +2395,7 @@ function JournalEntriesPage() {
   };
   return <div>
     <PageHeading eyebrow="Decision layer / AI proposals" title="Journal entries" description="Review each draft double-entry, trace it back to its source line, and post only entries that make sense." action={<div className="flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 py-2 text-[11px] text-accent-foreground"><Sparkles size={14} /> AI prepared · human posted</div>} />
-    <div className="mb-4 flex items-center justify-between rounded-lg border border-card-border bg-card px-4 py-3"><div className="flex items-center gap-2"><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-draft-entries" onClick={() => setFilter('draft')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'draft' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Draft</button><button data-testid="button-filter-posted-entries" onClick={() => setFilter('posted')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'posted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Posted</button></div><span className="font-mono text-[10px] text-muted-foreground">Source-linked postings</span></div>
+     <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card px-4 py-3 md:flex-row md:items-end md:justify-between"><div className="flex items-center gap-2"><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-draft-entries" onClick={() => setFilter('draft')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'draft' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Draft</button><button data-testid="button-filter-posted-entries" onClick={() => setFilter('posted')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'posted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Posted</button></div><DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-journal-entries-date-from" toTestId="input-journal-entries-date-to" clearTestId="button-clear-journal-entries-date-filter" /><span className="font-mono text-[10px] text-muted-foreground">Showing {filtered.length} source-linked {filtered.length === 1 ? 'posting' : 'postings'}</span></div>
     <QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onPost={() => postEntry(entry)} onUnpost={() => unpostEntry(entry)} posting={post.isPending && post.variables?.id === entry.id} unposting={unpost.isPending && unpost.variables?.id === entry.id} />)}</div></QueryState>
   </div>;
 }
