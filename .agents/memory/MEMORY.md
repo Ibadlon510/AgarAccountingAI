@@ -28,3 +28,4 @@
 - [Product namespace database renames](product-namespace-database-renames.md) — preserve data with an idempotent pre-push dev rename; production renames stay in Replit’s Publish confirmation flow.
 - [Contact suggestion provenance](contact-suggestion-provenance.md) — revalidate automated contact evidence at approval, but preserve explicit accountant recodes as human decisions.
 - [Statement import client intent](statement-import-client-intent.md) — bind queued files and previews to the client selected at intake; never resolve ownership from later active-client state.
+- [Drizzle check expression changes](drizzle-check-expression-changes.md) — rename a check constraint when changing its expression so Drizzle push materializes the change.

@@ -532,8 +532,10 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
     sql`${table.contactReviewDisposition} in ('pending', 'accepted', 'replaced', 'dismissed')`,
   ),
   statusCheck: check(
-    "agaraccounting_statement_lines_status_check",
-    sql`${table.status} in ('draft', 'posted')`,
+    "agaraccounting_statement_lines_lifecycle_compat_check",
+    // Legacy non-posted values remain valid for publish compatibility. The API
+    // exposes all of them as draft, and every new write uses draft or posted.
+    sql`${table.status} in ('draft', 'posted', 'suggested', 'approved', 'needs_review')`,
   ),
   proposedContactShapeCheck: check(
     "agaraccounting_statement_lines_proposed_contact_shape_check",
@@ -600,8 +602,10 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   statementLineUnique: uniqueIndex("agaraccounting_journal_entries_statement_line_id_idx").on(table.statementLineId),
   idClientUnique: uniqueIndex("agaraccounting_journal_entries_id_client_idx").on(table.id, table.clientId),
   statusCheck: check(
-    "agaraccounting_journal_entries_status_check",
-    sql`${table.status} in ('draft', 'posted')`,
+    "agaraccounting_journal_entries_lifecycle_compat_check",
+    // Keep production rows from the former review lifecycle valid while the
+    // runtime maps them to draft and transitions future writes to two states.
+    sql`${table.status} in ('draft', 'posted', 'suggested', 'approved', 'needs_review')`,
   ),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
