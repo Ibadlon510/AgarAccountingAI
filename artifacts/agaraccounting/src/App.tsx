@@ -2210,9 +2210,12 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const accountConfirmationRequired = line.accountConfirmationRequired;
   const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion ?? '');
   useEffect(() => {
-    if (accounts.some((account) => account.accountName === line.accountSuggestion)) setSelectedAccount(line.accountSuggestion ?? '');
-    else if (!accounts.some((account) => account.accountName === selectedAccount)) setSelectedAccount(accounts[0]?.accountName ?? '');
-  }, [accounts, line.accountSuggestion, selectedAccount]);
+    if (line.accountSuggestion && accounts.some((account) => account.accountName === line.accountSuggestion)) {
+      setSelectedAccount(line.accountSuggestion);
+    } else {
+      setSelectedAccount(accounts[0]?.accountName ?? '');
+    }
+  }, [accounts, line.accountSuggestion]);
   const debitLine = entry?.lines.find((item) => item.debit > 0);
   const creditLine = entry?.lines.find((item) => item.credit > 0);
   const sourceAmount = debitLine?.debit ?? creditLine?.credit ?? line.amount;
