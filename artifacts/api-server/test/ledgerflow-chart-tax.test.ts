@@ -66,6 +66,10 @@ async function createPostableLine(description: string, amount: number, direction
     }),
   });
   assert.equal(line.response.status, 201);
+  assert.equal((await request(`/agaraccounting/statement-lines/${line.body.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  })).response.status, 200);
   const entries = await request<Array<{ id: number; statementLineId: number }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
   const entry = entries.body.find((candidate) => candidate.statementLineId === line.body.id);
   assert.ok(entry);

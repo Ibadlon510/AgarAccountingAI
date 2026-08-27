@@ -2153,7 +2153,12 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const [proposedContactType, setProposedContactType] = useState<'customer' | 'supplier' | 'both'>(
     line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'),
   );
-  const hasTemporaryProposal = !line.contactId && line.contactReviewDisposition !== 'dismissed' && Boolean(line.proposedContactName);
+  const likelyContactType = line.direction === 'inflow' ? 'customer' : 'supplier';
+  const hasTemporaryProposal = line.contactDecisionState === 'named_proposal';
+  const needsIdentification = line.contactDecisionState === 'needs_identification';
+  const needsContactConfirmation = needsIdentification
+    || (line.contactDecisionState === 'named_proposal' && line.contactReviewDisposition !== 'accepted');
+  const showContactProposalEditor = hasTemporaryProposal || needsIdentification;
   useEffect(() => {
     setSelectedContactId(line.contactId ? String(line.contactId) : '');
     setProposedContactName(line.proposedContactName ?? '');
@@ -2202,8 +2207,12 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     : !entry
       ? <span className="text-[11px] text-muted-foreground">{journalLoading ? 'Loading…' : 'Unavailable'}</span>
       : approved
-        ? <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {hasTemporaryProposal ? 'Post & create' : 'Post'}</>}</button>
-        : <button data-testid={`button-approve-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onApproveAndPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Approving…' : <><Check size={13} /> Approve</>}</button>;
+        ? needsContactConfirmation
+          ? <span data-testid={`contact-required-before-posting-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-destructive"><CircleAlert size={13} /> Contact needed</span>
+          : <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {hasTemporaryProposal ? 'Post & create' : 'Post'}</>}</button>
+        : needsContactConfirmation
+          ? <span data-testid={`contact-required-before-approval-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-destructive"><CircleAlert size={13} /> Identify contact</span>
+          : <button data-testid={`button-approve-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onApproveAndPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Approving…' : <><Check size={13} /> Approve</>}</button>;
 
   return <>
     <tr data-testid={`row-statement-line-${line.id}`} tabIndex={0} aria-expanded={expanded} aria-selected={selected} onClick={onToggle} onKeyDown={toggleFromRow} className={`group cursor-pointer transition-colors hover:bg-secondary/30 focus:outline-none focus-visible:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${expanded ? 'bg-secondary/20' : ''}`}>
@@ -2211,9 +2220,11 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       <td className="whitespace-nowrap px-3 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td>
       <td className="w-[280px] max-w-[280px] px-4 py-4 align-top"><div className="w-full whitespace-normal break-words text-[12px] font-semibold [overflow-wrap:anywhere]">{line.description}</div><div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[9px] text-muted-foreground"><span className="rounded bg-muted px-1 py-0.5">{line.source}</span><span>· {line.currency}</span>{bankAccountName && <span className="break-words">· {bankAccountName}</span>}</div></td>
       <td className="px-4 py-4 align-top">
-        <div className="text-[12px] font-semibold">{line.contactName || (hasTemporaryProposal ? line.proposedContactName : <span className="font-normal text-muted-foreground">{line.contactReviewDisposition === 'dismissed' ? 'Keep unlinked' : 'Unlinked'}</span>)}</div>
+        <div className="text-[12px] font-semibold">{line.contactName || (hasTemporaryProposal ? line.proposedContactName : needsIdentification ? <span data-testid={`unknown-contact-${line.id}`} className="text-destructive">Unknown {likelyContactType}</span> : <span className="font-normal text-muted-foreground">Keep unlinked</span>)}</div>
         {hasTemporaryProposal && <div data-testid={`temporary-contact-proposal-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">Temporary proposal</div>}
         {hasTemporaryProposal && <div className="mt-1 text-[9px] leading-3 text-muted-foreground">{Math.round((line.proposedContactConfidence ?? 0) * 100)}% · {(line.proposedContactSource ?? 'description').replaceAll('_', ' ')} · creates on posting</div>}
+        {needsIdentification && <div data-testid={`needs-contact-identification-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-destructive">Needs identification</div>}
+        {line.contactDecisionState === 'dismissed' && <div data-testid={`dismissed-contact-decision-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-muted-foreground">Explicitly dismissed</div>}
         {line.contactName && line.contactSuggestionStatus && (
           <div className={`mt-1 text-[9px] uppercase tracking-[.05em] ${line.contactSuggestionStatus === 'supported' ? 'text-primary font-bold' : line.contactSuggestionStatus === 'conflicting' ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>{line.contactSuggestionStatus.replace(/_/g, ' ')}</div>
         )}
@@ -2256,7 +2267,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
              <label className="block text-[11px] font-semibold">Contact
                <select data-testid={`select-contact-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
-                 <option value="">{hasTemporaryProposal ? 'Use temporary proposal' : 'No contact'}</option>
+                  <option value="">{hasTemporaryProposal ? 'Use temporary proposal' : needsIdentification ? `Identify ${likelyContactType} below` : 'No contact'}</option>
                  {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
                </select>
              </label>
@@ -2266,10 +2277,10 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                </button>
              )}
            </div>
-           {hasTemporaryProposal && <div data-testid={`contact-proposal-editor-${line.id}`} className="mt-3 rounded-md border border-accent/25 bg-accent/5 p-3">
+            {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className={`mt-3 rounded-md border p-3 ${needsIdentification ? 'border-destructive/25 bg-destructive/5' : 'border-accent/25 bg-accent/5'}`}>
              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div><div className="text-[11px] font-semibold">Suggested contact profile</div><p className="mt-1 text-[10px] text-muted-foreground">Review these client-scoped details. Accepting creates and links the profile; posting remains a separate accounting action.</p></div>
-               <span className="rounded-full bg-accent/15 px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] text-accent-foreground">{line.contactReviewDisposition === 'accepted' ? 'Accepted for posting' : 'Review pending'}</span>
+                <div><div className="text-[11px] font-semibold">{needsIdentification ? `Identify the ${likelyContactType}` : 'Temporary contact proposal'}</div><p className="mt-1 text-[10px] text-muted-foreground">{needsIdentification ? `Enter the real ${likelyContactType} name and a statement alias, or select an existing contact above. Generic “Unknown” contacts will not be created.` : 'Review these client-scoped details. Approval creates nothing; posting creates or reuses the matching profile.'}</p></div>
+                <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${needsIdentification ? 'bg-destructive/10 text-destructive' : 'bg-accent/15 text-accent-foreground'}`}>{line.contactReviewDisposition === 'accepted' ? 'Accepted for posting' : needsIdentification ? 'Identity required' : 'Review pending'}</span>
              </div>
              <div className="mt-3 grid gap-2 md:grid-cols-3">
                <label className="text-[10px] font-semibold">Display name<input data-testid={`input-proposed-contact-name-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={proposedContactName} onChange={(event) => setProposedContactName(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
@@ -2277,8 +2288,8 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                <label className="text-[10px] font-semibold">Type<select data-testid={`select-proposed-contact-type-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={proposedContactType} onChange={(event) => setProposedContactType(event.target.value as 'customer' | 'supplier' | 'both')} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"><option value="customer">Customer</option><option value="supplier">Supplier</option><option value="both">Customer & supplier</option></select></label>
              </div>
              {canEditContact && <div className="mt-3 flex flex-wrap gap-2">
-               <button data-testid={`button-save-contact-proposal-${line.id}`} onClick={() => reviewProposal('pending')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[10px] font-semibold text-primary disabled:opacity-50">Save edits</button>
-                <button data-testid={`button-accept-contact-proposal-${line.id}`} onClick={() => reviewProposal('accepted')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground disabled:opacity-50">Accept & create profile</button>
+                <button data-testid={`button-save-contact-proposal-${line.id}`} onClick={() => reviewProposal('pending')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[10px] font-semibold text-primary disabled:opacity-50">Save real identity</button>
+                <button data-testid={`button-accept-contact-proposal-${line.id}`} onClick={() => reviewProposal('accepted')} disabled={linkContact.isPending || !proposedContactName.trim() || !proposedContactAlias.trim()} className="rounded-md bg-primary px-2.5 py-1.5 text-[10px] font-semibold text-primary-foreground disabled:opacity-50">Confirm for posting</button>
                <button data-testid={`button-dismiss-contact-proposal-${line.id}`} onClick={() => reviewProposal('dismissed')} disabled={linkContact.isPending} className="rounded-md border border-border px-2.5 py-1.5 text-[10px] font-semibold text-muted-foreground disabled:opacity-50">Keep unlinked</button>
              </div>}
            </div>}
@@ -2301,7 +2312,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{(line as any).suggestionSource === 'workspace_learning' ? `This match is based on ${(line as any).supportingPatternCount} confirmed workspace pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
         </div>}
         <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : approved ? 'This entry is approved and ready to post. Use the Post action in the row above.' : 'Approval is required before this line can be posted. Use the Approve action in the row above.'}</p>
+          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : needsContactConfirmation ? `Identify and confirm the ${likelyContactType}, select an existing contact, or explicitly keep the line unlinked before posting.` : approved ? 'This entry is approved and ready to post. Use the Post action in the row above.' : 'Approval is required before this line can be posted. Use the Approve action in the row above.'}</p>
         </div>
         {actionError && <p className="mt-3 text-xs text-destructive">The journal entry could not be updated. Refresh this line and try again.</p>}
       </section>}

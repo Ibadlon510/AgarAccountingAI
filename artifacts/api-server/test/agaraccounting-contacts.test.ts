@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -42,13 +42,14 @@ type Line = {
   contactSuggestionStatus: string | null; supportingPatternCount: number; functionalAmount: number | null;
   proposedContactName: string | null; proposedContactType: string | null; proposedContactAlias: string | null;
   proposedContactConfidence: number | null; proposedContactSource: string | null; contactReviewDisposition: string;
+  contactDecisionState: "matched" | "named_proposal" | "needs_identification" | "dismissed";
 };
 
-async function createLine(description: string, currency = "AED", amount = 100): Promise<Line> {
+async function createLine(description: string, currency = "AED", amount = 100, direction = "outflow"): Promise<Line> {
   const result = await request<Line>("/agaraccounting/statement-lines", {
     method: "POST",
     body: JSON.stringify({
-      clientId, date: "2026-09-15", description, currency, amount, direction: "outflow",
+      clientId, date: "2026-09-15", description, currency, amount, direction,
     }),
   });
   assert.equal(result.response.status, 201);
@@ -162,6 +163,28 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   assert.equal(contact.response.status, 201);
   assert.deepEqual(contact.body.aliases.sort(), ["ACME PAYMENTS", "Acme Supplies", "Acme Supplies FZ-LLC", "Acme Supplier"].sort());
+
+  const rejectedUnknownContact = await request<{ error: string }>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Unknown supplier",
+      legalName: "Unknown supplier",
+      contactType: "supplier",
+      aliases: ["UNKNOWN SUPPLIER"],
+    }),
+  });
+  assert.equal(rejectedUnknownContact.response.status, 400);
+  assert.match(rejectedUnknownContact.body.error, /Generic unknown contacts are not allowed/i);
+  assert.equal((await request(`/agaraccounting/contacts/${contact.body.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Unknown supplier",
+      legalName: "Unknown supplier",
+      aliases: ["UNKNOWN SUPPLIER"],
+    }),
+  })).response.status, 400);
   const updated = await request<Contact>(`/agaraccounting/contacts/${contact.body.id}`, {
     method: "PATCH",
     body: JSON.stringify({ clientId, aliases: ["ACME PAYMENTS", "ACME BANK"] }),
@@ -172,13 +195,139 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal(listed.response.status, 200);
   assert.equal(listed.body[0]?.id, contact.body.id);
 
+  const unidentifiedSupplier = await createLine("CARD PAYMENT 0000");
+  assert.equal(unidentifiedSupplier.contactDecisionState, "needs_identification");
+  assert.equal(unidentifiedSupplier.contactSuggestionStatus, "needs_identification");
+  assert.equal(unidentifiedSupplier.proposedContactName, null);
+  assert.equal(unidentifiedSupplier.proposedContactAlias, null);
+  assert.match(unidentifiedSupplier.proposedContactSource ?? "", /^$/);
+  const unidentifiedSupplierResponse = await request<Line[]>(
+    `/agaraccounting/statement-lines?clientId=${clientId}`,
+  );
+  const unidentifiedSupplierFromList = unidentifiedSupplierResponse.body.find((line) => line.id === unidentifiedSupplier.id);
+  assert.equal(unidentifiedSupplierFromList?.contactDecisionState, "needs_identification");
+  assert.match(unidentifiedSupplierFromList?.contactSuggestionStatus ?? "", /needs_identification/);
+  const unidentifiedEntry = await entryFor(unidentifiedSupplier.id);
+  const unidentifiedApproval = await request<{ error: string }>(
+    `/agaraccounting/journal-entries/${unidentifiedEntry.id}/approve`,
+    { method: "POST", body: JSON.stringify({ clientId }) },
+  );
+  assert.equal(unidentifiedApproval.response.status, 409);
+  assert.match(unidentifiedApproval.body.error, /Identify this customer or supplier/i);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "approved" })
+    .where(eq(database.journalEntriesTable.id, unidentifiedEntry.id));
+  const unidentifiedPost = await post(unidentifiedEntry.id);
+  assert.equal(unidentifiedPost.response.status, 409);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "suggested" })
+    .where(eq(database.journalEntriesTable.id, unidentifiedEntry.id));
+  const rejectedGenericIdentity = await request<{ error: string }>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      clientId,
+      contactId: null,
+      proposedContactName: "Unknown supplier",
+      proposedContactAlias: "UNKNOWN SUPPLIER",
+      proposedContactType: "supplier",
+      contactReviewDisposition: "accepted",
+    }),
+  });
+  assert.equal(rejectedGenericIdentity.response.status, 400);
+  assert.match(rejectedGenericIdentity.body.error, /real, non-generic name/i);
+  const unconfirmedSupplier = await request<Line>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      clientId,
+      contactId: null,
+      proposedContactName: "Real Supplies",
+      proposedContactAlias: "REAL SUPPLIES",
+      proposedContactType: "supplier",
+      contactReviewDisposition: "pending",
+    }),
+  });
+  assert.equal(unconfirmedSupplier.response.status, 200);
+  assert.equal(
+    (await request(`/agaraccounting/journal-entries/${unidentifiedEntry.id}/approve`, {
+      method: "POST", body: JSON.stringify({ clientId }),
+    })).response.status,
+    409,
+  );
+  const identifiedSupplier = await request<Line>(`/agaraccounting/statement-lines/${unidentifiedSupplier.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      clientId,
+      contactId: null,
+      proposedContactName: "Real Supplies",
+      proposedContactAlias: "REAL SUPPLIES",
+      proposedContactType: "supplier",
+      contactReviewDisposition: "accepted",
+    }),
+  });
+  assert.equal(identifiedSupplier.response.status, 200);
+  assert.equal(identifiedSupplier.body.contactDecisionState, "named_proposal");
+  await approve(unidentifiedEntry.id);
+  assert.equal((await post(unidentifiedEntry.id)).response.status, 200);
+  const contactsAfterIdentification = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
+  assert.ok(contactsAfterIdentification.body.some((item) => item.displayName === "Real Supplies"));
+  assert.equal(
+    contactsAfterIdentification.body.some((item) => /^(unknown|unnamed|card|supplier)$/i.test(item.displayName.trim())),
+    false,
+  );
+
+  const unidentifiedCustomer = await createLine("TRANSFER 98765", "AED", 150, "inflow");
+  assert.equal(unidentifiedCustomer.contactDecisionState, "needs_identification");
+  assert.match(
+    (await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`)).body
+      .find((line) => line.id === unidentifiedCustomer.id)?.proposedContactName ?? "",
+    /^$/,
+  );
+  const dismissedCustomer = await request<Line>(`/agaraccounting/statement-lines/${unidentifiedCustomer.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  });
+  assert.equal(dismissedCustomer.response.status, 200);
+  assert.equal(dismissedCustomer.body.contactDecisionState, "dismissed");
+  const unidentifiedCustomerEntry = await entryFor(unidentifiedCustomer.id);
+  await approve(unidentifiedCustomerEntry.id);
+  assert.equal((await post(unidentifiedCustomerEntry.id)).response.status, 200);
+
+  const legacyLine = await createLine("LEGACY CONTACT NAME");
+  await database.db.update(database.statementLinesTable).set({
+    description: "CARD PAYMENT 12345",
+    proposedContactName: null,
+    proposedContactType: null,
+    proposedContactAlias: null,
+    proposedContactConfidence: null,
+    proposedContactSource: null,
+    contactReviewDisposition: "pending",
+  }).where(eq(database.statementLinesTable.id, legacyLine.id));
+  const legacyFromList = (await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`)).body
+    .find((line) => line.id === legacyLine.id);
+  assert.equal(legacyFromList?.contactDecisionState, "needs_identification");
+  assert.equal(legacyFromList?.contactSuggestionStatus, "needs_identification");
+
   const temporary = await createLine("CARD PAYMENT NOVA OFFICE SUPPLY INV 9001");
   assert.equal(temporary.contactId, null);
+  assert.equal(temporary.contactDecisionState, "named_proposal");
   assert.equal(temporary.contactSuggestionStatus, "temporary_proposal");
   assert.equal(temporary.proposedContactType, "supplier");
   assert.equal(temporary.proposedContactSource, "heuristic_description");
   assert.ok(temporary.proposedContactName);
   assert.ok(temporary.proposedContactAlias);
+
+  const pendingTemporaryEntry = await entryFor(temporary.id);
+  assert.equal((await request(`/agaraccounting/journal-entries/${pendingTemporaryEntry.id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  })).response.status, 409);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "approved" })
+    .where(eq(database.journalEntriesTable.id, pendingTemporaryEntry.id));
+  assert.equal((await post(pendingTemporaryEntry.id)).response.status, 409);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "suggested" })
+    .where(eq(database.journalEntriesTable.id, pendingTemporaryEntry.id));
   assert.equal((await request(`/agaraccounting/statement-lines/${temporary.id}/contact`, {
     method: "PATCH",
     body: JSON.stringify({ clientId, contactId: contact.body.id, contactReviewDisposition: "dismissed" }),
@@ -210,18 +359,12 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   assert.equal(editedTemporary.response.status, 200);
   assert.equal(editedTemporary.body.contactReviewDisposition, "accepted");
-  assert.ok(editedTemporary.body.contactId);
-  assert.equal(editedTemporary.body.proposedContactName, null);
-  const contactsAfterAcceptance = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
-  const acceptedContact = contactsAfterAcceptance.body.find((item) => item.displayName === "Nova Office Supply");
-  assert.ok(acceptedContact);
-  assert.equal(editedTemporary.body.contactId, acceptedContact.id);
   const contactsBeforeApproval = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
   const temporaryEntry = await entryFor(temporary.id);
   await approve(temporaryEntry.id);
   const contactsAfterApproval = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
   assert.equal(contactsAfterApproval.body.length, contactsBeforeApproval.body.length);
-  assert.equal(contactsAfterApproval.body.some((item) => item.displayName === "Nova Office Supply"), true);
+  assert.equal(contactsAfterApproval.body.some((item) => item.displayName === "Nova Office Supply"), false);
   const temporaryPost = await post(temporaryEntry.id);
   assert.equal(temporaryPost.response.status, 200);
   const contactsAfterPost = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
@@ -249,6 +392,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   });
   assert.equal(dismissedReview.response.status, 200);
   assert.equal(dismissedReview.body.contactReviewDisposition, "dismissed");
+  assert.equal(dismissedReview.body.contactDecisionState, "dismissed");
   const dismissedEntry = await entryFor(dismissed.id);
   await approve(dismissedEntry.id);
   assert.equal((await post(dismissedEntry.id)).response.status, 200);
@@ -292,6 +436,42 @@ test("uses client-scoped contact history without bypassing approval or chart saf
     createLine("CARD PAYMENT BULK BETA SERVICES"),
   ]);
   const bulkProposalEntries = await Promise.all(bulkProposalLines.map(async (line) => entryFor(line.id)));
+
+  const pendingBulkApprovals = await Promise.all(bulkProposalEntries.map((entry) => request<{ error: string }>(
+    `/agaraccounting/journal-entries/${entry.id}/approve`,
+    { method: "POST", body: JSON.stringify({ clientId }) },
+  )));
+  assert.deepEqual(pendingBulkApprovals.map((result) => result.response.status), [409, 409]);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "approved" })
+    .where(inArray(database.journalEntriesTable.id, bulkProposalEntries.map((entry) => entry.id)));
+  const pendingBulkPost = await request<{ error: string }>("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "bulk_post_entries",
+      entryIds: bulkProposalEntries.map((entry) => entry.id),
+      statementLineIds: bulkProposalLines.map((line) => line.id),
+    }),
+  });
+  assert.equal(pendingBulkPost.response.status, 409);
+  await database.db.update(database.journalEntriesTable)
+    .set({ status: "suggested" })
+    .where(inArray(database.journalEntriesTable.id, bulkProposalEntries.map((entry) => entry.id)));
+  for (const line of bulkProposalLines) {
+    const accepted = await request<Line>(`/agaraccounting/statement-lines/${line.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        clientId,
+        contactId: null,
+        proposedContactName: line.proposedContactName,
+        proposedContactAlias: line.proposedContactAlias,
+        proposedContactType: line.proposedContactType,
+        contactReviewDisposition: "accepted",
+      }),
+    });
+    assert.equal(accepted.response.status, 200);
+  }
   await Promise.all(bulkProposalEntries.map((entry) => approve(entry.id)));
   const bulkPost = await request<{ entryCount: number; lineCount: number }>("/agaraccounting/ai-actions/confirm", {
     method: "POST",
@@ -313,6 +493,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
 
   const first = await createLine("CARD PAYMENT ACME BANK INV 1001");
   assert.equal(first.contactId, contact.body.id);
+  assert.equal(first.contactDecisionState, "matched");
   assert.equal(first.contactSuggestionStatus, "no_history");
   const firstEntry = await entryFor(first.id);
   assert.equal((await request(`/agaraccounting/journal-entries/${firstEntry.id}/post`, {
@@ -331,6 +512,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal((await link(first.id, contact.body.id)).response.status, 409);
 
   const weak = await createLine("ACME BANK SEPTEMBER");
+  assert.equal(weak.contactDecisionState, "matched");
   assert.equal(weak.contactSuggestionStatus, "weak");
   assert.equal(weak.accountSuggestion, contactAccount.body.accountName);
   assert.equal(weak.supportingPatternCount, 1);
@@ -387,6 +569,7 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   await recode(conflictCorrection.id, "Communication expenses");
   await approve((await entryFor(conflictCorrection.id)).id);
   const conflicting = await createLine("CONFLICT VENDOR FINAL CHECK");
+  assert.equal(conflicting.contactDecisionState, "matched");
   assert.equal(conflicting.contactSuggestionStatus, "conflicting");
   assert.notEqual(conflicting.accountSuggestion, "Software & subscriptions");
   assert.notEqual(conflicting.accountSuggestion, "Communication expenses");
@@ -555,4 +738,8 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.equal((await request(`/agaraccounting/statement-lines/${first.id}/contact`, {
     method: "PATCH", body: JSON.stringify({ clientId: foreignClientId, contactId: contact.body.id }),
   })).response.status, 403);
+  const reviewLines = (await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`)).body;
+  const validDecisionStates = new Set(["matched", "named_proposal", "needs_identification", "dismissed"]);
+  assert.ok(reviewLines.filter((line) => line.contactReviewDisposition !== "accepted" || line.contactId == null)
+    .every((line) => validDecisionStates.has(line.contactDecisionState)));
 });

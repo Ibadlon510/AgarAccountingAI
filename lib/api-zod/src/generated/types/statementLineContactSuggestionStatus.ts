@@ -19,4 +19,5 @@ export const StatementLineContactSuggestionStatus = {
   no_safe_treatment: 'no_safe_treatment',
   no_history: 'no_history',
   temporary_proposal: 'temporary_proposal',
+  needs_identification: 'needs_identification',
 } as const;

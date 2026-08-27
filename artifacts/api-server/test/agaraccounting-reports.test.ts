@@ -153,6 +153,10 @@ test("posting a journal entry updates client-scoped reports", async () => {
   });
   assert.equal(line.response.status, 201);
   assert.equal(line.body.accountSuggestion, "Inter-account transfer");
+  assert.equal((await request(`/agaraccounting/statement-lines/${line.body.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  })).response.status, 200);
 
   const entries = await request<Array<{
     id: number;
@@ -253,6 +257,10 @@ test("posting a journal entry updates client-scoped reports", async () => {
   });
   assert.equal(transferLine.response.status, 201);
   assert.equal(transferLine.body.accountSuggestion, "Inter-account transfer");
+  assert.equal((await request(`/agaraccounting/statement-lines/${transferLine.body.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  })).response.status, 200);
   const transferEntries = await request<Array<{ id: number; statementLineId: number }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
   const transferEntry = transferEntries.body.find((entry) => entry.statementLineId === transferLine.body.id);
   assert.ok(transferEntry);

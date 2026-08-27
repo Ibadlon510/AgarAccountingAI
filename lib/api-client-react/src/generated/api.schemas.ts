@@ -976,6 +976,7 @@ export const StatementLineContactSuggestionStatus = {
   no_safe_treatment: 'no_safe_treatment',
   no_history: 'no_history',
   temporary_proposal: 'temporary_proposal',
+  needs_identification: 'needs_identification',
 } as const;
 
 /**
@@ -988,6 +989,16 @@ export const StatementLineProposedContactType = {
   customer: 'customer',
   supplier: 'supplier',
   both: 'both',
+} as const;
+
+export type StatementLineContactDecisionState = typeof StatementLineContactDecisionState[keyof typeof StatementLineContactDecisionState];
+
+
+export const StatementLineContactDecisionState = {
+  matched: 'matched',
+  named_proposal: 'named_proposal',
+  needs_identification: 'needs_identification',
+  dismissed: 'dismissed',
 } as const;
 
 export type StatementLineContactReviewDisposition = typeof StatementLineContactReviewDisposition[keyof typeof StatementLineContactReviewDisposition];
@@ -1043,6 +1054,7 @@ export interface StatementLine {
   proposedContactConfidence?: number | null;
   /** @nullable */
   proposedContactSource?: string | null;
+  contactDecisionState: StatementLineContactDecisionState;
   contactReviewDisposition: StatementLineContactReviewDisposition;
   /** @nullable */
   accountSuggestion?: string | null;
@@ -2231,3 +2243,4 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
+

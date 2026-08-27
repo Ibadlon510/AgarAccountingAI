@@ -73,9 +73,8 @@ after(async () => {
         .where(inArray(database.systemRatesTable.createdByUserId, userIds));
       await database.db.delete(database.systemRateAdminsTable)
         .where(inArray(database.systemRateAdminsTable.userId, userIds));
-      const ownedClients = await database.db.select({ id: database.clientsTable.id })
-        .from(database.clientsTable)
-        .where(inArray(database.clientsTable.ownerUserId, userIds));
+  const ownedClients = await database.db.select({ id: database.clientsTable.id }).from(database.clientsTable)
+    .where(inArray(database.clientsTable.ownerUserId, [initialClaimAdminId, initialClaimOtherUserId]));
       clientIds.push(...ownedClients.map(({ id }) => id));
       if (clientIds.length) {
         await database.db.delete(database.journalEntriesTable)
@@ -388,6 +387,10 @@ test("protects and applies the system catalog with traceable fallback precedence
   );
   const systemJournal = journals.body.find((entry) => entry.statementLineId === systemLine.body.id);
   assert.ok(systemJournal);
+  assert.equal((await request(`/agaraccounting/statement-lines/${systemLine.body.id}/contact`, systemAdminId, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  })).response.status, 200);
   assert.equal((await request(`/agaraccounting/journal-entries/${systemJournal.id}/approve`, systemAdminId, {
     method: "POST",
     body: JSON.stringify({ clientId }),
@@ -509,4 +512,3 @@ test("protects and applies the system catalog with traceable fallback precedence
   assert.deepEqual(clearedDashboard.body.availablePairs, []);
   assert.match(clearedDashboard.body.recentChanges[0]!.summary, /cleared 4 global exchange rates/i);
 });
-

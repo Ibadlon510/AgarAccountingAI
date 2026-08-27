@@ -806,6 +806,10 @@ test("stages deterministic description recodes before separately confirmed appro
   const entry = journalEntries.body.find((item) => item.statementLineId === createdLine.body.id);
   assert.ok(entry);
   assert.equal(entry.status, "suggested");
+  assert.equal((await request(`/agaraccounting/statement-lines/${createdLine.body.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  })).response.status, 200);
 
   const approvalCard = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
@@ -1219,6 +1223,10 @@ test("prepares description-scoped recoding, approval, and posting as separate co
       }),
     });
     assert.equal(created.response.status, 201);
+    assert.equal((await request(`/agaraccounting/statement-lines/${created.body.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+    })).response.status, 200);
   }
 
   const recode = await request<{ recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {

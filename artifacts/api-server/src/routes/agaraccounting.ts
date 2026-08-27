@@ -1910,6 +1910,10 @@ const vendorNoiseWords = new Set([
   "debit", "fee", "fees", "fze", "fz", "inc", "invoice", "ltd", "llc",
   "payout", "payment", "payments", "ref", "reference", "transaction", "uae",
 ]);
+const contactIdentityNoiseWords = new Set([
+  "card", "cash", "customer", "deposit", "merchant", "misc", "miscellaneous",
+  "pos", "purchase", "supplier", "transfer", "unknown", "unnamed", "vendor", "withdrawal",
+]);
 
 function normalizeVendor(description: string) {
   return description
@@ -1932,6 +1936,13 @@ function normalizeContactAlias(value: string) {
     .slice(0, 160);
 }
 
+function isUsableContactIdentity(value: string | null | undefined) {
+  const normalized = value ? normalizeContactAlias(value) : "";
+  if (!normalized) return false;
+  const tokens = normalized.split(" ");
+  return tokens.some((token) => !contactIdentityNoiseWords.has(token) && !vendorNoiseWords.has(token));
+}
+
 function normalizedContactAliases(values: string[]) {
   const aliases = new Map<string, string>();
   for (const raw of values) {
@@ -1947,7 +1958,7 @@ type ContactSuggestion = {
   contactName: string | null;
   contactType: "customer" | "supplier" | "both" | null;
   contactMatchConfidence: number | null;
-  contactSuggestionStatus: "supported" | "weak" | "conflicting" | "no_safe_treatment" | "no_history" | "temporary_proposal" | null;
+  contactSuggestionStatus: "supported" | "weak" | "conflicting" | "no_safe_treatment" | "no_history" | "temporary_proposal" | "needs_identification" | null;
   contactSuggestionReason: string | null;
   proposedContactName: string | null;
   proposedContactType: "customer" | "supplier" | "both" | null;
@@ -1980,7 +1991,10 @@ function titleCaseContactName(value: string) {
 }
 
 function inferContactProposal(description: string, direction: string) {
-  const alias = normalizeVendor(description);
+  const alias = normalizeVendor(description)
+    .split(" ")
+    .filter((token) => !contactIdentityNoiseWords.has(token))
+    .join(" ");
   if (!alias || alias.length < 2) return null;
   const contactType = direction === "inflow" ? "customer" as const : "supplier" as const;
   const name = titleCaseContactName(alias);
@@ -2000,7 +2014,7 @@ function temporaryContactSuggestion(proposal: InferredContactProposal | null): C
       contactName: null,
       contactType: null,
       contactMatchConfidence: null,
-      contactSuggestionStatus: null,
+      contactSuggestionStatus: "needs_identification",
       contactSuggestionReason: null,
       proposedContactName: null,
       proposedContactType: null,
@@ -2021,6 +2035,15 @@ function temporaryContactSuggestion(proposal: InferredContactProposal | null): C
     ...proposal,
     accountSuggestion: null,
     supportingPatternCount: 0,
+  };
+}
+
+function needsIdentificationSuggestion(direction: string, description: string): ContactSuggestion {
+  const label = direction === "inflow" ? "customer" : "supplier";
+  return {
+    ...temporaryContactSuggestion(null),
+    contactSuggestionStatus: "needs_identification",
+    contactSuggestionReason: `This transaction is likely for a ${label}, but the description does not contain a usable name (${description.trim() || "blank description"}). Select an existing contact or enter and confirm the real ${label} name and alias before posting.`,
   };
 }
 
@@ -2199,7 +2222,9 @@ async function resolveContactSuggestion(
         proposedContactSource: storedProposal.proposedContactSource ?? "heuristic_description",
       }
       : inferContactProposal(description, direction);
-    return temporaryContactSuggestion(stored);
+    return stored
+      ? temporaryContactSuggestion(stored)
+      : needsIdentificationSuggestion(direction, description);
   }
 
   const evidence = await executor.select({
@@ -2339,8 +2364,18 @@ async function materializeProposedContact(
   const alias = line.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160);
   const normalizedAlias = alias ? normalizeContactAlias(alias) : "";
   const contactType = line.proposedContactType;
-  if (!displayName || !alias || !normalizedAlias || !["customer", "supplier", "both"].includes(contactType ?? "")) {
-    return { line, entry, createdContact: false };
+  if (
+    !displayName
+    || !alias
+    || !normalizedAlias
+    || !isUsableContactIdentity(displayName)
+    || !isUsableContactIdentity(alias)
+    || !["customer", "supplier", "both"].includes(contactType ?? "")
+    || line.contactReviewDisposition !== "accepted"
+  ) {
+    throw new ContactMaterializationError(
+      `This line still needs a real ${line.direction === "inflow" ? "customer" : "supplier"} identity. Select an existing contact or confirm a real name and alias before posting.`,
+    );
   }
 
   const findAliasOwner = async () => {
@@ -2432,6 +2467,21 @@ async function validateCurrentContactTreatment(
   validateSuggestionEvidence: boolean,
 ) {
   if (line.contactId !== entry.contactId) return "stale_contact" as const;
+  if (
+    validateSuggestionEvidence
+    && line.contactId == null
+    && line.contactReviewDisposition !== "dismissed"
+    && (
+      !line.proposedContactName
+      || !line.proposedContactAlias
+      || !line.proposedContactType
+      || !isUsableContactIdentity(line.proposedContactName)
+      || !isUsableContactIdentity(line.proposedContactAlias)
+      || line.contactReviewDisposition !== "accepted"
+    )
+  ) {
+    return "contact_identification_required" as const;
+  }
   if (line.contactId != null) {
     const [activeContact] = await executor.select({ id: contactsTable.id }).from(contactsTable).where(and(
       eq(contactsTable.id, line.contactId),
@@ -2579,6 +2629,14 @@ function statementLineResponse(
   contactSuggestion?: ContactSuggestion,
 ) {
   const suggestion = lineSuggestion(line, patterns);
+  const resolvedContactId = contactSuggestion ? contactSuggestion.contactId : line.contactId;
+  const contactDecisionState = line.contactReviewDisposition === "dismissed"
+    ? "dismissed"
+    : resolvedContactId != null
+      ? "matched"
+      : contactSuggestion?.contactSuggestionStatus === "temporary_proposal" || line.proposedContactName
+        ? "named_proposal"
+        : "needs_identification";
   const contactAccount = line.contactSuggestionEvidenceCount != null
     ? contactSuggestion?.accountSuggestion
     : null;
@@ -2599,6 +2657,7 @@ function statementLineResponse(
       ? contactSuggestion.proposedContactConfidence
       : line.proposedContactConfidence == null ? null : number(line.proposedContactConfidence),
     proposedContactSource: contactSuggestion ? contactSuggestion.proposedContactSource : line.proposedContactSource ?? null,
+    contactDecisionState,
     accountSuggestion: contactAccount ?? suggestion.accountSuggestion,
     confidence: contactAccount ? (contactSuggestion?.contactSuggestionStatus === "supported" ? 0.94 : 0.85) : suggestion.confidence,
     suggestionSource: contactAccount ? "contact_history" : suggestion.suggestionSource,
@@ -3154,7 +3213,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_approve_entries" | "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required") {
     super(kind);
   }
 }
@@ -3785,6 +3844,9 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           direction: line.direction,
           status: "needs_review",
           source: `Preview: ${fileName}`,
+          contactDecisionState: inferContactProposal(line.description, line.direction)
+            ? "named_proposal"
+            : "needs_identification",
           contactReviewDisposition: "pending",
           accountSuggestion: line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction),
           confidence: Number(line.confidence ?? 0.75),
@@ -4023,7 +4085,11 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       importedCount: inserted.length,
       duplicateCount: duplicateLines.length,
       duplicateLines,
-      lines: inserted.map((line) => statementLineResponse(line, workspacePatterns)),
+      lines: await Promise.all(inserted.map(async (line) => statementLineResponse(
+        line,
+        workspacePatterns,
+        await resolveContactSuggestion(db, scopedClientId, line.description, line.direction, line.contactId, line),
+      ))),
       bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null,
     }));
   } catch (error) {
@@ -5324,6 +5390,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         }
         if (error.kind === "stale_evidence") {
           return res.status(409).json({ error: "The contact history supporting one or more proposals changed. Review the updated evidence before confirming." });
+        }
+        if (error.kind === "contact_identification_required") {
+          return res.status(409).json({ error: "Identify or explicitly dismiss every unknown customer or supplier before approving the selected entries." });
         }
         const statusMessage = body.type === "bulk_approve_entries"
           ? "Only suggested entries can be bulk approved. Posted or already approved entries were rejected."
@@ -7131,7 +7200,13 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     if (
       body.contactId == null
       && contactReviewDisposition !== "dismissed"
-      && (!proposedContactName || !proposedContactAlias || !["customer", "supplier", "both"].includes(proposedContactType ?? ""))
+      && (
+        !proposedContactName
+        || !proposedContactAlias
+        || !isUsableContactIdentity(proposedContactName)
+        || !isUsableContactIdentity(proposedContactAlias)
+        || !["customer", "supplier", "both"].includes(proposedContactType ?? "")
+      )
     ) {
       return { kind: "invalid_proposal" as const };
     }
@@ -7188,10 +7263,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
       eq(journalEntriesTable.clientId, client.id),
       eq(journalEntriesTable.status, "suggested"),
     ));
-    const materialized = body.contactId == null && contactReviewDisposition === "accepted"
-      ? await materializeProposedContact(tx, updatedLine, entry)
-      : { line: updatedLine };
-    return { kind: "updated" as const, line: materialized.line };
+    return { kind: "updated" as const, line: updatedLine };
     });
   } catch (error) {
     if (error instanceof ContactMaterializationError) {
@@ -7209,7 +7281,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     return;
   }
   if (result.kind === "invalid_proposal") {
-    res.status(400).json({ error: "A temporary contact proposal needs a name, type, and alias." });
+    res.status(400).json({ error: "A temporary contact proposal needs a real, non-generic name, type, and statement alias." });
     return;
   }
   if (result.kind === "invalid_disposition") {
@@ -7248,6 +7320,10 @@ router.post("/agaraccounting/contacts", async (req, res) => {
   const body = CreateContactBody.parse(req.body);
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
+  if (![body.displayName, body.legalName, ...(body.aliases ?? [])].every(isUsableContactIdentity)) {
+    res.status(400).json({ error: "Contacts need a real, non-generic name and aliases. Generic unknown contacts are not allowed." });
+    return;
+  }
   const aliases = normalizedContactAliases([body.displayName, body.legalName, ...(body.aliases ?? [])]);
   const conflicting = aliases.length
     ? await db.select({ alias: contactAliasesTable.alias }).from(contactAliasesTable).where(and(
@@ -7300,6 +7376,15 @@ router.patch("/agaraccounting/contacts/:id", async (req, res) => {
     .where(and(eq(contactAliasesTable.clientId, client.id), eq(contactAliasesTable.contactId, id)));
   const displayName = body.displayName?.trim() ?? existing.displayName;
   const legalName = body.legalName?.trim() ?? existing.legalName;
+  const identityWasEdited = body.displayName !== undefined || body.legalName !== undefined || body.aliases !== undefined;
+  if (
+    identityWasEdited
+    && ![displayName, legalName, ...(body.aliases ?? existingAliases.map((item) => item.alias))]
+      .every(isUsableContactIdentity)
+  ) {
+    res.status(400).json({ error: "Contacts need a real, non-generic name and aliases. Generic unknown contacts are not allowed." });
+    return;
+  }
   const aliases = normalizedContactAliases([
     displayName,
     legalName,
@@ -7598,6 +7683,10 @@ router.post("/agaraccounting/journal-entries/:id/approve", async (req, res) => {
   }
   if (result.kind === "stale_evidence") {
     res.status(409).json({ error: "The contact history supporting this proposal changed. Review the updated evidence before approving." });
+    return;
+  }
+  if (result.kind === "contact_identification_required") {
+    res.status(409).json({ error: "Identify this customer or supplier, select an existing contact, or explicitly keep the line unlinked before approval." });
     return;
   }
   if (result.kind === "missing_exchange_rate") {

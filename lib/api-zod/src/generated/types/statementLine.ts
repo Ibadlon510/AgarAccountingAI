@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineContactDecisionState } from './statementLineContactDecisionState';
 import type { StatementLineContactReviewDisposition } from './statementLineContactReviewDisposition';
 import type { StatementLineContactSuggestionStatus } from './statementLineContactSuggestionStatus';
 import type { StatementLineContactType } from './statementLineContactType';
@@ -44,6 +45,7 @@ export interface StatementLine {
   proposedContactConfidence?: number | null;
   /** @nullable */
   proposedContactSource?: string | null;
+  contactDecisionState: StatementLineContactDecisionState;
   contactReviewDisposition: StatementLineContactReviewDisposition;
   /** @nullable */
   accountSuggestion?: string | null;

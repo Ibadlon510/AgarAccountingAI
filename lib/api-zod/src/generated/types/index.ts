@@ -186,6 +186,7 @@ export * from './statementImportUndoInput';
 export * from './statementImportUndoResult';
 export * from './statementImportUndoResultOutcome';
 export * from './statementLine';
+export * from './statementLineContactDecisionState';
 export * from './statementLineContactInput';
 export * from './statementLineContactInputContactReviewDisposition';
 export * from './statementLineContactInputProposedContactType';

@@ -141,7 +141,8 @@ export const GetOrganizationContextResponse = zod.object({
   "inviteLink": zod.string().optional()
 }))
 })
-// End of generated AgarAccounting API schemas.
+
+
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
@@ -1439,13 +1440,14 @@ export const GetStatementLinesResponseItem = zod.object({
   "contactName": zod.string().nullish(),
   "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "contactMatchConfidence": zod.number().nullish(),
-  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal(null)]).nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal('needs_identification'),zod.literal(null)]).nullish(),
   "contactSuggestionReason": zod.string().nullish(),
   "proposedContactName": zod.string().nullish(),
   "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "proposedContactAlias": zod.string().nullish(),
   "proposedContactConfidence": zod.number().nullish(),
   "proposedContactSource": zod.string().nullish(),
+  "contactDecisionState": zod.enum(['matched', 'named_proposal', 'needs_identification', 'dismissed']),
   "contactReviewDisposition": zod.enum(['pending', 'accepted', 'replaced', 'dismissed']),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
@@ -1489,13 +1491,14 @@ export const CreateStatementLineResponse = zod.object({
   "contactName": zod.string().nullish(),
   "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "contactMatchConfidence": zod.number().nullish(),
-  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal(null)]).nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal('needs_identification'),zod.literal(null)]).nullish(),
   "contactSuggestionReason": zod.string().nullish(),
   "proposedContactName": zod.string().nullish(),
   "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "proposedContactAlias": zod.string().nullish(),
   "proposedContactConfidence": zod.number().nullish(),
   "proposedContactSource": zod.string().nullish(),
+  "contactDecisionState": zod.enum(['matched', 'named_proposal', 'needs_identification', 'dismissed']),
   "contactReviewDisposition": zod.enum(['pending', 'accepted', 'replaced', 'dismissed']),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
@@ -1546,13 +1549,14 @@ export const LinkStatementLineContactResponse = zod.object({
   "contactName": zod.string().nullish(),
   "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "contactMatchConfidence": zod.number().nullish(),
-  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal(null)]).nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal('needs_identification'),zod.literal(null)]).nullish(),
   "contactSuggestionReason": zod.string().nullish(),
   "proposedContactName": zod.string().nullish(),
   "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "proposedContactAlias": zod.string().nullish(),
   "proposedContactConfidence": zod.number().nullish(),
   "proposedContactSource": zod.string().nullish(),
+  "contactDecisionState": zod.enum(['matched', 'named_proposal', 'needs_identification', 'dismissed']),
   "contactReviewDisposition": zod.enum(['pending', 'accepted', 'replaced', 'dismissed']),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
@@ -1861,13 +1865,14 @@ export const ImportStatementResponse = zod.object({
   "contactName": zod.string().nullish(),
   "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "contactMatchConfidence": zod.number().nullish(),
-  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal(null)]).nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal('needs_identification'),zod.literal(null)]).nullish(),
   "contactSuggestionReason": zod.string().nullish(),
   "proposedContactName": zod.string().nullish(),
   "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "proposedContactAlias": zod.string().nullish(),
   "proposedContactConfidence": zod.number().nullish(),
   "proposedContactSource": zod.string().nullish(),
+  "contactDecisionState": zod.enum(['matched', 'named_proposal', 'needs_identification', 'dismissed']),
   "contactReviewDisposition": zod.enum(['pending', 'accepted', 'replaced', 'dismissed']),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
@@ -3377,4 +3382,5 @@ export const GetUaeCorporateTaxSummaryResponse = zod.object({
   "reviewAmount": zod.number()
 }))
 })
+
 
