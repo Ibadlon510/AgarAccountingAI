@@ -21,5 +21,6 @@ export interface AICopilotActionInput {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
+  confirmLearnedSuggestion?: boolean;
   bankAccount?: BankAccountDraft | null;
 }

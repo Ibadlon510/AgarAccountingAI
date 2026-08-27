@@ -39,6 +39,7 @@ type Contact = {
 };
 type Line = {
   id: number; contactId: number | null; contactName: string | null; accountSuggestion: string | null;
+  journalAccount: string | null; accountConfirmationRequired: boolean;
   contactSuggestionStatus: string | null; contactSuggestionReason: string | null;
   supportingPatternCount: number; functionalAmount: number | null;
   proposedContactName: string | null; proposedContactType: string | null; proposedContactAlias: string | null;
@@ -120,7 +121,13 @@ after(async () => {
 test("uses client-scoped contact history without bypassing posting or chart safeguards", async () => {
   const created = await request<{ id: number }>("/clients", {
     method: "POST",
-    body: JSON.stringify({ name: `Contacts ${randomUUID()}`, legalName: "Contacts Test LLC", functionalCurrency: "AED", basis: "IFRS", period: "2026" }),
+    body: JSON.stringify({
+      name: `Recurring charges ${randomUUID()}`,
+      legalName: "Recurring Charges LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "2026",
+    }),
   });
   assert.equal(created.response.status, 201);
   clientId = created.body.id;
@@ -368,6 +375,7 @@ test("uses client-scoped contact history without bypassing posting or chart safe
       contactReviewDisposition: "accepted",
     }),
   });
+
   assert.equal(editedTemporary.response.status, 200);
   assert.equal(editedTemporary.body.contactReviewDisposition, "accepted");
   const contactsBeforePost = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`);
@@ -775,8 +783,8 @@ test("reuses a prior client mapping for a legacy unresolved line at posting", as
   const created = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
-      name: `Legacy contact mapping ${randomUUID()}`,
-      legalName: "Legacy Contact Mapping LLC",
+      name: `Recurring charges ${randomUUID()}`,
+      legalName: "Recurring Charges LLC",
       functionalCurrency: "AED",
       basis: "IFRS",
       period: "2026",
@@ -824,4 +832,100 @@ test("reuses a prior client mapping for a legacy unresolved line at posting", as
   const [postedLegacyMatch] = await database.db.select().from(database.statementLinesTable)
     .where(eq(database.statementLinesTable.id, legacyLine.id));
   assert.equal(postedLegacyMatch?.contactId, contact.body.id);
+});
+
+test("requires confirmation when a recurring learned account differs from the draft journal", async () => {
+  const created = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Recurring charges ${randomUUID()}`,
+      legalName: "Recurring Charges LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "2026",
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  clientId = created.body.id;
+  const bank = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Bank Fee Provider",
+      legalName: "Bank Fee Provider LLC",
+      contactType: "supplier",
+      aliases: ["MONTHLY CHARGE PROVIDER"],
+    }),
+  });
+  assert.equal(bank.response.status, 201);
+
+  const confirmed = await createLine("BANK CHARGES - EMIRATES NBD; TXN 982731 / REF A91X22");
+  assert.equal((await link(confirmed.id, bank.body.id)).response.status, 200);
+  await recode(confirmed.id, "Bank charges");
+  assert.equal((await post((await entryFor(confirmed.id)).id)).response.status, 200);
+
+  const recurring = await createLine("Payment reference Z77Q10: Emirates, NBD bank service fee transaction 556677");
+  assert.equal(recurring.contactId, bank.body.id);
+  const recurringEntry = await entryFor(recurring.id);
+  await database.db.update(database.journalEntriesTable).set({ debitAccount: "General expenses" })
+    .where(eq(database.journalEntriesTable.id, recurringEntry.id));
+  await database.db.update(database.statementLinesTable).set({ contactSuggestionEvidenceCount: null })
+    .where(eq(database.statementLinesTable.id, recurring.id));
+
+  const refreshed = (await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`))
+    .body.find((line) => line.id === recurring.id);
+  assert.equal(refreshed?.accountSuggestion, "Bank charges");
+  assert.equal(refreshed?.journalAccount, "General expenses");
+  assert.equal(refreshed?.accountConfirmationRequired, true);
+  const blockedPost = await request<{ error: string }>(
+    `/agaraccounting/journal-entries/${recurringEntry.id}/post`,
+    { method: "POST", body: JSON.stringify({ clientId }) },
+  );
+  assert.equal(blockedPost.response.status, 409);
+  assert.match(blockedPost.body.error, /confirm the learned account/i);
+
+  const stale = await request<{ error: string }>("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "recode_lines",
+      lineIds: [recurring.id],
+      accountSuggestion: "Office expenses",
+      confidence: 0.9,
+      confirmLearnedSuggestion: true,
+    }),
+  });
+  assert.equal(stale.response.status, 409);
+  assert.match(stale.body.error, /recommendation changed/i);
+
+  const confirmedTreatment = await request("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "recode_lines",
+      lineIds: [recurring.id],
+      accountSuggestion: "Bank charges",
+      confidence: 0.9,
+      confirmLearnedSuggestion: true,
+    }),
+  });
+  assert.equal(confirmedTreatment.response.status, 200);
+  const [storedLine] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, recurring.id));
+  const [storedEntry] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.id, recurringEntry.id));
+  assert.equal(storedLine?.accountSuggestion, "Bank charges");
+  assert.equal(storedEntry?.debitAccount, "Bank charges");
+  assert.equal(storedEntry?.status, "draft");
+  assert.equal(storedLine?.status, "draft");
+
+  await Promise.all(Array.from({ length: 30 }, (_, index) =>
+    createLine(`Monthly bank service charge payment reference PERF-${index}-2026`)
+  ));
+  const listingStartedAt = performance.now();
+  const largeListing = await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`);
+  const listingDurationMs = performance.now() - listingStartedAt;
+  assert.equal(largeListing.response.status, 200);
+  assert.ok(largeListing.body.length >= 32);
+  assert.ok(listingDurationMs < 5_000, `Expected batched statement review lookup under 5s, took ${listingDurationMs}ms`);
 });

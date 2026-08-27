@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineAccountRecommendationState } from './statementLineAccountRecommendationState';
 import type { StatementLineContactDecisionState } from './statementLineContactDecisionState';
 import type { StatementLineContactReviewDisposition } from './statementLineContactReviewDisposition';
 import type { StatementLineContactSuggestionStatus } from './statementLineContactSuggestionStatus';
@@ -56,6 +57,12 @@ export interface StatementLine {
   suggestionSource?: string | null;
   /** @nullable */
   supportingPatternCount?: number | null;
+  /** @nullable */
+  journalAccount?: string | null;
+  /** @nullable */
+  journalStatus?: string | null;
+  accountConfirmationRequired: boolean;
+  accountRecommendationState: StatementLineAccountRecommendationState;
   /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */

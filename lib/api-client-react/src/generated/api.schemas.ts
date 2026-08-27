@@ -1019,6 +1019,7 @@ export const StatementLineContactReviewDisposition = {
   dismissed: 'dismissed',
 } as const;
 
+export type StatementLineAccountRecommendationState = typeof StatementLineAccountRecommendationState[keyof typeof StatementLineAccountRecommendationState];
 export type StatementLineExchangeRateSourceScope = typeof StatementLineExchangeRateSourceScope[keyof typeof StatementLineExchangeRateSourceScope];
 
 
@@ -1072,6 +1073,12 @@ export interface StatementLine {
   suggestionSource?: string | null;
   /** @nullable */
   supportingPatternCount?: number | null;
+  /** @nullable */
+  journalAccount?: string | null;
+  /** @nullable */
+  journalStatus?: string | null;
+  accountConfirmationRequired: boolean;
+  accountRecommendationState: StatementLineAccountRecommendationState;
   /** @nullable */
   functionalCurrency?: string | null;
   /** @nullable */
@@ -1514,6 +1521,10 @@ export interface PostJournalEntryInput {
   clientId: number;
 }
 
+export interface PostJournalEntryInput {
+  clientId: number;
+}
+
 export interface UnpostJournalEntryInput {
   clientId: number;
 }
@@ -1797,6 +1808,7 @@ export interface AICopilotActionInput {
   accountSuggestion?: string | null;
   /** @nullable */
   confidence?: number | null;
+  confirmLearnedSuggestion?: boolean;
   bankAccount?: BankAccountDraft | null;
 }
 
@@ -2258,3 +2270,10 @@ clientId: number;
 period?: string;
 };
 
+
+export const StatementLineAccountRecommendationState = {
+  applied: 'applied',
+  confirmation_required: 'confirmation_required',
+  locked: 'locked',
+  unavailable: 'unavailable',
+} as const;

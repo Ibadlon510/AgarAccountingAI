@@ -1959,6 +1959,44 @@ function normalizeVendor(description: string) {
     .slice(0, 160);
 }
 
+const recurringNarrationNoiseWords = new Set([
+  ...vendorNoiseWords,
+  "app", "auth", "authorization", "beneficiary", "card", "commission", "confirmation",
+  "details", "direct", "mobile", "narration", "online", "pos", "purchase", "service",
+  "services", "terminal", "trace", "transfer", "txn", "via", "visa", "mastercard", "wire",
+  ...contactCurrencyWords,
+  ...contactCountryWords,
+]);
+
+function recurringNarrationIdentity(description: string) {
+  return description
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) =>
+      token.length > 1
+      && !recurringNarrationNoiseWords.has(token)
+      && !/^\d+$/.test(token)
+      && !(/[a-z]/.test(token) && /\d/.test(token))
+    )
+    .join(" ")
+    .slice(0, 160);
+}
+
+function recurringNarrationSimilarity(left: string, right: string) {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const leftTokens = new Set(left.split(" "));
+  const rightTokens = new Set(right.split(" "));
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  if (!overlap) return 0;
+  const shorterCoverage = overlap / Math.min(leftTokens.size, rightTokens.size);
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  const jaccard = overlap / union;
+  return shorterCoverage * 0.7 + jaccard * 0.3;
+}
+
 function normalizeContactAlias(value: string) {
   return value
     .toLowerCase()
@@ -2264,6 +2302,36 @@ async function contactMergePreviewResponse(plan: Extract<Awaited<ReturnType<type
   };
 }
 
+type ContactSuggestionLookup = {
+  contacts: Array<typeof contactsTable.$inferSelect>;
+  aliases: Array<typeof contactAliasesTable.$inferSelect>;
+  mappedLines: Array<Pick<typeof statementLinesTable.$inferSelect, "contactId" | "description" | "direction" | "status" | "contactReviewDisposition">>;
+};
+
+async function loadContactSuggestionLookup(
+  executor: Pick<typeof db, "select">,
+  clientId: number,
+): Promise<ContactSuggestionLookup> {
+  const [contacts, aliases, mappedLines] = await Promise.all([
+    executor.select().from(contactsTable).where(and(
+      eq(contactsTable.clientId, clientId),
+      eq(contactsTable.status, "active"),
+    )),
+    executor.select().from(contactAliasesTable).where(eq(contactAliasesTable.clientId, clientId)),
+    executor.select({
+      contactId: statementLinesTable.contactId,
+      description: statementLinesTable.description,
+      direction: statementLinesTable.direction,
+      status: statementLinesTable.status,
+      contactReviewDisposition: statementLinesTable.contactReviewDisposition,
+    }).from(statementLinesTable).where(and(
+      eq(statementLinesTable.clientId, clientId),
+      isNotNull(statementLinesTable.contactId),
+    )),
+  ]);
+  return { contacts, aliases, mappedLines };
+}
+
 async function resolveContactSuggestion(
   executor: Pick<typeof db, "select">,
   clientId: number,
@@ -2272,15 +2340,15 @@ async function resolveContactSuggestion(
   explicitContactId?: number | null,
   storedProposal?: StoredContactProposal,
   extractedProposal?: { counterpartyName?: unknown; counterpartyAlias?: unknown; counterpartyConfidence?: unknown },
+  sharedLookup?: Promise<ContactSuggestionLookup>,
 ): Promise<ContactSuggestion> {
   if (explicitContactId == null && storedProposal?.contactReviewDisposition === "dismissed") {
     return temporaryContactSuggestion(null);
   }
-  const contacts = await executor.select().from(contactsTable).where(and(
-    eq(contactsTable.clientId, clientId),
-    eq(contactsTable.status, "active"),
-    explicitContactId == null ? undefined : eq(contactsTable.id, explicitContactId),
-  ));
+  const lookup = await (sharedLookup ?? loadContactSuggestionLookup(executor, clientId));
+  const contacts = explicitContactId == null
+    ? lookup.contacts
+    : lookup.contacts.filter((item) => item.id === explicitContactId);
   let contact = explicitContactId == null ? null : contacts[0] ?? null;
   let matchConfidence = explicitContactId == null ? null : 1;
   let matchReason: string | null = null;
@@ -2304,7 +2372,7 @@ async function resolveContactSuggestion(
   }
 
   if (!contact) {
-    const aliases = await executor.select().from(contactAliasesTable).where(eq(contactAliasesTable.clientId, clientId));
+    const aliases = lookup.aliases;
     const normalizedDescription = ` ${normalizeContactAlias(description)} `;
     const matches = aliases
       .filter((alias) => alias.normalizedAlias.length >= 2 && normalizedDescription.includes(` ${alias.normalizedAlias} `))
@@ -2321,37 +2389,49 @@ async function resolveContactSuggestion(
   }
 
   if (!contact) {
-    const normalizedDescription = normalizeVendor(description);
-    if (normalizedDescription && isUsableContactIdentity(normalizedDescription)) {
-      const previouslyMappedLines = await executor.select({
-        contactId: statementLinesTable.contactId,
-        description: statementLinesTable.description,
-        status: statementLinesTable.status,
-        contactReviewDisposition: statementLinesTable.contactReviewDisposition,
-      }).from(statementLinesTable).where(and(
-        eq(statementLinesTable.clientId, clientId),
-        eq(statementLinesTable.direction, direction),
-        isNotNull(statementLinesTable.contactId),
-      ));
-      const priorContactIds = [...new Set(
-        previouslyMappedLines
-          .filter((item) =>
-            normalizeVendor(item.description) === normalizedDescription
-            && (
-              item.status === "posted"
-              || item.contactReviewDisposition === "accepted"
-              || item.contactReviewDisposition === "replaced"
-            ),
-          )
-          .map((item) => item.contactId)
-          .filter((contactId): contactId is number => contactId != null),
-      )];
-      if (priorContactIds.length === 1) {
-        contact = contacts.find((item) => item.id === priorContactIds[0]) ?? null;
-        matchConfidence = contact ? 0.96 : null;
+    const narrationIdentity = recurringNarrationIdentity(description);
+    const identityTokens = narrationIdentity.split(" ").filter(Boolean);
+    if (
+      narrationIdentity
+      && isUsableContactIdentity(narrationIdentity)
+      && (identityTokens.length >= 2 || identityTokens[0]!.length >= 5)
+    ) {
+      const previouslyMappedLines = lookup.mappedLines.filter((item) => item.direction === direction);
+      const candidates = previouslyMappedLines
+        .filter((item) =>
+          item.status === "posted"
+          || item.contactReviewDisposition === "accepted"
+          || item.contactReviewDisposition === "replaced"
+        )
+        .map((item) => ({
+          contactId: item.contactId,
+          similarity: recurringNarrationSimilarity(narrationIdentity, recurringNarrationIdentity(item.description)),
+        }))
+        .filter((item): item is { contactId: number; similarity: number } =>
+          item.contactId != null && item.similarity >= 0.88
+        );
+      const rankedContacts = [...new Map(candidates.map((item) => [item.contactId, 0])).keys()]
+        .map((contactId) => ({
+          contactId,
+          similarity: Math.max(...candidates.filter((item) => item.contactId === contactId).map((item) => item.similarity)),
+        }))
+        .sort((left, right) => right.similarity - left.similarity);
+      const best = rankedContacts[0];
+      const competing = best && rankedContacts.some((item) =>
+        item.contactId !== best.contactId && item.similarity >= best.similarity - 0.05
+      );
+      if (best && !competing) {
+        contact = contacts.find((item) => item.id === best.contactId) ?? null;
+        matchConfidence = contact ? Math.min(0.98, 0.9 + best.similarity * 0.08) : null;
         if (contact) {
-          matchReason = `Matched ${contact.displayName} from a previous statement line with the same client narration`;
+          matchReason = `Matched ${contact.displayName} from a previous statement line confirmed with the same reference-resistant narration in this client`;
         }
+      } else if (competing) {
+        const unresolved = needsIdentificationSuggestion(direction, description);
+        return {
+          ...unresolved,
+          contactSuggestionReason: "Similar confirmed narrations point to multiple contacts in this client. Choose the correct contact before approval.",
+        };
       }
     }
   }
@@ -2463,8 +2543,8 @@ async function resolveContactSuggestion(
     contactMatchConfidence: matchConfidence,
     contactSuggestionStatus: weak ? "weak" : "supported",
     contactSuggestionReason: weak
-      ? `Matched ${contact.displayName}. One previously posted treatment supports ${accountSuggestion}; review before posting.`
-      : `Matched ${contact.displayName}. ${supportingPatternCount} posted items consistently used ${accountSuggestion}.`,
+      ? `${matchReason ?? `Matched ${contact.displayName}`}. One previously posted treatment supports ${accountSuggestion}; review before posting.`
+      : `${matchReason ?? `Matched ${contact.displayName}`}. ${supportingPatternCount} posted items consistently used ${accountSuggestion}.`,
     proposedContactName: null,
     proposedContactType: null,
     proposedContactAlias: null,
@@ -2701,6 +2781,31 @@ async function validateCurrentContactTreatment(
   return null;
 }
 
+async function hasUnconfirmedLearnedTreatment(
+  executor: Pick<typeof db, "select">,
+  userId: string,
+  clientId: number,
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect,
+) {
+  const patterns = await executor.select().from(classificationPatternsTable)
+    .where(eq(classificationPatternsTable.userId, userId));
+  const activeAccounts = await executor.select({ accountName: accountClassificationsTable.accountName })
+    .from(accountClassificationsTable)
+    .where(and(
+      eq(accountClassificationsTable.clientId, clientId),
+      eq(accountClassificationsTable.isActive, true),
+    ));
+  const activeNames = new Set(activeAccounts.map((account) => account.accountName));
+  const learned = findWorkspaceSuggestion(
+    patterns.filter((pattern) => activeNames.has(pattern.accountSuggestion)),
+    line.description,
+  );
+  if (!learned) return false;
+  const journalAccount = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  return learned.accountSuggestion !== journalAccount;
+}
+
 type SuggestionSource = "ai" | "heuristic" | "workspace_learning";
 type ClassificationSuggestion = {
   accountSuggestion: string;
@@ -2719,14 +2824,15 @@ function findWorkspaceSuggestion(
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
   description: string,
 ): ClassificationSuggestion | null {
-  const normalized = normalizeVendor(description);
+  const normalized = recurringNarrationIdentity(description);
   if (!normalized) return null;
   const tokens = new Set(normalized.split(" "));
   const candidates = patterns.map((pattern) => {
-    const patternTokens = new Set(pattern.normalizedVendor.split(" "));
+    const normalizedPattern = recurringNarrationIdentity(pattern.normalizedVendor);
+    const patternTokens = new Set(normalizedPattern.split(" "));
     const overlap = [...tokens].filter((token) => patternTokens.has(token)).length;
     const union = new Set([...tokens, ...patternTokens]).size;
-    const similarity = normalized === pattern.normalizedVendor
+    const similarity = normalized === normalizedPattern
       ? 1
       : union === 0 ? 0 : overlap / union;
     return { pattern, similarity };
@@ -2764,7 +2870,7 @@ async function recordClassificationPattern(
   confidence: number | string | null | undefined,
   executor: Pick<typeof db, "insert"> = db,
 ) {
-  const normalizedVendor = normalizeVendor(description);
+  const normalizedVendor = recurringNarrationIdentity(description);
   const normalizedAccount = accountSuggestion.trim().slice(0, 160);
   if (!normalizedVendor || !normalizedAccount) return;
   const confirmedConfidence = Math.min(0.99, Math.max(0.85, Number(confidence) || 0.85));
@@ -2804,12 +2910,22 @@ function lineSuggestion(
   };
 }
 
-function statementLineResponse(
+async function statementLineResponse(
   line: typeof statementLinesTable.$inferSelect,
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
   contactSuggestion?: ContactSuggestion,
+  prefetchedEntry?: { status: string; debitAccount: string; creditAccount: string } | null,
 ) {
   const suggestion = lineSuggestion(line, patterns);
+  const [queriedEntry] = prefetchedEntry === undefined ? await db.select({
+    status: journalEntriesTable.status,
+    debitAccount: journalEntriesTable.debitAccount,
+    creditAccount: journalEntriesTable.creditAccount,
+  }).from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, line.clientId),
+    eq(journalEntriesTable.statementLineId, line.id),
+  )).limit(1) : [];
+  const entry = prefetchedEntry === undefined ? queriedEntry : prefetchedEntry;
   const resolvedContactId = contactSuggestion ? contactSuggestion.contactId : line.contactId;
   const contactDecisionState = line.contactReviewDisposition === "dismissed"
     ? "dismissed"
@@ -2821,6 +2937,24 @@ function statementLineResponse(
   const contactAccount = line.contactSuggestionEvidenceCount != null
     ? contactSuggestion?.accountSuggestion
     : null;
+  const recommendedAccount = contactAccount ?? suggestion.accountSuggestion;
+  const journalAccount = entry
+    ? line.direction === "inflow" ? entry.creditAccount : entry.debitAccount
+    : null;
+  const accountConfirmationRequired = Boolean(
+    entry
+    && line.status !== "posted"
+    && journalLifecycleStatus(entry.status) === "draft"
+    && recommendedAccount
+    && journalAccount !== recommendedAccount
+  );
+  const accountRecommendationState = !entry
+    ? "unavailable"
+    : accountConfirmationRequired
+      ? "confirmation_required"
+      : journalAccount === recommendedAccount
+        ? "applied"
+        : "locked";
   return {
     ...line,
     status: journalLifecycleStatus(line.status),
@@ -2840,10 +2974,14 @@ function statementLineResponse(
       : line.proposedContactConfidence == null ? null : number(line.proposedContactConfidence),
     proposedContactSource: contactSuggestion ? contactSuggestion.proposedContactSource : line.proposedContactSource ?? null,
     contactDecisionState,
-    accountSuggestion: contactAccount ?? suggestion.accountSuggestion,
+    accountSuggestion: recommendedAccount,
     confidence: contactAccount ? (contactSuggestion?.contactSuggestionStatus === "supported" ? 0.94 : 0.85) : suggestion.confidence,
     suggestionSource: contactAccount ? "contact_history" : suggestion.suggestionSource,
     supportingPatternCount: contactAccount ? contactSuggestion?.supportingPatternCount ?? 0 : suggestion.supportingPatternCount,
+    journalAccount,
+    journalStatus: entry?.status ?? null,
+    accountConfirmationRequired,
+    accountRecommendationState,
     functionalAmount: line.functionalAmount == null ? null : number(line.functionalAmount),
     exchangeRate: line.exchangeRate == null ? null : number(line.exchangeRate),
     exchangeRateEffectiveDate: calendarDate(line.exchangeRateEffectiveDate),
@@ -3402,7 +3540,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "unconfirmed_learned_treatment") {
     super(kind);
   }
 }
@@ -3690,6 +3828,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
     const scopedClientId = client.id;
+    const contactLookup = loadContactSuggestionLookup(db, scopedClientId);
     if (!req.dbUser || !scopedStatementObjectPath(req.dbUser.id, scopedClientId, objectPath)) {
       return res.status(403).json({ error: "This statement upload is not assigned to the selected client workspace." });
     }
@@ -4004,6 +4143,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
             null,
             undefined,
             line,
+            contactLookup,
           );
           const contactAccount = contactSuggestion.accountSuggestion;
           const contactDecisionState = contactSuggestion.contactId != null
@@ -4041,6 +4181,10 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
               : Number(line.confidence ?? 0.75),
             suggestionSource: contactAccount ? "contact_history" : null,
             supportingPatternCount: contactAccount ? contactSuggestion.supportingPatternCount : 0,
+            journalAccount: null,
+            journalStatus: null,
+            accountConfirmationRequired: false,
+            accountRecommendationState: "unavailable",
             functionalCurrency: conversion.functionalCurrency,
             functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
             exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
@@ -4288,7 +4432,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       lines: await Promise.all(inserted.map(async (line) => statementLineResponse(
         line,
         workspacePatterns,
-        await resolveContactSuggestion(db, scopedClientId, line.description, line.direction, line.contactId, line),
+        await resolveContactSuggestion(db, scopedClientId, line.description, line.direction, line.contactId, line, undefined, contactLookup),
       ))),
       bankAccount: detectedBankAccount ? bankAccountResponse(detectedBankAccount) : null,
     }));
@@ -5509,6 +5653,15 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             true,
           );
           if (validation) throw new BulkActionValidationError(validation);
+          if (await hasUnconfirmedLearnedTreatment(
+            tx,
+            currentUserId(req),
+            body.clientId,
+            materialized.line,
+            materialized.entry,
+          )) {
+            throw new BulkActionValidationError("unconfirmed_learned_treatment");
+          }
         }
         if (materializedPairs.some(({ entry }) => isMissingExchangeRate(entry, client.functionalCurrency))
           || materializedPairs.some(({ line }) => isMissingExchangeRate(line, client.functionalCurrency))) {
@@ -5592,6 +5745,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         if (error.kind === "contact_identification_required") {
           return res.status(409).json({ error: "Identify or explicitly dismiss every unknown customer or supplier before posting the selected entries." });
         }
+        if (error.kind === "unconfirmed_learned_treatment") {
+          return res.status(409).json({ error: "Confirm each learned account recommendation before posting the selected entries." });
+        }
         return res.status(409).json({ error: "Only draft entries can be bulk posted. Posted entries were rejected." });
       }
       throw error;
@@ -5653,6 +5809,16 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
       }
       if (lockedLines.some((line) => line.status === "posted")) {
         throw new RecodeConflictError("Posted statement lines cannot be recoded through the AI assistant.");
+      }
+      if (body.confirmLearnedSuggestion) {
+        const currentPatterns = await tx.select().from(classificationPatternsTable)
+          .where(eq(classificationPatternsTable.userId, currentUserId(req)));
+        for (const line of lockedLines) {
+          const currentLearned = findWorkspaceSuggestion(currentPatterns, line.description);
+          if (!currentLearned || currentLearned.accountSuggestion !== accountSuggestion) {
+            throw new RecodeConflictError("The learned account recommendation changed. Refresh the line and confirm the current recommendation.");
+          }
+        }
       }
 
       const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
@@ -7272,10 +7438,22 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
       : parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
     parsed.direction ? eq(statementLinesTable.direction, parsed.direction) : undefined,
   )).orderBy(asc(statementLinesTable.date));
+  const contactLookup = loadContactSuggestionLookup(db, client.id);
+  const entries = lines.length ? await db.select({
+    statementLineId: journalEntriesTable.statementLineId,
+    status: journalEntriesTable.status,
+    debitAccount: journalEntriesTable.debitAccount,
+    creditAccount: journalEntriesTable.creditAccount,
+  }).from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, client.id),
+    inArray(journalEntriesTable.statementLineId, lines.map((line) => line.id)),
+  )) : [];
+  const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
   const responses = await Promise.all(lines.map(async (line) => statementLineResponse(
     line,
     workspacePatterns,
-    await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line),
+    await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line, undefined, contactLookup),
+    entriesByLine.get(line.id) ?? null,
   )));
   return res.json(GetStatementLinesResponse.parse(responses));
 });
@@ -7332,7 +7510,7 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
   }));
   if (!line) throw new Error("Manual statement line was not created.");
   const contactSuggestion = await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line);
-  return res.status(201).json(CreateStatementLineResponse.parse(statementLineResponse(line, workspacePatterns, contactSuggestion)));
+  return res.status(201).json(CreateStatementLineResponse.parse(await statementLineResponse(line, workspacePatterns, contactSuggestion)));
 });
 
 router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => {
@@ -7410,21 +7588,6 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     const contactSuggestion = body.contactId == null
       ? null
       : await resolveContactSuggestion(tx, client.id, line.description, line.direction, body.contactId, line);
-    const accountSuggestion = contactSuggestion?.accountSuggestion ?? line.accountSuggestion;
-    const confidence = contactSuggestion?.accountSuggestion
-      ? (contactSuggestion.contactSuggestionStatus === "supported" ? "0.94" : "0.85")
-      : line.confidence;
-    const chartAccounts = accountSuggestion
-      ? await tx.select({ id: accountClassificationsTable.id, accountName: accountClassificationsTable.accountName })
-        .from(accountClassificationsTable)
-        .where(and(
-          eq(accountClassificationsTable.clientId, client.id),
-          eq(accountClassificationsTable.isActive, true),
-          inArray(accountClassificationsTable.accountName, [accountSuggestion, "Bank / cash"]),
-        ))
-      : [];
-    const selectedAccountId = chartAccounts.find((item) => item.accountName === accountSuggestion)?.id ?? line.accountClassificationId;
-    const bankAccountId = chartAccounts.find((item) => item.accountName === "Bank / cash")?.id ?? null;
     const [updatedLine] = await tx.update(statementLinesTable).set({
       contactId: body.contactId ?? null,
       proposedContactName,
@@ -7440,9 +7603,6 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
       contactSuggestionEvidenceCount: contactSuggestion?.accountSuggestion
         ? contactSuggestion.supportingPatternCount
         : null,
-      accountSuggestion,
-      accountClassificationId: selectedAccountId,
-      confidence,
     }).where(and(
       eq(statementLinesTable.id, line.id),
       eq(statementLinesTable.clientId, client.id),
@@ -7451,10 +7611,6 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     if (!updatedLine) return { kind: "locked" as const };
     await tx.update(journalEntriesTable).set({
       contactId: body.contactId ?? null,
-      confidence: confidence ?? entry.confidence,
-      ...(accountSuggestion ? journalAccountsForSuggestion(line.direction, accountSuggestion) : {}),
-      debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
-      creditAccountClassificationId: line.direction === "inflow" ? selectedAccountId : bankAccountId,
     }).where(and(
       eq(journalEntriesTable.id, entry.id),
       eq(journalEntriesTable.clientId, client.id),
@@ -7496,7 +7652,7 @@ router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => 
     result.line.contactId,
     result.line,
   );
-  res.json(LinkStatementLineContactResponse.parse(statementLineResponse(result.line, workspacePatterns, contactSuggestion)));
+  res.json(LinkStatementLineContactResponse.parse(await statementLineResponse(result.line, workspacePatterns, contactSuggestion)));
 });
 
 router.get("/agaraccounting/contacts", async (req, res) => {
@@ -7869,6 +8025,15 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         true,
       );
       if (treatmentValidation) return { kind: treatmentValidation };
+      if (await hasUnconfirmedLearnedTreatment(
+        tx,
+        currentUserId(req),
+        client.id,
+        materialized.line,
+        materialized.entry,
+      )) {
+        return { kind: "unconfirmed_learned_treatment" as const };
+      }
       if (isMissingExchangeRate(materialized.entry, client.functionalCurrency)
         || isMissingExchangeRate(materialized.line, client.functionalCurrency)) {
         return { kind: "missing_exchange_rate" as const, entry: materialized.entry, line: materialized.line };
@@ -7931,6 +8096,10 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
   }
   if (result.kind === "contact_identification_required") {
     res.status(409).json({ error: "Identify this customer or supplier, select an existing contact, or explicitly keep the line unlinked before posting." });
+    return;
+  }
+  if (result.kind === "unconfirmed_learned_treatment") {
+    res.status(409).json({ error: "A learned account recommendation differs from this draft journal treatment. Confirm the learned account before posting." });
     return;
   }
   if (result.kind === "missing_exchange_rate") {

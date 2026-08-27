@@ -187,6 +187,7 @@ export * from './statementImportUndoInput';
 export * from './statementImportUndoResult';
 export * from './statementImportUndoResultOutcome';
 export * from './statementLine';
+export * from './statementLineAccountRecommendationState';
 export * from './statementLineContactDecisionState';
 export * from './statementLineContactInput';
 export * from './statementLineContactInputContactReviewDisposition';

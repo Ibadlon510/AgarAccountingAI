@@ -2068,7 +2068,14 @@ function StatementLinesPage() {
     unpost.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, { onSuccess: refreshPostedData });
   };
   const confirmClassificationForLine = (line: StatementLine, accountSuggestion: string) => confirmClassification.mutate({
-    data: { clientId: journalParams.clientId, type: 'recode_lines', lineIds: [line.id], accountSuggestion, confidence: line.confidence ?? 0.85 },
+    data: {
+      clientId: journalParams.clientId,
+      type: 'recode_lines',
+      lineIds: [line.id],
+      accountSuggestion,
+      confidence: line.confidence ?? 0.85,
+      confirmLearnedSuggestion: line.suggestionSource === 'workspace_learning' && accountSuggestion === line.accountSuggestion,
+    },
   }, { onSuccess: refreshPostedData });
   const openBulkAction = (type: BulkStatementAction['type'], trigger: HTMLButtonElement) => {
     const eligible = allDraft;
@@ -2142,6 +2149,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const confidence = line.confidence == null ? null : Math.round(line.confidence * 100);
   const posted = line.status.toLowerCase() === 'posted';
   const canConfirmClassification = !posted && entry?.status.toLowerCase() === 'draft';
+  const accountConfirmationRequired = line.accountConfirmationRequired;
   const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion ?? '');
   useEffect(() => {
     if (accounts.some((account) => account.accountName === line.accountSuggestion)) setSelectedAccount(line.accountSuggestion ?? '');
@@ -2228,6 +2236,8 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     ? <div data-testid={`posted-line-${line.id}`} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary"><CircleCheck size={14} /> Posted</div>
     : !entry
       ? <span className="text-[11px] text-muted-foreground">{journalLoading ? 'Loading…' : 'Unavailable'}</span>
+      : accountConfirmationRequired
+        ? <span data-testid={`account-confirmation-required-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-accent-foreground"><CircleAlert size={13} /> Confirm account</span>
       : needsContactConfirmation
         ? <span data-testid={`contact-required-before-posting-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-destructive"><CircleAlert size={13} /> Contact needed</span>
         : <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {hasTemporaryProposal ? 'Post & create' : 'Post'}</>}</button>;
@@ -2247,7 +2257,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
           <div className={`mt-1 text-[9px] uppercase tracking-[.05em] ${line.contactSuggestionStatus === 'supported' ? 'text-primary font-bold' : line.contactSuggestionStatus === 'conflicting' ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>{line.contactSuggestionStatus.replace(/_/g, ' ')}</div>
         )}
       </td>
-      <td className="px-4 py-4 align-top"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={(line as any).suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${(line as any).suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{(line as any).suggestionSource === 'workspace_learning' ? `Workspace learned · ${(line as any).supportingPatternCount} confirmed pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div></td>
+      <td className="px-4 py-4 align-top"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={line.suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${line.suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{line.suggestionSource === 'workspace_learning' ? `Account learned · ${line.supportingPatternCount} confirmed pattern${line.supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div>{accountConfirmationRequired && <div data-testid={`learned-account-not-applied-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">Confirm before posting · journal still uses {line.journalAccount}</div>}</td>
       <td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td>
       <td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-1.5" role="img" aria-label={`Confidence ${confidence}%`}><div className="grid size-7 place-items-center rounded-full" style={{ background: `conic-gradient(hsl(var(--primary)) ${confidence}%, hsl(var(--muted)) 0)` }}><div className="grid size-5 place-items-center rounded-full bg-card font-mono text-[8px]">{confidence}</div></div><span className="font-mono text-[10px]">%</span></div>}</td>
       <td className="px-4 py-4"><StatusPill status={line.status} /></td>
@@ -2315,7 +2325,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
             {linkContact.isError && <p className="mt-2 text-[10px] font-semibold text-destructive">The contact could not be updated. Refresh the line and review its draft status.</p>}
          </div>
 
-        {canConfirmClassification && <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
+         {canConfirmClassification && <div className={`mt-4 rounded-md border p-3 ${accountConfirmationRequired ? 'border-accent/35 bg-accent/10' : 'border-primary/20 bg-primary/5'}`}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <label className="block text-[11px] font-semibold">Classification decision
               <select data-testid={`select-account-suggestion-${line.id}`} value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary">
@@ -2324,13 +2334,13 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
               </select>
             </label>
             <button data-testid={`button-confirm-classification-${line.id}`} onClick={() => onConfirmClassification(line, selectedAccount)} disabled={processing || !selectedAccount} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary/30 bg-background px-3 text-xs font-semibold text-primary hover:bg-primary hover:text-primary-foreground disabled:opacity-50">
-              <Check size={13} /> {(line as any).suggestionSource === 'workspace_learning' && selectedAccount === line.accountSuggestion ? 'Confirm learned account' : 'Confirm account'}
+               <Check size={13} /> {line.suggestionSource === 'workspace_learning' && selectedAccount === line.accountSuggestion ? 'Confirm learned account' : 'Confirm account'}
             </button>
           </div>
-          <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{(line as any).suggestionSource === 'workspace_learning' ? `This match is based on ${(line as any).supportingPatternCount} confirmed workspace pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
+           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{accountConfirmationRequired ? `The learned recommendation is ${line.accountSuggestion}, but the linked journal still uses ${line.journalAccount}. Confirming revalidates the recommendation and updates both records; it does not approve or post the entry.` : line.suggestionSource === 'workspace_learning' ? `This account is already reflected in the suggested journal and is based on ${line.supportingPatternCount} confirmed workspace pattern${line.supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
         </div>}
         <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : needsContactConfirmation ? `Identify and confirm the ${likelyContactType}, select an existing contact, or explicitly keep the line unlinked before posting.` : 'This draft is ready to post. Use the Post action in the row above when the entry makes sense.'}</p>
+          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : accountConfirmationRequired && needsContactConfirmation ? `The account was learned, but it still needs confirmation and the ${likelyContactType} still needs resolution. Posting remains a separate decision.` : accountConfirmationRequired ? 'Confirm the learned account first. Posting remains a separate decision.' : needsContactConfirmation ? `The account recommendation is available; contact identification is the remaining blocker. Identify and confirm the ${likelyContactType}, select an existing contact, or explicitly keep the line unlinked.` : 'This draft is ready to post. Use the Post action in the row above when the entry makes sense.'}</p>
         </div>
         {actionError && <p className="mt-3 text-xs text-destructive">The journal entry could not be updated. Refresh this line and try again.</p>}
       </section>}
