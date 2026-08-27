@@ -1020,6 +1020,15 @@ export const StatementLineContactReviewDisposition = {
 } as const;
 
 export type StatementLineAccountRecommendationState = typeof StatementLineAccountRecommendationState[keyof typeof StatementLineAccountRecommendationState];
+
+
+export const StatementLineAccountRecommendationState = {
+  applied: 'applied',
+  confirmation_required: 'confirmation_required',
+  locked: 'locked',
+  unavailable: 'unavailable',
+} as const;
+
 export type StatementLineExchangeRateSourceScope = typeof StatementLineExchangeRateSourceScope[keyof typeof StatementLineExchangeRateSourceScope];
 
 
@@ -1343,12 +1352,15 @@ export interface StatementImportInput {
   currency?: string;
   /** False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue. */
   confirmed: boolean;
+  /** Return after the durable analysis record is created while extraction continues server-side. */
+  background?: boolean;
 }
 
 export type StatementImportResultImportStatus = typeof StatementImportResultImportStatus[keyof typeof StatementImportResultImportStatus];
 
 
 export const StatementImportResultImportStatus = {
+  analyzing: 'analyzing',
   preview: 'preview',
   imported: 'imported',
   imported_with_duplicates: 'imported_with_duplicates',
@@ -1406,6 +1418,7 @@ export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof 
 
 
 export const StatementImportOutcome = {
+  analyzing: 'analyzing',
   pending_confirmation: 'pending_confirmation',
   completed: 'completed',
   duplicate: 'duplicate',
@@ -1415,6 +1428,8 @@ export const StatementImportOutcome = {
 
 export interface StatementImport {
   id: number;
+  /** @nullable */
+  bankAccountId?: number | null;
   fileName: string;
   mimeType: string;
   /** @nullable */
@@ -1426,8 +1441,10 @@ export interface StatementImport {
   errorMessage?: string | null;
   importedLineCount: number;
   createdAt: string;
+  updatedAt: string;
   /** @nullable */
   sourceUrl?: string | null;
+  preview: StatementImportResult | null;
 }
 
 export interface StatementImportUndoInput {
@@ -1515,10 +1532,6 @@ export interface BankAccountInput {
      * @maxLength 3
      */
   currency: string;
-}
-
-export interface PostJournalEntryInput {
-  clientId: number;
 }
 
 export interface PostJournalEntryInput {
@@ -2269,11 +2282,3 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
-
-
-export const StatementLineAccountRecommendationState = {
-  applied: 'applied',
-  confirmation_required: 'confirmation_required',
-  locked: 'locked',
-  unavailable: 'unavailable',
-} as const;

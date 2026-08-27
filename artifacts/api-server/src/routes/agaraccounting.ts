@@ -3737,14 +3737,16 @@ function detectedStatementCurrency(
 router.post("/agaraccounting/import-statement", async (req, res) => {
   const parsed = ImportStatementBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
-  const { importId: pendingImportId, clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed } = parsed.data as typeof parsed.data & { objectPath?: string };
+  const { importId: pendingImportId, clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed, background } = parsed.data as typeof parsed.data & { objectPath?: string };
   if (!objectPath) return res.status(400).json({ error: "A verified statement upload is required." });
   let activeClientId: number | undefined;
+  let activeAnalysisImportId: number | undefined;
   let failedBankAccountId: number | null = null;
   let uploadedFileSize = 0;
   let fileHash: string | undefined;
   let aiActivityId: number | undefined;
   let aiCompletionRecorded = false;
+  let analysisHeartbeat: ReturnType<typeof setInterval> | undefined;
   try {
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
@@ -3791,6 +3793,14 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     )) {
       return res.status(409).json({
         error: "This pending statement is no longer available for confirmation. Refresh Import history and try again.",
+      });
+    }
+    const pendingPreview = pendingImport?.previewData == null
+      ? null
+      : ImportStatementResponse.safeParse(pendingImport.previewData);
+    if (pendingImport && !pendingPreview?.success) {
+      return res.status(409).json({
+        error: "This pending statement preview is no longer valid. Retry analysis from Import history.",
       });
     }
     const previousImport = (await db.select().from(statementImportsTable).where(and(
@@ -3920,40 +3930,166 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
       });
     }
-    const aiConfig = await getAIProviderConfig(scopedClientId);
-    const [aiActivity] = await db.insert(aiActivityTable).values({
-      clientId: scopedClientId,
-      userId: currentUserId(req),
-      activityType: "statement_extraction",
-      provider: aiConfig.provider,
-      model: aiConfig.model,
-      billingSource: aiConfig.provider === "managed_openai" ? "replit_credits" : "provider_direct",
-      status: "started",
-    }).returning({ id: aiActivityTable.id });
-    aiActivityId = aiActivity?.id;
+    const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
+      eq(bankAccountsTable.id, Number(bankAccountId)),
+      eq(bankAccountsTable.clientId, scopedClientId),
+    )))[0];
+    if (bankAccountId != null && !selectedBankAccount) {
+      return res.status(400).json({ error: "Selected bank account was not found for this client." });
+    }
+    failedBankAccountId = selectedBankAccount?.id ?? null;
+    if (!confirmed) {
+      const [existingActiveImport] = await db.select().from(statementImportsTable).where(and(
+        eq(statementImportsTable.clientId, scopedClientId),
+        eq(statementImportsTable.fileHash, scopedFileHash),
+        inArray(statementImportsTable.outcome, ["analyzing", "pending_confirmation"]),
+      )).orderBy(desc(statementImportsTable.createdAt)).limit(1);
+      if (existingActiveImport?.outcome === "pending_confirmation" && existingActiveImport.previewData) {
+        const existingPreview = ImportStatementResponse.safeParse(existingActiveImport.previewData);
+        if (existingPreview.success) return res.json(existingPreview.data);
+      }
+      if (existingActiveImport?.outcome === "analyzing") {
+        return res.status(202).json(ImportStatementResponse.parse({
+          fileName: existingActiveImport.fileName,
+          importId: existingActiveImport.id,
+          importStatus: "analyzing",
+          message: "Statement analysis is already running in the background. You can keep working and return when it is ready.",
+          detectedCurrency: null,
+          currencyRequiresConfirmation: false,
+          importedCount: 0,
+          duplicateCount: 0,
+          duplicateLines: [],
+          lines: [],
+          bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+        }));
+      }
+      const [createdAnalysisImport] = await db.insert(statementImportsTable).values({
+        clientId: scopedClientId,
+        bankAccountId: selectedBankAccount?.id ?? null,
+        fileName,
+        mimeType,
+        objectPath,
+        fileSize: uploadedFileSize,
+        evidenceExpiresAt: retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays),
+        fileHash: scopedFileHash,
+        outcome: "analyzing",
+        detectedCurrency: null,
+        errorMessage: null,
+        previewData: null,
+        importedLineCount: 0,
+      }).onConflictDoNothing().returning();
+      const activeImport = createdAnalysisImport ?? (await db.select().from(statementImportsTable).where(and(
+        eq(statementImportsTable.clientId, scopedClientId),
+        eq(statementImportsTable.fileHash, scopedFileHash),
+        inArray(statementImportsTable.outcome, ["analyzing", "pending_confirmation"]),
+      )).orderBy(desc(statementImportsTable.createdAt)).limit(1))[0];
+      if (!activeImport) throw new Error("The statement analysis record could not be saved.");
+      if (activeImport.outcome === "pending_confirmation" && activeImport.previewData) {
+        const existingPreview = ImportStatementResponse.safeParse(activeImport.previewData);
+        if (existingPreview.success) return res.json(existingPreview.data);
+      }
+      if (activeImport.id !== createdAnalysisImport?.id) {
+        return res.status(202).json(ImportStatementResponse.parse({
+          fileName: activeImport.fileName,
+          importId: activeImport.id,
+          importStatus: "analyzing",
+          message: "Statement analysis is already running in the background. You can keep working and return when it is ready.",
+          detectedCurrency: null,
+          currencyRequiresConfirmation: false,
+          importedCount: 0,
+          duplicateCount: 0,
+          duplicateLines: [],
+          lines: [],
+          bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+        }));
+      }
+      activeAnalysisImportId = activeImport.id;
+      analysisHeartbeat = setInterval(() => {
+        void db.update(statementImportsTable).set({ updatedAt: new Date() }).where(and(
+          eq(statementImportsTable.id, activeImport.id),
+          eq(statementImportsTable.clientId, scopedClientId),
+          eq(statementImportsTable.outcome, "analyzing"),
+        )).catch((error) => {
+          req.log.warn({ err: error, importId: activeImport.id }, "Statement analysis heartbeat failed");
+        });
+      }, 60_000);
+      analysisHeartbeat.unref();
+      if (background) {
+        res.status(202).json(ImportStatementResponse.parse({
+          fileName,
+          importId: activeImport.id,
+          importStatus: "analyzing",
+          message: "Statement analysis is continuing in the background. You can leave this page and keep working.",
+          detectedCurrency: null,
+          currencyRequiresConfirmation: false,
+          importedCount: 0,
+          duplicateCount: 0,
+          duplicateLines: [],
+          lines: [],
+          bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+        }));
+      }
+    }
     let candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
     let usingDeterministicFallback = false;
-    const extractionAccountNames = [...await activeClientAccountNames(scopedClientId)];
-    try {
-      const completion = await completeAI(scopedClientId, [
+    const canonicalPreviewLines = pendingPreview?.success ? pendingPreview.data.lines : null;
+    if (pendingPreview?.success) {
+      candidate = {
+        bankAccount: pendingPreview.data.bankAccount
+          ? {
+            name: pendingPreview.data.bankAccount.name,
+            bankName: pendingPreview.data.bankAccount.bankName,
+            accountNumberLast4: pendingPreview.data.bankAccount.accountNumberLast4,
+            currency: pendingPreview.data.bankAccount.currency,
+          }
+          : null,
+        lines: pendingPreview.data.lines.map((line) => ({
+          date: line.date,
+          description: line.description,
+          amount: line.amount,
+          direction: line.direction as ParsedBankLine["direction"],
+          currency: line.currency,
+          accountSuggestion: line.accountSuggestion ?? undefined,
+          confidence: line.confidence ?? undefined,
+          counterpartyName: line.proposedContactName ?? line.contactName ?? undefined,
+          counterpartyAlias: line.proposedContactAlias ?? undefined,
+          counterpartyConfidence: line.proposedContactConfidence ?? line.contactMatchConfidence ?? undefined,
+        })),
+      };
+    } else {
+      const aiConfig = await getAIProviderConfig(scopedClientId);
+      const [aiActivity] = await db.insert(aiActivityTable).values({
+        clientId: scopedClientId,
+        userId: currentUserId(req),
+        activityType: "statement_extraction",
+        provider: aiConfig.provider,
+        model: aiConfig.model,
+        billingSource: aiConfig.provider === "managed_openai" ? "replit_credits" : "provider_direct",
+        status: "started",
+      }).returning({ id: aiActivityTable.id });
+      aiActivityId = aiActivity?.id;
+      const extractionAccountNames = [...await activeClientAccountNames(scopedClientId)];
+      try {
+        const completion = await completeAI(scopedClientId, [
           { role: "system", content: `Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only with bankAccount and lines containing date, description, amount, direction, currency, accountSuggestion, confidence, and optional counterpartyName, counterpartyAlias, and counterpartyConfidence. Never invent transactions, counterparties, aliases, or bank account numbers. Set counterpartyName and counterpartyAlias only when the narration explicitly supports a concise vendor, supplier, or customer identity; omit them for person-only or ambiguous narrations. Exclude payment rails, card labels, currencies, country codes, references, dates, authorization data, and cardholder names from counterparty fields. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. accountSuggestion must exactly match one active account in this client chart: ${extractionAccountNames.join(" | ")}. Use Business travel only for clear business-purpose travel; use Entertainment & hospitality for clear customer or supplier entertainment; use Mixed or unsupported purpose when facts or evidence are uncertain. Set confidence and counterpartyConfidence between 0 and 1.` },
           { role: "user", content: `File: ${fileName}\nInfer the statement currency from the document rather than assuming one.\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
         ], { json: true, maxTokens: 8192 });
-      if (aiActivityId !== undefined) {
-        await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
-        aiCompletionRecorded = true;
-      }
-      candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
-    } catch (error) {
-      if (aiActivityId !== undefined && !aiCompletionRecorded) {
-        await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
-      }
-      if (error instanceof AIProviderError) {
-        req.log.warn({ err: error, clientId: scopedClientId }, "AI extraction unavailable; using deterministic statement fallback");
-        candidate = { lines: fallback, bankAccount: null };
-        usingDeterministicFallback = true;
-      } else {
-        throw error;
+        if (aiActivityId !== undefined) {
+          await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
+          aiCompletionRecorded = true;
+        }
+        candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+      } catch (error) {
+        if (aiActivityId !== undefined && !aiCompletionRecorded) {
+          await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
+        }
+        if (error instanceof AIProviderError) {
+          req.log.warn({ err: error, clientId: scopedClientId }, "AI extraction unavailable; using deterministic statement fallback");
+          candidate = { lines: fallback, bankAccount: null };
+          usingDeterministicFallback = true;
+        } else {
+          throw error;
+        }
       }
     }
     const lines = (hasRecognizedPdfTable
@@ -3970,6 +4106,20 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     );
     const detectedCurrency = detectedStatementCurrency(extractedText, candidate);
     if (!lines.length) {
+      if (analysisHeartbeat) clearInterval(analysisHeartbeat);
+      const errorMessage = "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.";
+      if (activeAnalysisImportId !== undefined) {
+        await db.update(statementImportsTable).set({
+          outcome: "failed",
+          errorMessage,
+          previewData: null,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(statementImportsTable.id, activeAnalysisImportId),
+          eq(statementImportsTable.clientId, scopedClientId),
+          eq(statementImportsTable.outcome, "analyzing"),
+        ));
+      }
       if (confirmed) {
         await recordFailedStatementImport({
           clientId: scopedClientId,
@@ -3979,24 +4129,17 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           objectPath,
           fileSize: uploadedFileSize,
           fileHash: scopedFileHash,
-          errorMessage: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+          errorMessage,
         });
       }
+      if (res.headersSent) return;
       return res.status(422).json({
-        error: "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.",
+        error: errorMessage,
       });
     }
     const activeAccountNames = await activeClientAccountNames(scopedClientId);
     const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
       .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
-    const selectedBankAccount = bankAccountId == null ? null : (await db.select().from(bankAccountsTable).where(and(
-      eq(bankAccountsTable.id, Number(bankAccountId)),
-      eq(bankAccountsTable.clientId, scopedClientId),
-    )))[0];
-    if (bankAccountId != null && !selectedBankAccount) {
-      return res.status(400).json({ error: "Selected bank account was not found for this client." });
-    }
-    failedBankAccountId = selectedBankAccount?.id ?? null;
     await getRateProfileForClient(client);
     const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
     const resolvedLines = await Promise.all(lines.map(async (line) => {
@@ -4015,113 +4158,104 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     }));
     if (!confirmed) {
       const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
-      const [existingPendingImport] = await db.select().from(statementImportsTable).where(and(
-        eq(statementImportsTable.clientId, scopedClientId),
-        eq(statementImportsTable.fileHash, scopedFileHash),
-        eq(statementImportsTable.outcome, "pending_confirmation"),
-      )).orderBy(desc(statementImportsTable.createdAt)).limit(1);
-      const [storedPendingImport] = existingPendingImport
-        ? await db.update(statementImportsTable).set({
-          bankAccountId: selectedBankAccount?.id ?? null,
-          fileName,
-          mimeType,
-          objectPath,
-          fileSize: uploadedFileSize,
-          evidenceExpiresAt,
-          detectedCurrency,
-          errorMessage: null,
-        }).where(and(
-          eq(statementImportsTable.id, existingPendingImport.id),
-          eq(statementImportsTable.clientId, scopedClientId),
-        )).returning()
-        : await db.insert(statementImportsTable).values({
+      const previewLines = await Promise.all(resolvedLines.map(async ({ line, currencyValue, conversion }, index) => {
+        const contactSuggestion = await resolveContactSuggestion(
+          db,
+          scopedClientId,
+          line.description,
+          line.direction,
+          null,
+          undefined,
+          line,
+          contactLookup,
+        );
+        const contactAccount = contactSuggestion.accountSuggestion;
+        const contactDecisionState = contactSuggestion.contactId != null
+          ? "matched"
+          : contactSuggestion.contactSuggestionStatus === "temporary_proposal"
+            ? "named_proposal"
+            : "needs_identification";
+        return {
+          id: -(index + 1),
           clientId: scopedClientId,
           bankAccountId: selectedBankAccount?.id ?? null,
-          fileName,
-          mimeType,
-          objectPath,
-          fileSize: uploadedFileSize,
-          evidenceExpiresAt,
-          fileHash: scopedFileHash,
-          outcome: "pending_confirmation",
-          detectedCurrency,
-          importedLineCount: 0,
-        }).returning();
-      if (!storedPendingImport) throw new Error("The pending statement confirmation could not be saved.");
-      return res.json(ImportStatementResponse.parse({
+          date: line.date,
+          description: line.description.trim(),
+          currency: currencyValue,
+          amount: Math.abs(Number(line.amount)),
+          direction: line.direction,
+          status: "draft",
+          source: `Preview: ${fileName}`,
+          contactId: contactSuggestion.contactId,
+          contactName: contactSuggestion.contactName,
+          contactType: contactSuggestion.contactType,
+          contactMatchConfidence: contactSuggestion.contactMatchConfidence,
+          contactSuggestionStatus: contactSuggestion.contactSuggestionStatus,
+          contactSuggestionReason: contactSuggestion.contactSuggestionReason,
+          proposedContactName: contactSuggestion.proposedContactName,
+          proposedContactType: contactSuggestion.proposedContactType,
+          proposedContactAlias: contactSuggestion.proposedContactAlias,
+          proposedContactConfidence: contactSuggestion.proposedContactConfidence,
+          proposedContactSource: contactSuggestion.proposedContactSource,
+          contactDecisionState,
+          contactReviewDisposition: "pending",
+          accountSuggestion: contactAccount ?? (line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction)),
+          confidence: contactAccount
+            ? (contactSuggestion.contactSuggestionStatus === "supported" ? 0.94 : 0.85)
+            : Number(line.confidence ?? 0.75),
+          suggestionSource: contactAccount ? "contact_history" : null,
+          supportingPatternCount: contactAccount ? contactSuggestion.supportingPatternCount : 0,
+          journalAccount: null,
+          journalStatus: null,
+          accountConfirmationRequired: false,
+          accountRecommendationState: "unavailable",
+          functionalCurrency: conversion.functionalCurrency,
+          functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
+          exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
+          exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+          exchangeRateStatus: conversion.exchangeRateStatus,
+          importDedupeKey: null,
+          createdAt: new Date(),
+        };
+      }));
+      const previewResponse = ImportStatementResponse.parse({
         fileName,
-        importId: storedPendingImport.id,
+        importId: activeAnalysisImportId,
         importStatus: "preview",
         message: `${resolvedLines.length} transaction${resolvedLines.length === 1 ? "" : "s"} parsed and saved for confirmation. Review the currency before loading them into the review queue.`,
-        sourceUrl: statementSourceUrl(storedPendingImport.id),
+        sourceUrl: activeAnalysisImportId == null ? undefined : statementSourceUrl(activeAnalysisImportId),
         detectedCurrency,
         currencyRequiresConfirmation: !detectedCurrency,
         importedCount: 0,
         duplicateCount: 0,
         duplicateLines: [],
-        lines: await Promise.all(resolvedLines.map(async ({ line, currencyValue, conversion }, index) => {
-          const contactSuggestion = await resolveContactSuggestion(
-            db,
-            scopedClientId,
-            line.description,
-            line.direction,
-            null,
-            undefined,
-            line,
-            contactLookup,
-          );
-          const contactAccount = contactSuggestion.accountSuggestion;
-          const contactDecisionState = contactSuggestion.contactId != null
-            ? "matched"
-            : contactSuggestion.contactSuggestionStatus === "temporary_proposal"
-              ? "named_proposal"
-              : "needs_identification";
-          return {
-            id: -(index + 1),
-            clientId: scopedClientId,
-            bankAccountId: selectedBankAccount?.id ?? null,
-            date: line.date,
-            description: line.description.trim(),
-            currency: currencyValue,
-            amount: Math.abs(Number(line.amount)),
-            direction: line.direction,
-            status: "draft",
-            source: `Preview: ${fileName}`,
-            contactId: contactSuggestion.contactId,
-            contactName: contactSuggestion.contactName,
-            contactType: contactSuggestion.contactType,
-            contactMatchConfidence: contactSuggestion.contactMatchConfidence,
-            contactSuggestionStatus: contactSuggestion.contactSuggestionStatus,
-            contactSuggestionReason: contactSuggestion.contactSuggestionReason,
-            proposedContactName: contactSuggestion.proposedContactName,
-            proposedContactType: contactSuggestion.proposedContactType,
-            proposedContactAlias: contactSuggestion.proposedContactAlias,
-            proposedContactConfidence: contactSuggestion.proposedContactConfidence,
-            proposedContactSource: contactSuggestion.proposedContactSource,
-            contactDecisionState,
-            contactReviewDisposition: "pending",
-            accountSuggestion: contactAccount ?? (line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction)),
-            confidence: contactAccount
-              ? (contactSuggestion.contactSuggestionStatus === "supported" ? 0.94 : 0.85)
-              : Number(line.confidence ?? 0.75),
-            suggestionSource: contactAccount ? "contact_history" : null,
-            supportingPatternCount: contactAccount ? contactSuggestion.supportingPatternCount : 0,
-            journalAccount: null,
-            journalStatus: null,
-            accountConfirmationRequired: false,
-            accountRecommendationState: "unavailable",
-            functionalCurrency: conversion.functionalCurrency,
-            functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
-            exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
-            exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
-            exchangeRateSourceScope: conversion.exchangeRateSourceScope,
-            exchangeRateStatus: conversion.exchangeRateStatus,
-            importDedupeKey: null,
-            createdAt: new Date(),
-          };
-        })),
+        lines: previewLines,
         bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
-      }));
+      });
+      if (activeAnalysisImportId == null) throw new Error("The statement analysis record is missing.");
+      const [storedPendingImport] = await db.update(statementImportsTable).set({
+          bankAccountId: selectedBankAccount?.id ?? null,
+          fileName,
+          mimeType,
+          objectPath,
+          fileSize: uploadedFileSize,
+          evidenceExpiresAt,
+          outcome: "pending_confirmation",
+          detectedCurrency,
+          errorMessage: null,
+          previewData: JSON.parse(JSON.stringify(previewResponse)) as Record<string, unknown>,
+          updatedAt: new Date(),
+        }).where(and(
+          eq(statementImportsTable.id, activeAnalysisImportId),
+          eq(statementImportsTable.clientId, scopedClientId),
+          eq(statementImportsTable.fileHash, scopedFileHash),
+          eq(statementImportsTable.outcome, "analyzing"),
+        )).returning();
+      if (!storedPendingImport) throw new Error("The pending statement confirmation could not be saved.");
+      if (analysisHeartbeat) clearInterval(analysisHeartbeat);
+      if (!res.headersSent) return res.json(previewResponse);
+      return;
     }
     const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
     const importResult = await db.transaction(async (tx) => {
@@ -4201,12 +4335,14 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         eq(statementImportsTable.id, createdImport.id),
         eq(statementImportsTable.clientId, scopedClientId),
       ));
-      const preparedLines = resolvedLines.map(({ line, currencyValue, conversion }) => {
-        const workspaceSuggestion = findWorkspaceSuggestion(workspacePatterns, line.description);
-        const accountSuggestion = workspaceSuggestion?.accountSuggestion
+      const preparedLines = resolvedLines.map(({ line, currencyValue, conversion }, index) => {
+        const canonicalPreviewLine = canonicalPreviewLines?.[index];
+        const workspaceSuggestion = canonicalPreviewLine ? null : findWorkspaceSuggestion(workspacePatterns, line.description);
+        const accountSuggestion = canonicalPreviewLine?.accountSuggestion
+          || workspaceSuggestion?.accountSuggestion
           || line.accountSuggestion?.trim()
           || suggestAccount(line.description, line.direction);
-        const parsedConfidence = workspaceSuggestion?.confidence ?? Number(line.confidence);
+        const parsedConfidence = canonicalPreviewLine?.confidence ?? workspaceSuggestion?.confidence ?? Number(line.confidence);
         const confidence = Number.isFinite(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 1
           ? parsedConfidence.toFixed(2)
           : "0.75";
@@ -4224,9 +4360,11 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           source: `Imported: ${fileName}`,
           accountSuggestion,
           confidence,
-          counterpartyName: line.counterpartyName,
-          counterpartyAlias: line.counterpartyAlias,
-          counterpartyConfidence: line.counterpartyConfidence,
+          counterpartyName: canonicalPreviewLine?.proposedContactName ?? canonicalPreviewLine?.contactName ?? line.counterpartyName,
+          counterpartyAlias: canonicalPreviewLine?.proposedContactAlias ?? line.counterpartyAlias,
+          counterpartyConfidence: canonicalPreviewLine?.proposedContactConfidence
+            ?? canonicalPreviewLine?.contactMatchConfidence
+            ?? line.counterpartyConfidence,
           functionalCurrency: conversion.functionalCurrency,
           functionalAmount: conversion.functionalAmount,
           exchangeRate: conversion.exchangeRate,
@@ -4363,7 +4501,24 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     }));
   } catch (error) {
     req.log.error({ err: error }, "Statement import failed");
+    if (analysisHeartbeat) clearInterval(analysisHeartbeat);
+    if (activeAnalysisImportId !== undefined && activeClientId !== undefined) {
+      await db.update(statementImportsTable).set({
+        outcome: "failed",
+        errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
+        previewData: null,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(statementImportsTable.id, activeAnalysisImportId),
+        eq(statementImportsTable.clientId, activeClientId),
+        eq(statementImportsTable.outcome, "analyzing"),
+      ));
+    }
+    if (aiActivityId !== undefined && !aiCompletionRecorded) {
+      await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
+    }
     const databaseFailure = databaseError(error);
+    if (res.headersSent) return;
     if (databaseFailure?.code === "23505"
       && databaseFailure.constraint === "agaraccounting_statement_imports_client_file_hash_idx") {
       return res.status(503).json({
@@ -4375,7 +4530,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         error: "Statement import is temporarily unavailable. Please try again.",
       });
     }
-    if (pendingImportId == null && activeClientId !== undefined && fileHash) {
+    if (pendingImportId == null && activeAnalysisImportId === undefined && activeClientId !== undefined && fileHash) {
       await recordFailedStatementImport({
         clientId: activeClientId,
         bankAccountId: failedBankAccountId,
@@ -4387,9 +4542,6 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         errorMessage: error instanceof Error ? error.message : "Unknown statement import error",
       });
     }
-    if (aiActivityId !== undefined && !aiCompletionRecorded) {
-      await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
-    }
     return res.status(422).json({ error: "We could not read this statement. Try a clearer PDF, CSV, or Excel file." });
   }
 });
@@ -4399,6 +4551,16 @@ router.get("/agaraccounting/statement-imports", async (req, res) => {
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
   const now = new Date();
+  const staleAnalysisThreshold = new Date(now.getTime() - 15 * 60 * 1000);
+  await db.update(statementImportsTable).set({
+    outcome: "failed",
+    errorMessage: "Statement analysis was interrupted before it finished. Retry it from Import history; the original upload is still available.",
+    updatedAt: now,
+  }).where(and(
+    eq(statementImportsTable.clientId, client.id),
+    eq(statementImportsTable.outcome, "analyzing"),
+    lt(statementImportsTable.updatedAt, staleAnalysisThreshold),
+  ));
   const imports = await db.select().from(statementImportsTable)
     .where(eq(statementImportsTable.clientId, client.id))
     .orderBy(desc(statementImportsTable.createdAt));
@@ -4408,6 +4570,7 @@ router.get("/agaraccounting/statement-imports", async (req, res) => {
       && Boolean(statementImport.objectPath && statementObjectPathForClient(client.id, statementImport.objectPath));
     return {
       id: statementImport.id,
+      bankAccountId: statementImport.bankAccountId,
       fileName: statementImport.fileName,
       mimeType: statementImport.mimeType,
       objectPath: statementImport.objectPath,
@@ -4416,7 +4579,11 @@ router.get("/agaraccounting/statement-imports", async (req, res) => {
       errorMessage: statementImport.errorMessage,
       importedLineCount: statementImport.importedLineCount,
       createdAt: statementImport.createdAt.toISOString(),
+      updatedAt: statementImport.updatedAt.toISOString(),
       sourceUrl: canAccessSource ? statementSourceUrl(statementImport.id) : null,
+      preview: statementImport.previewData == null
+        ? null
+        : ImportStatementResponse.safeParse(statementImport.previewData).data ?? null,
     };
   }));
 });

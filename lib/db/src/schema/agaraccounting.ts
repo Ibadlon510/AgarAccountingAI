@@ -397,12 +397,17 @@ export const statementImportsTable = pgTable("agaraccounting_statement_imports",
   outcome: text("outcome").notNull().default("completed"),
   detectedCurrency: text("detected_currency"),
   errorMessage: text("error_message"),
+  previewData: jsonb("preview_data").$type<Record<string, unknown> | null>(),
   importedLineCount: integer("imported_line_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({
   clientCompletedFileHashUnique: uniqueIndex("agaraccounting_statement_imports_client_file_hash_idx")
     .on(table.clientId, table.fileHash)
     .where(sql`outcome = 'completed'`),
+  clientActiveFileHashUnique: uniqueIndex("agaraccounting_statement_imports_active_file_hash_idx")
+    .on(table.clientId, table.fileHash)
+    .where(sql`outcome in ('analyzing', 'pending_confirmation')`),
   clientForeignKey: foreignKey({
     columns: [table.clientId],
     foreignColumns: [clientsTable.id],
@@ -414,8 +419,8 @@ export const statementImportsTable = pgTable("agaraccounting_statement_imports",
     name: "agaraccounting_statement_imports_bank_account_fk",
   }),
   outcomeCheck: check(
-    "agaraccounting_statement_imports_outcome_v3_check",
-    sql`outcome in ('pending_confirmation', 'completed', 'duplicate', 'failed', 'undone')`,
+    "agaraccounting_statement_imports_outcome_v4_check",
+    sql`outcome in ('analyzing', 'pending_confirmation', 'completed', 'duplicate', 'failed', 'undone')`,
   ),
 }));
 

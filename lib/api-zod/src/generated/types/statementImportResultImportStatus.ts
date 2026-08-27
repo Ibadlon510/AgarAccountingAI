@@ -10,6 +10,7 @@ export type StatementImportResultImportStatus = typeof StatementImportResultImpo
 
 
 export const StatementImportResultImportStatus = {
+  analyzing: 'analyzing',
   preview: 'preview',
   imported: 'imported',
   imported_with_duplicates: 'imported_with_duplicates',

@@ -1052,6 +1052,12 @@ paths:
             schema:
               $ref: "#/components/schemas/StatementImportInput"
       responses:
+        "202":
+          description: Statement analysis accepted and continuing in the background
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementImportResult"
         "200":
           description: The statement was already imported or contained only duplicate lines
           content:
@@ -2739,13 +2745,16 @@ components:
         confirmed:
           type: boolean
           description: False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.
+        background:
+          type: boolean
+          description: Return after the durable analysis record is created while extraction continues server-side.
     StatementImportResult:
       type: object
       required: [fileName, importId, importStatus, importedCount, duplicateCount, duplicateLines, lines]
       properties:
         fileName: { type: string }
         importId: { type: number }
-        importStatus: { type: string, enum: [preview, imported, imported_with_duplicates, duplicates_found, duplicate_file] }
+        importStatus: { type: string, enum: [analyzing, preview, imported, imported_with_duplicates, duplicates_found, duplicate_file] }
         message: { type: string }
         sourceUrl: { type: string }
         detectedCurrency: { type: ["string", "null"] }
@@ -2766,18 +2775,24 @@ components:
             - type: "null"
     StatementImport:
       type: object
-      required: [id, fileName, mimeType, objectPath, outcome, importedLineCount, createdAt]
+      required: [id, fileName, mimeType, objectPath, outcome, importedLineCount, createdAt, updatedAt, preview]
       properties:
         id: { type: number }
+        bankAccountId: { type: ["number", "null"] }
         fileName: { type: string }
         mimeType: { type: string }
         objectPath: { type: ["string", "null"] }
-        outcome: { type: string, enum: [pending_confirmation, completed, duplicate, failed, undone] }
+        outcome: { type: string, enum: [analyzing, pending_confirmation, completed, duplicate, failed, undone] }
         detectedCurrency: { type: ["string", "null"] }
         errorMessage: { type: ["string", "null"] }
         importedLineCount: { type: number }
         createdAt: { type: string }
+        updatedAt: { type: string }
         sourceUrl: { type: ["string", "null"] }
+        preview:
+          oneOf:
+            - $ref: "#/components/schemas/StatementImportResult"
+            - type: "null"
     StatementImportUndoInput:
       type: object
       required: [clientId]

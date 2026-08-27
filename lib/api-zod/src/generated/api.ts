@@ -27,6 +27,8 @@ export const GetCurrentAuthUserResponse = zod.object({
  */
 
 
+
+
 export const UpdateAgarAccountingAccountProfileBody = zod.object({
   "firstName": zod.string().min(1),
   "lastName": zod.string().min(1)
@@ -53,6 +55,8 @@ export const GetFirmProfileResponse = zod.object({
 /**
  * @summary Update the bookkeeping firm's shared identity
  */
+
+
 
 
 export const UpdateFirmProfileBody = zod.object({
@@ -142,6 +146,8 @@ export const GetOrganizationContextResponse = zod.object({
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
+
+
 
 
 export const CompleteOrganizationOnboardingBody = zod.object({
@@ -513,6 +519,11 @@ export const LogoutBrowserSessionResponse = zod.void()
  */
 
 
+
+
+
+
+
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -667,6 +678,8 @@ export const UpdateWorkspaceMemberParams = zod.object({
 })
 
 
+
+
 export const UpdateWorkspaceMemberBody = zod.object({
   "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
   "clientIds": zod.array(zod.number()).min(1)
@@ -703,6 +716,7 @@ export const createWorkspaceInvitationBodyEmailMin = 3;
 
 
 export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
 
 
 export const CreateWorkspaceInvitationBody = zod.object({
@@ -885,6 +899,7 @@ export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 export const getExchangeRatesResponseRateExclusiveMin = 0;
 
 
+
 export const GetExchangeRatesResponseItem = zod.object({
   "id": zod.number(),
   "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
@@ -914,6 +929,7 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const CreateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
@@ -930,6 +946,7 @@ export const createExchangeRateResponseFunctionalCurrencyMin = 3;
 export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const CreateExchangeRateResponse = zod.object({
@@ -959,6 +976,7 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const UpdateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
@@ -975,6 +993,7 @@ export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
 export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const UpdateExchangeRateResponse = zod.object({
@@ -1015,6 +1034,8 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
 
+
+
 export const ImportExchangeRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
@@ -1033,6 +1054,7 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
+
 
 
 export const ImportExchangeRatesResponse = zod.object({
@@ -1058,6 +1080,7 @@ export const parseExchangeRatesBodyContentMax = 120000;
 export const parseExchangeRatesBodyFileBase64Max = 20000000;
 
 
+
 export const ParseExchangeRatesBody = zod.object({
   "clientId": zod.number(),
   "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
@@ -1075,6 +1098,7 @@ export const parseExchangeRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseExchangeRatesResponseConfidenceMin = 0;
 export const parseExchangeRatesResponseConfidenceMax = 1;
+
 
 
 export const ParseExchangeRatesResponse = zod.object({
@@ -1233,6 +1257,7 @@ export const DeleteSystemRateResponse = zod.void()
  */
 
 
+
 export const ImportSystemRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string(),
@@ -1289,6 +1314,7 @@ export const parseSystemRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseSystemRatesResponseConfidenceMin = 0;
 export const parseSystemRatesResponseConfidenceMax = 1;
+
 
 
 export const ParseSystemRatesResponse = zod.object({
@@ -1369,6 +1395,7 @@ export const GetBankAccountsResponse = zod.array(GetBankAccountsResponseItem)
 export const createBankAccountBodyAccountNumberLast4RegExp = new RegExp('^[0-9]{4}$');
 export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
+
 
 
 export const CreateBankAccountBody = zod.object({
@@ -1506,6 +1533,7 @@ export const linkStatementLineContactBodyProposedContactNameMax = 160;
 export const linkStatementLineContactBodyProposedContactAliasMax = 160;
 
 
+
 export const LinkStatementLineContactBody = zod.object({
   "clientId": zod.number(),
   "contactId": zod.number().nullish(),
@@ -1591,6 +1619,7 @@ export const createContactBodyAliasesItemMax = 160;
 export const createContactBodyAliasesMax = 30;
 
 
+
 export const CreateContactBody = zod.object({
   "clientId": zod.number(),
   "displayName": zod.string().min(1).max(createContactBodyDisplayNameMax),
@@ -1629,6 +1658,7 @@ export const updateContactBodyLegalNameMax = 160;
 export const updateContactBodyAliasesItemMax = 160;
 
 export const updateContactBodyAliasesMax = 30;
+
 
 
 export const UpdateContactBody = zod.object({
@@ -1811,13 +1841,14 @@ export const ImportStatementBody = zod.object({
   "mimeType": zod.string(),
   "objectPath": zod.string(),
   "currency": zod.string().optional(),
-  "confirmed": zod.boolean().describe('False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.')
+  "confirmed": zod.boolean().describe('False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue.'),
+  "background": zod.boolean().optional().describe('Return after the durable analysis record is created while extraction continues server-side.')
 })
 
 export const ImportStatementResponse = zod.object({
   "fileName": zod.string(),
   "importId": zod.number(),
-  "importStatus": zod.enum(['preview', 'imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
+  "importStatus": zod.enum(['analyzing', 'preview', 'imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
   "message": zod.string().optional(),
   "sourceUrl": zod.string().optional(),
   "detectedCurrency": zod.string().nullish(),
@@ -1891,15 +1922,83 @@ export const GetStatementImportsQueryParams = zod.object({
 
 export const GetStatementImportsResponseItem = zod.object({
   "id": zod.number(),
+  "bankAccountId": zod.number().nullish(),
   "fileName": zod.string(),
   "mimeType": zod.string(),
   "objectPath": zod.string().nullable(),
-  "outcome": zod.enum(['pending_confirmation', 'completed', 'duplicate', 'failed', 'undone']),
+  "outcome": zod.enum(['analyzing', 'pending_confirmation', 'completed', 'duplicate', 'failed', 'undone']),
   "detectedCurrency": zod.string().nullish(),
   "errorMessage": zod.string().nullish(),
   "importedLineCount": zod.number(),
   "createdAt": zod.string(),
-  "sourceUrl": zod.string().nullish()
+  "updatedAt": zod.string(),
+  "sourceUrl": zod.string().nullish(),
+  "preview": zod.union([zod.object({
+  "fileName": zod.string(),
+  "importId": zod.number(),
+  "importStatus": zod.enum(['analyzing', 'preview', 'imported', 'imported_with_duplicates', 'duplicates_found', 'duplicate_file']),
+  "message": zod.string().optional(),
+  "sourceUrl": zod.string().optional(),
+  "detectedCurrency": zod.string().nullish(),
+  "currencyRequiresConfirmation": zod.boolean().optional(),
+  "importedCount": zod.number(),
+  "duplicateCount": zod.number(),
+  "duplicateLines": zod.array(zod.object({
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "existingLineId": zod.number().nullable(),
+  "reason": zod.enum(['already_imported', 'duplicate_in_file'])
+})),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "bankAccountId": zod.number().nullish(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
+  "source": zod.string(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "contactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "contactMatchConfidence": zod.number().nullish(),
+  "contactSuggestionStatus": zod.union([zod.literal('supported'),zod.literal('weak'),zod.literal('conflicting'),zod.literal('no_safe_treatment'),zod.literal('no_history'),zod.literal('temporary_proposal'),zod.literal('needs_identification'),zod.literal(null)]).nullish(),
+  "contactSuggestionReason": zod.string().nullish(),
+  "proposedContactName": zod.string().nullish(),
+  "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
+  "proposedContactAlias": zod.string().nullish(),
+  "proposedContactConfidence": zod.number().nullish(),
+  "proposedContactSource": zod.string().nullish(),
+  "contactDecisionState": zod.enum(['matched', 'named_proposal', 'needs_identification', 'dismissed']),
+  "contactReviewDisposition": zod.enum(['pending', 'accepted', 'replaced', 'dismissed']),
+  "accountSuggestion": zod.string().nullish(),
+  "confidence": zod.number().nullish(),
+  "suggestionSource": zod.string().nullish(),
+  "supportingPatternCount": zod.number().nullish(),
+  "journalAccount": zod.string().nullish(),
+  "journalStatus": zod.string().nullish(),
+  "accountConfirmationRequired": zod.boolean(),
+  "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
+  "functionalCurrency": zod.string().nullish(),
+  "functionalAmount": zod.number().nullish(),
+  "exchangeRate": zod.number().nullish(),
+  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
+  "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
+  "exchangeRateStatus": zod.string().optional()
+})),
+  "bankAccount": zod.union([zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "accountNumberLast4": zod.string().nullish(),
+  "currency": zod.string()
+}),zod.null()]).optional()
+}),zod.null()])
 })
 export const GetStatementImportsResponse = zod.array(GetStatementImportsResponseItem)
 
@@ -1963,6 +2062,7 @@ export const askAgarAccountingAIBodyMessageMax = 4000;
 
 export const askAgarAccountingAIBodyFiltersCurrencyMin = 3;
 export const askAgarAccountingAIBodyFiltersCurrencyMax = 3;
+
 
 
 export const AskAgarAccountingAIBody = zod.object({
@@ -2067,6 +2167,7 @@ export const GetAgarAccountingAIConversationsResponse = zod.array(GetAgarAccount
 export const createAgarAccountingAIConversationBodyTitleMax = 120;
 
 
+
 export const CreateAgarAccountingAIConversationBody = zod.object({
   "clientId": zod.number(),
   "title": zod.string().min(1).max(createAgarAccountingAIConversationBodyTitleMax).optional()
@@ -2129,6 +2230,7 @@ export const RenameAgarAccountingAIConversationParams = zod.object({
 })
 
 export const renameAgarAccountingAIConversationBodyTitleMax = 120;
+
 
 
 export const RenameAgarAccountingAIConversationBody = zod.object({
@@ -2195,6 +2297,7 @@ export const GetAgarAccountingAISettingsResponse = zod.object({
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
+
 
 
 export const UpdateAgarAccountingAISettingsBody = zod.object({
@@ -2582,6 +2685,7 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
  */
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
+
 
 
 export const CreateReportPackBody = zod.object({
@@ -3147,6 +3251,7 @@ export const createLedgerflowAccountBodyAccountNameMax = 160;
 export const createLedgerflowAccountBodyDisplayNameMax = 160;
 
 
+
 export const CreateLedgerflowAccountBody = zod.object({
   "clientId": zod.number(),
   "accountCode": zod.string().min(1).max(createLedgerflowAccountBodyAccountCodeMax),
@@ -3199,6 +3304,7 @@ export const updateLedgerflowAccountBodyOneAccountCodeMax = 40;
 export const updateLedgerflowAccountBodyOneAccountNameMax = 160;
 
 export const updateLedgerflowAccountBodyOneDisplayNameMax = 160;
+
 
 
 export const UpdateLedgerflowAccountBody = zod.object({
@@ -3327,4 +3433,3 @@ export const GetUaeCorporateTaxSummaryResponse = zod.object({
   "reviewAmount": zod.number()
 }))
 })
-

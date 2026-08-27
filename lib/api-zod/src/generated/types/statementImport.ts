@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { StatementImportOutcome } from './statementImportOutcome';
+import type { StatementImportResult } from './statementImportResult';
 
 export interface StatementImport {
   id: number;
+  /** @nullable */
+  bankAccountId?: number | null;
   fileName: string;
   mimeType: string;
   /** @nullable */
@@ -20,6 +23,8 @@ export interface StatementImport {
   errorMessage?: string | null;
   importedLineCount: number;
   createdAt: string;
+  updatedAt: string;
   /** @nullable */
   sourceUrl?: string | null;
+  preview: StatementImportResult | null;
 }

@@ -18,4 +18,6 @@ export interface StatementImportInput {
   currency?: string;
   /** False stores an extraction awaiting currency confirmation; true confirms that the reviewed rows may be loaded into the review queue. */
   confirmed: boolean;
+  /** Return after the durable analysis record is created while extraction continues server-side. */
+  background?: boolean;
 }

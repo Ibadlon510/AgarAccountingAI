@@ -12,7 +12,7 @@ import { objectStorageService } from "../src/routes/storage";
 type ImportResult = {
   importId?: number;
   fileName: string;
-  importStatus: "preview" | "imported" | "imported_with_duplicates" | "duplicates_found" | "duplicate_file";
+  importStatus: "analyzing" | "preview" | "imported" | "imported_with_duplicates" | "duplicates_found" | "duplicate_file";
   message?: string;
   detectedCurrency?: string | null;
   importedCount: number;
@@ -29,7 +29,9 @@ type ImportResult = {
   lines: Array<{
     id: number;
     bankAccountId: number | null;
+    description: string;
     currency: string;
+    accountSuggestion?: string;
     status?: string;
     proposedContactName?: string | null;
     proposedContactAlias?: string | null;
@@ -229,6 +231,9 @@ before(async () => {
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ error: { message: "invalid key" } }));
       return;
+    }
+    if (userMessage.includes("background-slow")) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     if (req.url?.startsWith("/v1/messages")) {
       res.setHeader("content-type", "application/json");
@@ -651,6 +656,80 @@ test("stores a USD statement for confirmation without creating lines, then loads
   assert.equal(confirmedHistory.body[0].id, preview.body.importId);
   assert.equal(confirmedHistory.body[0].outcome, "completed");
   assert.equal(confirmedHistory.body[0].importedLineCount, 1);
+});
+
+test("continues statement analysis after returning a durable background job", async () => {
+  assert.ok(database);
+  const clientId = await createClient(`Background analysis ${randomUUID()}`);
+  const fileName = "background-analysis.csv";
+  const objectPath = `/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/${randomUUID()}`;
+  statementFiles.set(objectPath, Buffer.from("Bank Statement\nCurrency: AED\nDate,Description,Debit,Credit\n2026-08-25,background-slow,100,"));
+
+  const started = await request<ImportResult>("/agaraccounting/import-statement", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      fileName,
+      mimeType: "text/csv",
+      objectPath,
+      confirmed: false,
+      background: true,
+    }),
+  }, primaryUserId);
+  assert.equal(started.response.status, 202);
+  assert.equal(started.body.importStatus, "analyzing");
+  assert.ok(started.body.importId);
+
+  const [analyzingImport] = await database.db.select().from(database.statementImportsTable)
+    .where(eq(database.statementImportsTable.id, started.body.importId as number));
+  assert.equal(analyzingImport?.outcome, "analyzing");
+  assert.equal(analyzingImport?.objectPath, objectPath);
+  assert.equal(analyzingImport?.previewData, null);
+
+  let readyImport: {
+    id: number;
+    outcome: string;
+    importedLineCount: number;
+    preview: ImportResult | null;
+  } | undefined;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const history = await request<Array<typeof readyImport>>(
+      `/agaraccounting/statement-imports?clientId=${clientId}`,
+      undefined,
+      primaryUserId,
+    );
+    readyImport = history.body.find((statementImport) => statementImport?.id === started.body.importId);
+    if (readyImport?.outcome === "pending_confirmation") break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(readyImport?.outcome, "pending_confirmation");
+  assert.equal(readyImport?.importedLineCount, 0);
+  assert.equal(readyImport?.preview?.importStatus, "preview");
+  assert.equal(readyImport?.preview?.lines.length, 1);
+  assert.equal((await statementLines(clientId)).length, 0);
+  const reviewedLine = readyImport?.preview?.lines[0];
+  assert.ok(reviewedLine);
+  const aiRequestCountAfterPreview = aiRequests.length;
+
+  const confirmed = await request<ImportResult>("/agaraccounting/import-statement", {
+    method: "POST",
+    body: JSON.stringify({
+      importId: started.body.importId,
+      clientId,
+      fileName,
+      mimeType: "text/csv",
+      objectPath,
+      currency: "AED",
+      confirmed: true,
+    }),
+  }, primaryUserId);
+  assert.equal(confirmed.response.status, 201);
+  assert.equal(confirmed.body.importedCount, 1);
+  assert.equal(aiRequests.length, aiRequestCountAfterPreview);
+  assert.equal(confirmed.body.lines[0]?.description, reviewedLine.description);
+  assert.equal(confirmed.body.lines[0]?.currency, reviewedLine.currency);
+  assert.equal(confirmed.body.lines[0]?.accountSuggestion, reviewedLine.accountSuggestion);
+  assert.equal((await statementLines(clientId)).length, 1);
 });
 
 test("handles concurrent duplicate statement imports once", async () => {
