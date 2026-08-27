@@ -382,19 +382,19 @@ function MessageBubble({ msg, activeClient, activeThreadId, onClose, onRetry }: 
   };
 
   return (
-    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 fade-in duration-300`}>
+    <div className={`flex min-w-0 w-full ${isUser ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 fade-in duration-300`}>
       {isUser ? (
-        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-[13px] leading-relaxed text-primary-foreground shadow-sm">
+        <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-[13px] leading-relaxed text-primary-foreground shadow-sm [overflow-wrap:anywhere]">
           {content}
         </div>
       ) : (
-        <div className={`max-w-[92%] rounded-2xl rounded-bl-sm border px-4 py-3 text-[13px] leading-relaxed shadow-sm ${msg.type === 'import-result' ? 'border-primary/30 bg-primary/5' : 'border-card-border bg-card'}`}>
+        <div className={`min-w-0 max-w-[92%] break-words rounded-2xl rounded-bl-sm border px-4 py-3 text-[13px] leading-relaxed shadow-sm [overflow-wrap:anywhere] ${msg.type === 'import-result' ? 'border-primary/30 bg-primary/5' : 'border-card-border bg-card'}`}>
           {msg.type === 'error' && (
             <div className="space-y-3">
               <div className="text-destructive font-semibold flex items-center gap-2">
                 <AlertCircle size={16} /> Request Failed
               </div>
-              <div className="text-foreground whitespace-pre-wrap">{content}</div>
+              <div className="text-foreground break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{content}</div>
               {msg.errorPrompt && (
                 <button
                   data-testid="button-retry-chat"
@@ -409,12 +409,12 @@ function MessageBubble({ msg, activeClient, activeThreadId, onClose, onRetry }: 
           {msg.type === 'import-progress' && (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 size={14} className="animate-spin" />
-              <span>{content}</span>
+              <span className="min-w-0 break-words [overflow-wrap:anywhere]">{content}</span>
             </div>
           )}
           {msg.type === 'import-result' && (
             <div>
-              <div className="font-semibold text-primary">{content}</div>
+              <div className="break-words font-semibold text-primary [overflow-wrap:anywhere]">{content}</div>
               <div className="mt-1 text-muted-foreground text-[11px]">
                 {msg.importData?.pendingConfirmation
                   ? `${msg.importData.importedCount ?? 0} proposed lines are saved but not loaded.${msg.importData.detectedCurrency ? ` Detected currency: ${msg.importData.detectedCurrency}.` : ''}`
@@ -431,8 +431,8 @@ function MessageBubble({ msg, activeClient, activeThreadId, onClose, onRetry }: 
             </div>
           )}
           {(!msg.type || msg.type === 'text') && (
-            <div className="space-y-3">
-              <div className="text-foreground whitespace-pre-wrap">{content}</div>
+            <div className="min-w-0 space-y-3">
+              <div className="text-foreground break-words whitespace-pre-wrap [overflow-wrap:anywhere]">{content}</div>
 
               {response?.recommendations && response.recommendations.length > 0 && (
                 <div className="space-y-3 pt-1">
@@ -840,10 +840,10 @@ export function AssistantFAB() {
   return (
     <>
       {isOpen && !isExpanded && <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden" onClick={() => setIsOpen(false)} />}
-      <div className={containerClasses} aria-live="polite">
+      <div className={`${containerClasses} min-w-0`} aria-live="polite">
 
         {/* Sidebar */}
-        <div className={`flex flex-col border-border bg-muted/10 ${isExpanded ? 'w-full md:w-[280px] border-r' : 'w-full flex-1'} ${!showSidebar ? 'hidden' : ''}`}>
+        <div className={`min-w-0 flex flex-col border-border bg-muted/10 ${isExpanded ? 'w-full shrink-0 md:w-[280px] border-r' : 'w-full flex-1'} ${!showSidebar ? 'hidden' : ''}`}>
           <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shrink-0 h-[57px]">
             <h3 className="text-[13px] font-semibold text-foreground">Conversations</h3>
             <div className="flex items-center gap-1">
@@ -932,7 +932,7 @@ export function AssistantFAB() {
         </div>
 
         {/* Chat Area */}
-        <div className={`flex flex-col bg-card ${isExpanded ? 'flex-1' : 'w-full flex-1'} ${!showChat ? 'hidden' : ''}`}>
+        <div className={`min-w-0 flex flex-col bg-card ${isExpanded ? 'flex-1' : 'w-full flex-1'} ${!showChat ? 'hidden' : ''}`}>
 
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shrink-0 h-[57px]">
@@ -1029,7 +1029,7 @@ export function AssistantFAB() {
           )}
 
           {/* Messages */}
-          <div ref={scrollRef} className="flex-1 overflow-y-auto bg-muted/20 p-4 space-y-5">
+          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-4 space-y-5">
             {backgroundWorkCount > 0 && (
               <div className="mx-auto max-w-fit rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-[10px] font-medium text-primary flex items-center gap-2">
                 <Loader2 size={12} className="animate-spin" />
