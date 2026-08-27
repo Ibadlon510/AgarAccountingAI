@@ -2169,7 +2169,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       : (line.proposedContactSource ?? 'Description').replaceAll('_', ' ');
   const needsContactConfirmation = needsIdentification
     || (line.contactDecisionState === 'named_proposal' && line.contactReviewDisposition !== 'accepted');
-  const showContactProposalEditor = hasTemporaryProposal || needsIdentification;
+  const showContactProposalEditor = needsIdentification || (hasTemporaryProposal && line.contactReviewDisposition !== 'accepted');
   useEffect(() => {
     setSelectedContactId(line.contactId ? String(line.contactId) : '');
     setProposedContactName(line.proposedContactName ?? '');
@@ -2232,7 +2232,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       <td className="w-[280px] max-w-[280px] px-4 py-4 align-top"><div className="w-full whitespace-normal break-words text-[12px] font-semibold [overflow-wrap:anywhere]">{line.description}</div><div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[9px] text-muted-foreground"><span className="rounded bg-muted px-1 py-0.5">{line.source}</span><span>· {line.currency}</span>{bankAccountName && <span className="break-words">· {bankAccountName}</span>}</div></td>
       <td className="px-4 py-4 align-top">
         <div className="text-[12px] font-semibold">{line.contactName || (hasTemporaryProposal ? line.proposedContactName : needsIdentification ? <span data-testid={`unknown-contact-${line.id}`} className="text-destructive">Unknown {likelyContactType}</span> : <span className="font-normal text-muted-foreground">Keep unlinked</span>)}</div>
-        {hasTemporaryProposal && <div data-testid={`temporary-contact-proposal-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">Temporary proposal</div>}
+        {hasTemporaryProposal && <div data-testid={`temporary-contact-proposal-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">{line.contactReviewDisposition === 'accepted' ? 'Confirmed for posting' : 'Temporary proposal'}</div>}
         {hasTemporaryProposal && <div className="mt-1 text-[9px] leading-3 text-muted-foreground">{Math.round((line.proposedContactConfidence ?? 0) * 100)}% · {contactProposalSource} · creates on posting</div>}
         {needsIdentification && <div data-testid={`needs-contact-identification-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-destructive">Needs identification</div>}
         {line.contactDecisionState === 'dismissed' && <div data-testid={`dismissed-contact-decision-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-muted-foreground">Explicitly dismissed</div>}
@@ -2290,7 +2290,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
            </div>
             {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className={`mt-3 rounded-md border p-3 ${needsIdentification ? 'border-destructive/25 bg-destructive/5' : 'border-accent/25 bg-accent/5'}`}>
              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div><div className="text-[11px] font-semibold">{needsIdentification ? `Identify the ${likelyContactType}` : 'Temporary contact proposal'}</div><p className="mt-1 text-[10px] text-muted-foreground">{needsIdentification ? `Enter the real ${likelyContactType} name and a statement alias, or select an existing contact above. Generic “Unknown” contacts will not be created.` : 'Review these client-scoped details. Approval creates nothing; posting creates or reuses the matching profile.'}</p></div>
+                 <div><div className="text-[11px] font-semibold">{needsIdentification ? `Identify the ${likelyContactType}` : 'Temporary contact proposal'}</div><p className="mt-1 text-[10px] text-muted-foreground">{needsIdentification ? `Enter the real ${likelyContactType} name and a statement alias, or select an existing contact above. Generic “Unknown” contacts will not be created.` : 'Review these client-scoped details. Confirming saves the proposal for posting; posting creates or reuses the matching profile.'}</p></div>
                 <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${needsIdentification ? 'bg-destructive/10 text-destructive' : 'bg-accent/15 text-accent-foreground'}`}>{line.contactReviewDisposition === 'accepted' ? 'Accepted for posting' : needsIdentification ? 'Identity required' : 'Review pending'}</span>
              </div>
              <div className="mt-3 grid gap-2 md:grid-cols-3">

@@ -9,8 +9,8 @@ An account treatment proposed from contact history must retain a provenance mark
 
 **How to apply:** Carry this boundary through single and bulk confirmation flows. Posting still revalidates active client-scoped contact and chart references, but does not reinterpret already approved history.
 
-Accepting a temporary contact proposal is the accountant's explicit confirmation to create or reuse and link that client-scoped profile immediately. Journal approval and posting remain separate accounting actions.
+Confirming a temporary contact proposal records the accountant's reviewed name, alias, and type for posting, then collapses the proposal editor. The client-scoped profile is created or reused and linked atomically when the journal is posted.
 
-**Why:** Deferring profile creation until posting made the acceptance action appear broken and prevented the confirmed supplier or customer from being available elsewhere in the workspace.
+**Why:** A collapsed editor and visible “Confirmed for posting” state make confirmation feel complete without creating unused contact profiles for entries that may never be posted.
 
-**How to apply:** Materialize the profile and link it atomically on acceptance, label the action with its creation consequence, and keep classification evidence dependent on later journal approval or posting.
+**How to apply:** After confirmation, hide the editor but keep the proposed identity and “creates on posting” status visible. Materialize the contact and classification evidence only inside the later posting transaction.
