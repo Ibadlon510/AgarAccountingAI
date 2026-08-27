@@ -1492,6 +1492,103 @@ test("prepares description-scoped recoding and direct draft posting as separate 
   assert.equal(postingConfirmation.body.updatedLineCount, 2);
 });
 
+test("matches Boldt contact scopes for posting and Transportation recode confirmations", async () => {
+  const clientId = await createClient(`AI Boldt contact scope ${randomUUID()}`);
+  const contact = await request<{ id: number }>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Boldt Automobiler Aps",
+      legalName: "Boldt Automobiler Aps",
+      contactType: "supplier",
+      aliases: ["BOLDT AUTOMOBILER"],
+    }),
+  });
+  assert.equal(contact.response.status, 201);
+
+  const lineIds: number[] = [];
+  for (const [date, amount] of [["2026-08-20", 420], ["2026-08-21", 380]] as const) {
+    const created = await request<{ id: number }>("/agaraccounting/statement-lines", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId,
+        date,
+        description: "BOLDT AUTOMOBILER IMLEBAEK",
+        currency: "AED",
+        amount,
+        direction: "outflow",
+      }),
+    });
+    assert.equal(created.response.status, 201);
+    lineIds.push(created.body.id);
+    assert.equal((await request(`/agaraccounting/statement-lines/${created.body.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({ clientId, contactId: contact.body.id }),
+    })).response.status, 200);
+  }
+
+  const recode = await request<{ answer: string; recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "batch update chart account for Boldt Automobiler to Transportation",
+    }),
+  });
+  assert.equal(recode.response.status, 200);
+  const recodeRecommendation = recode.body.recommendations[0];
+  assert.equal(recodeRecommendation?.type, "recode_lines");
+  assert.equal(recodeRecommendation?.accountSuggestion, "Business travel");
+  assert.equal(recodeRecommendation?.lineIds?.length, 2);
+  assert.match(recodeRecommendation?.summary ?? "", /Transportation/i);
+  assert.match(recodeRecommendation?.summary ?? "", /Business travel/i);
+
+  const recodeConfirmation = await request<{ updatedLineCount: number }>("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: recodeRecommendation?.type,
+      lineIds: recodeRecommendation?.lineIds,
+      accountSuggestion: recodeRecommendation?.accountSuggestion,
+    }),
+  });
+  assert.equal(recodeConfirmation.response.status, 200);
+  assert.equal(recodeConfirmation.body.updatedLineCount, 2);
+
+  const posting = await request<{ answer: string; recommendations: AIRecommendation[] }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      message: "post all boldt automobiler aps statement lines",
+    }),
+  });
+  assert.equal(posting.response.status, 200);
+  assert.doesNotMatch(posting.body.answer, /BOLDT AUTOMOBILER APS STATEMENT/i);
+  const postingRecommendation = posting.body.recommendations[0];
+  assert.equal(postingRecommendation?.type, "bulk_post_entries");
+  assert.equal(postingRecommendation?.entryCount, 2);
+  assert.equal(postingRecommendation?.lineCount, 2);
+  assert.deepEqual([...(postingRecommendation?.statementLineIds ?? [])].sort((a, b) => a - b), lineIds.slice().sort((a, b) => a - b));
+  assert.match(postingRecommendation?.summary ?? "", /description or contact/i);
+
+  const unconfirmed = await request<Array<{ id: number; status: string }>>(
+    `/agaraccounting/statement-lines?clientId=${clientId}`,
+  );
+  assert.ok(unconfirmed.body.every((line) => line.status === "draft"));
+
+  const postingConfirmation = await request<{ toStatus: string; updatedLineCount: number }>("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: postingRecommendation?.type,
+      entryIds: postingRecommendation?.entryIds,
+      statementLineIds: postingRecommendation?.statementLineIds,
+    }),
+  });
+  assert.equal(postingConfirmation.response.status, 200);
+  assert.equal(postingConfirmation.body.toStatus, "posted");
+  assert.equal(postingConfirmation.body.updatedLineCount, 2);
+});
+
 test("filters statement lines by receipts or payments with client, currency, and status scopes", async () => {
   assert.ok(database);
   const clientId = await createClient(`Statement direction filters ${randomUUID()}`);

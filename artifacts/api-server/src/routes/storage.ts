@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import { Router, type IRouter, type Request, type Response } from "express";
+import express, { Router, type IRouter, type Request, type Response } from "express";
 import { clientWorkspacesTable, db } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { ObjectNotFoundError, ObjectStorageService } from "../lib/objectStorage";
@@ -46,6 +46,39 @@ router.post("/storage/uploads/request-url", async (req: Request, res: Response) 
     res.status(500).json({ error: "Could not prepare the statement upload. Try again." });
   }
 });
+
+router.put(
+  "/storage/uploads/:token",
+  express.raw({ type: "*/*", limit: MAX_STATEMENT_FILE_SIZE }),
+  async (req: Request, res: Response) => {
+    if (!req.dbUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const token = req.params.token;
+    if (typeof token !== "string" || !token) {
+      res.status(400).json({ error: "Missing upload token." });
+      return;
+    }
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!buffer.length) {
+      res.status(400).json({ error: "The statement upload was empty." });
+      return;
+    }
+    const contentType = String(req.headers["content-type"] || "application/octet-stream");
+    try {
+      await objectStorageService.completeLocalUpload(token, buffer, contentType);
+      res.status(200).end();
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) {
+        res.status(404).json({ error: "This upload URL is no longer available. Please try again." });
+        return;
+      }
+      req.log.error({ err: error }, "Error storing local statement upload");
+      res.status(500).json({ error: "Could not store the statement upload. Try again." });
+    }
+  },
+);
 
 router.get("/storage/objects/*path", async (req: Request, res: Response) => {
   if (!req.dbUser) {

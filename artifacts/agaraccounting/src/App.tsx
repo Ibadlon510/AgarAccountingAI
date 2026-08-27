@@ -1,17 +1,17 @@
-import { Fragment, createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, Download, FileCheck2, FileSpreadsheet, Filter, Landmark,
   LayoutDashboard, LoaderCircle, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
-  Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X
+  Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X, CalendarDays
 } from 'lucide-react';
 import {
   getGetBankAccountsQueryKey, getGetBulkTransitionAuditsQueryKey, getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetLedgerflowAccountsQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey, getGetUaeCorporateTaxSummaryQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetTrialBalanceAccountTransactionsQueryKey, getGetExchangeRatesQueryKey, getGetAgarAccountingUsageQueryKey, getGetFirmProfileQueryKey,
   useArchiveLedgerflowAccount, useCreateClient, useCreateLedgerflowAccount, useCreateReportPack, useCreateStatementLine, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetLedgerflowAccounts, useGetReportPack, useGetReportPacks, useGetUaeCorporateTaxSummary,
-  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
+  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useDeleteReportPack, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
   useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement,
   useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts
@@ -26,13 +26,18 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { AssistantFAB } from './components/assistant-fab';
+import { AssistantPageContextProvider, usePublishAssistantPageContext } from './lib/assistant-page-context';
 import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { useUpload } from '@workspace/object-storage-web';
 import { clearUserScopedState, getActiveWorkspaceStorageKey, getWorkspaceLoadState, requiresWorkspaceOnboarding, selectWorkspaceForSession } from './lib/user-state';
 import { appendUniqueStatementFiles, findNextStatementQueueIndex, type StatementImportQueueItem } from './lib/statement-import-queue';
+import { buildSystemNoteDrafts, hydrateChecklistDefaults } from './lib/system-note-drafts';
+import { ClientContext, OrgContext, useClientWorkspace, useOrgContext } from './lib/workspace-context';
 import {
   advanceImportActivitySequence,
   getImportActivitySequenceKey,
@@ -56,6 +61,10 @@ const nav = [
   { href: '/client-settings', label: 'Client settings', icon: Settings2 },
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
+const reportMoney = (value: number) => {
+  const absolute = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(value));
+  return value < 0 ? `(${absolute})` : absolute;
+};
 const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
 const FIRM_RATE_PAGE_SIZE = 25;
 const STATEMENT_LINES_PAGE_SIZE = 25;
@@ -803,14 +812,6 @@ type AgarAccountingUser = {
   firstName: string | null;
   lastName: string | null;
 };
-export type ClientWorkspace = { activeClient: Client | undefined; clients: Client[]; setActiveClientId: (id: number) => void };
-export const ClientContext = createContext<ClientWorkspace | null>(null);
-export function useClientWorkspace() {
-  const context = useContext(ClientContext);
-  if (!context) throw new Error('Client workspace is not available');
-  return context;
-}
-
 function AddClientDialog({ onClose }: { onClose: () => void }) {
   const { setActiveClientId } = useClientWorkspace();
   const orgContext = useOrgContext();
@@ -1052,7 +1053,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
       return nextHistory;
     });
   }, [activeClient?.id, clientVisitStorageKey]);
-  return <div className="min-h-[100dvh] bg-background">
+  return <AssistantPageContextProvider><div className="min-h-[100dvh] bg-background">
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[78px] items-center border-b border-sidebar-border px-5"><div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center"><img src={brandMarkUrl} alt="" className="size-9 rounded-lg" /></div><div className={`${collapsed ? 'md:hidden' : ''}`}><div className="font-display text-[18px] leading-none tracking-tight text-sidebar-foreground">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/50">Review desk</div></div></div><button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button></div>
       <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
@@ -1095,7 +1096,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
        </div>
      {settingsOpen && <div className="fixed inset-0 z-[60] overflow-y-auto bg-foreground/35 p-4 backdrop-blur-sm"><div className="mx-auto my-5 w-full max-w-3xl rounded-lg border border-card-border bg-card p-6 shadow-2xl"><div className="flex justify-end"><button data-testid="button-close-team-settings" onClick={() => setSettingsOpen(false)} className="text-xs text-muted-foreground">Close</button></div><TeamAccessSection /><WorkspaceUsageSection /></div></div>}
      <AssistantFAB />
-  </div>;
+  </div></AssistantPageContextProvider>;
 }
 
 function LoadingRows({ count = 4, cols = 4 }: { count?: number; cols?: number }) {
@@ -1780,28 +1781,47 @@ function ContactsPage() {
       </div>}
     />
 
-    <div className="mb-4 rounded-lg border border-card-border bg-card p-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-2.5 text-muted-foreground" size={15} />
-          <input data-testid="input-search-contacts" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search names and aliases" className="h-9 w-full rounded-md border-0 bg-background pl-9 pr-3 text-xs outline-none ring-1 ring-border focus:ring-primary" />
-        </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="text-[10px] font-semibold text-muted-foreground">Type<select data-testid="select-type-filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as 'customer' | 'supplier' | 'both' | 'all')} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs">
-            <option value="all">All types</option>
-            <option value="customer">Customers</option>
-            <option value="supplier">Suppliers</option>
-            <option value="both">Both</option>
-          </select></label>
-          <label className="text-[10px] font-semibold text-muted-foreground">Status<select data-testid="select-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'active' | 'archived' | 'all')} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs">
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="archived">Archived</option>
-          </select></label>
-        </div>
-      </div>
-      {activeContactFilterCount > 0 && <div className="mt-3 flex items-center gap-2 border-t border-border pt-3"><Filter size={12} className="text-muted-foreground" /><span data-testid="text-active-contact-filter-count" className="text-[11px] text-muted-foreground">{activeContactFilterCount} filter{activeContactFilterCount === 1 ? '' : 's'} active · {contacts.length} of {contactsQuery.data?.length ?? 0} contacts shown</span><button data-testid="button-clear-contact-filters" type="button" onClick={clearContactFilters} className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"><X size={12} /> Clear all</button></div>}
-    </div>
+    <FilterToolbar
+      search={search}
+      onSearchChange={setSearch}
+      searchTestId="input-search-contacts"
+      searchPlaceholder="Search names and aliases"
+      activeCount={activeContactFilterCount}
+      shownCount={contacts.length}
+      totalCount={contactsQuery.data?.length ?? 0}
+      noun="contacts"
+      onClear={clearContactFilters}
+      clearTestId="button-clear-contact-filters"
+      countTestId="text-active-contact-filter-count"
+    >
+      <FilterPills
+        compact
+        label="Type"
+        ariaLabel="Filter by contact type"
+        testId="select-type-filter"
+        value={typeFilter}
+        onChange={setTypeFilter}
+        options={[
+          { value: 'all', label: 'All types' },
+          { value: 'customer', label: 'Customers' },
+          { value: 'supplier', label: 'Suppliers' },
+          { value: 'both', label: 'Both' },
+        ]}
+      />
+      <FilterPills
+        compact
+        label="Status"
+        ariaLabel="Filter by contact status"
+        testId="select-status-filter"
+        value={statusFilter}
+        onChange={setStatusFilter}
+        options={[
+          { value: 'active', label: 'Active' },
+          { value: 'archived', label: 'Archived' },
+          { value: 'all', label: 'All statuses' },
+        ]}
+      />
+    </FilterToolbar>
 
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px] items-start">
       <QueryState loading={contactsQuery.isLoading} error={contactsQuery.isError} empty={!contacts.length} filtered={activeContactFilterCount > 0} onClearFilters={clearContactFilters} onRetry={() => contactsQuery.refetch()}>
@@ -2145,15 +2165,377 @@ function ContactMergeDialog({ contacts, clientId, onClose, onMerged }: { contact
   </div>;
 }
 
-function DateRangeFilter({ from, to, onFromChange, onToChange, fromTestId, toTestId, clearTestId }: { from: string; to: string; onFromChange: (value: string) => void; onToChange: (value: string) => void; fromTestId: string; toTestId: string; clearTestId: string }) {
+function useHoverMenu(delay = 120) {
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const openMenu = () => {
+    cancelClose();
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => setOpen(false), delay);
+  };
+  useEffect(() => () => cancelClose(), []);
+  return { open, setOpen, openMenu, scheduleClose };
+}
+
+function FilterToolbar({
+  search,
+  onSearchChange,
+  searchTestId,
+  searchPlaceholder,
+  children,
+  activeCount,
+  shownCount,
+  totalCount,
+  noun,
+  onClear,
+  clearTestId,
+  countTestId,
+}: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  searchTestId: string;
+  searchPlaceholder: string;
+  children: ReactNode;
+  activeCount: number;
+  shownCount: number;
+  totalCount: number;
+  noun: string;
+  onClear: () => void;
+  clearTestId: string;
+  countTestId: string;
+}) {
+  return (
+    <div className="mb-4 rounded-lg border border-card-border bg-card px-4 py-3">
+      <div className="relative flex flex-wrap items-center gap-1.5 rounded-md bg-background py-1 pl-9 pr-1.5 ring-1 ring-border focus-within:ring-1 focus-within:ring-primary">
+        <Search className="pointer-events-none absolute left-3 top-2.5 text-muted-foreground" size={15} />
+        <input data-testid={searchTestId} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} className="h-7 min-w-[12rem] flex-1 border-0 bg-transparent text-xs outline-none" />
+        <div className="hidden h-5 w-px shrink-0 bg-border sm:block" />
+        {children}
+      </div>
+      {activeCount > 0 && (
+        <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+          <Filter size={12} className="text-muted-foreground" />
+          <span data-testid={countTestId} className="text-[11px] text-muted-foreground">{activeCount} filter{activeCount === 1 ? '' : 's'} active · {shownCount} of {totalCount} {noun} shown</span>
+          <button data-testid={clearTestId} type="button" onClick={onClear} className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"><X size={12} /> Clear all</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterPills<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  testId,
+  ariaLabel,
+  compact = false,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string; testId?: string }>;
+  onChange: (value: T) => void;
+  testId?: string;
+  ariaLabel?: string;
+  compact?: boolean;
+}) {
+  const { open, setOpen, openMenu, scheduleClose } = useHoverMenu();
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+  const select = (next: T) => {
+    onChange(next);
+    setOpen(false);
+  };
+  if (!compact) {
+    return (
+      <div className="flex min-w-0 items-center gap-1.5" role="group" aria-label={ariaLabel ?? label} data-testid={testId}>
+        <span className="shrink-0 text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">{label}</span>
+        <div className="flex rounded-md bg-muted/70 p-0.5">
+          {options.map((option) => {
+            const selected = value === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={selected}
+                data-testid={option.testId}
+                onClick={() => onChange(option.value)}
+                className={`whitespace-nowrap rounded-[5px] px-2.5 py-1.5 text-xs font-semibold ${selected ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'}`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={testId}
+          aria-label={ariaLabel ?? label}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onMouseEnter={openMenu}
+          onMouseLeave={scheduleClose}
+          className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-muted/70 px-2 text-xs font-semibold text-foreground outline-none hover:bg-muted"
+        >
+          {selectedOption.label}
+          <ChevronDown size={12} className={`opacity-70 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={8}
+        className="z-[80] w-auto min-w-[9.5rem] border bg-popover p-1 text-popover-foreground shadow-lg"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onMouseEnter={openMenu}
+        onMouseLeave={scheduleClose}
+      >
+        <div role="listbox" aria-label={ariaLabel ?? label} className="flex flex-col">
+          {options.map((option) => {
+            const selected = value === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                data-testid={option.testId}
+                onClick={() => select(option.value)}
+                className={`rounded-md px-2.5 py-1.5 text-left text-xs font-semibold ${selected ? 'bg-primary text-primary-foreground' : 'text-foreground hover:bg-muted'}`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function parseLocalDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function toLocalISODate(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatPickerDate(value: string) {
+  const selected = parseLocalDate(value);
+  return selected ? selected.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+}
+
+function DatePickerField({
+  value,
+  onChange,
+  label,
+  placeholder,
+  testId,
+  compact = false,
+  min,
+  max,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  placeholder: string;
+  testId: string;
+  compact?: boolean;
+  min?: string;
+  max?: string;
+}) {
+  const { open, setOpen, openMenu, scheduleClose } = useHoverMenu();
+  const selected = parseLocalDate(value);
+  const minDate = min ? parseLocalDate(min) : undefined;
+  const maxDate = max ? parseLocalDate(max) : undefined;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={testId}
+          aria-label={label}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onMouseEnter={openMenu}
+          onMouseLeave={scheduleClose}
+          className={`inline-flex items-center justify-center px-1.5 text-left font-normal outline-none hover:bg-muted/80 ${compact ? 'h-7 text-[11px]' : 'h-9 px-2 text-xs'} ${value ? 'text-foreground' : 'text-muted-foreground'}`}
+        >
+          <span className="whitespace-nowrap">{formatPickerDate(value) ?? placeholder}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" side="bottom" sideOffset={6} collisionPadding={8} className="z-[80] w-auto border bg-popover p-2 shadow-lg" onOpenAutoFocus={(event) => event.preventDefault()} onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
+        <Calendar
+          key={`${value}-${min}-${max}`}
+          mode="single"
+          selected={selected}
+          defaultMonth={selected ?? minDate ?? maxDate}
+          disabled={(date) => {
+            const day = toLocalISODate(date);
+            return Boolean((min && day < min) || (max && day > max));
+          }}
+          onSelect={(date) => {
+            onChange(date ? toLocalISODate(date) : '');
+            setOpen(false);
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DateRangeFilter({ from, to, onFromChange, onToChange, fromTestId, toTestId, clearTestId, compact = false }: { from: string; to: string; onFromChange: (value: string) => void; onToChange: (value: string) => void; fromTestId: string; toTestId: string; clearTestId: string; compact?: boolean }) {
+  const { open, setOpen, openMenu, scheduleClose } = useHoverMenu();
+  const [activeField, setActiveField] = useState<'from' | 'to' | null>(null);
+  const [fromDraft, setFromDraft] = useState(from);
+  const [toDraft, setToDraft] = useState(to);
+  const fromInputRef = useRef<HTMLInputElement>(null);
+  const toInputRef = useRef<HTMLInputElement>(null);
   const invalid = Boolean(from && to && from > to);
-  return <div className="flex flex-wrap items-end gap-2" data-testid={`${fromTestId}-group`}>
-    <span className="mr-1 pb-2 text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">Date range</span>
-    <label className="text-[10px] font-semibold text-muted-foreground">From<input data-testid={fromTestId} type="date" aria-label="From date" value={from} onChange={(event) => onFromChange(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs font-normal text-foreground outline-none focus:border-primary" /></label>
-    <label className="text-[10px] font-semibold text-muted-foreground">To<input data-testid={toTestId} type="date" aria-label="To date" value={to} onChange={(event) => onToChange(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs font-normal text-foreground outline-none focus:border-primary" /></label>
-    {(from || to) && <button data-testid={clearTestId} type="button" onClick={() => { onFromChange(''); onToChange(''); }} className="h-9 rounded-md px-2 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">Clear</button>}
-    {invalid && <span data-testid={`${fromTestId}-error`} role="alert" className="basis-full text-[10px] font-semibold text-destructive">From date must be on or before the To date.</span>}
-  </div>;
+  const fromLabel = formatPickerDate(from);
+  const toLabel = formatPickerDate(to);
+  const triggerLabel = fromLabel && toLabel ? `${fromLabel} – ${toLabel}` : fromLabel ? `${fromLabel} – To` : toLabel ? `From – ${toLabel}` : 'Date';
+  useEffect(() => { setFromDraft(from); }, [from]);
+  useEffect(() => { setToDraft(to); }, [to]);
+  useEffect(() => { if (!open) setActiveField(null); }, [open]);
+  const applyTypedDate = (raw: string, field: 'from' | 'to') => {
+    if (field === 'from') setFromDraft(raw); else setToDraft(raw);
+    if (raw === '' || parseLocalDate(raw)) (field === 'from' ? onFromChange : onToChange)(raw);
+  };
+  if (!compact) {
+    return (
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5" data-testid={`${fromTestId}-group`}>
+        <span className="text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">Date range</span>
+        <div className={`inline-flex items-center overflow-hidden rounded-md h-9 border bg-background pr-1 ${invalid ? 'border-destructive' : 'border-input'}`}>
+          <CalendarDays size={14} className="ml-2 shrink-0 opacity-70" />
+          <DatePickerField value={from} onChange={onFromChange} label="From date" placeholder="From" testId={fromTestId} max={to} />
+          <span className="select-none px-0.5 text-[11px] text-muted-foreground">–</span>
+          <DatePickerField value={to} onChange={onToChange} label="To date" placeholder="To" testId={toTestId} min={from} />
+        </div>
+        {(from || to) && <button data-testid={clearTestId} type="button" onClick={() => { onFromChange(''); onToChange(''); }} className="h-9 rounded-md px-2 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">Clear</button>}
+        {invalid && <span data-testid={`${fromTestId}-error`} role="alert" className="basis-full text-[10px] font-semibold text-destructive">From date must be on or before the To date.</span>}
+      </div>
+    );
+  }
+  return (
+    <div className="flex shrink-0 items-center gap-1.5" data-testid={`${fromTestId}-group`}>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Date range"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            onMouseEnter={openMenu}
+            onMouseLeave={scheduleClose}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-semibold text-foreground outline-none hover:bg-muted"
+          >
+            <CalendarDays size={12} className="opacity-70" />
+            {triggerLabel}
+            <ChevronDown size={12} className={`opacity-70 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          side="bottom"
+          sideOffset={6}
+          collisionPadding={8}
+          className="z-[80] w-[18rem] border bg-popover p-3 text-popover-foreground shadow-lg"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+          onMouseEnter={openMenu}
+          onMouseLeave={(event) => {
+            if (event.currentTarget.contains(document.activeElement)) return;
+            scheduleClose();
+          }}
+        >
+          <div className="grid grid-cols-2 gap-2">
+            <label className="min-w-0">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">From</span>
+              <input
+                ref={fromInputRef}
+                data-testid={fromTestId}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="YYYY-MM-DD"
+                aria-label="From date"
+                value={fromDraft}
+                onFocus={() => setActiveField('from')}
+                onChange={(event) => applyTypedDate(event.target.value, 'from')}
+                className={`h-8 w-full rounded-md border bg-background px-2 font-mono text-[11px] outline-none focus:border-primary ${activeField === 'from' ? 'border-primary' : 'border-input'}`}
+              />
+            </label>
+            <label className="min-w-0">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">To</span>
+              <input
+                ref={toInputRef}
+                data-testid={toTestId}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="YYYY-MM-DD"
+                aria-label="To date"
+                value={toDraft}
+                onFocus={() => setActiveField('to')}
+                onChange={(event) => applyTypedDate(event.target.value, 'to')}
+                className={`h-8 w-full rounded-md border bg-background px-2 font-mono text-[11px] outline-none focus:border-primary ${activeField === 'to' ? 'border-primary' : 'border-input'}`}
+              />
+            </label>
+          </div>
+          <div className="mt-3" onMouseDown={(event) => event.preventDefault()}>
+            <Calendar
+              mode="range"
+              selected={{ from: parseLocalDate(from), to: parseLocalDate(to) }}
+              defaultMonth={parseLocalDate(from) ?? parseLocalDate(to)}
+              onSelect={(range) => {
+                onFromChange(range?.from ? toLocalISODate(range.from) : '');
+                onToChange(range?.to ? toLocalISODate(range.to) : '');
+                if (range?.from && !range.to) {
+                  setActiveField('to');
+                  window.setTimeout(() => toInputRef.current?.focus(), 0);
+                }
+              }}
+              numberOfMonths={1}
+              className="w-full bg-transparent p-0 [--cell-size:2.35rem]"
+              classNames={{
+                root: 'w-full',
+                months: 'w-full',
+                month: 'w-full',
+                weekdays: 'grid w-full grid-cols-7',
+                weekday: 'w-full text-center',
+                week: 'mt-1 grid w-full grid-cols-7',
+                day: 'w-full',
+                today: 'rounded-md border border-primary/35 bg-transparent',
+              }}
+            />
+          </div>
+        </PopoverContent>
+      </Popover>
+      {(from || to) && <button data-testid={clearTestId} type="button" onClick={() => { onFromChange(''); onToChange(''); }} className="h-7 rounded-md px-2 text-[11px] font-semibold text-muted-foreground hover:bg-muted hover:text-foreground">Clear</button>}
+      {invalid && <span data-testid={`${fromTestId}-error`} role="alert" className="text-[10px] font-semibold text-destructive">From date must be on or before the To date.</span>}
+    </div>
+  );
 }
 
 type PostLineDecision = {
@@ -2174,9 +2556,13 @@ function StatementLinesPage() {
   const [selectedLineIds, setSelectedLineIds] = useState<number[]>([]);
   const [bulkAction, setBulkAction] = useState<BulkStatementAction | null>(null);
   const [bulkError, setBulkError] = useState<unknown>(null);
+  const [lineActionError, setLineActionError] = useState<{ lineId: number; message: string } | null>(null);
+  const [pendingPostLineIds, setPendingPostLineIds] = useState<number[]>([]);
   const bulkActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const params = useMemo(() => ({ clientId: activeClient?.id ?? 1, ...(currency !== 'all' ? { currency } : {}), ...(status !== 'all' ? { status } : {}), ...(direction !== 'all' ? { direction } : {}) }), [activeClient?.id, currency, status, direction]);
+  const catalogParams = useMemo(() => ({ clientId: activeClient?.id ?? 1 }), [activeClient?.id]);
   const query = useGetStatementLines(params, { query: { queryKey: getGetStatementLinesQueryKey(params) } });
+  const catalogQuery = useGetStatementLines(catalogParams, { query: { queryKey: getGetStatementLinesQueryKey(catalogParams) } });
   const journalParams = { clientId: activeClient?.id ?? 1 };
   const journalQuery = useGetJournalEntries(journalParams, { query: { queryKey: getGetJournalEntriesQueryKey(journalParams) } });
   const bankAccountsQuery = useGetBankAccounts(journalParams);
@@ -2210,7 +2596,13 @@ function StatementLinesPage() {
   const linePageCount = Math.max(1, Math.ceil(rows.length / STATEMENT_LINES_PAGE_SIZE));
   const currentLinePage = Math.min(linePage, linePageCount);
   const visibleRows = rows.slice((currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE, currentLinePage * STATEMENT_LINES_PAGE_SIZE);
-  const currencies = [...new Set((query.data ?? []).map((line) => line.currency))];
+  usePublishAssistantPageContext({
+    route: '/statement-lines',
+    selectedLineIds,
+    visibleLineIds: visibleRows.map((line) => line.id),
+    statementLineSearch: search.trim() || undefined,
+  });
+  const currencies = [...new Set((catalogQuery.data ?? []).map((line) => line.currency))].sort();
   const activeFilterCount = [search.trim() !== '', currency !== 'all', status !== 'all', direction !== 'all', Boolean(dateFrom || dateTo)].filter(Boolean).length;
   const clearAllFilters = () => { setSearch(''); setCurrency('all'); setStatus('all'); setDirection('all'); setDateFrom(''); setDateTo(''); };
   const selectedLines = useMemo(() => rows.filter((line) => selectedLineIds.includes(line.id)), [rows, selectedLineIds]);
@@ -2250,7 +2642,31 @@ function StatementLinesPage() {
   useEffect(() => {
     if (linePage > linePageCount) setLinePage(linePageCount);
   }, [linePage, linePageCount]);
-  const postEntry = (entry: JournalEntry, decision: PostLineDecision) => post.mutate({ id: entry.id, data: { clientId: journalParams.clientId, ...decision } }, { onSuccess: refreshPostedData });
+  useEffect(() => {
+    if (!query.data) return;
+    const byId = new Map(query.data.map((line) => [line.id, line]));
+    setPendingPostLineIds((current) => {
+      const next = current.filter((id) => {
+        const line = byId.get(id);
+        return Boolean(line && line.status.toLowerCase() !== 'posted');
+      });
+      return next.length === current.length ? current : next;
+    });
+  }, [query.data]);
+  const postEntry = (entry: JournalEntry, decision: PostLineDecision) => {
+    setLineActionError(null);
+    setPendingPostLineIds((current) => current.includes(entry.statementLineId) ? current : [...current, entry.statementLineId]);
+    post.mutate({ id: entry.id, data: { clientId: journalParams.clientId, ...decision } }, {
+      onSuccess: refreshPostedData,
+      onError: (error) => {
+        setPendingPostLineIds((current) => current.filter((id) => id !== entry.statementLineId));
+        setLineActionError({
+          lineId: entry.statementLineId,
+          message: mutationErrorMessage(error, 'This entry could not be posted. Open the line and review the contact, account, and exchange rate.'),
+        });
+      },
+    });
+  };
   const unpost = useUnpostJournalEntry();
   const unpostEntry = (entry: JournalEntry) => {
     if (!window.confirm('Unpost this journal entry? It will leave live reports and return to draft.')) return;
@@ -2306,23 +2722,52 @@ function StatementLinesPage() {
   };
   return <div>
     <PageHeading eyebrow="Evidence review / bank activity" title="Statement lines" description="Start with the source. Review each movement, inspect its linked draft journal entry, then post only the entries you stand behind." action={<button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>} />
-     <div className="mb-4 rounded-lg border border-card-border bg-card p-3">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end">
-        <div className="relative flex-1"><Search className="absolute left-3 top-2.5 text-muted-foreground" size={15} /><input data-testid="input-search-lines" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search descriptions, contacts, or account suggestions" className="h-9 w-full rounded-md border-0 bg-background pl-9 pr-3 text-xs outline-none ring-1 ring-border focus:ring-primary" /></div>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="text-[10px] font-semibold text-muted-foreground">Type<select data-testid="select-direction-filter" aria-label="Filter by statement type" value={direction} onChange={(event) => setDirection(event.target.value as 'all' | 'inflow' | 'outflow')} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All types</option><option value="inflow">Receipts · inflow</option><option value="outflow">Payments · outflow</option></select></label>
-          <label className="text-[10px] font-semibold text-muted-foreground">Currency<select data-testid="select-currency-filter" value={currency} onChange={(event) => setCurrency(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 text-xs"><option value="all">All currencies</option>{currencies.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label className="text-[10px] font-semibold text-muted-foreground">Status<select data-testid="select-status-filter" value={status} onChange={(event) => setStatus(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-background px-2 py-0 text-xs"><option value="all">All statuses</option><option value="draft">Draft</option><option value="posted">Posted</option></select></label>
-        </div>
-        <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-statement-lines-date-from" toTestId="input-statement-lines-date-to" clearTestId="button-clear-statement-lines-date-filter" />
-      </div>
-      {activeFilterCount > 0 && <div className="mt-3 flex items-center gap-2 border-t border-border pt-3"><Filter size={12} className="text-muted-foreground" /><span data-testid="text-active-filter-count" className="text-[11px] text-muted-foreground">{activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'} active · {rows.length} of {query.data?.length ?? 0} lines shown</span><button data-testid="button-clear-all-filters" type="button" onClick={clearAllFilters} className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"><X size={12} /> Clear all</button></div>}
-    </div>
+    <FilterToolbar
+      search={search}
+      onSearchChange={setSearch}
+      searchTestId="input-search-lines"
+      searchPlaceholder="Search descriptions, contacts, or accounts"
+      activeCount={activeFilterCount}
+      shownCount={rows.length}
+      totalCount={query.data?.length ?? 0}
+      noun="lines"
+      onClear={clearAllFilters}
+      clearTestId="button-clear-all-filters"
+      countTestId="text-active-filter-count"
+    >
+        <FilterPills
+          compact
+          label="Type"
+          ariaLabel="Filter by statement type"
+          testId="select-direction-filter"
+          value={direction}
+          onChange={setDirection}
+          options={[{ value: 'all', label: 'All' }, { value: 'inflow', label: 'Receipts' }, { value: 'outflow', label: 'Payments' }]}
+        />
+        <FilterPills
+          compact
+          label="Status"
+          testId="select-status-filter"
+          value={status}
+          onChange={setStatus}
+          options={[{ value: 'all', label: 'All' }, { value: 'draft', label: 'Draft' }, { value: 'posted', label: 'Posted' }]}
+        />
+        <FilterPills
+          compact
+          label="Currency"
+          ariaLabel="Filter by currency"
+          testId="select-currency-filter"
+          value={currency}
+          onChange={setCurrency}
+          options={[{ value: 'all', label: 'All currencies' }, ...currencies.map((item) => ({ value: item, label: item }))]}
+        />
+        <DateRangeFilter compact from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-statement-lines-date-from" toTestId="input-statement-lines-date-to" clearTestId="button-clear-statement-lines-date-filter" />
+    </FilterToolbar>
     <QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} filtered={activeFilterCount > 0} onClearFilters={clearAllFilters} onRetry={() => query.refetch()}>
       <div className="overflow-hidden rounded-lg border border-card-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div>
         {selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue ? 'text-destructive' : 'text-muted-foreground'}`}>{selectionIssue ?? 'Draft entries selected · recoding and posting are available.'}</p></div>}
-         <div className="overflow-x-auto"><table className="w-full min-w-[1100px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[280px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[120px] px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={post.isError || unpost.isError || bulkMutation.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onPost={postEntry} onUnpost={unpostEntry} />)}</tbody></table></div>
+         <div className="overflow-x-auto"><table className="w-full min-w-[1220px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[360px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[148px] px-3 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(pendingPostLineIds.includes(line.id) || post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={lineActionError?.lineId === line.id ? lineActionError.message : null} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onPost={postEntry} onUnpost={unpostEntry} />)}</tbody></table></div>
         {rows.length > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, rows.length)} of {rows.length} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
       </div>
     </QueryState>
@@ -2335,7 +2780,7 @@ function StatementRow({ line }: { line: StatementLine }) {
   return <tr data-testid={`row-statement-line-${line.id}`} className="group transition-colors hover:bg-secondary/30"><td className="whitespace-nowrap px-5 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td><td className="max-w-[250px] px-4 py-4"><div className="truncate text-[12px] font-semibold">{line.description}</div><div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="rounded bg-muted px-1.5 py-0.5">{line.source}</span><span>· {line.currency}</span></div></td><td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div className="mt-1 text-[10px] text-muted-foreground">AI suggestion</div></td><td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td><td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-2"><div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${confidence > 85 ? 'bg-primary' : 'bg-accent'}`} style={{ width: `${confidence}%` }} /></div><span className="font-mono text-[10px]">{confidence}%</span></div>}</td><td className="px-4 py-4"><StatusPill status={line.status} /></td></tr>;
 }
 
-function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onPost, onUnpost }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: boolean; onToggle: () => void; onToggleSelected: () => void; onPost: (entry: JournalEntry, decision: PostLineDecision) => void; onUnpost: (entry: JournalEntry) => void }) {
+function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onPost, onUnpost }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: string | null; onToggle: () => void; onToggleSelected: () => void; onPost: (entry: JournalEntry, decision: PostLineDecision) => void; onUnpost: (entry: JournalEntry) => void }) {
   const { activeClient } = useClientWorkspace();
   const accountParams = { clientId: activeClient?.id ?? 0 };
   const accountQuery = useGetLedgerflowAccounts(accountParams, { query: { queryKey: getGetLedgerflowAccountsQueryKey(accountParams) } });
@@ -2347,14 +2792,23 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const accountConfirmationRequired = line.accountConfirmationRequired;
   const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion ?? '');
   useEffect(() => {
-    if (line.accountSuggestion && accounts.some((account) => account.accountName === line.accountSuggestion)) {
+    if (line.accountSuggestion) {
       setSelectedAccount(line.accountSuggestion);
-    } else {
-      setSelectedAccount(accounts[0]?.accountName ?? '');
+      return;
     }
+    if (accounts[0]?.accountName) setSelectedAccount(accounts[0].accountName);
   }, [accounts, line.accountSuggestion]);
   const debitLine = entry?.lines.find((item) => item.debit > 0);
   const creditLine = entry?.lines.find((item) => item.credit > 0);
+  const previewLines = useMemo(() => {
+    const rows = entry?.lines ?? [];
+    if (!selectedAccount) return rows;
+    const inflow = line.direction === 'inflow';
+    return rows.map((journalLine) => {
+      const classifiedLeg = inflow ? journalLine.credit > 0 : journalLine.debit > 0;
+      return classifiedLeg ? { ...journalLine, account: selectedAccount } : journalLine;
+    });
+  }, [entry?.lines, selectedAccount, line.direction]);
   const sourceAmount = debitLine?.debit ?? creditLine?.credit ?? line.amount;
   const functionalCurrency = entry?.functionalCurrency ?? line.functionalCurrency;
   const functionalAmount = entry?.functionalAmount ?? line.functionalAmount;
@@ -2371,7 +2825,6 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const selectableContacts = contacts.filter((contact) => contact.status === 'active' || contact.id === line.contactId);
   const [selectedContactId, setSelectedContactId] = useState<string>(line.contactId ? String(line.contactId) : '');
   const [proposedContactName, setProposedContactName] = useState(line.proposedContactName ?? '');
-  const [proposedContactAlias, setProposedContactAlias] = useState(line.proposedContactAlias ?? '');
   const [proposedContactType, setProposedContactType] = useState<'customer' | 'supplier' | 'both'>(
     line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'),
   );
@@ -2391,9 +2844,8 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   useEffect(() => {
     setSelectedContactId(line.contactId ? String(line.contactId) : '');
     setProposedContactName(line.proposedContactName ?? '');
-    setProposedContactAlias(line.proposedContactAlias ?? '');
     setProposedContactType(line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'));
-  }, [line.contactId, line.proposedContactName, line.proposedContactAlias, line.proposedContactType, line.direction]);
+  }, [line.contactId, line.proposedContactName, line.proposedContactType, line.direction]);
 
   const toggleFromRow = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -2402,25 +2854,49 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       onToggle();
     }
   };
+  const missingRate = Boolean(entry && functionalCurrency && entry.currency !== functionalCurrency && (exchangeRateStatus === 'missing' || functionalAmount == null));
+  const knownAccount = accounts.some((account) => account.accountName === selectedAccount);
+  const postBlocked = processing || missingRate || !entry;
   const postDecision: PostLineDecision = {
-    accountSuggestion: selectedAccount || null,
+    accountSuggestion: knownAccount ? selectedAccount : (line.accountSuggestion || null),
     contactId: selectedContactId ? Number(selectedContactId) : null,
     proposedContactName: selectedContactId ? null : (proposedContactName.trim() || null),
-    proposedContactAlias: selectedContactId ? null : (proposedContactAlias.trim() || null),
+    proposedContactAlias: selectedContactId ? null : (proposedContactName.trim() || null),
     proposedContactType: selectedContactId ? null : proposedContactType,
   };
+  const postLabel = willCreateContact ? 'Post & create' : 'Post';
+  const postTitle = missingRate
+    ? 'Add a dated exchange rate before posting this foreign-currency line.'
+    : willCreateContact
+      ? `Posts now and creates ${proposedContactName.trim()} as a contact`
+      : selectedContactId
+        ? 'Posts this journal entry now'
+        : 'Posts this journal entry now, unlinked to a contact';
   const rowAction = posted
     ? <div data-testid={`posted-line-${line.id}`} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary"><CircleCheck size={14} /> Posted</div>
     : !entry
       ? <span className="text-[11px] text-muted-foreground">{journalLoading ? 'Loading…' : 'Unavailable'}</span>
-      : <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry, postDecision); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {willCreateContact ? 'Post & create' : 'Post'}</>}</button>;
+      : <button
+          type="button"
+          data-testid={`button-post-line-${line.id}`}
+          title={postTitle}
+          aria-disabled={postBlocked}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (postBlocked) return;
+            onPost(entry, postDecision);
+          }}
+          className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground ${postBlocked ? 'cursor-not-allowed opacity-50' : ''}`}
+        >{processing ? 'Posting…' : <><Check size={13} /> {postLabel}</>}</button>;
 
   return <>
     <tr data-testid={`row-statement-line-${line.id}`} tabIndex={0} aria-expanded={expanded} aria-selected={selected} onClick={onToggle} onKeyDown={toggleFromRow} className={`group cursor-pointer transition-colors hover:bg-secondary/30 focus:outline-none focus-visible:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${expanded ? 'bg-secondary/20' : ''}`}>
       <td className="w-12 px-4 py-4" onClick={(event) => event.stopPropagation()}><input data-testid={`checkbox-select-line-${line.id}`} type="checkbox" aria-label={`Select statement line ${line.description}`} checked={selected} onChange={onToggleSelected} className="size-4 accent-primary" /></td>
       <td className="whitespace-nowrap px-3 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td>
-      <td className="w-[280px] max-w-[280px] px-4 py-4 align-top"><div className="w-full whitespace-normal break-words text-[12px] font-semibold [overflow-wrap:anywhere]">{line.description}</div><div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[9px] text-muted-foreground"><span className="rounded bg-muted px-1 py-0.5">{line.source}</span><span>· {line.currency}</span>{bankAccountName && <span className="break-words">· {bankAccountName}</span>}</div></td>
-      <td className="px-4 py-4 align-top">
+      <td className="w-[360px] max-w-[360px] px-4 py-4 align-top"><div className="w-full whitespace-normal break-words text-[12px] font-semibold [overflow-wrap:anywhere]">{line.description}</div><div className="mt-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-[9px] text-muted-foreground" title={[line.source, line.currency, bankAccountName].filter(Boolean).join(' · ')}><span className="shrink-0 rounded bg-muted px-1 py-0.5">{line.currency}</span><span className="min-w-0 truncate">{line.source.replace(/^Imported:\s+\d+\s+[A-Z]{3}\s+/i, '')}</span></div></td>
+      <td className="px-4 py-4 align-middle">
         <div className="text-[12px] font-semibold">{line.contactName || (hasTemporaryProposal ? line.proposedContactName : needsIdentification ? <span data-testid={`unknown-contact-${line.id}`} className="text-destructive">Unknown {likelyContactType}</span> : <span className="font-normal text-muted-foreground">Keep unlinked</span>)}</div>
         {hasTemporaryProposal && <div data-testid={`temporary-contact-proposal-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">{line.contactReviewDisposition === 'accepted' ? 'Confirmed for posting' : 'Temporary proposal'}</div>}
         {hasTemporaryProposal && <div className="mt-1 text-[9px] leading-3 text-muted-foreground">{Math.round((line.proposedContactConfidence ?? 0) * 100)}% · {contactProposalSource} · creates on posting</div>}
@@ -2430,72 +2906,111 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
           <div className={`mt-1 text-[9px] uppercase tracking-[.05em] ${line.contactSuggestionStatus === 'supported' ? 'text-primary font-bold' : line.contactSuggestionStatus === 'conflicting' ? 'text-destructive font-bold' : 'text-muted-foreground'}`}>{line.contactSuggestionStatus.replace(/_/g, ' ')}</div>
         )}
       </td>
-      <td className="px-4 py-4 align-top"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={line.suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${line.suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{line.suggestionSource === 'workspace_learning' ? `Account learned · ${line.supportingPatternCount} confirmed pattern${line.supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div>{accountConfirmationRequired && <div data-testid={`learned-account-not-applied-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">Confirm before posting · journal still uses {line.journalAccount}</div>}</td>
+      <td className="px-4 py-4 align-middle"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div data-testid={line.suggestionSource === 'workspace_learning' ? `workspace-learning-line-${line.id}` : undefined} className={`mt-1 text-[10px] ${line.suggestionSource === 'workspace_learning' ? 'font-semibold text-primary' : 'text-muted-foreground'}`}>{line.suggestionSource === 'workspace_learning' ? `Account learned · ${line.supportingPatternCount} confirmed pattern${line.supportingPatternCount === 1 ? '' : 's'}` : 'AI suggestion'}</div>{accountConfirmationRequired && <div data-testid={`learned-account-not-applied-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">Confirm before posting · journal still uses {line.journalAccount}</div>}</td>
       <td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td>
       <td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-1.5" role="img" aria-label={`Confidence ${confidence}%`}><div className="grid size-7 place-items-center rounded-full" style={{ background: `conic-gradient(hsl(var(--primary)) ${confidence}%, hsl(var(--muted)) 0)` }}><div className="grid size-5 place-items-center rounded-full bg-card font-mono text-[8px]">{confidence}</div></div><span className="font-mono text-[10px]">%</span></div>}</td>
       <td className="px-4 py-4"><StatusPill status={line.status} /></td>
-      <td className="px-5 py-4 text-right" onClick={(event) => event.stopPropagation()}>{rowAction}</td>
+      <td className="px-3 py-4 text-right align-middle" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+        <div className="flex flex-col items-end gap-1">
+          {rowAction}
+          {missingRate && !posted && <p className="max-w-[11rem] text-left text-[10px] leading-3 text-destructive">Needs an exchange rate</p>}
+          {actionError && <p data-testid={`post-error-${line.id}`} className="max-w-[11rem] text-left text-[10px] leading-3 text-destructive">{actionError}</p>}
+        </div>
+      </td>
     </tr>
-    {expanded && <tr data-testid={`detail-statement-line-${line.id}`}><td colSpan={9} className="bg-secondary/25 px-5 py-5">
-      {journalLoading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw size={14} className="animate-spin" /> Loading linked journal entry…</div> : !entry ? <div className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3 text-xs text-destructive"><CircleAlert size={15} /> No journal entry is linked to this statement line yet.</div> : <section className="rounded-lg border border-card-border bg-card p-4 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4">
-           <div><div className="font-mono text-[10px] uppercase tracking-[.14em] text-primary">Linked journal entry · JE-{String(entry.id).padStart(4, '0')}</div><p className="mt-1 text-xs text-muted-foreground">{entry.memo}</p></div>
-           {posted && <button data-testid={`button-unpost-line-${line.id}`} title="Return this entry to the review queue" onClick={(event) => { event.stopPropagation(); onUnpost(entry); }} disabled={processing} className="inline-flex items-center gap-1.5 rounded-md border border-accent/35 px-2.5 py-1.5 text-[11px] font-semibold text-accent-foreground hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Unposting…' : 'Unpost to review'}</button>}
+    {expanded && <tr data-testid={`detail-statement-line-${line.id}`}><td colSpan={9} className="bg-secondary/25 px-4 py-3">
+      {journalLoading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw size={14} className="animate-spin" /> Loading linked journal entry…</div> : !entry ? <div className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs text-destructive"><CircleAlert size={15} /> No journal entry is linked to this statement line yet.</div> : <section className="overflow-hidden rounded-lg border border-card-border bg-card">
+        <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-primary">JE-{String(entry.id).padStart(4, '0')}</span>
           <StatusPill status={entry.status} />
+          <span data-testid={`journal-amount-${line.id}`} className="ml-auto font-mono text-xs font-semibold">{money(sourceAmount, entry.currency)}</span>
+          <span data-testid={`journal-confidence-${line.id}`} className="font-mono text-[10px] text-muted-foreground">{Math.round(entry.confidence * 100)}%</span>
+          {posted && <button data-testid={`button-unpost-line-${line.id}`} title="Return this entry to the review queue" onClick={(event) => { event.stopPropagation(); onUnpost(entry); }} disabled={processing} className="inline-flex items-center gap-1.5 rounded-md border border-accent/35 px-2 py-1 text-[11px] font-semibold text-accent-foreground hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Unposting…' : 'Unpost'}</button>}
+        </header>
+        {entry.memo && <p className="line-clamp-2 border-b border-border/70 px-3 py-1.5 text-[11px] leading-4 text-muted-foreground" title={entry.memo}>{entry.memo}</p>}
+        <div className="grid gap-3 p-3 lg:grid-cols-2">
+          <div className="min-w-0">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Review</div>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Contact</span>
+                <select data-testid={`select-contact-${line.id}`} aria-label="Contact" disabled={!canEditContact} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
+                  <option value="">{needsIdentification ? `Identify ${likelyContactType}` : 'No contact'}</option>
+                  {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
+                </select>
+              </div>
+              {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className="flex flex-wrap items-center gap-2 pl-16">
+                <input data-testid={`input-proposed-contact-name-${line.id}`} aria-label="Contact name" placeholder="Name" disabled={!canEditContact} value={proposedContactName} onChange={(event) => setProposedContactName(event.target.value)} className="h-8 min-w-[8rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" />
+                <select data-testid={`select-proposed-contact-type-${line.id}`} aria-label="Contact type" disabled={!canEditContact} value={proposedContactType} onChange={(event) => setProposedContactType(event.target.value as 'customer' | 'supplier' | 'both')} className="h-8 w-[8.75rem] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"><option value="customer">Customer</option><option value="supplier">Supplier</option><option value="both">Both</option></select>
+              </div>}
+              {(line.contactSuggestionReason || showContactProposalEditor) && <p className="pl-16 text-[10px] leading-4 text-muted-foreground">{line.contactSuggestionReason || 'Creates on post, or leave blank to post unlinked.'}</p>}
+              {isForeignCurrency && <div data-testid={`currency-conversion-${line.id}`} className={`rounded-md border px-2.5 py-2 ${exchangeRateStatus === 'missing' || functionalAmount == null ? 'border-destructive/20 bg-destructive/5' : 'border-border bg-muted/20'}`}>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span data-testid={`conversion-source-${line.id}`} className="font-mono text-[11px] font-semibold">{money(sourceAmount, entry.currency)}</span>
+                  <span className="text-[10px] text-muted-foreground">→</span>
+                  <span data-testid={`conversion-base-${line.id}`} className="font-mono text-[11px] font-semibold">{functionalAmount == null ? 'Unconverted' : money(functionalAmount, baseCurrency)}</span>
+                  <span data-testid={`conversion-rate-${line.id}`} className="font-mono text-[10px] text-muted-foreground">{exchangeRate == null ? 'Rate unavailable' : `@ ${exchangeRate.toFixed(6)}`}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[.06em] ${exchangeRateStatus === 'exact' ? 'bg-primary/10 text-primary' : exchangeRateStatus === 'prior' ? 'bg-accent/15 text-accent-foreground' : 'bg-destructive/10 text-destructive'}`}>{exchangeRateStatus === 'exact' ? 'Exact-date' : exchangeRateStatus === 'prior' ? 'Prior rate' : 'Missing'}</span>
+                  {exchangeRateSourceScope === 'system' && <span data-testid={`system-rate-source-${line.id}`} className="rounded-full bg-muted px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[.06em] text-muted-foreground">System</span>}
+                </div>
+                {exchangeRateEffectiveDate && <p className="mt-1 text-[10px] text-muted-foreground">Effective {shortDate(exchangeRateEffectiveDate)}</p>}
+                {exchangeRateStatus === 'prior' && exchangeRateEffectiveDate && <p className="mt-1 text-[10px] text-accent-foreground">Used the latest rate before {shortDate(entry.date)}.</p>}
+                {exchangeRateStatus === 'missing' && <p className="mt-1 text-[10px] text-destructive">Add a dated exchange rate to include this in base-currency reporting.</p>}
+              </div>}
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Posting</div>
+            <div className="overflow-hidden rounded-md border border-border">
+              <table className="w-full text-left text-[11px]">
+                <thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-2.5 py-1.5 font-medium">Account</th>
+                    <th className="w-[5.75rem] px-2.5 py-1.5 text-right font-medium">Debit</th>
+                    <th className="w-[5.75rem] px-2.5 py-1.5 text-right font-medium">Credit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {previewLines.map((journalLine, index) => {
+                    const classifiedLeg = line.direction === 'inflow' ? journalLine.credit > 0 : journalLine.debit > 0;
+                    return (
+                      <tr key={`${entry.id}-${index}`}>
+                        <td
+                          data-testid={journalLine.debit > 0 ? `journal-debit-${line.id}` : journalLine.credit > 0 ? `journal-credit-${line.id}` : undefined}
+                          className="px-2.5 py-1.5"
+                        >
+                          {classifiedLeg && canConfirmClassification ? (
+                            <select
+                              data-testid={`select-account-suggestion-${line.id}`}
+                              aria-label="Classification decision"
+                              value={selectedAccount}
+                              onChange={(event) => setSelectedAccount(event.target.value)}
+                              onClick={(event) => event.stopPropagation()}
+                              className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary"
+                            >
+                              {!accounts.length && <option value="">No active accounts available</option>}
+                              {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName}</option>)}
+                            </select>
+                          ) : <span className="font-semibold">{journalLine.account}</span>}
+                        </td>
+                        <td className="px-2.5 py-2 text-right font-mono tabular-nums">{journalLine.debit ? money(journalLine.debit, entry.currency) : ''}</td>
+                        <td className="px-2.5 py-2 text-right font-mono tabular-nums">{journalLine.credit ? money(journalLine.credit, entry.currency) : ''}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-border bg-muted/35 font-mono text-[11px] font-semibold">
+                    <td className="px-2.5 py-1.5 text-[10px] uppercase tracking-[.08em] text-muted-foreground">Total</td>
+                    <td className="px-2.5 py-1.5 text-right tabular-nums">{money(entry.lines.reduce((sum, journalLine) => sum + journalLine.debit, 0), entry.currency)}</td>
+                    <td className="px-2.5 py-1.5 text-right tabular-nums">{money(entry.lines.reduce((sum, journalLine) => sum + journalLine.credit, 0), entry.currency)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Debit account</div><div data-testid={`journal-debit-${line.id}`} className="mt-1 text-xs font-semibold">{debitLine?.account ?? '—'}</div></div>
-          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Credit account</div><div data-testid={`journal-credit-${line.id}`} className="mt-1 text-xs font-semibold">{creditLine?.account ?? '—'}</div></div>
-           <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Amount</div><div data-testid={`journal-amount-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{money(sourceAmount, entry.currency)}</div></div>
-          <div className="rounded-md bg-muted/45 p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Confidence</div><div data-testid={`journal-confidence-${line.id}`} className="mt-1 text-xs font-semibold">{Math.round(entry.confidence * 100)}%</div></div>
-        </div>
-         {isForeignCurrency && <div data-testid={`currency-conversion-${line.id}`} className={`mt-4 rounded-md border p-4 ${exchangeRateStatus === 'missing' || functionalAmount == null ? 'border-destructive/20 bg-destructive/5' : 'border-primary/20 bg-primary/5'}`}>
-           <div className="flex flex-wrap items-start justify-between gap-2">
-             <div><div className="font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground">Currency conversion</div><p className="mt-1 text-[11px] text-muted-foreground">Recorded in foreign currency, converted for reporting in the client base currency.</p></div>
-             <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${exchangeRateStatus === 'exact' ? 'bg-primary/10 text-primary' : exchangeRateStatus === 'prior' ? 'bg-accent/15 text-accent-foreground' : 'bg-destructive/10 text-destructive'}`}>{exchangeRateStatus === 'exact' ? 'Exact-date rate' : exchangeRateStatus === 'prior' ? 'Prior rate' : 'Rate missing'}</span>
-             {exchangeRateSourceScope === 'system' && <span data-testid={`system-rate-source-${line.id}`} className="rounded-full bg-muted px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] text-muted-foreground">System fallback</span>}
-           </div>
-           <div className="mt-3 grid gap-3 md:grid-cols-3">
-             <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Foreign currency (FCY)</div><div data-testid={`conversion-source-${line.id}`} className="mt-1 font-mono text-sm font-semibold">{money(sourceAmount, entry.currency)}</div></div>
-             <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Exchange rate</div><div data-testid={`conversion-rate-${line.id}`} className="mt-1 font-mono text-xs font-semibold">{exchangeRate == null ? 'Unavailable' : `1 ${entry.currency} = ${exchangeRate.toFixed(6)} ${functionalCurrency}`}</div><div className="mt-1 text-[10px] text-muted-foreground">{exchangeRateEffectiveDate ? `Effective ${shortDate(exchangeRateEffectiveDate)}` : 'Add a rate on or before the transaction date'}</div></div>
-             <div className="rounded-md bg-card p-3"><div className="font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">Base currency (BCY)</div><div data-testid={`conversion-base-${line.id}`} className="mt-1 font-mono text-sm font-semibold">{functionalAmount == null ? 'Unconverted' : money(functionalAmount, baseCurrency)}</div></div>
-           </div>
-           {exchangeRateStatus === 'prior' && exchangeRateEffectiveDate && <p className="mt-3 text-[10px] text-accent-foreground">No rate was recorded on the transaction date, so the latest rate available before {shortDate(entry.date)} was used.</p>}
-           {exchangeRateStatus === 'missing' && <p className="mt-3 text-[10px] text-destructive">This transaction is not included in base-currency reporting until a dated exchange rate is added.</p>}
-         </div>}
-
-         <div className="mt-4 rounded-md border border-border bg-muted/20 p-3">
-           <label className="block text-[11px] font-semibold">Contact
-             <select data-testid={`select-contact-${line.id}`} disabled={!canEditContact} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
-               <option value="">{needsIdentification ? `Identify ${likelyContactType} below` : 'No contact'}</option>
-               {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
-             </select>
-           </label>
-            {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className="mt-3 rounded-md border border-border bg-background p-3">
-             <div className="text-[11px] font-semibold">{likelyContactType === 'customer' ? 'Customer' : 'Supplier'} identity</div>
-             <p className="mt-1 text-[10px] text-muted-foreground">Enter a real name and statement alias to create this contact when the line posts, or leave both blank to post unlinked.</p>
-             <div className="mt-3 grid gap-2 md:grid-cols-3">
-               <label className="text-[10px] font-semibold">Display name<input data-testid={`input-proposed-contact-name-${line.id}`} disabled={!canEditContact} value={proposedContactName} onChange={(event) => setProposedContactName(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
-               <label className="text-[10px] font-semibold">Alias<input data-testid={`input-proposed-contact-alias-${line.id}`} disabled={!canEditContact} value={proposedContactAlias} onChange={(event) => setProposedContactAlias(event.target.value)} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" /></label>
-               <label className="text-[10px] font-semibold">Type<select data-testid={`select-proposed-contact-type-${line.id}`} disabled={!canEditContact} value={proposedContactType} onChange={(event) => setProposedContactType(event.target.value as 'customer' | 'supplier' | 'both')} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"><option value="customer">Customer</option><option value="supplier">Supplier</option><option value="both">Customer & supplier</option></select></label>
-             </div>
-           </div>}
-           {line.contactSuggestionReason && <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{line.contactSuggestionReason}</p>}
-         </div>
-
-         {canConfirmClassification && <div className="mt-4 rounded-md border border-primary/20 bg-primary/5 p-3">
-          <label className="block text-[11px] font-semibold">Classification decision
-            <select data-testid={`select-account-suggestion-${line.id}`} value={selectedAccount} onChange={(event) => setSelectedAccount(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary">
-              {!accounts.length && <option value="">No active accounts available</option>}
-              {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
-            </select>
-          </label>
-           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{accountConfirmationRequired ? `The recommendation changed to ${line.accountSuggestion}. This will be applied automatically when the line posts.` : line.suggestionSource === 'workspace_learning' ? `Based on ${line.supportingPatternCount} confirmed workspace pattern${line.supportingPatternCount === 1 ? '' : 's'}. Applied when the line posts.` : 'Applied when the line posts. Choose another account if this one is wrong.'}</p>
-        </div>}
-        <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : 'This draft is ready to post. Use the Post action in the row above whenever the entry makes sense.'}</p>
-        </div>
-        {actionError && <p className="mt-3 text-xs text-destructive">The journal entry could not be updated. Refresh this line and try again.</p>}
+        {actionError && <p data-testid={`post-error-detail-${line.id}`} className="border-t border-border px-3 py-2 text-xs text-destructive">{actionError}</p>}
       </section>}
     </td></tr>}
   </>;
@@ -2513,11 +3028,20 @@ function JournalEntriesPage() {
   const unpost = useUnpostJournalEntry();
   const entries = query.data ?? [];
   const [selected, setSelected] = useState<number | null>(null);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState<'all' | 'draft' | 'posted'>('all');
+  const [search, setSearch] = useState('');
+  const [currency, setCurrency] = useState('all');
   const [dateFrom, setDateFrom] = useState(''); const [dateTo, setDateTo] = useState('');
   const [sortKey, setSortKey] = useState<JournalSortKey>('date'); const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const currencies = [...new Set(entries.map((entry) => entry.currency))].sort();
   const filtered = useMemo(() => {
-    const matching = entries.filter((item) => (filter === 'all' || item.status.toLowerCase() === filter) && isDateInRange(item.date, dateFrom, dateTo));
+    const needle = search.trim().toLowerCase();
+    const matching = entries.filter((item) =>
+      (filter === 'all' || item.status.toLowerCase() === filter)
+      && (currency === 'all' || item.currency === currency)
+      && isDateInRange(item.date, dateFrom, dateTo)
+      && (!needle || `${item.memo} ${item.currency} ${item.contactName ?? ''} ${item.status} JE-${String(item.id).padStart(4, '0')}`.toLowerCase().includes(needle))
+    );
     return [...matching].sort((left, right) => {
       const leftAmount = left.lines.reduce((sum, line) => sum + Math.max(line.debit, line.credit), 0);
       const rightAmount = right.lines.reduce((sum, line) => sum + Math.max(line.debit, line.credit), 0);
@@ -2538,7 +3062,7 @@ function JournalEntriesPage() {
         : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' });
       return (comparison || left.id - right.id) * (sortDirection === 'asc' ? 1 : -1);
     });
-  }, [entries, filter, dateFrom, dateTo, sortKey, sortDirection]);
+  }, [entries, filter, currency, search, dateFrom, dateTo, sortKey, sortDirection]);
   const sortJournalEntries = (column: string) => {
     const nextColumn = column as JournalSortKey;
     if (nextColumn === sortKey) setSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
@@ -2560,11 +3084,64 @@ function JournalEntriesPage() {
     if (!window.confirm('Unpost this journal entry? It will leave live reports and return to draft.')) return;
     unpost.mutate({ id: entry.id, data: { clientId: params.clientId } }, { onSuccess: refreshJournalData });
   };
-  const activeEntryFilterCount = [filter !== 'all', Boolean(dateFrom || dateTo)].filter(Boolean).length;
-  const clearEntryFilters = () => { setFilter('all'); setDateFrom(''); setDateTo(''); };
+  const activeEntryFilterCount = [search.trim() !== '', filter !== 'all', currency !== 'all', Boolean(dateFrom || dateTo)].filter(Boolean).length;
+  const clearEntryFilters = () => { setSearch(''); setFilter('all'); setCurrency('all'); setDateFrom(''); setDateTo(''); };
+  const sortArrow = sortDirection === 'asc' ? '↑' : '↓';
   return <div>
     <PageHeading eyebrow="Decision layer / AI proposals" title="Journal entries" description="Review each draft double-entry, trace it back to its source line, and post only entries that make sense." action={<div className="flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 py-2 text-[11px] text-accent-foreground"><Sparkles size={14} /> AI prepared · human posted</div>} />
-     <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><span className="mr-1 text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">Status</span><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-draft-entries" onClick={() => setFilter('draft')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'draft' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Draft</button><button data-testid="button-filter-posted-entries" onClick={() => setFilter('posted')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'posted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Posted</button></div><span className="font-mono text-[10px] text-muted-foreground">Showing {filtered.length} source-linked {filtered.length === 1 ? 'posting' : 'postings'}</span></div><div className="flex flex-wrap items-end justify-between gap-3 border-t border-border pt-3"><div className="flex flex-wrap items-center gap-1" role="group" aria-label="Sort journal entries"><span className="mr-1 text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">Sort columns</span><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-date" /><SortControl label="Entry" column="memo" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-memo" /><SortControl label="Currency" column="currency" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-currency" /><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-amount" /><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-confidence" /><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-status" /></div><DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-journal-entries-date-from" toTestId="input-journal-entries-date-to" clearTestId="button-clear-journal-entries-date-filter" /></div>{activeEntryFilterCount > 0 && <div className="flex items-center gap-2 border-t border-border pt-3"><Filter size={12} className="text-muted-foreground" /><span data-testid="text-active-entry-filter-count" className="text-[11px] text-muted-foreground">{activeEntryFilterCount} filter{activeEntryFilterCount === 1 ? '' : 's'} active · {filtered.length} of {entries.length} entries shown</span><button data-testid="button-clear-entry-filters" type="button" onClick={clearEntryFilters} className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-primary hover:bg-primary/10"><X size={12} /> Clear all</button></div>}</div>
+    <FilterToolbar
+      search={search}
+      onSearchChange={setSearch}
+      searchTestId="input-search-entries"
+      searchPlaceholder="Search memos, contacts, or currencies"
+      activeCount={activeEntryFilterCount}
+      shownCount={filtered.length}
+      totalCount={entries.length}
+      noun="entries"
+      onClear={clearEntryFilters}
+      clearTestId="button-clear-entry-filters"
+      countTestId="text-active-entry-filter-count"
+    >
+      <FilterPills
+        compact
+        label="Status"
+        ariaLabel="Filter by journal status"
+        testId="select-journal-status-filter"
+        value={filter}
+        onChange={setFilter}
+        options={[
+          { value: 'all', label: 'All', testId: 'button-filter-all-entries' },
+          { value: 'draft', label: 'Draft', testId: 'button-filter-draft-entries' },
+          { value: 'posted', label: 'Posted', testId: 'button-filter-posted-entries' },
+        ]}
+      />
+      <FilterPills
+        compact
+        label="Currency"
+        ariaLabel="Filter by currency"
+        testId="select-journal-currency-filter"
+        value={currency}
+        onChange={setCurrency}
+        options={[{ value: 'all', label: 'All currencies' }, ...currencies.map((item) => ({ value: item, label: item }))]}
+      />
+      <DateRangeFilter compact from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-journal-entries-date-from" toTestId="input-journal-entries-date-to" clearTestId="button-clear-journal-entries-date-filter" />
+      <FilterPills
+        compact
+        label="Sort"
+        ariaLabel="Sort journal entries"
+        testId="select-journal-sort"
+        value={sortKey}
+        onChange={sortJournalEntries}
+        options={[
+          { value: 'date', label: sortKey === 'date' ? `Date ${sortArrow}` : 'Date', testId: 'button-sort-journal-entries-date' },
+          { value: 'memo', label: sortKey === 'memo' ? `Entry ${sortArrow}` : 'Entry', testId: 'button-sort-journal-entries-memo' },
+          { value: 'currency', label: sortKey === 'currency' ? `Currency ${sortArrow}` : 'Currency', testId: 'button-sort-journal-entries-currency' },
+          { value: 'amount', label: sortKey === 'amount' ? `Amount ${sortArrow}` : 'Amount', testId: 'button-sort-journal-entries-amount' },
+          { value: 'confidence', label: sortKey === 'confidence' ? `Confidence ${sortArrow}` : 'Confidence', testId: 'button-sort-journal-entries-confidence' },
+          { value: 'status', label: sortKey === 'status' ? `Status ${sortArrow}` : 'Status', testId: 'button-sort-journal-entries-status' },
+        ]}
+      />
+    </FilterToolbar>
     <QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} filtered={activeEntryFilterCount > 0} onClearFilters={clearEntryFilters} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onPost={() => postEntry(entry)} onUnpost={() => unpostEntry(entry)} posting={post.isPending && post.variables?.id === entry.id} unposting={unpost.isPending && unpost.variables?.id === entry.id} />)}</div></QueryState>
   </div>;
 }
@@ -2633,8 +3210,11 @@ function SectionTree({ sections, level = 0 }: { sections: StatementSection[]; le
   return <div className={level ? 'ml-4 border-l border-border pl-4' : ''}>{sections.map((section, index) => <div key={`${section.label}-${index}`} className={`${level ? 'py-2' : 'border-b border-border py-3.5 last:border-b-0'}`}><div className={`flex items-baseline justify-between gap-4 ${level === 0 ? 'font-semibold' : ''}`}><span className={`${level === 0 ? 'text-[12px]' : 'text-[11px] text-muted-foreground'}`}>{section.label}</span><span className={`shrink-0 font-mono ${level === 0 ? 'text-[12px]' : 'text-[11px]'}`}>{money(section.amount)}</span></div>{section.children && section.children.length > 0 && <SectionTree sections={section.children} level={level + 1} />}</div>)}</div>;
 }
 
-function ReportRows({ rows, currency, level = 0 }: { rows: ReportAmount[]; currency: string; level?: number }) {
-  return <>{rows.map((row) => <div key={`${level}-${row.label}`} className={`report-row ${row.children?.length ? 'report-row-total' : ''}`}><div className="min-w-0"><span className={level ? 'pl-4 text-[11px]' : 'text-[12px] font-semibold'}>{row.label}</span>{row.noteRef !== '—' && <span className="ml-1.5 font-mono text-[9px] text-muted-foreground">({row.noteRef})</span>}</div><div className="text-right font-mono text-[10px]">{money(row.current, currency)}</div><div className="text-right font-mono text-[10px] text-muted-foreground">{money(row.comparative, currency)}</div>{row.children?.length ? <div className="col-span-3 border-l border-border/60 pl-3"><ReportRows rows={row.children} currency={currency} level={level + 1} /></div> : null}</div>)}</>;
+function ReportRows({ rows, currency, level = 0, showComparatives = true }: { rows: ReportAmount[]; currency: string; level?: number; showComparatives?: boolean }) {
+  const rowStyle = showComparatives
+    ? { gridTemplateColumns: 'minmax(0, 1fr) 7.5rem 7.5rem' }
+    : { gridTemplateColumns: 'minmax(0, 1fr) 8.5rem' };
+  return <>{rows.map((row) => <Fragment key={`${level}-${row.label}`}><div data-comparative={showComparatives ? 'true' : 'false'} style={rowStyle} className={`report-row${row.children?.length ? ' report-row-group' : ''}${level === 0 && /^(Total|Profit for the year|Total comprehensive income|Closing equity|Cash at end of year)/i.test(row.label) ? ' report-row-total' : ''}`}><div className="min-w-0" style={level ? { paddingLeft: `${Math.min(level, 4) * 1.1}rem` } : undefined}><span className={level ? 'text-[11px] text-muted-foreground' : 'text-[12px] font-semibold'}>{row.label}</span>{row.noteRef !== '—' && <span className="ml-1.5 font-mono text-[9px] text-muted-foreground">Note {row.noteRef}</span>}</div><div className="report-amount text-right font-mono text-[10px] tabular-nums">{reportMoney(row.current)}</div>{showComparatives ? <div className="report-amount text-right font-mono text-[10px] tabular-nums text-muted-foreground">{reportMoney(row.comparative)}</div> : null}</div>{row.children?.length ? <ReportRows rows={row.children} currency={currency} level={level + 1} showComparatives={showComparatives} /> : null}</Fragment>)}</>;
 }
 
 function UaeTaxSummaryPanel({ currency }: { currency: string }) {
@@ -2651,21 +3231,57 @@ function UaeTaxSummaryPanel({ currency }: { currency: string }) {
     <div className="mt-5 rounded-md border border-accent/25 bg-accent/10 p-3 text-[10px] leading-5 text-accent-foreground"><strong>Assumptions and exclusions.</strong> {summary.assumptions.join(' ')} Excluded: {summary.excludedReliefs.join(', ')}.</div>
   </section>;
 }
-function ReportStatement({ title, rows, currency }: { title: string; rows: ReportAmount[]; currency: string }) {
-  return <><section className="report-statement"><div className="text-center"><h3 className="font-display text-[26px] leading-none">{title}</h3><p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · Current year / comparative year</p></div><div className="mt-6 border-y border-foreground/20 py-2"><div className="report-row font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span>Statement line</span><span className="text-right">Current</span><span className="text-right">Comparative</span></div></div><div><ReportRows rows={rows} currency={currency} /></div></section>{title.startsWith('Statement of cash flows') && <UaeTaxSummaryPanel currency={currency} />}</>;
+function ReportStatement({ title, rows, currency, id, showComparatives = true }: { title: string; rows: ReportAmount[]; currency: string; id?: string; showComparatives?: boolean }) {
+  const headStyle = showComparatives
+    ? { gridTemplateColumns: 'minmax(0, 1fr) 7.5rem 7.5rem' }
+    : { gridTemplateColumns: 'minmax(0, 1fr) 8.5rem' };
+  return <><section id={id} tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="text-center"><h3 className="font-display text-[26px] leading-none">{title}</h3><p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · {showComparatives ? 'Current year / comparative year' : 'Current year'}</p></div><div className="mt-6 border-y border-foreground/20 py-2"><div data-comparative={showComparatives ? 'true' : 'false'} style={headStyle} className="report-row report-row-head font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span>Statement line</span><span className="report-amount text-right">{showComparatives ? 'Current' : currency}</span>{showComparatives ? <span className="report-amount text-right">Comparative</span> : null}</div></div><div className="report-body"><ReportRows rows={rows} currency={currency} showComparatives={showComparatives} /></div></section>{title.startsWith('Statement of cash flows') && <UaeTaxSummaryPanel currency={currency} />}</>;
 }
 
-function ReportNotesEditor({ notes, onChange }: { notes: ReportNote[]; onChange: (notes: ReportNote[]) => void }) {
-  return <section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Disclosure inputs</div><h2 className="mt-2 font-display text-[29px]">Notes for accountant review</h2><p className="mt-2 text-[11px] leading-5 text-muted-foreground">AgarAccounting AI preserves generated tables. Supply or confirm the narrative where bank activity cannot safely establish an IFRS disclosure.</p><div className="mt-5 space-y-4">{notes.map((note, index) => <article key={note.number} className="rounded-md border border-border bg-background p-4"><div className="flex items-start justify-between gap-4"><div><div className="font-mono text-[10px] text-primary">NOTE {note.number}</div><h3 className="mt-1 text-[13px] font-semibold">{note.title}</h3></div><label className="flex shrink-0 items-center gap-2 text-[10px] font-semibold text-muted-foreground"><input type="checkbox" checked={!note.requiresInput} onChange={(event) => onChange(notes.map((item, itemIndex) => itemIndex === index ? { ...item, requiresInput: !event.target.checked } : item))} /> Confirmed</label></div><textarea value={note.narrative} onChange={(event) => onChange(notes.map((item, itemIndex) => itemIndex === index ? { ...item, narrative: event.target.value } : item))} className="mt-3 min-h-20 w-full rounded-md border border-input bg-card p-3 text-[11px] leading-5 outline-none focus:border-primary" aria-label={`Note ${note.number} narrative`} />{note.tables.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[440px] text-left text-[10px]"><thead className="font-mono uppercase tracking-[.1em] text-muted-foreground"><tr><th className="pb-2 font-medium">Generated table</th><th className="pb-2 text-right font-medium">Current</th><th className="pb-2 text-right font-medium">Comparative</th></tr></thead><tbody>{note.tables.map((row) => <tr key={row.label} className="border-t border-border/70"><td className="py-2">{row.label}</td><td className="py-2 text-right font-mono">{money(row.current)}</td><td className="py-2 text-right font-mono">{money(row.comparative)}</td></tr>)}</tbody></table></div>}</article>)}</div></section>;
+function ReportNotesEditor({ notes, onChange, showComparatives = true }: { notes: ReportNote[]; onChange: (notes: ReportNote[]) => void; showComparatives?: boolean }) {
+  const outstanding = notes.filter((note) => note.requiresInput || !note.narrative.trim()).length;
+  return <section id="report-notes-inputs" tabIndex={-1} className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:p-6">
+    <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Disclosure inputs</div>
+    <h2 className="mt-2 font-display text-[29px]">Notes for your financial statements</h2>
+    <p className="mt-2 text-[11px] leading-5 text-muted-foreground">AgarAccounting AI drafts each disclosure from your entity profile, reporting basis, and posted ledger. Amount tables stay system-generated. Edit any wording that does not match how you run the business, then keep Confirmed ticked. Finalization only blocks empty or unconfirmed notes{outstanding ? ` (${outstanding} need attention)` : ''}.</p>
+    <ol className="mt-3 list-decimal space-y-1 pl-4 text-[11px] leading-5 text-muted-foreground">
+      <li>Read the system draft — it is meant to be usable without an external accountant.</li>
+      <li>Change only what is wrong or incomplete for your business.</li>
+      <li>Leave Confirmed on when the wording can go into the pack and PDF.</li>
+      <li>Choose Save review inputs when you want edits stored on this snapshot.</li>
+    </ol>
+    <div className="mt-5 space-y-4">{notes.map((note, index) => {
+      const needsAttention = note.requiresInput || !note.narrative.trim();
+      const placeholder = note.tables.length
+        ? 'System draft unavailable. Describe the disclosure that should accompany the generated table.'
+        : 'System draft unavailable. Describe the disclosure an external reader should see.';
+      return <article key={note.number} className={`rounded-md border p-4 ${needsAttention ? 'border-accent/40 bg-accent/5' : 'border-border bg-background'}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-mono text-[10px] text-primary">NOTE {note.number}</div>
+            <h3 className="mt-1 text-[13px] font-semibold">{note.title}</h3>
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">{needsAttention ? 'Needs a short review before finalization.' : 'System draft ready — edit anytime.'}</p>
+          </div>
+          <label className="flex shrink-0 items-center gap-2 text-[10px] font-semibold text-muted-foreground">
+            <input type="checkbox" checked={!note.requiresInput} onChange={(event) => onChange(notes.map((item, itemIndex) => itemIndex === index ? { ...item, requiresInput: !event.target.checked } : item))} />
+            Confirmed
+          </label>
+        </div>
+        <label className="mt-3 block text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground" htmlFor={`report-note-${note.number}`}>Disclosure narrative</label>
+        <textarea id={`report-note-${note.number}`} value={note.narrative} placeholder={placeholder} onChange={(event) => onChange(notes.map((item, itemIndex) => itemIndex === index ? { ...item, narrative: event.target.value, requiresInput: event.target.value.trim() ? item.requiresInput : true } : item))} className="mt-1.5 min-h-24 w-full rounded-md border border-input bg-card p-3 text-[11px] leading-5 outline-none focus:border-primary" aria-label={`Note ${note.number} narrative`} />
+        {note.tables.length > 0 && <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[440px] text-left text-[10px]"><thead className="font-mono uppercase tracking-[.1em] text-muted-foreground"><tr><th className="pb-2 font-medium">Generated table</th><th className="pb-2 text-right font-medium">Current</th>{showComparatives && <th className="pb-2 text-right font-medium">Comparative</th>}</tr></thead><tbody>{note.tables.map((row) => <tr key={row.label} className="border-t border-border/70"><td className="py-2">{row.label}</td><td className="py-2 text-right font-mono tabular-nums">{reportMoney(row.current)}</td>{showComparatives && <td className="py-2 text-right font-mono tabular-nums">{reportMoney(row.comparative)}</td>}</tr>)}</tbody></table></div>}
+      </article>;
+    })}</div>
+  </section>;
 }
 
 function ChecklistEditor({ checklist, onChange }: { checklist: ReportChecklistItem[]; onChange: (items: ReportChecklistItem[]) => void }) {
-  return <section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Applicability checklist</div><h2 className="mt-2 font-display text-[29px]">IFRS confirmation record</h2><p className="mt-2 text-[11px] leading-5 text-muted-foreground">An item must be marked satisfied, not applicable, or immaterial before finalization. “Applicable” means an accountant decision is still outstanding.</p><div className="mt-5 divide-y divide-border">{checklist.map((item, index) => <div key={item.standard} className="grid gap-3 py-4 md:grid-cols-[1fr_190px]"><div><div className="text-[12px] font-semibold">{item.standard} — {item.title}</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{item.prompt}</p></div><select value={item.status} onChange={(event) => onChange(checklist.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, status: event.target.value as ReportChecklistItem['status'] } : candidate))} className="h-9 rounded-md border border-input bg-background px-2 text-[11px] outline-none focus:border-primary"><option value="requires_accountant_input">Requires accountant input</option><option value="applicable">Applicable — not yet confirmed</option><option value="satisfied">Satisfied</option><option value="immaterial">Immaterial</option><option value="not_applicable">Not applicable</option></select></div>)}</div></section>;
+  return <section id="report-ifrs-checklist" tabIndex={-1} className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Applicability checklist</div><h2 className="mt-2 font-display text-[29px]">IFRS confirmation record</h2><p className="mt-2 text-[11px] leading-5 text-muted-foreground">AgarAccounting AI pre-fills each item from your ledger evidence (satisfied, immaterial, or not applicable). Change an item only if the default does not match your business. Finalization needs every item off “requires input” / “applicable — not yet confirmed”.</p><div className="mt-5 divide-y divide-border">{checklist.map((item, index) => <div key={item.standard} className="grid gap-3 py-4 md:grid-cols-[1fr_190px]"><div><div className="text-[12px] font-semibold">{item.standard} — {item.title}</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">{item.prompt}</p></div><select value={item.status} onChange={(event) => onChange(checklist.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, status: event.target.value as ReportChecklistItem['status'] } : candidate))} className="h-9 rounded-md border border-input bg-background px-2 text-[11px] outline-none focus:border-primary"><option value="requires_accountant_input">Needs review</option><option value="applicable">Applicable — not yet confirmed</option><option value="satisfied">Satisfied</option><option value="immaterial">Immaterial</option><option value="not_applicable">Not applicable</option></select></div>)}</div></section>;
 }
 
 function SignatoryEditor({ signatory, onChange }: { signatory: ReportSignatory; onChange: (signatory: ReportSignatory) => void }) {
   const update = (field: keyof ReportSignatory, value: string) => onChange({ ...signatory, [field]: value || null } as ReportSignatory);
-  return <section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Authorization</div><h2 className="mt-2 font-display text-[29px]">Human review and signatory area</h2><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Finalization records the people who prepared, reviewed, and authorized this exact report snapshot. It is not an audit opinion.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold">Prepared by<input value={signatory.preparedBy} onChange={(event) => update('preparedBy', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label><label className="text-[11px] font-semibold">Reviewed by<input value={signatory.reviewedBy} onChange={(event) => update('reviewedBy', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label><label className="text-[11px] font-semibold">Authorized by<input value={signatory.authorizedBy} onChange={(event) => update('authorizedBy', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label><label className="text-[11px] font-semibold">Authorization date<input type="date" value={signatory.authorizationDate ?? ''} onChange={(event) => update('authorizationDate', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label></div></section>;
+  return <section id="report-signatory" tabIndex={-1} className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 outline-none focus-visible:ring-2 focus-visible:ring-primary/30 md:p-6"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Authorization</div><h2 className="mt-2 font-display text-[29px]">Human review and signatory area</h2><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Finalization records the people who prepared, reviewed, and authorized this exact report snapshot. It is not an audit opinion.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-[11px] font-semibold">Prepared by<input value={signatory.preparedBy} onChange={(event) => update('preparedBy', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label><label className="text-[11px] font-semibold">Reviewed by<input value={signatory.reviewedBy} onChange={(event) => update('reviewedBy', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label><label className="text-[11px] font-semibold">Authorized by<input value={signatory.authorizedBy} onChange={(event) => update('authorizedBy', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label><label className="text-[11px] font-semibold">Authorization date<input type="date" value={signatory.authorizationDate ?? ''} onChange={(event) => update('authorizationDate', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-xs font-normal outline-none focus:border-primary" /></label></div></section>;
 }
 
 const reportCheckGuidance: Record<string, { meaning: string; action: string }> = {
@@ -2702,14 +3318,45 @@ const reportCheckGuidance: Record<string, { meaning: string; action: string }> =
     action: 'Import, review, and post the prior-period activity, or choose the correct annual period end, then regenerate.',
   },
   notes: {
-    meaning: 'Confirms that an accountant has reviewed every generated note narrative that cannot be established safely from bank activity alone.',
-    action: 'In Notes for accountant review below, complete each outstanding narrative, tick Confirmed, then choose Save review inputs.',
+    meaning: 'Confirms that every required disclosure note has system or owner wording ready for the pack.',
+    action: 'Regenerate the pack for fresh system drafts, or edit any incomplete note below, keep Confirmed ticked, then choose Save review inputs.',
   },
   'ifrs-checklist': {
-    meaning: 'Confirms that every relevant IFRS standard has a final applicability decision.',
-    action: 'In IFRS confirmation record below, resolve each outstanding item as Satisfied, Immaterial, or Not applicable, then choose Save review inputs.',
+    meaning: 'Confirms that every relevant IFRS item has a final applicability status.',
+    action: 'System defaults are filled from ledger evidence. Adjust only mismatched items to Satisfied, Immaterial, or Not applicable, then choose Save review inputs.',
   },
 };
+
+type ReportCheckFocusTarget =
+  | { kind: 'section'; sectionId: string }
+  | { kind: 'route'; href: string };
+
+const reportCheckFocusTargets: Record<string, ReportCheckFocusTarget> = {
+  'trial-balance': { kind: 'route', href: '/trial-balance' },
+  position: { kind: 'section', sectionId: 'report-statement-financial-position' },
+  'retained-earnings': { kind: 'section', sectionId: 'report-statement-equity' },
+  'cash-flow': { kind: 'section', sectionId: 'report-statement-cash-flows' },
+  'note-totals': { kind: 'section', sectionId: 'report-statement-notes' },
+  'related-parties': { kind: 'route', href: '/client-settings' },
+  'foreign-currency': { kind: 'route', href: '/firm-settings' },
+  comparatives: { kind: 'section', sectionId: 'report-comparative-statements' },
+  notes: { kind: 'section', sectionId: 'report-notes-inputs' },
+  'ifrs-checklist': { kind: 'section', sectionId: 'report-ifrs-checklist' },
+};
+
+function focusReportSection(sectionId: string) {
+  const element = document.getElementById(sectionId);
+  if (!element) return false;
+  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (element instanceof HTMLElement) {
+    element.focus({ preventScroll: true });
+  }
+  element.classList.add('ring-2', 'ring-primary/40', 'ring-offset-2', 'ring-offset-background');
+  window.setTimeout(() => {
+    element.classList.remove('ring-2', 'ring-primary/40', 'ring-offset-2', 'ring-offset-background');
+  }, 2200);
+  return true;
+}
 
 function addReportCheckGuidance(pack: ReportPack | undefined) {
   if (!pack) return pack;
@@ -2727,8 +3374,48 @@ function addReportCheckGuidance(pack: ReportPack | undefined) {
   };
 }
 
+function withLiveReviewValidation(pack: ReportPack, notes: ReportNote[], checklist: ReportChecklistItem[]): ReportPack {
+  const notesOk = notes.length > 0 && notes.every((note) => !note.requiresInput && note.narrative.trim().length > 0);
+  const checklistOk = checklist.length > 0 && checklist.every((item) => !['applicable', 'requires_accountant_input'].includes(item.status));
+  const checks = pack.validation.checks.map((check) => {
+    if (check.id === 'notes') {
+      return {
+        ...check,
+        status: notesOk ? 'pass' as const : 'error' as const,
+        detail: notesOk
+          ? 'System-generated note wording is present for every required disclosure.'
+          : 'One or more notes still need owner review or disclosure wording.',
+      };
+    }
+    if (check.id === 'ifrs-checklist') {
+      return {
+        ...check,
+        status: checklistOk ? 'pass' as const : 'error' as const,
+        detail: checklistOk
+          ? 'Checklist items are satisfied, immaterial, or not applicable based on ledger evidence and system defaults.'
+          : 'One or more IFRS checklist items still need a final applicability decision.',
+      };
+    }
+    return check;
+  });
+  const errorCount = checks.filter((check) => check.blocking && check.status !== 'pass').length;
+  return {
+    ...pack,
+    notes,
+    checklist,
+    snapshot: { ...pack.snapshot, notes },
+    validation: {
+      ...pack.validation,
+      status: errorCount ? 'blocked' : 'pass',
+      errorCount,
+      checks,
+    },
+  };
+}
+
 function FinancialStatementsPage() {
   const { activeClient } = useClientWorkspace();
+  const [, setLocation] = useLocation();
   const clientId = activeClient?.id ?? 1;
   const [periodEnd, setPeriodEnd] = useState(`${new Date().getFullYear()}-12-31`);
   const [reportingBasis, setReportingBasis] = useState<'IFRS' | 'IFRS for SMEs'>(activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IFRS');
@@ -2738,16 +3425,50 @@ function FinancialStatementsPage() {
   const [notes, setNotes] = useState<ReportNote[]>([]);
   const [checklist, setChecklist] = useState<ReportChecklistItem[]>([]);
   const [signatory, setSignatory] = useState<ReportSignatory>({ preparedBy: '', reviewedBy: '', authorizedBy: '', authorizationDate: null });
+  const [showComparatives, setShowComparatives] = useState(true);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const listParams = { clientId };
   const list = useGetReportPacks(listParams, { query: { queryKey: getGetReportPacksQueryKey(listParams) } });
   const detail = useGetReportPack(selectedId ?? 0, { query: { queryKey: getGetReportPackQueryKey(selectedId ?? 0), enabled: selectedId !== null } });
   const generate = useCreateReportPack();
   const update = useUpdateReportPack();
+  const removePack = useDeleteReportPack();
   const rawPack = localPack?.id === selectedId ? localPack : detail.data;
-  const pack = useMemo(() => addReportCheckGuidance(rawPack), [rawPack]);
+  const hydratedSaveKeyRef = useRef<string | null>(null);
+  const pack = useMemo(() => {
+    if (!rawPack) return rawPack;
+    const live = notes.length > 0 ? withLiveReviewValidation(rawPack, notes, checklist) : rawPack;
+    return addReportCheckGuidance(live);
+  }, [rawPack, notes, checklist]);
   useEffect(() => { if (!selectedId && list.data?.[0]) setSelectedId(list.data[0].id); }, [list.data, selectedId]);
-  useEffect(() => { if (pack) { setNotes(pack.notes); setChecklist(pack.checklist); setSignatory(pack.signatory); } }, [pack?.id, pack?.updatedAt]);
-  useEffect(() => { setSelectedId(null); setLocalPack(null); const basis = activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IFRS'; setReportingBasis(basis); setPresentationProfile(basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IAS 1'); }, [clientId, activeClient?.basis]);
+  useEffect(() => {
+    if (!rawPack) return;
+    const hydratedNotes = buildSystemNoteDrafts(rawPack.snapshot, rawPack.notes);
+    const hydratedChecklist = hydrateChecklistDefaults(rawPack.checklist, hydratedNotes);
+    setNotes(hydratedNotes);
+    setChecklist(hydratedChecklist);
+    setSignatory(rawPack.signatory);
+    const notesChanged = JSON.stringify(hydratedNotes) !== JSON.stringify(rawPack.notes);
+    const checklistChanged = JSON.stringify(hydratedChecklist) !== JSON.stringify(rawPack.checklist);
+    const saveKey = `${rawPack.id}:${rawPack.updatedAt}`;
+    if (!(notesChanged || checklistChanged) || rawPack.status === 'finalized' || hydratedSaveKeyRef.current === saveKey) return;
+    hydratedSaveKeyRef.current = saveKey;
+    update.mutate(
+      { id: rawPack.id, data: { clientId, action: 'update_inputs', notes: hydratedNotes, checklist: hydratedChecklist, signatory: rawPack.signatory } },
+      {
+        onSuccess: (saved) => {
+          setLocalPack(saved);
+          queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) });
+          queryClient.invalidateQueries({ queryKey: getGetReportPackQueryKey(saved.id) });
+        },
+      },
+    );
+  }, [rawPack?.id, rawPack?.updatedAt, clientId]);
+  useEffect(() => {
+    if (!pack) return;
+    setShowComparatives(pack.validation.checks.find((check) => check.id === 'comparatives')?.status === 'pass');
+  }, [pack?.id]);
+  useEffect(() => { setSelectedId(null); setLocalPack(null); setShowComparatives(true); setPendingDeleteId(null); const basis = activeClient?.basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IFRS'; setReportingBasis(basis); setPresentationProfile(basis === 'IFRS for SMEs' ? 'IFRS for SMEs' : 'IAS 1'); }, [clientId, activeClient?.basis]);
   const annualPeriod = /^\d{4}-12-31$/.test(periodEnd);
   const ifrs18Eligible = annualPeriod && Number(periodEnd.slice(0, 4)) >= 2027 && reportingBasis === 'IFRS';
   useEffect(() => {
@@ -2761,9 +3482,47 @@ function FinancialStatementsPage() {
   }, []);
   const handleGenerate = () => generate.mutate({ data: { clientId, periodEnd, reportingBasis, presentationProfile, presentationCurrency: activeClient?.functionalCurrency ?? 'AED', roundingPolicy: 'Nearest whole unit' } }, { onSuccess: (created) => { setLocalPack(created); setSelectedId(created.id); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); } });
   const save = (action: 'update_inputs' | 'finalize') => { if (!pack) return; update.mutate({ id: pack.id, data: { clientId, action, notes, checklist, signatory } }, { onSuccess: (saved) => { setLocalPack(saved); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); queryClient.invalidateQueries({ queryKey: getGetReportPackQueryKey(saved.id) }); } }); };
+  const handleDeletePack = (id: number) => {
+    if (pendingDeleteId !== id) {
+      setPendingDeleteId(id);
+      return;
+    }
+    removePack.mutate({ id }, {
+      onSuccess: async () => {
+        setPendingDeleteId(null);
+        queryClient.removeQueries({ queryKey: getGetReportPackQueryKey(id) });
+        if (selectedId === id) {
+          setLocalPack(null);
+          setSelectedId(null);
+        }
+        await queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) });
+        await list.refetch();
+      },
+      onError: () => setPendingDeleteId(null),
+    });
+  };  const focusCheckTarget = (checkId: string) => {
+    const target = reportCheckFocusTargets[checkId];
+    if (!target) return;
+    if (target.kind === 'route') {
+      setLocation(target.href);
+      return;
+    }
+    focusReportSection(target.sectionId);
+  };
   const blocked = pack?.validation.status !== 'pass';
-  const errorText = generate.error || update.error ? 'The report pack could not be saved. Review the visible requirements and try again.' : '';
-  return <div><PageHeading eyebrow="Reporting / IFRS close" title="Financial statement pack" description="Generate a comparative, traceable report snapshot from posted ledger entries. AgarAccounting AI System prepares accounting output for human review; it never provides an audit opinion, statutory filing, or tax return." action={<div className="flex flex-wrap items-end gap-2"><label className="text-[10px] font-semibold text-muted-foreground">Annual period end<input data-testid="input-report-period-end" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" /></label><button data-testid="button-generate-report-pack" onClick={handleGenerate} disabled={generate.isPending} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{generate.isPending ? <LoaderCircle size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}{generate.isPending ? 'Building snapshot…' : 'Generate report pack'}</button></div>} />{errorText && <div className="mb-5 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-3 text-xs text-destructive">{errorText}</div>}<div className="mb-6 grid gap-3 md:grid-cols-[.8fr_1.2fr]"><section className="rounded-lg border border-card-border bg-card p-4"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Saved snapshots</div><div className="mt-3 space-y-2">{list.isLoading ? <div className="text-xs text-muted-foreground">Loading saved packs…</div> : list.data?.length ? list.data.map((item) => <button key={item.id} onClick={() => { setLocalPack(null); setSelectedId(item.id); }} className={`flex w-full items-center justify-between rounded-md border px-3 py-2.5 text-left ${selectedId === item.id ? 'border-primary/40 bg-primary/5' : 'border-border hover:bg-muted/50'}`}><div><div className="text-xs font-semibold">{item.periodEnd.slice(0, 10)} annual pack</div><div className="mt-1 font-mono text-[9px] text-muted-foreground">{item.status} · {item.validationErrorCount} blocking checks</div></div><ChevronRight size={14} className="text-muted-foreground" /></button>) : <div className="rounded-md border border-dashed border-border px-3 py-4 text-[11px] leading-5 text-muted-foreground">No report snapshot yet. Choose an annual period end and generate a review draft.</div>}</div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-3"><CircleAlert className="mt-0.5 shrink-0 text-accent-foreground" size={17} /><div><div className="text-xs font-semibold text-accent-foreground">Finalization is deliberately gated</div><p className="mt-1 text-[11px] leading-5 text-accent-foreground/75">The pack includes posted entries only. Missing comparative evidence, FX coverage, reconciliations, disclosure inputs, checklist decisions, or signatories prevent the final PDF download.</p></div></div></section></div>{detail.isLoading && !localPack ? <LoadingRows /> : pack ? <div className="space-y-6"><section className={`rounded-lg border p-5 ${blocked ? 'border-destructive/30 bg-destructive/5' : 'border-primary/30 bg-primary/5'}`}><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><div className="flex items-center gap-2 text-sm font-semibold">{blocked ? <CircleAlert className="text-destructive" size={17} /> : <CircleCheck className="text-primary" size={17} />}{blocked ? `${pack.validation.errorCount} finalization blocker${pack.validation.errorCount === 1 ? '' : 's'}` : 'All deterministic checks pass'}</div><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Snapshot #{pack.id} · {pack.periodStart.slice(0, 10)} to {pack.periodEnd.slice(0, 10)} · comparative {pack.comparativePeriodStart.slice(0, 10)} to {pack.comparativePeriodEnd.slice(0, 10)}</p></div><div className="flex flex-wrap gap-2"><button data-testid="button-save-report-inputs" onClick={() => save('update_inputs')} disabled={update.isPending || pack.status === 'finalized'} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">Save review inputs</button>{pack.status === 'finalized' ? <a data-testid="link-download-report-pdf" href={`/api/agaraccounting/report-packs/${pack.id}/pdf`} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"><ArrowDownLeft size={14} /> Download final PDF</a> : <button data-testid="button-finalize-report-pack" onClick={() => save('finalize')} disabled={update.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{update.isPending ? 'Checking finalization…' : 'Finalize & unlock PDF'}</button>}</div></div><div className="mt-4 grid gap-2 md:grid-cols-2">{pack.validation.checks.map((check) => <div key={check.id} className={`rounded-md border px-3 py-3 text-[11px] ${check.status === 'pass' ? 'border-primary/20 bg-card' : check.status === 'warning' ? 'border-accent/35 bg-accent/10' : 'border-destructive/50 bg-destructive/10 shadow-sm ring-1 ring-destructive/15'}`}><div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2 font-semibold">{check.status === 'pass' ? <CircleCheck size={14} className="mt-0.5 shrink-0 text-primary" /> : <span className={`grid size-6 shrink-0 place-items-center rounded-full ${check.status === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}><CircleAlert size={14} /></span>}<span className={check.status === 'error' ? 'pt-1 text-destructive' : check.status === 'warning' ? 'pt-1 text-accent-foreground' : ''}>{check.label}</span></div>{check.status !== 'pass' && <span className={`shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[.08em] ${check.status === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}>{check.status === 'error' ? 'Action required' : 'Review'}</span>}</div><p className={`mt-1.5 leading-5 ${check.status === 'pass' ? 'pl-[22px] text-muted-foreground' : 'pl-8'} ${check.status === 'error' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>{check.detail}</p></div>)}</div></section><article className="report-sheet"><div className="report-cover"><div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">AgarAccounting AI System / generated accounting output</div><h2 className="mt-14 font-display text-5xl leading-none">{pack.snapshot.legalName}</h2><div className="mt-7 h-px w-20 bg-foreground/40" /><p className="mt-7 font-display text-3xl">Financial statements</p><p className="mt-3 text-[12px]">For the year ended {pack.snapshot.periodEnd.slice(0, 10)}</p><p className="mt-1 text-[11px] text-muted-foreground">Comparative period ended {pack.snapshot.comparativePeriodEnd.slice(0, 10)} · {pack.snapshot.presentationCurrency}</p><div className="mt-20 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Prepared under {pack.snapshot.reportingBasis} using the {pack.snapshot.presentationProfile} presentation profile. This document is not an audit opinion, statutory filing, tax return, or assurance conclusion.</div></div><ReportStatement title="Statement of financial position" rows={pack.snapshot.statementOfFinancialPosition} currency={pack.snapshot.presentationCurrency} /><ReportStatement title="Statement of profit or loss and other comprehensive income" rows={pack.snapshot.profitOrLossAndOci} currency={pack.snapshot.presentationCurrency} /><ReportStatement title="Statement of changes in equity" rows={pack.snapshot.changesInEquity} currency={pack.snapshot.presentationCurrency} /><ReportStatement title="Statement of cash flows — indirect method" rows={pack.snapshot.cashFlows} currency={pack.snapshot.presentationCurrency} /><section className="report-statement"><h3 className="text-center font-display text-[26px]">Notes to the financial statements</h3><div className="mt-7 space-y-6">{pack.snapshot.notes.map((note) => <div key={note.number}><div className="font-semibold text-[12px]">Note {note.number} — {note.title}</div><p className="mt-2 whitespace-pre-line text-[11px] leading-5 text-muted-foreground">{note.narrative}</p>{note.tables.length ? <div className="mt-3 grid gap-x-4 gap-y-1 text-[10px]" style={{ gridTemplateColumns: '1fr auto auto' }}>{note.tables.map((row) => <Fragment key={`${note.number}-${row.label}`}><span>{row.label}</span><span className="text-right font-mono">{money(row.current, pack.snapshot.presentationCurrency)}</span><span className="text-right font-mono text-muted-foreground">{money(row.comparative, pack.snapshot.presentationCurrency)}</span></Fragment>)}</div> : null}</div>)}</div><div className="mt-10 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Traceability: {pack.snapshot.traceability.postedEntryCount} posted journal entries · {pack.snapshot.traceability.postedLineCount} linked statement lines · {pack.snapshot.traceability.sourceImportCount} source imports in the client workspace.</div></section></article><div className="grid gap-6 xl:grid-cols-2"><ReportNotesEditor notes={notes} onChange={setNotes} /><ChecklistEditor checklist={checklist} onChange={setChecklist} /></div><SignatoryEditor signatory={signatory} onChange={setSignatory} /></div> : <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center"><FileSpreadsheet className="mx-auto text-primary" size={24} /><h2 className="mt-4 text-sm font-semibold">Generate a controlled report snapshot</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">Select a 31 December annual reporting period to derive statements, notes, comparative columns, controls, and ledger traceability from the client’s posted entries.</p></div>}</div>;
+  const errorText = generate.error || update.error || removePack.error
+    ? (removePack.error
+      ? `The report pack could not be deleted${removePack.error instanceof Error && removePack.error.message ? `: ${removePack.error.message}` : '. Refresh and try again.'}`
+      : 'The report pack could not be saved. Review the visible requirements and try again.')
+    : '';
+  return <div><PageHeading eyebrow="Reporting / IFRS close" title="Financial statement pack" description="Generate a comparative, traceable report snapshot from posted ledger entries. AgarAccounting AI System prepares accounting output for human review; it never provides an audit opinion, statutory filing, or tax return." action={<div id="report-period-controls" className="flex flex-wrap items-end gap-2"><label className="text-[10px] font-semibold text-muted-foreground">Annual period end<input data-testid="input-report-period-end" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" /></label><button data-testid="button-generate-report-pack" onClick={handleGenerate} disabled={generate.isPending} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{generate.isPending ? <LoaderCircle size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}{generate.isPending ? 'Building snapshot…' : 'Generate report pack'}</button></div>} />{errorText && <div className="mb-5 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-3 text-xs text-destructive">{errorText}</div>}<div className="mb-6 grid gap-3 md:grid-cols-[.8fr_1.2fr]"><section className="rounded-lg border border-card-border bg-card p-4"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Saved snapshots</div><div className="mt-3 space-y-2">{list.isLoading ? <div className="text-xs text-muted-foreground">Loading saved packs…</div> : list.data?.length ? list.data.map((item) => <div key={item.id} className={`flex items-stretch gap-1 rounded-md border ${selectedId === item.id ? 'border-primary/40 bg-primary/5' : 'border-border'}`}><button type="button" onClick={() => { setPendingDeleteId(null); setLocalPack(null); setSelectedId(item.id); }} className={`flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left ${selectedId === item.id ? '' : 'hover:bg-muted/50'}`}><div className="min-w-0"><div className="text-xs font-semibold">{item.periodEnd.slice(0, 10)} annual pack</div><div className="mt-1 font-mono text-[9px] text-muted-foreground">{item.status} · {item.validationErrorCount} blocking checks</div></div><ChevronRight size={14} className="shrink-0 text-muted-foreground" /></button><button type="button" data-testid={`button-delete-report-pack-${item.id}`} aria-label={`Delete ${item.periodEnd.slice(0, 10)} report pack`} disabled={removePack.isPending} title={pendingDeleteId === item.id ? 'Click again to confirm delete' : 'Delete report pack'} onClick={(event) => { event.preventDefault(); event.stopPropagation(); handleDeletePack(item.id); }} className={`shrink-0 self-stretch rounded-r-md px-2.5 transition-colors disabled:opacity-50 ${pendingDeleteId === item.id ? 'bg-destructive text-destructive-foreground' : 'text-muted-foreground hover:bg-destructive/10 hover:text-destructive'}`}>{pendingDeleteId === item.id ? <span className="px-0.5 text-[10px] font-semibold">Yes</span> : <Trash2 size={14} />}</button></div>) : <div className="rounded-md border border-dashed border-border px-3 py-4 text-[11px] leading-5 text-muted-foreground">No report snapshot yet. Choose an annual period end and generate a review draft.</div>}</div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-3"><CircleAlert className="mt-0.5 shrink-0 text-accent-foreground" size={17} /><div><div className="text-xs font-semibold text-accent-foreground">Finalization is deliberately gated</div><p className="mt-1 text-[11px] leading-5 text-accent-foreground/75">The pack includes posted entries only. Missing comparative evidence, FX coverage, reconciliations, disclosure inputs, checklist decisions, or signatories prevent the final PDF download.</p></div></div></section></div>{detail.isLoading && !localPack ? <LoadingRows /> : pack ? <div className="space-y-6"><section className={`rounded-lg border p-5 ${blocked ? 'border-destructive/30 bg-destructive/5' : 'border-primary/30 bg-primary/5'}`}><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><div className="flex items-center gap-2 text-sm font-semibold">{blocked ? <CircleAlert className="text-destructive" size={17} /> : <CircleCheck className="text-primary" size={17} />}{blocked ? `${pack.validation.errorCount} finalization blocker${pack.validation.errorCount === 1 ? '' : 's'}` : 'All deterministic checks pass'}</div><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Snapshot #{pack.id} · {pack.periodStart.slice(0, 10)} to {pack.periodEnd.slice(0, 10)} · comparative {pack.comparativePeriodStart.slice(0, 10)} to {pack.comparativePeriodEnd.slice(0, 10)}</p></div><div className="flex flex-wrap gap-2"><button data-testid="button-save-report-inputs" onClick={() => save('update_inputs')} disabled={update.isPending || pack.status === 'finalized'} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">Save review inputs</button>{pack.status === 'finalized' ? <a data-testid="link-download-report-pdf" href={`/api/agaraccounting/report-packs/${pack.id}/pdf`} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"><ArrowDownLeft size={14} /> Download final PDF</a> : <button data-testid="button-finalize-report-pack" onClick={() => save('finalize')} disabled={update.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{update.isPending ? 'Checking finalization…' : 'Finalize & unlock PDF'}</button>}</div></div><div className="mt-4 grid gap-2 md:grid-cols-2">{pack.validation.checks.map((check) => {
+    const focusable = check.status !== 'pass' && Boolean(reportCheckFocusTargets[check.id]);
+    const cardClass = `rounded-md border px-3 py-3 text-left text-[11px] transition-colors ${check.status === 'pass' ? 'border-primary/20 bg-card' : check.status === 'warning' ? 'border-accent/35 bg-accent/10' : 'border-destructive/50 bg-destructive/10 shadow-sm ring-1 ring-destructive/15'} ${focusable ? 'cursor-pointer hover:border-primary/50 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40' : ''}`;
+    const body = <><div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2 font-semibold">{check.status === 'pass' ? <CircleCheck size={14} className="mt-0.5 shrink-0 text-primary" /> : <span className={`grid size-6 shrink-0 place-items-center rounded-full ${check.status === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}><CircleAlert size={14} /></span>}<span className={check.status === 'error' ? 'pt-1 text-destructive' : check.status === 'warning' ? 'pt-1 text-accent-foreground' : ''}>{check.label}</span></div>{check.status !== 'pass' && <span className={`shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[.08em] ${check.status === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}>{check.status === 'error' ? 'Action required' : 'Review'}</span>}</div><p className={`mt-1.5 leading-5 ${check.status === 'pass' ? 'pl-[22px] text-muted-foreground' : 'pl-8'} ${check.status === 'error' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>{check.detail}</p>{focusable && <div className="mt-2 pl-8 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-primary">Jump to section</div>}</>;
+    return focusable
+      ? <button key={check.id} type="button" data-testid={`button-focus-report-check-${check.id}`} className={cardClass} onClick={() => focusCheckTarget(check.id)}>{body}</button>
+      : <div key={check.id} className={cardClass}>{body}</div>;
+  })}</div></section><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div><div className="text-xs font-semibold">Report presentation</div><p className="mt-0.5 text-[11px] text-muted-foreground">Choose whether statement and note tables include comparative-year columns.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[11px] font-semibold"><input data-testid="checkbox-show-comparatives" type="checkbox" checked={showComparatives} onChange={(event) => setShowComparatives(event.target.checked)} className="size-3.5 accent-primary" />Show comparative figures</label></div><article key={showComparatives ? 'report-with-comparatives' : 'report-current-only'} id="report-comparative-statements" tabIndex={-1} data-show-comparatives={showComparatives ? 'true' : 'false'} className="report-sheet scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="report-cover"><div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">AgarAccounting AI System / generated accounting output</div><h2 className="mt-14 font-display text-5xl leading-none">{pack.snapshot.legalName}</h2><div className="mt-7 h-px w-20 bg-foreground/40" /><p className="mt-7 font-display text-3xl">Financial statements</p><p className="mt-3 text-[12px]">For the year ended {pack.snapshot.periodEnd.slice(0, 10)}</p>{showComparatives ? <p className="mt-1 text-[11px] text-muted-foreground">Comparative period ended {pack.snapshot.comparativePeriodEnd.slice(0, 10)} · {pack.snapshot.presentationCurrency}</p> : <p className="mt-1 text-[11px] text-muted-foreground">{pack.snapshot.presentationCurrency} · Current period only</p>}<div className="mt-20 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Prepared under {pack.snapshot.reportingBasis} using the {pack.snapshot.presentationProfile} presentation profile. This document is not an audit opinion, statutory filing, tax return, or assurance conclusion.</div></div><ReportStatement id="report-statement-financial-position" title="Statement of financial position" rows={pack.snapshot.statementOfFinancialPosition} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-profit-or-loss" title="Statement of profit or loss and other comprehensive income" rows={pack.snapshot.profitOrLossAndOci} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-equity" title="Statement of changes in equity" rows={pack.snapshot.changesInEquity} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-cash-flows" title="Statement of cash flows — indirect method" rows={pack.snapshot.cashFlows} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><section id="report-statement-notes" tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><h3 className="text-center font-display text-[26px]">Notes to the financial statements</h3><div className="mt-7 space-y-6">{notes.map((note) => <div key={note.number}><div className="font-semibold text-[12px]">Note {note.number} — {note.title}</div><p className="mt-2 whitespace-pre-line text-[11px] leading-5 text-muted-foreground">{note.narrative}</p>{note.tables.length ? <div className="mt-3 grid gap-x-4 gap-y-1 text-[10px]" style={{ gridTemplateColumns: showComparatives ? '1fr auto auto' : '1fr auto' }}>{note.tables.map((row) => <Fragment key={`${note.number}-${row.label}`}><span>{row.label}</span><span className="text-right font-mono tabular-nums">{reportMoney(row.current)}</span>{showComparatives ? <span className="text-right font-mono tabular-nums text-muted-foreground">{reportMoney(row.comparative)}</span> : null}</Fragment>)}</div> : null}</div>)}</div><div className="mt-10 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Traceability: {pack.snapshot.traceability.postedEntryCount} posted journal entries · {pack.snapshot.traceability.postedLineCount} linked statement lines · {pack.snapshot.traceability.sourceImportCount} source imports in the client workspace.</div></section></article><div className="grid gap-6 xl:grid-cols-2"><ReportNotesEditor notes={notes} onChange={setNotes} showComparatives={showComparatives} /><ChecklistEditor checklist={checklist} onChange={setChecklist} /></div><SignatoryEditor signatory={signatory} onChange={setSignatory} /></div> : <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center"><FileSpreadsheet className="mx-auto text-primary" size={24} /><h2 className="mt-4 text-sm font-semibold">Generate a controlled report snapshot</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">Select a 31 December annual reporting period to derive statements, notes, comparative columns, controls, and ledger traceability from the client’s posted entries.</p></div>}</div>;
 }
 function Router() {
   return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
@@ -2942,7 +3701,7 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
     return Number.isFinite(saved) && saved > 0 ? saved : null;
   });
   const [allowLegacyDemoSelection, setAllowLegacyDemoSelection] = useState(false);
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const selectedClient = selectWorkspaceForSession(clients, activeClientId, allowLegacyDemoSelection);
   useEffect(() => {
     if (!workspaceQueriesReady) return;
@@ -2979,7 +3738,7 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
     return <CompanyOnboarding user={profileUser} onComplete={completeOnboarding} onLogout={onLogout} />;
   }
 
-  return <TooltipProvider><OrgContext.Provider value={orgContext}><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider></OrgContext.Provider><Toaster /></TooltipProvider>;
+  return <TooltipProvider><OrgContext.Provider value={orgContext}><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary resetKey={location}><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider></OrgContext.Provider><Toaster /></TooltipProvider>;
 }
 
 function AuthBoundary() {
@@ -3065,11 +3824,6 @@ function App() {
   return <WouterRouter base={basePath}><ClerkProviderWithRoutes /></WouterRouter>;
 }
 export default App;
-
-export const OrgContext = createContext<OrganizationContext | undefined>(undefined);
-export function useOrgContext() {
-  return useContext(OrgContext);
-}
 
 function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
   return <div className="grid min-h-[100dvh] place-items-center bg-background px-5" data-testid="auth-recovery-state"><div className="w-full max-w-md rounded-lg border border-destructive/25 bg-card p-6 text-center shadow-sm" role="alert"><div className="mx-auto grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive"><CircleAlert size={19} /></div><h1 className="mt-4 text-base font-semibold">We couldn’t verify your access</h1><p className="mt-2 text-xs leading-5 text-muted-foreground">AgarAccounting AI System could not reach the session service. Your bookkeeping data has not been opened.</p><button data-testid="button-retry-auth" onClick={onRetry} className="mt-5 inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground"><RefreshCw size={14} /> Try again</button></div></div>;
@@ -3498,14 +4252,14 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
   </AlertDialog>;
 }
 
-function mutationErrorMessage(error: unknown) {
+function mutationErrorMessage(error: unknown, fallback = 'The bulk action could not be applied. Refresh the queue and try again.') {
   if (typeof error === 'object' && error !== null && 'data' in error) {
     const data = (error as { data?: unknown }).data;
     if (typeof data === 'object' && data !== null && 'error' in data && typeof (data as { error?: unknown }).error === 'string') {
       return (data as { error: string }).error;
     }
   }
-  return error instanceof Error ? error.message : 'The bulk action could not be applied. Refresh the queue and try again.';
+  return error instanceof Error ? error.message : fallback;
 }
 
 function StatementSourcePreview({ source, onClose }: { source: StatementImport; onClose: () => void }) {

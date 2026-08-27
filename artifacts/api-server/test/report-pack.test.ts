@@ -194,6 +194,12 @@ test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct fr
   const sme = buildProfilePack("IFRS for SMEs", "IFRS for SMEs");
   const ifrs18 = buildProfilePack("IFRS", "IFRS 18");
 
+  assert.ok(ias1.notes.every((note) => !note.requiresInput && note.narrative.trim().length > 40));
+  assert.ok(ias1.notes.every((note) => !/Accountant input required/i.test(note.narrative)));
+  assert.ok(ias1.checklist.every((item) => !["applicable", "requires_accountant_input"].includes(item.status)));
+  assert.match(ias1.notes.find((note) => note.number === 1)?.narrative ?? "", /International Financial Reporting Standards/);
+  assert.match(sme.notes.find((note) => note.number === 1)?.narrative ?? "", /IFRS for SMEs/);
+
   assert.ok(ias1.snapshot.profitOrLossAndOci.some((row) => row.label === "Other comprehensive income"));
   assert.ok(!sme.snapshot.profitOrLossAndOci.some((row) => row.label === "Other comprehensive income"));
   assert.ok(!sme.snapshot.changesInEquity.some((row) => row.label === "Other comprehensive income"));

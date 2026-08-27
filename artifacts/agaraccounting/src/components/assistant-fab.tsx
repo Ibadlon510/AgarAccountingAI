@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Sparkles, X, Paperclip, Send, Loader2, ArrowRight, Check, CircleAlert,
   Menu, Maximize2, Minimize2, Plus, MoreVertical, Trash2, Edit2, AlertCircle,
   ListTodo, Search, TrendingUp, Tag, ArrowUpRight, Landmark, RotateCw
 } from 'lucide-react';
-import { useClientWorkspace } from '../App';
+import { useClientWorkspace } from '@/lib/workspace-context';
 import {
   useAskAgarAccountingAI,
   useImportStatement,
@@ -23,6 +24,7 @@ import {
   getGetBankAccountsQueryKey,
   getGetTrialBalanceQueryKey,
   getGetFinancialStatementsQueryKey,
+  getGetContactsQueryKey,
   getGetAgarAccountingAIConversationsQueryKey,
   getGetAgarAccountingAIConversationQueryKey
 } from '@workspace/api-client-react';
@@ -34,6 +36,7 @@ import type {
 import { useUpload } from '@workspace/object-storage-web';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
+import { useAssistantPageContext } from '@/lib/assistant-page-context';
 
 type RenderMessage = {
   id: string;
@@ -133,9 +136,9 @@ function ResultCard({ result }: { result: AIAccountingResult }) {
 
   return (
     <div data-testid={`card-result-${result.title.replace(/\s+/g, '-').toLowerCase()}`} className="mt-3 border border-border rounded-md bg-card overflow-hidden shadow-sm">
-       <div className="bg-muted/40 px-3 py-2 border-b border-border">
-         <div className="font-semibold text-[12px]">{result.title}</div>
-         {!result.complete && <div className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 font-medium">Partial results shown</div>}
+       <div className="border-b border-border bg-muted/40 px-3 py-2">
+         <div className="break-words text-[12px] font-semibold [overflow-wrap:anywhere]">{result.title}</div>
+         {!result.complete && <div className="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-500">Partial results shown</div>}
        </div>
        {(rows.length > 0 || totalKeys.length > 0) && (
          <div className="overflow-x-auto">
@@ -220,22 +223,23 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
         queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClientId }) });
+        queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey() });
         onApplied?.();
       }
     });
   };
 
   return (
-    <div className="mt-3 rounded-md border border-border bg-card p-3 shadow-sm">
-      <div className="flex items-center justify-between">
-        <div className="font-semibold text-[12px]">{rec.title}</div>
+    <div className="mt-3 min-w-0 max-w-full overflow-hidden rounded-md border border-border bg-card p-3 shadow-sm">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0 break-words text-[12px] font-semibold [overflow-wrap:anywhere]">{rec.title}</div>
         {rec.confidence != null && (
-          <div className="text-[10px] font-mono text-muted-foreground bg-muted border border-border/50 px-1.5 py-0.5 rounded">
+          <div className="shrink-0 rounded border border-border/50 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             {Math.round(rec.confidence * 100)}% conf
           </div>
         )}
       </div>
-      <p className="mt-1.5 text-[11px] text-muted-foreground leading-relaxed">{rec.summary}</p>
+      <p className="mt-1.5 break-words text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{rec.summary}</p>
       {(rec as any).suggestionSource === 'workspace_learning' && (
         <div data-testid={`workspace-learning-recommendation-${rec.id}`} className="mt-2 inline-flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 font-mono text-[10px] font-semibold text-primary">
           <Sparkles size={11} /> Workspace learned · {(rec as any).supportingPatternCount ?? 0} confirmed pattern{((rec as any).supportingPatternCount ?? 0) === 1 ? '' : 's'}
@@ -479,6 +483,7 @@ export function AssistantFAB() {
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null);
 
   const { activeClient, clients } = useClientWorkspace();
+  const pageContext = useAssistantPageContext();
   const queryClient = useQueryClient();
   const chatMutation = useAskAgarAccountingAI();
   const importMutation = useImportStatement();
@@ -632,7 +637,17 @@ export function AssistantFAB() {
     if (typeof e !== 'string') setInput('');
 
     setActiveChatClientId(client.id);
-    chatMutation.mutate({ data: { clientId: client.id, message: content.trim(), threadId: activeThreadId ?? undefined } }, {
+    chatMutation.mutate({ data: {
+      clientId: client.id,
+      message: content.trim(),
+      threadId: activeThreadId ?? undefined,
+      pageContext: {
+        route: pageContext.route,
+        selectedLineIds: pageContext.selectedLineIds,
+        visibleLineIds: pageContext.visibleLineIds,
+        statementLineSearch: pageContext.statementLineSearch,
+      },
+    } }, {
       onSuccess: (res) => {
          const responseThreadId = activeThreadId ?? res.threadId;
          if (!activeThreadId) {
@@ -812,11 +827,32 @@ export function AssistantFAB() {
   ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   const activeScope = Object.entries(activeThread.data?.scope ?? {});
 
-  const containerClasses = isOpen
-    ? isExpanded
-      ? "fixed inset-0 md:inset-6 z-50 flex min-h-0 overflow-hidden flex-col md:flex-row bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
-      : "fixed inset-0 md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[380px] md:h-[600px] md:max-h-[calc(100dvh-120px)] z-50 flex min-h-0 flex-col overflow-hidden bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
-    : "hidden";
+  const closeAssistant = () => {
+    setShowOptions(false);
+    setIsExpanded(false);
+    setView('chat');
+    setIsOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (showOptions) {
+          setShowOptions(false);
+          return;
+        }
+        closeAssistant();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, showOptions]);
+
+  const containerClasses = isExpanded
+    ? "fixed inset-0 z-[60] flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-card shadow-2xl md:inset-6 md:flex-row md:rounded-xl"
+    : "fixed bottom-0 left-0 right-0 top-0 z-[60] flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-card shadow-2xl md:bottom-6 md:left-auto md:right-6 md:top-auto md:h-[min(600px,calc(100dvh-7.5rem))] md:w-[min(380px,calc(100vw-3rem))] md:rounded-xl";
 
   const showSidebar = isExpanded || view === 'history';
   const showChat = isExpanded || view === 'chat';
@@ -837,10 +873,21 @@ export function AssistantFAB() {
     );
   }
 
-  return (
+  return createPortal(
     <>
-      {isOpen && !isExpanded && <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden" onClick={() => setIsOpen(false)} />}
-      <div className={`${containerClasses} min-w-0`} aria-live="polite">
+      <div
+        data-testid="assistant-backdrop"
+        className={`fixed inset-0 z-[55] ${isExpanded ? 'bg-background/55 backdrop-blur-sm' : 'bg-background/70 backdrop-blur-sm md:bg-foreground/20 md:backdrop-blur-[1px]'}`}
+        onClick={closeAssistant}
+        aria-hidden="true"
+      />
+      <div
+        className={containerClasses}
+        role="dialog"
+        aria-modal="true"
+        aria-label="AI assistant"
+        data-testid="assistant-panel"
+      >
 
         {/* Sidebar */}
         <div className={`min-w-0 flex flex-col border-border bg-muted/10 ${isExpanded ? 'w-full shrink-0 md:w-[280px] border-r' : 'w-full flex-1'} ${!showSidebar ? 'hidden' : ''}`}>
@@ -867,13 +914,13 @@ export function AssistantFAB() {
                 <Plus size={16} />
               </button>
               {!isExpanded && (
-                <button aria-label="Close" onClick={() => setIsOpen(false)} className="grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md" title="Close">
+                <button data-testid="button-close-assistant-history" aria-label="Close" onClick={closeAssistant} className="relative z-20 grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md" title="Close">
                   <X size={16} />
                 </button>
               )}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto py-2 px-2 space-y-1">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-2 px-2 space-y-1">
             {conversationsQuery.data?.map(thread => (
               <div data-testid={`row-thread-${thread.id}`} key={thread.id} className={`group flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${activeThreadId === thread.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground'}`} onClick={() => { setActiveThreadId(thread.id); setView('chat'); }}>
                 {renamingId === thread.id ? (
@@ -935,27 +982,27 @@ export function AssistantFAB() {
         <div className={`min-w-0 min-h-0 flex flex-col bg-card ${isExpanded ? 'flex-1' : 'w-full flex-1'} ${!showChat ? 'hidden' : ''}`}>
 
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shrink-0 h-[57px]">
-            <div className="flex items-center gap-3">
+          <div className="relative z-20 flex h-[57px] shrink-0 items-center justify-between gap-2 overflow-hidden border-b border-border bg-card px-4 py-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               {!isExpanded && (
-                <button aria-label="View history" onClick={() => setView('history')} className="p-1 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-colors -ml-1" title="View history">
+                <button aria-label="View history" onClick={() => setView('history')} className="shrink-0 p-1 text-muted-foreground hover:bg-muted hover:text-foreground rounded-md transition-colors -ml-1" title="View history">
                   <Menu size={16} />
                 </button>
               )}
-              <div className="grid size-8 place-items-center rounded-xl bg-primary/10 text-primary shrink-0">
+              <div className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
                 <Sparkles size={14} />
               </div>
-              <div className="min-w-0">
-                <h3 className="text-[13px] font-semibold leading-none text-foreground truncate">
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <h3 className="truncate text-[13px] font-semibold leading-none text-foreground">
                   {activeThreadId ? activeThread.data?.title || 'Conversation' : 'New Conversation'}
                 </h3>
-                <p className="mt-1 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground truncate">
+                <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">
                   {activeClient ? activeClient.name : 'Select a workspace'}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0 relative">
+            <div className="relative z-20 flex shrink-0 items-center gap-1">
               {activeThreadId && (
                  <div className="relative">
                    <button aria-label="Options" onClick={() => setShowOptions(!showOptions)} className="grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title="Options">
@@ -963,8 +1010,13 @@ export function AssistantFAB() {
                    </button>
                    {showOptions && (
                      <>
-                       <div className="fixed inset-0 z-40" onClick={() => setShowOptions(false)} />
-                       <div className="absolute right-0 top-9 bg-popover border border-popover-border shadow-md rounded-xl p-1 z-50 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                       <button
+                         type="button"
+                         aria-label="Dismiss options"
+                         className="fixed inset-0 z-[60]"
+                         onClick={() => setShowOptions(false)}
+                       />
+                       <div className="absolute right-0 top-9 z-[70] min-w-[140px] rounded-xl border border-popover-border bg-popover p-1 shadow-md animate-in fade-in zoom-in-95 duration-100">
                           <button
                             data-testid={`button-rename-thread-${activeThreadId}`}
                             onClick={() => {
@@ -999,10 +1051,10 @@ export function AssistantFAB() {
                    )}
                  </div>
               )}
-              <button data-testid="button-expand-assistant" aria-label={isExpanded ? "Collapse" : "Expand"} onClick={() => setIsExpanded(!isExpanded)} className="hidden md:grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title={isExpanded ? "Collapse" : "Expand"}>
+              <button data-testid="button-expand-assistant" aria-label={isExpanded ? "Collapse" : "Expand"} onClick={() => setIsExpanded(!isExpanded)} className="relative z-[80] hidden md:grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title={isExpanded ? "Collapse" : "Expand"}>
                 {isExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
               </button>
-              <button aria-label="Close" onClick={() => setIsOpen(false)} className="grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title="Close">
+              <button data-testid="button-close-assistant" aria-label="Close" onClick={closeAssistant} className="relative z-[80] grid size-7 place-items-center text-muted-foreground hover:bg-muted rounded-md transition-colors" title="Close">
                 <X size={16} />
               </button>
             </div>
@@ -1012,7 +1064,7 @@ export function AssistantFAB() {
             <div data-testid="assistant-active-filters" className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-primary/5 px-4 py-2">
               <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-primary">Active filters</span>
               {activeScope.map(([key, value]) => (
-                <span key={key} className="shrink-0 rounded-full border border-primary/20 bg-background px-2 py-0.5 text-[10px] text-foreground">
+                <span key={key} title={`${key}: ${resultValue(value)}`} className="max-w-[160px] shrink-0 truncate rounded-full border border-primary/20 bg-background px-2 py-0.5 text-[10px] text-foreground">
                   {key}: {resultValue(value)}
                 </span>
               ))}
@@ -1029,7 +1081,7 @@ export function AssistantFAB() {
           )}
 
           {/* Messages */}
-          <div ref={scrollRef} className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-muted/20 p-4 space-y-5">
+          <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-muted/20 p-4 space-y-5" aria-live="polite">
             {backgroundWorkCount > 0 && (
               <div className="mx-auto max-w-fit rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-[10px] font-medium text-primary flex items-center gap-2">
                 <Loader2 size={12} className="animate-spin" />
@@ -1080,8 +1132,8 @@ export function AssistantFAB() {
           </div>
 
           {/* Composer */}
-          <div className="border-t border-border bg-card p-3 shrink-0">
-            <form onSubmit={handleSend} className="flex items-end gap-2 bg-background border border-input rounded-xl p-1.5 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all shadow-sm">
+          <div className="min-w-0 shrink-0 overflow-hidden border-t border-border bg-card p-3">
+            <form onSubmit={handleSend} className="flex min-w-0 items-end gap-2 rounded-xl border border-input bg-background p-1.5 shadow-sm transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -1096,7 +1148,7 @@ export function AssistantFAB() {
                 title="Import statement"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!activeClient || importMutation.isPending || isUploading || Boolean(pendingImport)}
-                className="grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 transition-colors mb-0.5"
+                className="mb-0.5 grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               >
                 <Paperclip size={17} />
               </button>
@@ -1112,7 +1164,7 @@ export function AssistantFAB() {
                 onKeyDown={handleKeyDown}
                 placeholder={activeClient ? "Ask or instruct..." : "Select a workspace"}
                 disabled={!activeClient || chatMutation.isPending}
-                className="flex-1 max-h-[120px] min-h-[20px] py-1.5 px-2 text-[13px] outline-none bg-transparent resize-none leading-relaxed overflow-y-auto disabled:opacity-50 placeholder:text-muted-foreground/70"
+                className="max-h-[120px] min-h-[20px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/70 disabled:opacity-50"
                 rows={1}
               />
               <button
@@ -1129,6 +1181,7 @@ export function AssistantFAB() {
 
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

@@ -14,6 +14,7 @@ export * from './aIAccountingFiltersDirection';
 export * from './aIAccountingResult';
 export * from './aIAccountingResultRowsItem';
 export * from './aIAccountingResultTotals';
+export * from './aIAssistantPageContext';
 export * from './aIChatInput';
 export * from './aIChatResponse';
 export * from './aIChatResponseContext';

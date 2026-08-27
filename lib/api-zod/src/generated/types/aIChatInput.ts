@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AIAccountingFilters } from './aIAccountingFilters';
+import type { AIAssistantPageContext } from './aIAssistantPageContext';
 
 export interface AIChatInput {
   clientId: number;
@@ -16,4 +17,5 @@ export interface AIChatInput {
   message: string;
   threadId?: number;
   filters?: AIAccountingFilters;
+  pageContext?: AIAssistantPageContext;
 }

@@ -1607,6 +1607,14 @@ export interface AIChatInput {
   message: string;
   threadId?: number;
   filters?: AIAccountingFilters;
+  pageContext?: AIAssistantPageContext;
+}
+
+export interface AIAssistantPageContext {
+  route?: string;
+  selectedLineIds?: number[];
+  visibleLineIds?: number[];
+  statementLineSearch?: string;
 }
 
 export type AIChatResponseContext = {

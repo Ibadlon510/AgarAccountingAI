@@ -6543,6 +6543,75 @@ export const useUpdateReportPack = <TError = ErrorType<void>,
       return useMutation(getUpdateReportPackMutationOptions(options));
     }
 
+export const getDeleteReportPackUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/report-packs/${id}/delete`
+}
+
+/**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const deleteReportPack = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteReportPackUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+
+export const getDeleteReportPackMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReportPack>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteReportPack>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteReportPack'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteReportPack>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteReportPack(id,requestOptions)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteReportPackMutationResult = NonNullable<Awaited<ReturnType<typeof deleteReportPack>>>
+    export type DeleteReportPackMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const useDeleteReportPack = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReportPack>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteReportPack>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteReportPackMutationOptions(options));
+    }
+
 export const getDownloadReportPackPdfUrl = (id: number,) => {
 
 

@@ -78,6 +78,7 @@ import {
   GetReportPackResponse,
   GetReportPacksQueryParams,
   GetReportPacksResponse,
+  DeleteReportPackParams,
   GetAgarAccountingAISettingsQueryParams,
   GetAgarAccountingAISettingsResponse,
   GetJournalEntriesResponse,
@@ -1870,6 +1871,82 @@ async function activeClientAccountNames(clientId: number) {
   return new Set(accounts.map((account) => account.accountName));
 }
 
+async function activeClientChartAccounts(clientId: number): Promise<ChartAccountRef[]> {
+  const accounts = await db.select({
+    accountName: accountClassificationsTable.accountName,
+    displayName: accountClassificationsTable.displayName,
+    accountCode: accountClassificationsTable.accountCode,
+  })
+    .from(accountClassificationsTable)
+    .where(and(eq(accountClassificationsTable.clientId, clientId), eq(accountClassificationsTable.isActive, true)));
+  return accounts.map((account) => ({
+    accountName: account.accountName,
+    displayName: account.displayName,
+    accountCode: account.accountCode ?? "",
+  }));
+}
+
+async function contactIdentityIndexForClient(clientId: number): Promise<ContactIdentityIndex> {
+  const [contacts, aliases] = await Promise.all([
+    db.select({ id: contactsTable.id, displayName: contactsTable.displayName })
+      .from(contactsTable)
+      .where(and(eq(contactsTable.clientId, clientId), eq(contactsTable.status, "active"))),
+    db.select({ contactId: contactAliasesTable.contactId, alias: contactAliasesTable.alias })
+      .from(contactAliasesTable)
+      .where(eq(contactAliasesTable.clientId, clientId)),
+  ]);
+  const byId = new Map<number, { displayName: string; aliases: string[] }>();
+  for (const contact of contacts) {
+    byId.set(contact.id, { displayName: contact.displayName, aliases: [] });
+  }
+  for (const alias of aliases) {
+    const entry = byId.get(alias.contactId);
+    if (entry) entry.aliases.push(alias.alias);
+  }
+  return { byId };
+}
+
+function parseAssistantPageContext(raw: unknown): AssistantPageContext | null {
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as Record<string, unknown>;
+  const selectedLineIds = Array.isArray(candidate.selectedLineIds)
+    ? candidate.selectedLineIds.filter((id): id is number => Number.isInteger(id) && id > 0)
+    : undefined;
+  const visibleLineIds = Array.isArray(candidate.visibleLineIds)
+    ? candidate.visibleLineIds.filter((id): id is number => Number.isInteger(id) && id > 0)
+    : undefined;
+  return {
+    route: typeof candidate.route === "string" ? candidate.route.slice(0, 200) : undefined,
+    selectedLineIds,
+    visibleLineIds,
+    statementLineSearch: typeof candidate.statementLineSearch === "string"
+      ? candidate.statementLineSearch.slice(0, 200)
+      : undefined,
+  };
+}
+
+function parseAIJsonContent(content: string): { answer?: unknown; recommendations?: unknown } {
+  const trimmed = content.trim();
+  const attempts = [
+    trimmed,
+    trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim() ?? "",
+  ];
+  const braceStart = trimmed.indexOf("{");
+  const braceEnd = trimmed.lastIndexOf("}");
+  if (braceStart >= 0 && braceEnd > braceStart) {
+    attempts.push(trimmed.slice(braceStart, braceEnd + 1));
+  }
+  for (const attempt of attempts) {
+    if (!attempt) continue;
+    try {
+      return JSON.parse(attempt) as { answer?: unknown; recommendations?: unknown };
+    } catch {
+      // try next candidate
+    }
+  }
+  return {};
+}
+
 function journalAccountsForSuggestion(direction: string, accountSuggestion: string) {
   return direction === "inflow"
     ? { debitAccount: "Bank / cash", creditAccount: accountSuggestion }
@@ -3186,8 +3263,15 @@ function descriptionScopeFromMessage(message: string) {
 }
 
 const merchantScopeFillerWords = new Set([
+  "account",
+  "accounts",
   "all",
   "approved",
+  "batch",
+  "can",
+  "chart",
+  "could",
+  "draft",
   "each",
   "every",
   "eligible",
@@ -3205,6 +3289,9 @@ const merchantScopeFillerWords = new Set([
   "posting",
   "review",
   "reviewing",
+  "selected",
+  "statement",
+  "statements",
   "suggested",
   "the",
   "these",
@@ -3213,23 +3300,37 @@ const merchantScopeFillerWords = new Set([
   "to",
   "transaction",
   "transactions",
+  "update",
+  "visible",
+  "would",
   "workspace",
+  "you",
 ]);
+
+type ContactIdentityIndex = {
+  byId: Map<number, { displayName: string; aliases: string[] }>;
+};
+
+function stripMerchantPhraseNoise(phrase: string) {
+  return phrase
+    .replace(/\b(?:journal\s+)?entries?\b/gi, " ")
+    .replace(/\btransactions?\b/gi, " ")
+    .replace(/\bstatement\s+lines?\b/gi, " ")
+    .replace(/\bstatements?\b/gi, " ")
+    .replace(/\blines?\b/gi, " ")
+    .replace(/\bpayments?\b/gi, " ")
+    .replace(/\b(?:charges?|expenses?|activity|transfers?)\b/gi, " ")
+    .replace(/\b(?:all|each|every|the|these|those|draft|approved|pending|suggested|eligible|posted|now|please|selected|visible|batch|update|chart|account|accounts)\b/gi, " ")
+    .replace(/\b(?:in|this|that|workspace|for|me|to|can|could|would|you)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function conciseMerchantScopesFromMessage(message: string) {
   const transitionPhrase = message.match(/\b(?:approve|approval|approving|post|posted|posting)\b\s+(.+?)(?:[.!?]|$)/i)?.[1];
   if (!transitionPhrase) return [];
 
-  const phrase = transitionPhrase
-    .replace(/\b(?:journal\s+)?entries?\b/gi, " ")
-    .replace(/\btransactions?\b/gi, " ")
-    .replace(/\blines?\b/gi, " ")
-    .replace(/\bpayments?\b/gi, " ")
-    .replace(/\b(?:charges?|expenses?|activity|transfers?)\b/gi, " ")
-    .replace(/\b(?:all|each|every|the|these|those|draft|approved|pending|suggested|eligible|posted|now|please)\b/gi, " ")
-    .replace(/\b(?:in|this|that|workspace|for|me|to)\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const phrase = stripMerchantPhraseNoise(transitionPhrase);
   if (!phrase) return [];
 
   const scopes = phrase
@@ -3240,17 +3341,82 @@ function conciseMerchantScopesFromMessage(message: string) {
   return [...new Set(scopes)];
 }
 
+function merchantScopesFromRecodeMessage(message: string) {
+  const forClause = message.match(/\b(?:for|of)\s+(.+?)\s+(?:to|as|into)\b/i)?.[1];
+  if (forClause) {
+    const scope = normalizeDescription(stripMerchantPhraseNoise(forClause));
+    if (scope.length >= 3) return [scope];
+  }
+  const contactClause = message.match(/\b(?:contact|merchant|vendor|supplier|customer)\b\s+["“']?(.+?)["”']?(?=\s+(?:to|as|into)\b|[.!?]|$)/i)?.[1];
+  if (contactClause) {
+    const scope = normalizeDescription(stripMerchantPhraseNoise(contactClause));
+    if (scope.length >= 3) return [scope];
+  }
+  return [];
+}
+
 function descriptionScopesFromMessage(message: string) {
   const explicitScope = descriptionScopeFromMessage(message);
-  return explicitScope ? [explicitScope] : conciseMerchantScopesFromMessage(message);
+  if (explicitScope) return [explicitScope];
+  const postScopes = conciseMerchantScopesFromMessage(message);
+  if (postScopes.length) return postScopes;
+  return merchantScopesFromRecodeMessage(message);
+}
+
+function significantScopeTokens(scope: string) {
+  return normalizeDescription(scope)
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !merchantScopeFillerWords.has(token.toLowerCase()));
+}
+
+function haystackMatchesMerchantScope(haystack: string, scope: string) {
+  const normalizedHaystack = normalizeDescription(haystack);
+  const normalizedScope = normalizeDescription(scope);
+  if (!normalizedHaystack || !normalizedScope) return false;
+  if (normalizedHaystack.includes(normalizedScope) || normalizedScope.includes(normalizedHaystack)) return true;
+  const tokens = significantScopeTokens(scope);
+  if (!tokens.length) return false;
+  const hitCount = tokens.filter((token) => normalizedHaystack.includes(token)).length;
+  if (tokens.length <= 2) return hitCount === tokens.length;
+  return hitCount >= Math.ceil(tokens.length * 0.6);
+}
+
+function lineIdentityHaystacks(
+  line: typeof statementLinesTable.$inferSelect,
+  contacts?: ContactIdentityIndex,
+) {
+  const contact = line.contactId != null ? contacts?.byId.get(line.contactId) : undefined;
+  return [
+    line.description,
+    line.proposedContactName,
+    line.proposedContactAlias,
+    contact?.displayName,
+    ...(contact?.aliases ?? []),
+  ].filter((value): value is string => Boolean(value && value.trim()));
 }
 
 function lineMatchesDescriptionScopes(
   line: typeof statementLinesTable.$inferSelect,
   descriptionScopes: string[],
+  contacts?: ContactIdentityIndex,
 ) {
-  return descriptionScopes.some((scope) => normalizeDescription(line.description).includes(scope));
+  const haystacks = lineIdentityHaystacks(line, contacts);
+  return descriptionScopes.some((scope) => haystacks.some((haystack) => haystackMatchesMerchantScope(haystack, scope)));
 }
+
+const chartAccountSynonyms: Array<{ pattern: RegExp; accountName: string }> = [
+  { pattern: /\b(?:transportation|transport|taxi|uber|careem|flight|airline|travel)\b/i, accountName: "Business travel" },
+  { pattern: /\b(?:entertainment|hospitality|meal|dinner|lunch)\b/i, accountName: "Entertainment & hospitality" },
+  { pattern: /\b(?:software|subscription|saas|hosting|adobe|microsoft|aws|azure)\b/i, accountName: "Software & subscriptions" },
+  { pattern: /\b(?:office|stationery|supplies)\b/i, accountName: "Office expenses" },
+  { pattern: /\b(?:telecom|internet|phone|mobile|communication)\b/i, accountName: "Communication expenses" },
+  { pattern: /\b(?:rent|lease)\b/i, accountName: "Rent expense" },
+  { pattern: /\b(?:salary|payroll|wages)\b/i, accountName: "Payroll" },
+  { pattern: /\b(?:bank\s+charge|bank\s+fee|commission)\b/i, accountName: "Bank charges" },
+  { pattern: /\b(?:revenue|sales|income)\b/i, accountName: "Revenue" },
+];
+
+type ChartAccountRef = { accountName: string; displayName: string; accountCode: string };
 
 function classificationAccountFromMessage(message: string, accountNames: Set<string>) {
   const normalized = message.toLowerCase();
@@ -3260,8 +3426,45 @@ function classificationAccountFromMessage(message: string, accountNames: Set<str
     ?? null;
 }
 
+function resolveChartAccountFromMessage(
+  message: string,
+  accounts: ChartAccountRef[],
+): { accountName: string; requestedLabel: string | null } | null {
+  const accountNames = new Set(accounts.map((account) => account.accountName));
+  const exact = classificationAccountFromMessage(message, accountNames);
+  if (exact) return { accountName: exact, requestedLabel: null };
+
+  const targetPhrase = message.match(/\b(?:to|as|into)\s+(.+?)(?:[.!?]|$)/i)?.[1]?.trim()
+    ?? message.match(/\b(?:account|chart account)\b\s+["“']?(.+?)["”']?(?:[.!?]|$)/i)?.[1]?.trim()
+    ?? null;
+  const searchText = targetPhrase ?? message;
+  const normalizedSearch = searchText.toLowerCase();
+
+  const byCode = accounts.find((account) => new RegExp(`\\b${escapeRegExp(account.accountCode.toLowerCase())}\\b`).test(normalizedSearch));
+  if (byCode) return { accountName: byCode.accountName, requestedLabel: targetPhrase };
+
+  const byName = accounts
+    .slice()
+    .sort((left, right) => right.displayName.length - left.displayName.length)
+    .find((account) =>
+      new RegExp(`\\b${escapeRegExp(account.accountName.toLowerCase())}\\b`).test(normalizedSearch)
+      || new RegExp(`\\b${escapeRegExp(account.displayName.toLowerCase())}\\b`).test(normalizedSearch));
+  if (byName) return { accountName: byName.accountName, requestedLabel: targetPhrase };
+
+  const synonymHits = chartAccountSynonyms
+    .filter((entry) => entry.pattern.test(searchText))
+    .map((entry) => entry.accountName)
+    .filter((accountName) => accountNames.has(accountName));
+  const uniqueHits = [...new Set(synonymHits)];
+  if (uniqueHits.length === 1) {
+    return { accountName: uniqueHits[0], requestedLabel: targetPhrase ?? uniqueHits[0] };
+  }
+  return null;
+}
+
 function asksForDescriptionClassification(message: string) {
   return /\b(?:classify|categorize|recode|reclassify)\b/i.test(message)
+    || /\b(?:batch\s+update|update\s+chart\s+account|change\s+account|set\s+account|code\s+as)\b/i.test(message)
     || /\b(?:must|should|need(?:s)?)\s+be\s+(?:classified|recorded|posted)\s+as\b/i.test(message);
 }
 
@@ -3274,44 +3477,86 @@ function asksForLedgerTransition(message: string, clientAccountNames: Set<string
   return /\b(?:approve|approval|approving|post|posted|posting)\b/i.test(withoutClassificationClause);
 }
 
+function nearbyContactHints(
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  contacts: ContactIdentityIndex | undefined,
+  scopes: string[],
+  limit = 3,
+) {
+  const hints = new Set<string>();
+  for (const line of lines) {
+    for (const haystack of lineIdentityHaystacks(line, contacts)) {
+      const tokens = significantScopeTokens(haystack);
+      if (scopes.some((scope) => significantScopeTokens(scope).some((token) => tokens.includes(token)))) {
+        hints.add(haystack.trim());
+      }
+    }
+    if (hints.size >= limit) break;
+  }
+  return [...hints].slice(0, limit);
+}
+
 function prepareDescriptionRecodeRecommendation(
   message: string,
   clientId: number,
   entries: Array<typeof journalEntriesTable.$inferSelect>,
   lines: Array<typeof statementLinesTable.$inferSelect>,
-  accountNames: Set<string>,
+  chartAccounts: ChartAccountRef[],
+  contacts?: ContactIdentityIndex,
 ): { recommendation?: AICopilotRecommendation; error?: string } | null {
   if (!asksForDescriptionClassification(message)) return null;
-  const descriptionScope = descriptionScopeFromMessage(message);
-  const accountSuggestion = classificationAccountFromMessage(message, accountNames);
-  if (!descriptionScope || !accountSuggestion) return null;
+  const descriptionScopes = descriptionScopesFromMessage(message);
+  const resolvedAccount = resolveChartAccountFromMessage(message, chartAccounts);
+  if (!descriptionScopes.length || !resolvedAccount) {
+    if (!descriptionScopes.length && asksForDescriptionClassification(message)) {
+      return { error: "I need a merchant or contact scope to recode. Say which contact or description to update, and which chart account to use." };
+    }
+    if (descriptionScopes.length && !resolvedAccount) {
+      return { error: `I found the merchant scope “${descriptionScopes.join("” / “")}”, but could not map the requested account onto this client’s chart. Name an existing account (for example Business travel) or a clear synonym like Transportation.` };
+    }
+    return null;
+  }
 
-  const matchingLines = lines.filter((line) =>
-    line.clientId === clientId
-      && line.status !== "posted"
-      && normalizeDescription(line.description).includes(descriptionScope),
+  const accountSuggestion = resolvedAccount.accountName;
+  const clientLines = lines.filter((line) => line.clientId === clientId);
+  const matchingLines = clientLines.filter((line) =>
+    lineMatchesDescriptionScopes(line, descriptionScopes, contacts),
   );
-  if (!matchingLines.length) {
-    return { error: `I could not find any unposted statement lines with a description matching “${descriptionScope}” in this client workspace.` };
+  const draftMatching = matchingLines.filter((line) => line.status !== "posted");
+  const postedMatching = matchingLines.filter((line) => line.status === "posted");
+  if (!draftMatching.length) {
+    const hints = nearbyContactHints(clientLines, contacts, descriptionScopes);
+    const hintText = hints.length ? ` Nearby identities include ${hints.map((hint) => `“${hint}”`).join(", ")}.` : "";
+    if (postedMatching.length) {
+      return { error: `I found ${postedMatching.length} posted line${postedMatching.length === 1 ? "" : "s"} matching “${descriptionScopes.join("” or “")}”, but no draft lines are eligible to recode.${hintText}` };
+    }
+    return { error: `I could not find any unposted statement lines matching “${descriptionScopes.join("” or “")}” by description or contact in this client workspace.${hintText}` };
   }
 
   const draftEntryLineIds = new Set(entries
     .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
     .map((entry) => entry.statementLineId));
-  const eligibleLines = matchingLines.filter((line) => draftEntryLineIds.has(line.id));
-  if (eligibleLines.length !== matchingLines.length) {
-    return { error: `I found ${matchingLines.length} matching transaction${matchingLines.length === 1 ? "" : "s"}, but only ${eligibleLines.length} are still draft and eligible to recode. Review posted items separately.` };
+  const eligibleLines = draftMatching.filter((line) => draftEntryLineIds.has(line.id));
+  if (!eligibleLines.length) {
+    return { error: `I found ${draftMatching.length} matching draft line${draftMatching.length === 1 ? "" : "s"}, but none have a draft journal entry eligible to recode.` };
   }
 
   const lineIds = eligibleLines.map((line) => line.id);
   const postingRequested = /\b(?:post|posted|posting)\b/.test(message);
+  const mappingNote = resolvedAccount.requestedLabel
+    && normalizeDescription(resolvedAccount.requestedLabel) !== normalizeDescription(accountSuggestion)
+    ? ` Mapped “${resolvedAccount.requestedLabel.trim()}” → ${accountSuggestion}.`
+    : "";
+  const postedNote = postedMatching.length
+    ? ` Left ${postedMatching.length} already-posted matching line${postedMatching.length === 1 ? "" : "s"} unchanged.`
+    : "";
   return {
     recommendation: {
       id: `recode-description-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
       clientId,
       type: "recode_lines",
-      title: `Classify ${lineIds.length} transaction${lineIds.length === 1 ? "" : "s"} as ${accountSuggestion}`,
-      summary: `Apply ${accountSuggestion} to draft transactions whose description contains “${descriptionScope}”.${postingRequested ? " Confirm this classification first, then request posting separately." : ""}`,
+      title: `Classify ${lineIds.length} draft line${lineIds.length === 1 ? "" : "s"} as ${accountSuggestion}`,
+      summary: `Apply ${accountSuggestion} to draft lines matching “${descriptionScopes.join("” or “")}” by description or contact.${mappingNote}${postedNote}${postingRequested ? " Confirm this classification first, then request posting separately." : ""}`,
       lineIds,
       accountSuggestion,
       confidence: 0.9,
@@ -3393,8 +3638,14 @@ function collectAICopilotRecommendations(
   pendingLines: Array<typeof statementLinesTable.$inferSelect>,
   clientId: number,
   accountNames: Set<string>,
+  draftEntries: Array<typeof journalEntriesTable.$inferSelect> = [],
 ): AICopilotRecommendation[] {
   const validLineIds = new Set(pendingLines.map((line) => line.id));
+  const draftEntryById = new Map(
+    draftEntries
+      .filter((entry) => journalLifecycleStatus(entry.status) === "draft")
+      .map((entry) => [entry.id, entry]),
+  );
   if (!Array.isArray(rawRecommendations)) return [];
   const recommendations: AICopilotRecommendation[] = [];
 
@@ -3419,6 +3670,33 @@ function collectAICopilotRecommendations(
         lineIds,
         accountSuggestion,
         confidence: Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : 0.75,
+        requiresConfirmation: true,
+      });
+    }
+
+    if (type === "bulk_post_entries") {
+      const entryIds = Array.isArray(candidate.entryIds)
+        ? [...new Set(candidate.entryIds.filter((id): id is number => typeof id === "number" && draftEntryById.has(id)))]
+        : [];
+      const statementLineIds = Array.isArray(candidate.statementLineIds)
+        ? [...new Set(candidate.statementLineIds.filter((id): id is number => typeof id === "number" && validLineIds.has(id)))]
+        : entryIds.map((id) => draftEntryById.get(id)!.statementLineId);
+      if (!entryIds.length || !statementLineIds.length) continue;
+      const matchedEntries = entryIds.map((id) => draftEntryById.get(id)!);
+      if (matchedEntries.some((entry) => !statementLineIds.includes(entry.statementLineId))) continue;
+      recommendations.push({
+        id: `bulk-post-${entryIds.join("-")}`,
+        clientId,
+        type,
+        title: safeText(candidate.title, `Post ${entryIds.length} journal ${entryIds.length === 1 ? "entry" : "entries"}`),
+        summary: safeText(candidate.summary, `Post the supplied draft journal entries after you confirm.`),
+        entryIds,
+        statementLineIds,
+        entryCount: entryIds.length,
+        lineCount: statementLineIds.length,
+        fromStatus: "draft",
+        toStatus: "posted",
+        statusTransition: { from: "draft", to: "posted" },
         requiresConfirmation: true,
       });
     }
@@ -3575,11 +3853,20 @@ function bulkStatusConflictError(
   return `I found ${count} ${noun}, but their statuses are ${statuses}. Ask me for a scope containing only draft entries before confirming.`;
 }
 
+type AssistantPageContext = {
+  route?: string;
+  selectedLineIds?: number[];
+  visibleLineIds?: number[];
+  statementLineSearch?: string;
+};
+
 function prepareBulkActionRecommendation(
   message: string,
   clientId: number,
   entries: Array<typeof journalEntriesTable.$inferSelect>,
   lines: Array<typeof statementLinesTable.$inferSelect>,
+  contacts?: ContactIdentityIndex,
+  pageContext?: AssistantPageContext | null,
 ): { recommendation?: AICopilotRecommendation; error?: string } | null {
   const normalized = message.toLowerCase();
   const asksToApprove = /\b(?:approve|approval|approving)\b/.test(normalized);
@@ -3594,6 +3881,7 @@ function prepareBulkActionRecommendation(
   const targetStatus = "posted";
   const allRequested = /\b(?:all|every|each)\b/.test(normalized);
   const draftRequested = /\b(?:draft|pending|review|reviewing|suggested|eligible)\b/.test(normalized);
+  const pageScoped = /\b(?:these|selected|visible|shown)\b/.test(normalized);
   const descriptionScopes = descriptionScopesFromMessage(message);
   const idMatches = normalized.match(/(?:\bje\b|\bjournal entries?\b|\bentries?\b)\s*(?:ids?\s*)?#?\s*\d+(?:\s*(?:,|and)\s*#?\s*\d+)*/g) ?? [];
   const requestedIds = [...new Set(idMatches.flatMap((match) => {
@@ -3603,7 +3891,19 @@ function prepareBulkActionRecommendation(
 
   let selectedEntries: Array<typeof journalEntriesTable.$inferSelect>;
   let scopeDescription: string;
-  if (allRequested) {
+  if (pageScoped && !descriptionScopes.length && !requestedIds.length && !allRequested) {
+    const pageLineIds = (pageContext?.selectedLineIds?.length
+      ? pageContext.selectedLineIds
+      : pageContext?.visibleLineIds) ?? [];
+    if (!pageLineIds.length) {
+      return { error: "I do not see any selected or visible statement lines on the current page. Select rows or open the Statement lines view, then ask again." };
+    }
+    const pageLineIdSet = new Set(pageLineIds);
+    selectedEntries = entries.filter((entry) => pageLineIdSet.has(entry.statementLineId));
+    scopeDescription = pageContext?.selectedLineIds?.length
+      ? "the selected statement lines"
+      : "the currently visible statement lines";
+  } else if (allRequested) {
     if (requestedIds.length || /\ball\s+clients?\b|\bother\s+client\b/.test(normalized)) {
       return { error: "I cannot safely infer a qualified bulk scope. Use “post all draft entries” or list specific journal entry IDs." };
     }
@@ -3613,11 +3913,11 @@ function prepareBulkActionRecommendation(
     selectedEntries = entries.filter((entry) =>
       (descriptionScopes.length ? true : effectiveEntryStatus(entry, lines) === "draft")
         && (!descriptionScopes.length || Boolean(lines.find((line) =>
-          line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes),
+          line.id === entry.statementLineId && lineMatchesDescriptionScopes(line, descriptionScopes, contacts),
         ))),
     );
     scopeDescription = descriptionScopes.length
-      ? `entries whose statement description contains “${descriptionScopes.join("” or “")}”`
+      ? `entries matching “${descriptionScopes.join("” or “")}” by description or contact`
       : "all draft entries";
     if (!descriptionScopes.length) {
       const tokens = normalized.match(/[a-z]+/g) ?? [];
@@ -3625,7 +3925,7 @@ function prepareBulkActionRecommendation(
         "please", "can", "could", "would", "you", "post", "posted", "posting",
         "all", "every", "each", "draft", "pending", "review", "reviewing", "suggested", "eligible",
         "journal", "entry", "entries", "the", "these", "those", "to", "now", "currently", "available",
-        "in", "this", "workspace", "for", "me",
+        "in", "this", "workspace", "for", "me", "statement", "statements", "lines", "line",
       ]);
       if (tokens.some((token) => !supportedScopeWords.has(token))) {
         return { error: "I cannot safely infer a qualified bulk scope. Use “post all draft entries” or say which statement description the entries must match." };
@@ -3640,14 +3940,18 @@ function prepareBulkActionRecommendation(
   } else if (descriptionScopes.length) {
     selectedEntries = entries.filter((entry) => {
       const line = lines.find((candidate) => candidate.id === entry.statementLineId);
-      return Boolean(line && lineMatchesDescriptionScopes(line, descriptionScopes));
+      return Boolean(line && lineMatchesDescriptionScopes(line, descriptionScopes, contacts));
     });
-    scopeDescription = `matching entries whose statement description contains “${descriptionScopes.join("” or “")}”`;
+    scopeDescription = `matching entries for “${descriptionScopes.join("” or “")}” by description or contact`;
   } else {
     const matchingEntries = entries.filter((entry) => {
       const entryMemo = entry.memo.toLowerCase();
       const line = lines.find((candidate) => candidate.id === entry.statementLineId);
-      return normalized.includes(entryMemo) || Boolean(line && normalized.includes(line.description.toLowerCase()));
+      return normalized.includes(entryMemo)
+        || Boolean(line && (
+          normalized.includes(line.description.toLowerCase())
+          || lineMatchesDescriptionScopes(line, [normalizeDescription(message)], contacts)
+        ));
     });
     if (matchingEntries.length !== 1) {
       return { error: "I need a clear scope. Say “post all draft entries” or name specific journal entry IDs." };
@@ -3657,7 +3961,9 @@ function prepareBulkActionRecommendation(
   }
 
   if (!selectedEntries.length && descriptionScopes.length) {
-    return { error: `I could not find any journal entries with a statement description matching “${descriptionScopes.join("” or “")}” in this client workspace.` };
+    const hints = nearbyContactHints(lines.filter((line) => line.clientId === clientId), contacts, descriptionScopes);
+    const hintText = hints.length ? ` Nearby identities include ${hints.map((hint) => `“${hint}”`).join(", ")}.` : "";
+    return { error: `I could not find any journal entries matching “${descriptionScopes.join("” or “")}” by description or contact in this client workspace.${hintText}` };
   }
   if (!selectedEntries.length) {
     return { error: "There are no eligible draft entries to post in that scope." };
@@ -4927,6 +5233,10 @@ function accountingFilters(
   if (minimum) filters.minAmount = Number(minimum.replaceAll(",", ""));
   if (maximum) filters.maxAmount = Number(maximum.replaceAll(",", ""));
   if (filters.currency) filters.currency = filters.currency.toUpperCase();
+  if (!filters.merchant) {
+    const merchantScopes = descriptionScopesFromMessage(message);
+    if (merchantScopes[0]) filters.merchant = merchantScopes[0];
+  }
   return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== undefined && value !== "")) as AccountingFilters;
 }
 
@@ -4952,7 +5262,11 @@ function lineMatchesAccountingFilters(
     && (!filters.status
       || journalLifecycleStatus(line.status) === filters.status
       || (entry && journalLifecycleStatus(entry.status) === filters.status))
-    && (!filters.merchant || line.description.toLowerCase().includes(filters.merchant.toLowerCase()))
+    && (!filters.merchant || [
+      line.description,
+      line.proposedContactName,
+      line.proposedContactAlias,
+    ].some((value) => value && haystackMatchesMerchantScope(value, filters.merchant!)))
     && (!filters.account || account.includes(filters.account.toLowerCase()));
 }
 
@@ -5351,6 +5665,10 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
     return;
   }
   const { clientId, message, threadId, filters: suppliedFilters } = parsedInput.data;
+  const pageContext = parseAssistantPageContext(
+    (parsedInput.data as { pageContext?: unknown }).pageContext
+      ?? (req.body as { pageContext?: unknown })?.pageContext,
+  );
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
   const existingThread = threadId ? await requireAssistantThread(req, res, threadId) : null;
@@ -5383,13 +5701,15 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
       updatedAt: new Date(),
     }).where(eq(assistantThreadsTable.id, thread.id));
   });
-  const [lines, entries, bankAccounts, imports, unfilteredWorkspacePatterns, clientAccountNames] = await Promise.all([
+  const [lines, entries, bankAccounts, imports, unfilteredWorkspacePatterns, clientAccountNames, chartAccounts, contactIndex] = await Promise.all([
     db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id)),
     db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id)),
     db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id)),
     db.select().from(statementImportsTable).where(eq(statementImportsTable.clientId, client.id)).orderBy(desc(statementImportsTable.createdAt)),
     getWorkspacePatterns(currentUserId(req)),
     activeClientAccountNames(client.id),
+    activeClientChartAccounts(client.id),
+    contactIdentityIndexForClient(client.id),
   ]);
   const workspacePatterns = unfilteredWorkspacePatterns
     .filter((pattern) => clientAccountNames.has(pattern.accountSuggestion));
@@ -5424,7 +5744,7 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
     await pruneAssistantTurns(thread.id);
     res.json(response);
   };
-  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines, clientAccountNames);
+  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines, chartAccounts, contactIndex);
   const asksToClassify = asksForDescriptionClassification(message);
   const asksToTransition = asksForLedgerTransition(message, clientAccountNames);
   if (asksToClassify && asksToTransition) {
@@ -5446,7 +5766,7 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
     });
     return;
   }
-  const bulkAction = prepareBulkActionRecommendation(message, clientId, entries, lines);
+  const bulkAction = prepareBulkActionRecommendation(message, clientId, entries, lines, contactIndex, pageContext);
   if (bulkAction?.error) {
     await sendChatResponse({
       answer: bulkAction.error,
@@ -5504,10 +5824,27 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
           content: JSON.stringify({
             client: { name: client.name, legalName: client.legalName, basis: client.basis, functionalCurrency: client.functionalCurrency, period: client.period },
             activeFilters,
+            pageContext,
             bankAccounts: bankAccounts.map(bankAccountResponse),
              reviewQueue: scopedLines.filter((line) => line.status !== "posted").map((line) => {
                const suggestion = lineSuggestions.get(line.id);
-               return { id: line.id, date: line.date, description: line.description, currency: line.currency, amount: line.amount, direction: line.direction, status: journalLifecycleStatus(line.status), accountSuggestion: suggestion?.accountSuggestion, suggestionSource: suggestion?.suggestionSource, supportingPatternCount: suggestion?.supportingPatternCount };
+               const contact = line.contactId != null ? contactIndex.byId.get(line.contactId) : undefined;
+               return {
+                 id: line.id,
+                 date: line.date,
+                 description: line.description,
+                 currency: line.currency,
+                 amount: line.amount,
+                 direction: line.direction,
+                 status: journalLifecycleStatus(line.status),
+                 accountSuggestion: suggestion?.accountSuggestion,
+                 suggestionSource: suggestion?.suggestionSource,
+                 supportingPatternCount: suggestion?.supportingPatternCount,
+                 proposedContactName: line.proposedContactName,
+                 proposedContactAlias: line.proposedContactAlias,
+                 contactName: contact?.displayName ?? line.proposedContactName ?? null,
+                 contactAliases: contact?.aliases ?? [],
+               };
              }),
              journalEntries: scopedEntries.filter((entry) => entry.status !== "posted").map((entry) => ({ id: entry.id, statementLineId: entry.statementLineId, date: entry.date, memo: entry.memo, currency: entry.currency, amount: entry.amount, status: journalLifecycleStatus(entry.status), debit: entry.debitAccount, credit: entry.creditAccount })),
             imports: imports.map((item) => ({ id: item.id, fileName: item.fileName, outcome: item.outcome, detectedCurrency: item.detectedCurrency, importedLineCount: item.importedLineCount, createdAt: item.createdAt })),
@@ -5519,8 +5856,14 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
       await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
       aiCompletionRecorded = true;
     }
-    const raw = JSON.parse(completion.content ?? "{}") as { answer?: unknown; recommendations?: unknown };
-      const recommendations = collectAICopilotRecommendations(raw.recommendations, pendingLines, clientId, clientAccountNames);
+    const raw = parseAIJsonContent(completion.content ?? "{}");
+      const recommendations = collectAICopilotRecommendations(
+        raw.recommendations,
+        pendingLines,
+        clientId,
+        clientAccountNames,
+        entries.filter((entry) => journalLifecycleStatus(entry.status) === "draft"),
+      );
       const learnedRecommendation = defaultAICopilotRecommendations(pendingLines, [], clientId, lineSuggestions)
         .find((recommendation) => recommendation.suggestionSource === "workspace_learning");
       if (learnedRecommendation && !recommendations.some((recommendation) => recommendation.suggestionSource === "workspace_learning")) {
@@ -8590,6 +8933,23 @@ router.patch("/agaraccounting/report-packs/:id", async (req, res) => {
   }).where(eq(reportPacksTable.id, pack.id)).returning();
   return res.json(UpdateReportPackResponse.parse(reportPackResponse(updated)));
 });
+
+async function deleteReportPackHandler(req: Request, res: Response) {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid report pack id." });
+  const [pack] = await db.select().from(reportPacksTable).where(eq(reportPacksTable.id, id)).limit(1);
+  if (!pack) return res.status(404).json({ error: "Report pack not found." });
+  const client = await requireOwnedClient(req, res, pack.clientId);
+  if (!client) return;
+  await db.delete(reportPacksTable).where(and(
+    eq(reportPacksTable.id, pack.id),
+    eq(reportPacksTable.clientId, client.id),
+  ));
+  return res.status(204).send();
+}
+
+router.post("/agaraccounting/report-packs/:id/delete", deleteReportPackHandler);
+router.delete("/agaraccounting/report-packs/:id", deleteReportPackHandler);
 
 router.get("/agaraccounting/report-packs/:id/pdf", async (req, res) => {
   const { id } = GetReportPackParams.parse({ id: Number(req.params.id) });

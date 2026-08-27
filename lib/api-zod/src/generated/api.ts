@@ -2081,6 +2081,12 @@ export const AskAgarAccountingAIBody = zod.object({
   "merchant": zod.string().optional(),
   "account": zod.string().optional(),
   "recordId": zod.number().optional()
+}).optional(),
+  "pageContext": zod.object({
+  "route": zod.string().optional(),
+  "selectedLineIds": zod.array(zod.number()).optional(),
+  "visibleLineIds": zod.array(zod.number()).optional(),
+  "statementLineSearch": zod.string().optional()
 }).optional()
 })
 
@@ -2878,6 +2884,13 @@ export const CreateReportPackResponse = zod.object({
  * @summary Get one saved report-pack snapshot
  */
 export const GetReportPackParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+/**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const DeleteReportPackParams = zod.object({
   "id": zod.coerce.number()
 })
 

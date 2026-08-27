@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "AgarAccounting AI",
+    "slug": "agaraccounting-ai",
+    "scheme": "agaraccounting",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.agaraccounting.ai"
+    },
+    "android": {
+      "package": "com.agaraccounting.ai",
+      "adaptiveIcon": {
+        "backgroundColor": "#F4EFDE"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

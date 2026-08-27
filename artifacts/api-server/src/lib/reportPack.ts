@@ -91,6 +91,212 @@ type AccountBalance = {
 };
 
 const expensePattern = /expense|cost|travel|software|office|communication|rent|payroll|wage|salary|charge|fee|marketing|insurance|depreciation/i;
+const ppePattern = /property|plant|equipment|ppe|fixed asset|depreciation|furniture|vehicle|computer equipment/i;
+const payrollPattern = /payroll|wage|salary|employee benefit|pension|gratuity|end of service/i;
+
+function reportDateLabel(value: string) {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+function reportMoneyLabel(value: number, currency: string) {
+  const absolute = Math.abs(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value < 0 ? `(${absolute}) ${currency}` : `${absolute} ${currency}`;
+}
+
+function joinLabels(labels: string[]) {
+  if (!labels.length) return "the posted ledger accounts";
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+function buildDefaultReportNotes(input: {
+  legalName: string;
+  periodEnd: string;
+  comparativePeriodEnd: string;
+  presentationCurrency: string;
+  reportingBasis: string;
+  presentationProfile: string;
+  isSme: boolean;
+  isIfrs18: boolean;
+  hasComparative: boolean;
+  cashCurrent: number;
+  cashComparative: number;
+  revenues: Array<{ label: string; current: number; comparative: number }>;
+  expenses: Array<{ label: string; current: number; comparative: number }>;
+  taxExpenses: Array<{ label: string; current: number; comparative: number }>;
+  relatedPartyBalances: Array<{ label: string; current: number; comparative: number }>;
+  hasForeignCurrency: boolean;
+}): ReportNote[] {
+  const currency = input.presentationCurrency;
+  const periodLabel = reportDateLabel(input.periodEnd);
+  const comparativeLabel = reportDateLabel(input.comparativePeriodEnd);
+  const framework = input.isSme ? "the IFRS for SMEs Accounting Standard" : input.reportingBasis === "IFRS" ? "International Financial Reporting Standards (IFRS)" : input.reportingBasis;
+  const presentation = input.isIfrs18
+    ? "These financial statements are presented using the IFRS 18 presentation profile."
+    : input.isSme
+      ? "These financial statements are presented under the IFRS for SMEs presentation profile."
+      : "These financial statements are presented using the IAS 1 presentation profile.";
+  const comparativeSentence = input.hasComparative
+    ? `Comparative information is presented for the year ended ${comparativeLabel}.`
+    : `Comparative figures for the year ended ${comparativeLabel} are presented as zero because no posted prior-period ledger activity is available in this workspace.`;
+  const revenueLabels = input.revenues.map((row) => row.label);
+  const expenseLabels = input.expenses.map((row) => row.label);
+  const taxLabels = input.taxExpenses.map((row) => row.label);
+  const relatedLabels = input.relatedPartyBalances.map((row) => row.label);
+  const revenueTotal = input.revenues.reduce((total, row) => total + row.current, 0);
+  const taxTotal = input.taxExpenses.reduce((total, row) => total + row.current, 0);
+
+  const revenuePolicy = input.isSme
+    ? "Revenue is recognised when the significant risks and rewards of the supply have transferred to the customer, the amount can be measured reliably, and collection is probable, consistent with Section 23."
+    : input.isIfrs18
+      ? "Revenue is recognised when control of goods or services transfers to the customer in an amount that reflects the consideration expected under the contract, and is presented within operating categories under IFRS 18."
+      : "Revenue is recognised when control of goods or services transfers to the customer in an amount that reflects the consideration expected under IFRS 15.";
+
+  return [
+    {
+      number: 1,
+      title: "Basis of preparation",
+      narrative: [
+        `These financial statements of ${input.legalName} have been prepared for the year ended ${periodLabel} in accordance with ${framework}.`,
+        presentation,
+        `They are presented in ${currency}, which is also the entity’s presentation currency for this report pack.`,
+        "Management has prepared the statements on a going-concern basis and has applied materiality when deciding which disclosures are necessary for an understanding of the financial position and performance.",
+        comparativeSentence,
+        "This pack is generated accounting output for management use and human review. It is not an audit opinion, statutory filing, tax return, or assurance conclusion.",
+      ].join(" "),
+      requiresInput: false,
+      tables: [],
+    },
+    {
+      number: 2,
+      title: "Material accounting policies",
+      narrative: [
+        "The following policies are the system defaults applied to the posted ledger for this reporting period.",
+        revenuePolicy,
+        `Foreign-currency transactions are translated into ${currency} using rates available in the workspace exchange-rate schedule on or before the transaction date.`,
+        "Cash and cash equivalents comprise bank and cash balances available on demand, excluding amounts management identifies as restricted.",
+        "Income-tax expense reflects amounts posted to tax accounts in the ledger for the period. Deferred-tax balances are recognised only when separately posted.",
+        "Expenses are recognised on an accrual basis as posted in the journal entries supporting this pack.",
+      ].join(" "),
+      requiresInput: false,
+      tables: [],
+    },
+    {
+      number: 3,
+      title: "Cash and cash equivalents",
+      narrative: [
+        `Cash and cash equivalents at ${periodLabel} amount to ${reportMoneyLabel(input.cashCurrent, currency)}.`,
+        "The balance is derived from posted cash and bank accounts in the client ledger.",
+        "Unless management records a restriction, these balances are treated as available on demand and are included in the statement of cash flows.",
+      ].join(" "),
+      requiresInput: false,
+      tables: [{ label: "Cash and bank balances", current: input.cashCurrent, comparative: input.cashComparative }],
+    },
+    {
+      number: 4,
+      title: "Revenue",
+      narrative: [
+        revenueLabels.length
+          ? `Revenue for the year ended ${periodLabel} totals ${reportMoneyLabel(revenueTotal, currency)} and is analysed as ${joinLabels(revenueLabels)}.`
+          : `No revenue accounts with posted balances were identified for the year ended ${periodLabel}.`,
+        revenuePolicy,
+        "Contract assets, contract liabilities, and remaining performance obligations are disclosed only when separately tracked in the ledger.",
+      ].join(" "),
+      requiresInput: false,
+      tables: input.revenues,
+    },
+    {
+      number: 5,
+      title: "Operating expenses",
+      narrative: [
+        expenseLabels.length
+          ? `Operating expenses are presented by nature from posted ledger accounts, including ${joinLabels(expenseLabels)}.`
+          : "No non-tax operating-expense accounts with posted balances were identified for the current period.",
+        "Amounts agree to the journal entries included in this report pack’s traceability set.",
+      ].join(" "),
+      requiresInput: false,
+      tables: input.expenses,
+    },
+    {
+      number: 6,
+      title: "Related parties",
+      narrative: relatedLabels.length
+        ? [
+          `Related-party balances recognised in the ledger comprise ${joinLabels(relatedLabels)}.`,
+          "Unless management records different terms, outstanding balances are unsecured, interest-free, and repayable on demand.",
+          "Key management compensation and other related-party transactions are disclosed when posted to related-party classified accounts.",
+        ].join(" ")
+        : "Management has not marked any posted ledger accounts as related-party balances for this period. No material related-party receivables or payables are therefore disclosed in the generated table.",
+      requiresInput: false,
+      tables: input.relatedPartyBalances,
+    },
+    {
+      number: 7,
+      title: "Income tax",
+      narrative: [
+        taxLabels.length
+          ? `Income-tax amounts posted for the year ended ${periodLabel} total ${reportMoneyLabel(taxTotal, currency)} and are analysed as ${joinLabels(taxLabels)}.`
+          : `No income-tax expense accounts with posted balances were identified for the year ended ${periodLabel}.`,
+        currency === "AED"
+          ? "Where UAE Corporate Tax estimates appear elsewhere in this pack, they are management estimates derived from mapped ledger activity and are not a filed tax return."
+          : "Current and deferred tax are recognised only to the extent posted in the ledger for this reporting period.",
+        "Uncertain tax positions and unused tax losses are disclosed only when separately identified by management in the books.",
+      ].join(" "),
+      requiresInput: false,
+      tables: input.taxExpenses,
+    },
+    {
+      number: 8,
+      title: "Financial risk, foreign currency and other disclosures",
+      narrative: [
+        input.hasForeignCurrency
+          ? `Some posted transactions were originated in currencies other than ${currency}. Those amounts are translated using workspace rates dated on or before each transaction.`
+          : `Posted activity included in this pack is presented in ${currency}. No material foreign-currency exposure was identified from the converted ledger set.`,
+        "Liquidity risk is managed by monitoring cash balances and payable obligations arising from posted bank activity.",
+        "Credit risk arises primarily from bank balances and any receivable balances posted in the ledger.",
+        input.isSme
+          ? "Material commitments, contingencies, and other Section 8 disclosures are stated as nil unless management records them in the ledger or edits this note."
+          : "Material commitments, contingencies, employee benefits, and significant judgments are stated as nil unless management records them in the ledger or edits this note.",
+      ].join(" "),
+      requiresInput: false,
+      tables: [],
+    },
+    {
+      number: 9,
+      title: "Subsequent events",
+      narrative: [
+        `Management is not aware of material non-adjusting events after ${periodLabel} through the authorization date recorded with this pack.`,
+        "If a material subsequent event arises before authorization, this note should be updated and the pack re-saved before finalization.",
+      ].join(" "),
+      requiresInput: false,
+      tables: [],
+    },
+  ];
+}
+
+function defaultChecklistStatus(standard: string, evidence: {
+  hasRevenue: boolean;
+  hasTax: boolean;
+  hasPpe: boolean;
+  hasPayroll: boolean;
+  hasRelatedParty: boolean;
+  hasForeignCurrency: boolean;
+}): ReportChecklistItem["status"] {
+  const key = standard.replace(/^Section\s+/i, "IAS ").replace(/^IFRS\s+/i, "IFRS ");
+  if (/^(IAS 1|IFRS 18|IAS 7|IAS 8|IAS 10)$/i.test(key) || standard === "IFRS 18") return "satisfied";
+  if (/IAS 12/i.test(key)) return evidence.hasTax ? "satisfied" : "not_applicable";
+  if (/IAS 16/i.test(key)) return evidence.hasPpe ? "satisfied" : "not_applicable";
+  if (/IAS 19/i.test(key)) return evidence.hasPayroll ? "satisfied" : "not_applicable";
+  if (/IAS 21/i.test(key)) return evidence.hasForeignCurrency ? "satisfied" : "not_applicable";
+  if (/IAS 24/i.test(key)) return evidence.hasRelatedParty ? "satisfied" : "not_applicable";
+  if (/IFRS 7|IFRS 9/i.test(key)) return "satisfied";
+  if (/IFRS 15|Section 23/i.test(standard) || /IFRS 15/i.test(key)) return evidence.hasRevenue ? "satisfied" : "not_applicable";
+  return "satisfied";
+}
+
 const defaultChecklist: Array<Omit<ReportChecklistItem, "status">> = [
   { standard: "IAS 1", title: "Presentation of Financial Statements", prompt: "Confirm the entity’s presentation, going-concern assessment, materiality, and comparative disclosures." },
   { standard: "IAS 7", title: "Statement of Cash Flows", prompt: "Confirm cash-equivalent policy and indirect cash-flow classification." },
@@ -371,7 +577,6 @@ export function buildReportPack(input: {
     reportAmount("Cash at end of year", cashCurrent, cashComparative, 3, cashSets.entries, comparativeCashSets.entries, cashSets.lines, comparativeCashSets.lines),
   ];
 
-  const relatedPartyBalances = values.filter((item) => item.meta.relatedParty);
   const profileStatementOfFinancialPosition = isIfrs18
     ? statementOfFinancialPosition.map((row) => row.label === "Current assets" ? { ...row, label: "Current operating assets" } : row)
     : statementOfFinancialPosition;
@@ -384,6 +589,41 @@ export function buildReportPack(input: {
     ? changesInEquity.filter((row) => row.label !== "Other comprehensive income")
     : changesInEquity;
   const profileCashFlows = cashFlows;
+
+  const relatedPartyBalances = values.filter((item) => item.meta.relatedParty);
+  const revenueNoteRows = revenues.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") }));
+  const expenseNoteRows = expenses.filter((item) => !item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") }));
+  const taxNoteRows = expenses.filter((item) => item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") }));
+  const relatedPartyNoteRows = relatedPartyBalances.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") }));
+  const hasForeignCurrency = input.entries.some((entry) => (entry.currency || input.presentationCurrency) !== input.presentationCurrency);
+  const hasPpe = values.some((item) => ppePattern.test(item.account) || ppePattern.test(item.meta.displayName));
+  const hasPayroll = values.some((item) => payrollPattern.test(item.account) || payrollPattern.test(item.meta.displayName));
+  const notes: ReportNote[] = buildDefaultReportNotes({
+    legalName: input.client.legalName,
+    periodEnd: periods.periodEnd,
+    comparativePeriodEnd: periods.comparativePeriodEnd,
+    presentationCurrency: input.presentationCurrency,
+    reportingBasis: input.reportingBasis,
+    presentationProfile: input.presentationProfile,
+    isSme,
+    isIfrs18,
+    hasComparative: comparativeEntries.length > 0,
+    cashCurrent,
+    cashComparative,
+    revenues: revenueNoteRows,
+    expenses: expenseNoteRows,
+    taxExpenses: taxNoteRows,
+    relatedPartyBalances: relatedPartyNoteRows,
+    hasForeignCurrency,
+  });
+  const checklistEvidence = {
+    hasRevenue: revenueNoteRows.some((row) => Math.abs(row.current) > 0.009 || Math.abs(row.comparative) > 0.009),
+    hasTax: taxNoteRows.some((row) => Math.abs(row.current) > 0.009 || Math.abs(row.comparative) > 0.009),
+    hasPpe,
+    hasPayroll,
+    hasRelatedParty: relatedPartyNoteRows.length > 0,
+    hasForeignCurrency,
+  };
   const profileChecklist = isSme
     ? defaultChecklist.filter((item) => !["IFRS 7", "IFRS 9", "IFRS 15"].includes(item.standard)).map((item) => ({
       ...item,
@@ -396,17 +636,10 @@ export function buildReportPack(input: {
         ? { ...item, standard: "IFRS 18", title: "Presentation and disclosure in financial statements", prompt: "Confirm operating, investing, financing, income-tax, and discontinued-operation categories, including management-defined performance measures." }
         : item)
       : defaultChecklist;
-  const notes: ReportNote[] = [
-    { number: 1, title: "Basis of preparation", narrative: isSme ? "Accountant input required: confirm the IFRS for SMEs basis, going-concern assessment, materiality, and authorization date." : "Accountant input required: confirm the basis of preparation, going-concern assessment, materiality, and authorization date.", requiresInput: true, tables: [] },
-    { number: 2, title: "Material accounting policies", narrative: isSme ? "Accountant input required: document the material accounting policies and simplifications applied under IFRS for SMEs." : "Accountant input required: document policies for revenue, foreign currency, financial instruments, taxes, and any other material transactions.", requiresInput: true, tables: [] },
-    { number: 3, title: "Cash and cash equivalents", narrative: "Cash is derived from posted cash and bank accounts. Confirm restricted cash and cash-equivalent classification.", requiresInput: true, tables: [{ label: "Cash and bank balances", current: cashCurrent, comparative: cashComparative }] },
-    { number: 4, title: "Revenue", narrative: isSme ? "Revenue is grouped from posted ledger accounts. Confirm the revenue policy and material contract balances under Section 23." : isIfrs18 ? "Revenue is grouped from posted ledger accounts. Confirm the operating-category presentation and material revenue disaggregation." : "Revenue is grouped from posted ledger accounts. Confirm revenue streams and IFRS 15 performance obligations.", requiresInput: true, tables: revenues.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
-    { number: 5, title: "Operating expenses", narrative: "Expense categories are traceable to posted journal entries. Confirm material expense disclosures.", requiresInput: true, tables: expenses.filter((item) => !item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
-    { number: 6, title: "Related parties", narrative: "Accountant input required: identify related parties, balances, transaction terms, and whether outstanding balances are unsecured.", requiresInput: true, tables: relatedPartyBalances.map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
-    { number: 7, title: "Income tax", narrative: "Accountant input required: assess current tax, deferred tax, tax losses, and uncertain tax positions. This pack is not a tax return.", requiresInput: true, tables: expenses.filter((item) => item.meta.tax).map((item) => ({ label: item.meta.displayName, current: accountValue(item, "current"), comparative: accountValue(item, "comparative") })) },
-    { number: 8, title: "Financial risk, foreign currency and other disclosures", narrative: isSme ? "Accountant input required: confirm material commitments, contingencies, foreign-currency exposure, and other Section 8 disclosures." : "Accountant input required: confirm foreign-currency risk, commitments, contingencies, employee benefits, and any significant judgments.", requiresInput: true, tables: [] },
-    { number: 9, title: "Subsequent events", narrative: "Accountant input required: record events after the reporting period through the authorization date.", requiresInput: true, tables: [] },
-  ];
+  const checklist: ReportChecklistItem[] = profileChecklist.map((item) => ({
+    ...item,
+    status: defaultChecklistStatus(item.standard, checklistEvidence),
+  }));
 
   const totalDebits = cumulativeCurrentEntries.reduce((total, entry) => total + convertedAmount(entry), 0);
   const totalCredits = totalDebits;
@@ -428,7 +661,7 @@ export function buildReportPack(input: {
     missingRateEntries: input.missingRateEntries,
     hasComparative: comparativeEntries.length > 0,
     notes,
-    checklist: profileChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
+    checklist,
   });
 
   const snapshot: ReportSnapshot = {
@@ -461,7 +694,7 @@ export function buildReportPack(input: {
     periods,
     snapshot,
     notes,
-    checklist: profileChecklist.map((item) => ({ ...item, status: "requires_accountant_input" as const })),
+    checklist,
     signatory: { preparedBy: "", reviewedBy: "", authorizedBy: "", authorizationDate: null } satisfies ReportSignatory,
     validation,
   };
@@ -495,8 +728,8 @@ export function buildReportValidation(input: {
     { id: "related-parties", label: "Related-party balances reconcile to due-from/due-to components", status: Math.abs(input.relatedPartyCurrent - input.relatedPartyComponentCurrent) <= tolerance ? "pass" : "error", detail: `Related-party balance ${input.relatedPartyCurrent.toFixed(2)}; component total ${input.relatedPartyComponentCurrent.toFixed(2)}.`, blocking: true },
     { id: "foreign-currency", label: "Foreign-currency conversion coverage", status: input.missingRateEntries.length ? "error" : "pass", detail: input.missingRateEntries.length ? `${input.missingRateEntries.length} posted entry or entries are missing a functional-currency rate.` : "All included posted entries have functional-currency coverage.", blocking: true },
     { id: "comparatives", label: "Comparative information", status: input.hasComparative ? "pass" : "warning", detail: input.hasComparative ? "Prior comparable period contains posted ledger data." : "No posted ledger data was found in the prior comparable period; comparative columns are visibly zero and cannot support finalization.", blocking: !input.hasComparative },
-    { id: "notes", label: "Required notes and disclosures", status: input.notes.some((note) => note.requiresInput) ? "error" : "pass", detail: input.notes.some((note) => note.requiresInput) ? "One or more notes still require accountant input." : "All required note inputs are confirmed.", blocking: true },
-    { id: "ifrs-checklist", label: "IFRS applicability and disclosure checklist", status: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "error" : "pass", detail: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "One or more IFRS checklist items require an accountant decision or confirmation." : "All checklist items are satisfied, immaterial, or not applicable.", blocking: true },
+    { id: "notes", label: "Required notes and disclosures", status: input.notes.some((note) => note.requiresInput || !note.narrative.trim()) ? "error" : "pass", detail: input.notes.some((note) => note.requiresInput || !note.narrative.trim()) ? "One or more notes still need owner review or disclosure wording." : "System-generated note wording is present for every required disclosure.", blocking: true },
+    { id: "ifrs-checklist", label: "IFRS applicability and disclosure checklist", status: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "error" : "pass", detail: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "One or more IFRS checklist items still need a final applicability decision." : "Checklist items are satisfied, immaterial, or not applicable based on ledger evidence and system defaults.", blocking: true },
   ];
   const errorCount = checks.filter((check) => check.blocking && check.status !== "pass").length;
   return { status: errorCount ? "blocked" : "pass", errorCount, checks };
@@ -506,13 +739,13 @@ export function finalizationValidation(previous: ReportValidation, notes: Report
   const checks = previous.checks.map((check) => ({ ...check }));
   const notesCheck = checks.find((check) => check.id === "notes");
   if (notesCheck) {
-    notesCheck.status = notes.some((note) => note.requiresInput) ? "error" : "pass";
-    notesCheck.detail = notesCheck.status === "pass" ? "All required note inputs are confirmed." : "One or more notes still require accountant input.";
+    notesCheck.status = notes.some((note) => note.requiresInput || !note.narrative.trim()) ? "error" : "pass";
+    notesCheck.detail = notesCheck.status === "pass" ? "System-generated note wording is present for every required disclosure." : "One or more notes still need owner review or disclosure wording.";
   }
   const checklistCheck = checks.find((check) => check.id === "ifrs-checklist");
   if (checklistCheck) {
     checklistCheck.status = checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "error" : "pass";
-    checklistCheck.detail = checklistCheck.status === "pass" ? "All checklist items are satisfied, immaterial, or not applicable." : "One or more IFRS checklist items require an accountant decision or confirmation.";
+    checklistCheck.detail = checklistCheck.status === "pass" ? "Checklist items are satisfied, immaterial, or not applicable based on ledger evidence and system defaults." : "One or more IFRS checklist items still need a final applicability decision.";
   }
   const errorCount = checks.filter((check) => check.blocking && check.status !== "pass").length;
   return { status: errorCount ? "blocked" : "pass", errorCount, checks } satisfies ReportValidation;

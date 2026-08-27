@@ -35,6 +35,7 @@ minimumReleaseAgeExclude:
   - stripe-replit-sync
 
 packages:
+  - apps/*
   - artifacts/*
   - lib/*
   - lib/integrations/*
@@ -66,6 +67,14 @@ catalog:
 
 autoInstallPeers: false
 
+# Some transitive dependencies (e.g. Solana wallet-adapter packages pulled in
+# by @clerk/clerk-js's optional wallet auth) have registry metadata missing
+# the "time" field pnpm needs to enforce minimumReleaseAge above, causing it
+# to refuse install rather than silently skip the check. Resolving to the
+# highest satisfying version avoids landing on those broken entries; it does
+# not weaken minimumReleaseAge itself.
+resolutionMode: highest
+
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
@@ -93,7 +102,7 @@ overrides:
   "esbuild>@esbuild/sunos-x64": "-"
   "esbuild>@esbuild/win32-arm64": "-"
   "esbuild>@esbuild/win32-ia32": "-"
-  "esbuild>@esbuild/win32-x64": "-"
+  # Keep win32-x64 available for local Windows API builds (Replit is Linux).
   "esbuild>@esbuild/aix-ppc64": '-'
   "esbuild>@esbuild/android-arm": '-'
   "esbuild>@esbuild/android-arm64": '-'
@@ -108,7 +117,7 @@ overrides:
   "lightningcss>lightningcss-linux-arm64-musl": "-"
   "lightningcss>lightningcss-linux-x64-musl": "-"
   "lightningcss>lightningcss-win32-arm64-msvc": "-"
-  "lightningcss>lightningcss-win32-x64-msvc": "-"
+  # Keep lightningcss-win32-x64-msvc for local Windows Vite/Tailwind (Replit is Linux).
   "@tailwindcss/oxide>@tailwindcss/oxide-android-arm64": "-"
   "@tailwindcss/oxide>@tailwindcss/oxide-darwin-arm64": "-"
   "@tailwindcss/oxide>@tailwindcss/oxide-darwin-x64": "-"
@@ -117,7 +126,7 @@ overrides:
   "@tailwindcss/oxide>@tailwindcss/oxide-linux-arm64-gnu": "-"
   "@tailwindcss/oxide>@tailwindcss/oxide-linux-arm64-musl": "-"
   "@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc": "-"
-  "@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc": "-"
+  # Keep win32-x64-msvc available for local Windows Vite/Tailwind (Replit is Linux).
   "@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl": "-"
   "rollup>@rollup/rollup-android-arm-eabi": "-"
   "rollup>@rollup/rollup-android-arm64": "-"
@@ -142,7 +151,7 @@ overrides:
   "rollup>@rollup/rollup-win32-arm64-msvc": "-"
   "rollup>@rollup/rollup-win32-ia32-msvc": "-"
   "rollup>@rollup/rollup-win32-x64-gnu": "-"
-  "rollup>@rollup/rollup-win32-x64-msvc": "-"
+  # Keep win32-x64-msvc available for local Windows Vite (Replit is Linux).
   "@expo/ngrok-bin>@expo/ngrok-bin-darwin-arm64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-darwin-x64": "-"
   "@expo/ngrok-bin>@expo/ngrok-bin-freebsd-ia32": "-"

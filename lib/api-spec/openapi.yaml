@@ -1583,6 +1583,35 @@ paths:
                 $ref: "#/components/schemas/ReportPack"
         "409":
           description: Finalization is blocked by validation or accountant inputs
+    delete:
+      operationId: deleteReportPack
+      tags: [agaraccounting]
+      summary: Delete a saved report-pack snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Report pack deleted
+        "404":
+          description: Report pack not found
+  /agaraccounting/report-packs/{id}/delete:
+    post:
+      operationId: deleteReportPackByPost
+      tags: [agaraccounting]
+      summary: Delete a saved report-pack snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "204":
+          description: Report pack deleted
+        "404":
+          description: Report pack not found
   /agaraccounting/report-packs/{id}/pdf:
     get:
       operationId: downloadReportPackPdf
@@ -2921,6 +2950,19 @@ components:
         threadId: { type: number }
         filters:
           $ref: "#/components/schemas/AIAccountingFilters"
+        pageContext:
+          $ref: "#/components/schemas/AIAssistantPageContext"
+    AIAssistantPageContext:
+      type: object
+      properties:
+        route: { type: string }
+        selectedLineIds:
+          type: array
+          items: { type: number }
+        visibleLineIds:
+          type: array
+          items: { type: number }
+        statementLineSearch: { type: string }
     AIChatResponse:
       type: object
       required: [answer, context, recommendations, threadId, results, citations]
