@@ -2279,6 +2279,7 @@ async function resolveContactSuggestion(
   ));
   let contact = explicitContactId == null ? null : contacts[0] ?? null;
   let matchConfidence = explicitContactId == null ? null : 1;
+  let matchReason: string | null = null;
 
   if (explicitContactId != null && !contact) {
     return {
@@ -2310,6 +2311,43 @@ async function resolveContactSuggestion(
       if (bestContactIds.length === 1) {
         contact = contacts.find((item) => item.id === bestContactIds[0]) ?? null;
         matchConfidence = contact ? 0.92 : null;
+        if (contact) matchReason = `Matched ${contact.displayName} from an existing client contact alias`;
+      }
+    }
+  }
+
+  if (!contact) {
+    const normalizedDescription = normalizeVendor(description);
+    if (normalizedDescription && isUsableContactIdentity(normalizedDescription)) {
+      const previouslyMappedLines = await executor.select({
+        contactId: statementLinesTable.contactId,
+        description: statementLinesTable.description,
+        status: statementLinesTable.status,
+        contactReviewDisposition: statementLinesTable.contactReviewDisposition,
+      }).from(statementLinesTable).where(and(
+        eq(statementLinesTable.clientId, clientId),
+        eq(statementLinesTable.direction, direction),
+        isNotNull(statementLinesTable.contactId),
+      ));
+      const priorContactIds = [...new Set(
+        previouslyMappedLines
+          .filter((item) =>
+            normalizeVendor(item.description) === normalizedDescription
+            && (
+              item.status === "posted"
+              || item.contactReviewDisposition === "accepted"
+              || item.contactReviewDisposition === "replaced"
+            ),
+          )
+          .map((item) => item.contactId)
+          .filter((contactId): contactId is number => contactId != null),
+      )];
+      if (priorContactIds.length === 1) {
+        contact = contacts.find((item) => item.id === priorContactIds[0]) ?? null;
+        matchConfidence = contact ? 0.96 : null;
+        if (contact) {
+          matchReason = `Matched ${contact.displayName} from a previous statement line with the same client narration`;
+        }
       }
     }
   }
@@ -2351,7 +2389,7 @@ async function resolveContactSuggestion(
       contactType: contact.contactType as ContactSuggestion["contactType"],
       contactMatchConfidence: matchConfidence,
       contactSuggestionStatus: "no_history",
-      contactSuggestionReason: `Matched ${contact.displayName}, but there is no approved or posted ${direction} history yet.`,
+      contactSuggestionReason: `${matchReason ?? `Matched ${contact.displayName}`}, but there is no approved or posted ${direction} history yet.`,
       proposedContactName: null,
       proposedContactType: null,
       proposedContactAlias: null,
@@ -2461,6 +2499,39 @@ async function materializeProposedContact(
 ) {
   if (line.contactId != null || line.contactReviewDisposition === "dismissed") {
     return { line, entry, createdContact: false };
+  }
+  if (!line.proposedContactName && !line.proposedContactAlias && !line.proposedContactType) {
+    const existingSuggestion = await resolveContactSuggestion(
+      tx,
+      line.clientId,
+      line.description,
+      line.direction,
+      null,
+      line,
+    );
+    if (existingSuggestion.contactId != null) {
+      const [linkedLine] = await tx.update(statementLinesTable).set({
+        contactId: existingSuggestion.contactId,
+        contactSuggestionEvidenceCount: existingSuggestion.accountSuggestion
+          ? existingSuggestion.supportingPatternCount
+          : null,
+      }).where(and(
+        eq(statementLinesTable.id, line.id),
+        eq(statementLinesTable.clientId, line.clientId),
+        isNull(statementLinesTable.contactId),
+      )).returning();
+      const [linkedEntry] = await tx.update(journalEntriesTable).set({
+        contactId: existingSuggestion.contactId,
+      }).where(and(
+        eq(journalEntriesTable.id, entry.id),
+        eq(journalEntriesTable.clientId, line.clientId),
+        isNull(journalEntriesTable.contactId),
+      )).returning();
+      if (!linkedLine || !linkedEntry) {
+        throw new ContactMaterializationError("The matched contact changed while posting. Refresh and review the entry.");
+      }
+      return { line: linkedLine, entry: linkedEntry, createdContact: false };
+    }
   }
   const displayName = line.proposedContactName?.trim().replace(/\s+/g, " ").slice(0, 160);
   const alias = line.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160);

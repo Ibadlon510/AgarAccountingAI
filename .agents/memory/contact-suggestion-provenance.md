@@ -14,3 +14,9 @@ Confirming a temporary contact proposal records the accountant's reviewed name, 
 **Why:** A collapsed editor and visible “Confirmed for posting” state make confirmation feel complete without creating unused contact profiles for entries that may never be posted.
 
 **How to apply:** After confirmation, hide the editor but keep the proposed identity and “creates on posting” status visible. Materialize the contact and classification evidence only inside the later posting transaction.
+
+Previously mapped statement narration may point to an existing contact only when the client-scoped match is unique, the contact remains active, the narration contains a usable identity, and the prior mapping was explicitly selected, accepted, or posted. Conflicting or unreviewed mappings must not auto-select a contact.
+
+**Why:** Reusing a reviewed mapping reduces repetitive contact work, but generic narrations and unreviewed inferred matches can otherwise spread an incorrect contact across unrelated transactions.
+
+**How to apply:** Prefer a safe existing match, let the accountant choose another active contact, and expose new-contact creation only as the final fallback. Revalidate the matched contact in the posting transaction.

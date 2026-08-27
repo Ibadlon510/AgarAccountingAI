@@ -39,7 +39,8 @@ type Contact = {
 };
 type Line = {
   id: number; contactId: number | null; contactName: string | null; accountSuggestion: string | null;
-  contactSuggestionStatus: string | null; supportingPatternCount: number; functionalAmount: number | null;
+  contactSuggestionStatus: string | null; contactSuggestionReason: string | null;
+  supportingPatternCount: number; functionalAmount: number | null;
   proposedContactName: string | null; proposedContactType: string | null; proposedContactAlias: string | null;
   proposedContactConfidence: number | null; proposedContactSource: string | null; contactReviewDisposition: string;
   contactDecisionState: "matched" | "named_proposal" | "needs_identification" | "dismissed";
@@ -194,6 +195,14 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   const listed = await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`, undefined, memberId);
   assert.equal(listed.response.status, 200);
   assert.equal(listed.body[0]?.id, contact.body.id);
+
+  const firstMappedNarration = await createLine("POS PAYMENT BLUE HARBOR STORE 1188");
+  const mappedNarration = await link(firstMappedNarration.id, contact.body.id);
+  assert.equal(mappedNarration.response.status, 200);
+  assert.equal(mappedNarration.body.contactId, contact.body.id);
+  const repeatedMappedNarration = await createLine("POS PAYMENT BLUE HARBOR STORE 7744");
+  assert.equal(repeatedMappedNarration.contactId, contact.body.id);
+  assert.equal(repeatedMappedNarration.contactDecisionState, "matched");
 
   const unidentifiedSupplier = await createLine("CARD PAYMENT 0000");
   assert.equal(unidentifiedSupplier.contactDecisionState, "needs_identification");
@@ -759,4 +768,59 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   const validDecisionStates = new Set(["matched", "named_proposal", "needs_identification", "dismissed"]);
   assert.ok(reviewLines.filter((line) => line.contactReviewDisposition !== "accepted" || line.contactId == null)
     .every((line) => validDecisionStates.has(line.contactDecisionState)));
+});
+
+test("reuses a prior client mapping for a legacy unresolved line at posting", async () => {
+  const created = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Legacy contact mapping ${randomUUID()}`,
+      legalName: "Legacy Contact Mapping LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "2026",
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  clientId = created.body.id;
+
+  const contact = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Harbor Retail",
+      legalName: "Harbor Retail LLC",
+      contactType: "supplier",
+      aliases: ["HARBOR RETAIL"],
+    }),
+  });
+  assert.equal(contact.response.status, 201);
+
+  const firstMappedNarration = await createLine("POS PAYMENT BLUE HARBOR STORE 1188");
+  assert.equal((await link(firstMappedNarration.id, contact.body.id)).response.status, 200);
+  const legacyLine = await createLine("POS PAYMENT BLUE HARBOR STORE 7744");
+  const legacyEntry = await entryFor(legacyLine.id);
+  await database.db.update(database.statementLinesTable).set({
+    contactId: null,
+    proposedContactName: null,
+    proposedContactAlias: null,
+    proposedContactType: null,
+    proposedContactConfidence: null,
+    proposedContactSource: null,
+    contactReviewDisposition: "pending",
+  }).where(eq(database.statementLinesTable.id, legacyLine.id));
+  await database.db.update(database.journalEntriesTable).set({
+    contactId: null,
+    status: "approved",
+  }).where(eq(database.journalEntriesTable.id, legacyEntry.id));
+
+  const displayedLegacyMatch = (await request<Line[]>(
+    `/agaraccounting/statement-lines?clientId=${clientId}`,
+  )).body.find((line) => line.id === legacyLine.id);
+  assert.equal(displayedLegacyMatch?.contactId, contact.body.id);
+  assert.match(displayedLegacyMatch?.contactSuggestionReason ?? "", /previous statement line/i);
+  assert.equal((await post(legacyEntry.id)).response.status, 200);
+  const [postedLegacyMatch] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, legacyLine.id));
+  assert.equal(postedLegacyMatch?.contactId, contact.body.id);
 });

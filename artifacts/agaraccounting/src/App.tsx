@@ -2159,6 +2159,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const [proposedContactType, setProposedContactType] = useState<'customer' | 'supplier' | 'both'>(
     line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'),
   );
+  const creatingNewContact = selectedContactId === '__new__';
   const likelyContactType = line.direction === 'inflow' ? 'customer' : 'supplier';
   const hasTemporaryProposal = line.contactDecisionState === 'named_proposal';
   const needsIdentification = line.contactDecisionState === 'needs_identification';
@@ -2169,7 +2170,10 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       : (line.proposedContactSource ?? 'Description').replaceAll('_', ' ');
   const needsContactConfirmation = needsIdentification
     || (line.contactDecisionState === 'named_proposal' && line.contactReviewDisposition !== 'accepted');
-  const showContactProposalEditor = needsIdentification || (hasTemporaryProposal && line.contactReviewDisposition !== 'accepted');
+  const contactSelectionRequiresReview = creatingNewContact || needsContactConfirmation;
+  const showContactProposalEditor = creatingNewContact
+    || needsIdentification
+    || (hasTemporaryProposal && line.contactReviewDisposition !== 'accepted');
   useEffect(() => {
     setSelectedContactId(line.contactId ? String(line.contactId) : '');
     setProposedContactName(line.proposedContactName ?? '');
@@ -2178,6 +2182,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   }, [line.contactId, line.proposedContactName, line.proposedContactAlias, line.proposedContactType, line.direction]);
 
   const handleLinkContact = () => {
+    if (creatingNewContact) return;
     linkContact.mutate({ id: line.id, data: {
       clientId: activeClient?.id ?? 0,
       contactId: selectedContactId ? Number(selectedContactId) : null,
@@ -2218,10 +2223,10 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     : !entry
       ? <span className="text-[11px] text-muted-foreground">{journalLoading ? 'Loading…' : 'Unavailable'}</span>
       : approved
-        ? needsContactConfirmation
+        ? contactSelectionRequiresReview
           ? <span data-testid={`contact-required-before-posting-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-destructive"><CircleAlert size={13} /> Contact needed</span>
           : <button data-testid={`button-post-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Posting…' : <><Check size={13} /> {hasTemporaryProposal ? 'Post & create' : 'Post'}</>}</button>
-        : needsContactConfirmation
+        : contactSelectionRequiresReview
           ? <span data-testid={`contact-required-before-approval-${line.id}`} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-destructive"><CircleAlert size={13} /> Identify contact</span>
           : <button data-testid={`button-approve-line-${line.id}`} onClick={(event) => { event.stopPropagation(); onApproveAndPost(entry); }} disabled={processing} className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{processing ? 'Approving…' : <><Check size={13} /> Approve</>}</button>;
 
@@ -2278,19 +2283,29 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
              <label className="block text-[11px] font-semibold">Contact
                <select data-testid={`select-contact-${line.id}`} disabled={!canEditContact || linkContact.isPending} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="mt-1.5 block h-9 min-w-[230px] rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
-                  <option value="">{hasTemporaryProposal ? 'Use temporary proposal' : needsIdentification ? `Identify ${likelyContactType} below` : 'No contact'}</option>
+                  <option value="">{hasTemporaryProposal ? 'Use confirmed proposal' : needsIdentification ? `Keep unlinked` : 'No contact'}</option>
                  {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
+                  <option value="__new__">Create a new contact</option>
                </select>
              </label>
-             {canEditContact && selectedContactId !== (line.contactId ? String(line.contactId) : '') && (
+              {canEditContact && !creatingNewContact && selectedContactId !== (line.contactId ? String(line.contactId) : '') && (
                <button data-testid={`button-update-contact-${line.id}`} onClick={handleLinkContact} disabled={linkContact.isPending} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-primary bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
                  <Check size={13} /> {selectedContactId === '' ? 'Keep unlinked' : 'Use existing contact'}
                </button>
              )}
            </div>
+            <p data-testid={`contact-selection-guidance-${line.id}`} className="mt-2 text-[10px] leading-4 text-muted-foreground">
+              {contactsQuery.isLoading
+                ? 'Checking this client’s existing contacts…'
+                : line.contactId && line.contactName
+                  ? `${line.contactName} is the current matched contact. Choose another active contact if needed.`
+                  : selectableContacts.length
+                    ? `Checked ${selectableContacts.length} existing contact${selectableContacts.length === 1 ? '' : 's'}. Select one, or create a new contact only if none fits.`
+                    : 'No existing active contacts are available. Create a new contact below or keep the line unlinked.'}
+            </p>
             {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className={`mt-3 rounded-md border p-3 ${needsIdentification ? 'border-destructive/25 bg-destructive/5' : 'border-accent/25 bg-accent/5'}`}>
              <div className="flex flex-wrap items-start justify-between gap-2">
-                 <div><div className="text-[11px] font-semibold">{needsIdentification ? `Identify the ${likelyContactType}` : 'Temporary contact proposal'}</div><p className="mt-1 text-[10px] text-muted-foreground">{needsIdentification ? `Enter the real ${likelyContactType} name and a statement alias, or select an existing contact above. Generic “Unknown” contacts will not be created.` : 'Review these client-scoped details. Confirming saves the proposal for posting; posting creates or reuses the matching profile.'}</p></div>
+                  <div><div className="text-[11px] font-semibold">{creatingNewContact ? 'Create a new contact on posting' : needsIdentification ? `Identify the ${likelyContactType}` : 'Temporary contact proposal'}</div><p className="mt-1 text-[10px] text-muted-foreground">{creatingNewContact ? 'Use this only after checking the existing-contact list. Confirming saves a client-scoped proposal; the contact is created or safely reused only when the entry is posted.' : needsIdentification ? `Enter the real ${likelyContactType} name and a statement alias, or select an existing contact above. Generic “Unknown” contacts will not be created.` : 'Review these client-scoped details. Confirming saves the proposal for posting; posting creates or reuses the matching profile.'}</p></div>
                 <span className={`rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${needsIdentification ? 'bg-destructive/10 text-destructive' : 'bg-accent/15 text-accent-foreground'}`}>{line.contactReviewDisposition === 'accepted' ? 'Accepted for posting' : needsIdentification ? 'Identity required' : 'Review pending'}</span>
              </div>
              <div className="mt-3 grid gap-2 md:grid-cols-3">
@@ -2323,7 +2338,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
           <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{(line as any).suggestionSource === 'workspace_learning' ? `This match is based on ${(line as any).supportingPatternCount} confirmed workspace pattern${(line as any).supportingPatternCount === 1 ? '' : 's'}—not another client's transaction details.` : 'Confirm this account or choose another one to improve future workspace suggestions.'}</p>
         </div>}
         <div className="mt-4 border-t border-border pt-4">
-          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : needsContactConfirmation ? `Identify and confirm the ${likelyContactType}, select an existing contact, or explicitly keep the line unlinked before posting.` : approved ? 'This entry is approved and ready to post. Use the Post action in the row above.' : 'Approval is required before this line can be posted. Use the Approve action in the row above.'}</p>
+          <p className="text-xs text-muted-foreground">{posted ? 'This reviewed line is posted and included in ledger reporting.' : contactSelectionRequiresReview ? `Identify and confirm the ${likelyContactType}, select an existing contact, or explicitly keep the line unlinked before posting.` : approved ? 'This entry is approved and ready to post. Use the Post action in the row above.' : 'Approval is required before this line can be posted. Use the Approve action in the row above.'}</p>
         </div>
         {actionError && <p className="mt-3 text-xs text-destructive">The journal entry could not be updated. Refresh this line and try again.</p>}
       </section>}
