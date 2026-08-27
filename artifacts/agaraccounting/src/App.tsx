@@ -67,6 +67,16 @@ const isDateInRange = (value: string, from: string, to: string) => {
   const day = value.slice(0, 10);
   return (!from || day >= from) && (!to || day <= to);
 };
+type SortDirection = 'asc' | 'desc';
+type StatementSortKey = 'date' | 'description' | 'contact' | 'account' | 'amount' | 'confidence' | 'status';
+type JournalSortKey = 'date' | 'memo' | 'currency' | 'amount' | 'confidence' | 'status';
+
+function SortControl({ label, column, activeColumn, direction, onSort, testId }: { label: string; column: string; activeColumn: string; direction: SortDirection; onSort: (column: string) => void; testId: string }) {
+  const active = column === activeColumn;
+  return <button data-testid={testId} type="button" aria-label={`Sort by ${label}`} aria-sort={active ? direction === 'asc' ? 'ascending' : 'descending' : 'none'} onClick={() => onSort(column)} className={`inline-flex items-center gap-1 rounded px-1 py-1 text-left transition-colors hover:bg-muted hover:text-foreground ${active ? 'text-foreground' : ''}`}>
+    <span>{label}</span><span aria-hidden="true" className="font-mono text-[10px] text-primary">{active ? direction === 'asc' ? '↑' : '↓' : '↕'}</span>
+  </button>;
+}
 const dashboardGreeting = (date: Date) => {
   const hour = date.getHours();
   const options = hour < 5
@@ -2019,6 +2029,7 @@ function StatementLinesPage() {
   const { activeClient } = useClientWorkspace();
   const [currency, setCurrency] = useState('all'); const [status, setStatus] = useState('all'); const [direction, setDirection] = useState<'all' | 'inflow' | 'outflow'>('all'); const [search, setSearch] = useState(''); const [addOpen, setAddOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState(''); const [dateTo, setDateTo] = useState('');
+  const [sortKey, setSortKey] = useState<StatementSortKey>('date'); const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [linePage, setLinePage] = useState(1);
   const [expandedLineId, setExpandedLineId] = useState<number | null>(null);
   const [selectedLineIds, setSelectedLineIds] = useState<number[]>([]);
@@ -2035,7 +2046,29 @@ function StatementLinesPage() {
   const bulkMutation = useConfirmAICopilotAction();
   const entriesByLine = useMemo(() => new Map((journalQuery.data ?? []).map((entry) => [entry.statementLineId, entry])), [journalQuery.data]);
   const bankAccountsById = useMemo(() => new Map((bankAccountsQuery.data ?? []).map((account) => [account.id, account])), [bankAccountsQuery.data]);
-  const rows = useMemo(() => (query.data ?? []).filter((line) => isDateInRange(line.date, dateFrom, dateTo) && `${line.description} ${line.accountSuggestion ?? ''}`.toLowerCase().includes(search.toLowerCase())), [query.data, search, dateFrom, dateTo]);
+  const rows = useMemo(() => {
+    const filtered = (query.data ?? []).filter((line) => isDateInRange(line.date, dateFrom, dateTo) && `${line.description} ${line.accountSuggestion ?? ''}`.toLowerCase().includes(search.toLowerCase()));
+    return [...filtered].sort((left, right) => {
+      const leftValue = sortKey === 'date' ? left.date
+        : sortKey === 'description' ? left.description
+          : sortKey === 'contact' ? left.contactName ?? ''
+            : sortKey === 'account' ? left.accountSuggestion ?? ''
+              : sortKey === 'amount' ? left.amount
+                : sortKey === 'confidence' ? left.confidence ?? -1
+                  : left.status;
+      const rightValue = sortKey === 'date' ? right.date
+        : sortKey === 'description' ? right.description
+          : sortKey === 'contact' ? right.contactName ?? ''
+            : sortKey === 'account' ? right.accountSuggestion ?? ''
+              : sortKey === 'amount' ? right.amount
+                : sortKey === 'confidence' ? right.confidence ?? -1
+                  : right.status;
+      const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
+        ? leftValue - rightValue
+        : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' });
+      return (comparison || left.id - right.id) * (sortDirection === 'asc' ? 1 : -1);
+    });
+  }, [query.data, search, dateFrom, dateTo, sortKey, sortDirection]);
   const linePageCount = Math.max(1, Math.ceil(rows.length / STATEMENT_LINES_PAGE_SIZE));
   const currentLinePage = Math.min(linePage, linePageCount);
   const visibleRows = rows.slice((currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE, currentLinePage * STATEMENT_LINES_PAGE_SIZE);
@@ -2073,7 +2106,7 @@ function StatementLinesPage() {
   }, [rows, activeClient?.id]);
   useEffect(() => {
     setLinePage(1);
-  }, [activeClient?.id, currency, status, direction, search, dateFrom, dateTo]);
+  }, [activeClient?.id, currency, status, direction, search, dateFrom, dateTo, sortKey, sortDirection]);
   useEffect(() => {
     if (linePage > linePageCount) setLinePage(linePageCount);
   }, [linePage, linePageCount]);
@@ -2133,6 +2166,14 @@ function StatementLinesPage() {
     });
   };
   const toggleLineSelection = (lineId: number) => setSelectedLineIds((current) => current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]);
+  const sortStatementLines = (column: string) => {
+    const nextColumn = column as StatementSortKey;
+    if (nextColumn === sortKey) setSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
+    else {
+      setSortKey(nextColumn);
+      setSortDirection('asc');
+    }
+  };
   return <div>
     <PageHeading eyebrow="Evidence review / bank activity" title="Statement lines" description="Start with the source. Review each movement, inspect its linked draft journal entry, then post only the entries you stand behind." action={<button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>} />
      <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card p-3 md:flex-row md:items-end">
@@ -2144,7 +2185,7 @@ function StatementLinesPage() {
       <div className="overflow-hidden rounded-lg border border-card-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div>
         {selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue ? 'text-destructive' : 'text-muted-foreground'}`}>{selectionIssue ?? 'Draft entries selected · recoding and posting are available.'}</p></div>}
-        <div className="overflow-x-auto"><table className="w-full min-w-[1100px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium">Date</th><th className="w-[280px] px-4 py-3 font-medium">Source description</th><th className="w-[160px] px-4 py-3 font-medium">Contact</th><th className="w-[180px] px-4 py-3 font-medium">Suggested account</th><th className="w-[130px] px-4 py-3 font-medium">Amount</th><th className="w-[100px] px-4 py-3 font-medium">Confidence</th><th className="w-[100px] px-4 py-3 font-medium">Status</th><th className="w-[120px] px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || confirmClassification.isPending && confirmClassification.variables?.data.lineIds?.includes(line.id) || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={post.isError || unpost.isError || confirmClassification.isError || bulkMutation.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onApproveAndPost={postEntry} onPost={postEntry} onUnpost={unpostEntry} onConfirmClassification={confirmClassificationForLine} />)}</tbody></table></div>
+         <div className="overflow-x-auto"><table className="w-full min-w-[1100px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[280px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[120px] px-5 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || confirmClassification.isPending && confirmClassification.variables?.data.lineIds?.includes(line.id) || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={post.isError || unpost.isError || confirmClassification.isError || bulkMutation.isError} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onApproveAndPost={postEntry} onPost={postEntry} onUnpost={unpostEntry} onConfirmClassification={confirmClassificationForLine} />)}</tbody></table></div>
         {rows.length > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, rows.length)} of {rows.length} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
       </div>
     </QueryState>
@@ -2379,7 +2420,38 @@ function JournalEntriesPage() {
   const [selected, setSelected] = useState<number | null>(null);
   const [filter, setFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState(''); const [dateTo, setDateTo] = useState('');
-  const filtered = useMemo(() => entries.filter((item) => (filter === 'all' || item.status.toLowerCase() === filter) && isDateInRange(item.date, dateFrom, dateTo)), [entries, filter, dateFrom, dateTo]);
+  const [sortKey, setSortKey] = useState<JournalSortKey>('date'); const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const filtered = useMemo(() => {
+    const matching = entries.filter((item) => (filter === 'all' || item.status.toLowerCase() === filter) && isDateInRange(item.date, dateFrom, dateTo));
+    return [...matching].sort((left, right) => {
+      const leftAmount = left.lines.reduce((sum, line) => sum + Math.max(line.debit, line.credit), 0);
+      const rightAmount = right.lines.reduce((sum, line) => sum + Math.max(line.debit, line.credit), 0);
+      const leftValue = sortKey === 'date' ? left.date
+        : sortKey === 'memo' ? left.memo
+          : sortKey === 'currency' ? left.currency
+            : sortKey === 'amount' ? leftAmount
+              : sortKey === 'confidence' ? left.confidence
+                : left.status;
+      const rightValue = sortKey === 'date' ? right.date
+        : sortKey === 'memo' ? right.memo
+          : sortKey === 'currency' ? right.currency
+            : sortKey === 'amount' ? rightAmount
+              : sortKey === 'confidence' ? right.confidence
+                : right.status;
+      const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
+        ? leftValue - rightValue
+        : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' });
+      return (comparison || left.id - right.id) * (sortDirection === 'asc' ? 1 : -1);
+    });
+  }, [entries, filter, dateFrom, dateTo, sortKey, sortDirection]);
+  const sortJournalEntries = (column: string) => {
+    const nextColumn = column as JournalSortKey;
+    if (nextColumn === sortKey) setSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
+    else {
+      setSortKey(nextColumn);
+      setSortDirection('asc');
+    }
+  };
   const refreshJournalData = () => {
     queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
@@ -2395,7 +2467,7 @@ function JournalEntriesPage() {
   };
   return <div>
     <PageHeading eyebrow="Decision layer / AI proposals" title="Journal entries" description="Review each draft double-entry, trace it back to its source line, and post only entries that make sense." action={<div className="flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 py-2 text-[11px] text-accent-foreground"><Sparkles size={14} /> AI prepared · human posted</div>} />
-     <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card px-4 py-3 md:flex-row md:items-end md:justify-between"><div className="flex items-center gap-2"><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-draft-entries" onClick={() => setFilter('draft')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'draft' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Draft</button><button data-testid="button-filter-posted-entries" onClick={() => setFilter('posted')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'posted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Posted</button></div><DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-journal-entries-date-from" toTestId="input-journal-entries-date-to" clearTestId="button-clear-journal-entries-date-filter" /><span className="font-mono text-[10px] text-muted-foreground">Showing {filtered.length} source-linked {filtered.length === 1 ? 'posting' : 'postings'}</span></div>
+     <div className="mb-4 flex flex-col gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><button data-testid="button-filter-all-entries" onClick={() => setFilter('all')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'all' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>All <span className="ml-1 font-mono text-[10px]">{entries.length}</span></button><button data-testid="button-filter-draft-entries" onClick={() => setFilter('draft')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'draft' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Draft</button><button data-testid="button-filter-posted-entries" onClick={() => setFilter('posted')} className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === 'posted' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}>Posted</button></div><span className="font-mono text-[10px] text-muted-foreground">Showing {filtered.length} source-linked {filtered.length === 1 ? 'posting' : 'postings'}</span></div><div className="flex flex-wrap items-end justify-between gap-3 border-t border-border pt-3"><div className="flex flex-wrap items-center gap-1" role="group" aria-label="Sort journal entries"><span className="mr-1 text-[10px] font-mono uppercase tracking-[.12em] text-muted-foreground">Sort columns</span><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-date" /><SortControl label="Entry" column="memo" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-memo" /><SortControl label="Currency" column="currency" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-currency" /><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-amount" /><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-confidence" /><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortJournalEntries} testId="button-sort-journal-entries-status" /></div><DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-journal-entries-date-from" toTestId="input-journal-entries-date-to" clearTestId="button-clear-journal-entries-date-filter" /></div></div>
     <QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onPost={() => postEntry(entry)} onUnpost={() => unpostEntry(entry)} posting={post.isPending && post.variables?.id === entry.id} unposting={unpost.isPending && unpost.variables?.id === entry.id} />)}</div></QueryState>
   </div>;
 }
