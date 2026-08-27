@@ -814,8 +814,8 @@ export function AssistantFAB() {
 
   const containerClasses = isOpen
     ? isExpanded
-      ? "fixed inset-0 md:inset-6 z-50 flex overflow-hidden flex-col md:flex-row bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
-      : "fixed inset-0 md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[380px] md:h-[600px] md:max-h-[calc(100dvh-120px)] z-50 flex flex-col overflow-hidden bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
+      ? "fixed inset-0 md:inset-6 z-50 flex min-h-0 overflow-hidden flex-col md:flex-row bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
+      : "fixed inset-0 md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[380px] md:h-[600px] md:max-h-[calc(100dvh-120px)] z-50 flex min-h-0 flex-col overflow-hidden bg-card border border-border shadow-2xl transition-all page-enter md:rounded-xl"
     : "hidden";
 
   const showSidebar = isExpanded || view === 'history';
@@ -932,7 +932,7 @@ export function AssistantFAB() {
         </div>
 
         {/* Chat Area */}
-        <div className={`min-w-0 flex flex-col bg-card ${isExpanded ? 'flex-1' : 'w-full flex-1'} ${!showChat ? 'hidden' : ''}`}>
+        <div className={`min-w-0 min-h-0 flex flex-col bg-card ${isExpanded ? 'flex-1' : 'w-full flex-1'} ${!showChat ? 'hidden' : ''}`}>
 
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shrink-0 h-[57px]">
@@ -1029,7 +1029,7 @@ export function AssistantFAB() {
           )}
 
           {/* Messages */}
-          <div ref={scrollRef} className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-4 space-y-5">
+          <div ref={scrollRef} className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-muted/20 p-4 space-y-5">
             {backgroundWorkCount > 0 && (
               <div className="mx-auto max-w-fit rounded-full bg-primary/10 border border-primary/20 px-3 py-1 text-[10px] font-medium text-primary flex items-center gap-2">
                 <Loader2 size={12} className="animate-spin" />
@@ -1048,7 +1048,7 @@ export function AssistantFAB() {
             ) : (!activeThreadId && displayTurns.length === 0) ? (
               <EmptyState
                 onSelect={(prompt) => {
-                  handleSend(prompt);
+                  setInput(prompt);
                   setTimeout(() => composerRef.current?.focus(), 0);
                 }}
                 onImport={() => fileInputRef.current?.click()}
