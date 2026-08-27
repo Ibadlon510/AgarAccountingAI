@@ -178,6 +178,10 @@ overrides:
   # Keep all build tools on the patched esbuild release.
   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
   esbuild: "0.28.2"
+  # Expo 52's CLI requests deprecated tar 6.x, which Replit's package firewall
+  # rejects during a clean publish install. tar 7 retains the CLI API used by
+  # cacache while avoiding the blocked legacy tarball.
+  tar: "7.5.22"
   # These parent packages still request vulnerable legacy releases.
   "brace-expansion@5.0.8": "5.0.9"
   "fast-uri@3.1.4": "3.1.6"
