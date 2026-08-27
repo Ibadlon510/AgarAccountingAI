@@ -26,7 +26,19 @@ type ImportResult = {
     existingLineId: number | null;
     reason: "already_imported" | "duplicate_in_file";
   }>;
-  lines: Array<{ id: number; bankAccountId: number | null; currency: string }>;
+  lines: Array<{
+    id: number;
+    bankAccountId: number | null;
+    currency: string;
+    proposedContactName?: string | null;
+    proposedContactAlias?: string | null;
+    proposedContactConfidence?: number | null;
+    proposedContactSource?: string | null;
+    contactDecisionState?: string;
+    contactId?: number | null;
+    contactName?: string | null;
+    contactSuggestionStatus?: string | null;
+  }>;
   bankAccount?: {
     id: number;
     clientId: number;
@@ -124,6 +136,51 @@ function openAIResult(marker: string) {
     return {
       bankAccount: null,
       lines: [{ date: "2026-08-27", description: "Client isolation payment", amount: 400, direction: "outflow", currency: "AED" }],
+    };
+  }
+  if (marker.includes("counterparty-ai")) {
+    return {
+      bankAccount: null,
+      lines: [{
+        date: "2026-08-27",
+        description: "Visa Purchase Circle Espergerde Dkk Susanne Chris Aed",
+        amount: 425,
+        direction: "outflow",
+        currency: "AED",
+        counterpartyName: "Circle Espergerde",
+        counterpartyAlias: "Circle Espergerde",
+        counterpartyConfidence: 0.93,
+      }],
+    };
+  }
+  if (marker.includes("counterparty-invalid")) {
+    return {
+      bankAccount: null,
+      lines: [{
+        date: "2026-08-27",
+        description: "CARD PAYMENT INV-123 2026-08-27 AED",
+        amount: 99,
+        direction: "outflow",
+        currency: "AED",
+        counterpartyName: "INV",
+        counterpartyAlias: "INV",
+        counterpartyConfidence: 0.99,
+      }],
+    };
+  }
+  if (marker.includes("counterparty-existing-alias")) {
+    return {
+      bankAccount: null,
+      lines: [{
+        date: "2026-08-27",
+        description: "ACME PAYMENTS",
+        amount: 150,
+        direction: "outflow",
+        currency: "AED",
+        counterpartyName: "Acme",
+        counterpartyAlias: "Acme",
+        counterpartyConfidence: 0.9,
+      }],
     };
   }
   return {
@@ -349,6 +406,71 @@ test("reports an exact file re-upload without adding review lines", async () => 
   assert.deepEqual(duplicate.body.duplicateLines, []);
   assert.deepEqual(duplicate.body.lines, []);
   assert.equal((await statementLines(clientId)).length, 1);
+});
+
+test("uses a grounded AI counterparty while preserving a provisional review decision", async () => {
+  const clientId = await createClient(`AI counterparty ${randomUUID()}`);
+  const imported = await importStatement(clientId, "counterparty-ai.csv", "counterparty-ai");
+  assert.equal(imported.response.status, 201);
+  assert.equal(imported.body.importedCount, 1);
+  assert.equal(imported.body.lines[0]?.proposedContactName, "Circle Espergerde");
+  assert.equal(imported.body.lines[0]?.proposedContactAlias, "Circle Espergerde");
+  assert.equal(imported.body.lines[0]?.proposedContactConfidence, 0.93);
+  assert.equal(imported.body.lines[0]?.proposedContactSource, "ai_counterparty_extraction");
+  assert.equal(imported.body.lines[0]?.contactDecisionState, "named_proposal");
+});
+
+test("rejects reference fragments from AI and deterministic counterparty extraction", async () => {
+  const clientId = await createClient(`Rejected counterparty ${randomUUID()}`);
+  const imported = await importStatement(clientId, "counterparty-invalid.csv", "counterparty-invalid");
+  assert.equal(imported.response.status, 201);
+  assert.equal(imported.body.lines[0]?.proposedContactName, null);
+  assert.equal(imported.body.lines[0]?.proposedContactAlias, null);
+  assert.equal(imported.body.lines[0]?.proposedContactSource, null);
+  assert.equal(imported.body.lines[0]?.contactDecisionState, "needs_identification");
+});
+
+test("keeps existing alias precedence consistent from import preview through confirmation", async () => {
+  const clientId = await createClient(`Existing alias preview ${randomUUID()}`);
+  const contact = await request<{ id: number; displayName: string }>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Acme Supplies",
+      legalName: "Acme Supplies LLC",
+      contactType: "supplier",
+      aliases: ["ACME PAYMENTS"],
+    }),
+  });
+  assert.equal(contact.response.status, 201);
+
+  const previewRequest = JSON.parse(
+    await importBody(clientId, "counterparty-existing-alias.csv", "counterparty-existing-alias"),
+  ) as Record<string, unknown>;
+  previewRequest.confirmed = false;
+  const preview = await request<ImportResult>("/agaraccounting/import-statement", {
+    method: "POST",
+    body: JSON.stringify(previewRequest),
+  });
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.lines[0]?.contactId, contact.body.id);
+  assert.equal(preview.body.lines[0]?.contactName, "Acme Supplies");
+  assert.equal(preview.body.lines[0]?.contactDecisionState, "matched");
+  assert.equal(preview.body.lines[0]?.proposedContactName, null);
+
+  const confirmed = await request<ImportResult>("/agaraccounting/import-statement", {
+    method: "POST",
+    body: JSON.stringify({
+      ...previewRequest,
+      confirmed: true,
+      pendingImportId: preview.body.importId,
+    }),
+  });
+  assert.equal(confirmed.response.status, 201);
+  assert.equal(confirmed.body.lines[0]?.contactId, contact.body.id);
+  assert.equal(confirmed.body.lines[0]?.contactName, "Acme Supplies");
+  assert.equal(confirmed.body.lines[0]?.contactDecisionState, "matched");
+  assert.equal(confirmed.body.lines[0]?.proposedContactName, null);
 });
 
 test("undoes only a review-only import, preserves evidence and audit IDs, and is idempotent", async () => {
@@ -1194,6 +1316,15 @@ test("keeps workspace AI credentials redacted, isolated, rotatable, and routes e
   });
   assert.equal(invalidTest.response.status, 502);
   assert.match(invalidTest.body.error, /credential was rejected/i);
+
+  const fallbackImport = await importStatement(
+    primaryClientId,
+    "counterparty-fallback.csv",
+    "Visa Purchase Circle Espergerde Dkk Susanne Chris Aed",
+  );
+  assert.equal(fallbackImport.response.status, 201);
+  assert.equal(fallbackImport.body.lines[0]?.proposedContactName, "Circle Espergerde");
+  assert.equal(fallbackImport.body.lines[0]?.proposedContactSource, "heuristic_description");
 
   const removed = await request<{ provider: string; credentialLast4: string | null }>("/agaraccounting/ai-settings/credential", {
     method: "DELETE",

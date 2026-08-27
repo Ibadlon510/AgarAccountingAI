@@ -1911,8 +1911,37 @@ const vendorNoiseWords = new Set([
   "payout", "payment", "payments", "ref", "reference", "transaction", "uae",
 ]);
 const contactIdentityNoiseWords = new Set([
-  "card", "cash", "customer", "deposit", "merchant", "misc", "miscellaneous",
-  "pos", "purchase", "supplier", "transfer", "unknown", "unnamed", "vendor", "withdrawal",
+  "account", "ae", "aed", "amex", "apple", "atm", "bank", "card", "cash", "charge",
+  "charges", "co", "company", "credit", "customer", "debit", "deposit", "dk", "dkk",
+  "ecommerce", "fee", "fees", "fze", "fz", "google", "inc", "invoice", "mastercard",
+  "merchant", "misc", "miscellaneous", "number", "online", "paypal", "payment",
+  "payments", "pos", "purchase", "ref", "reference", "stripe", "supplier", "terminal",
+  "transaction", "transfer", "txn", "uae", "unknown", "unnamed", "vendor", "visa",
+  "withdrawal", "xfer",
+]);
+const contactBoundaryWords = new Set([
+  ...contactIdentityNoiseWords,
+  "apr", "april", "at", "aug", "august", "auth", "authorization", "authorized",
+  "beneficiary", "confirmation", "dec", "december", "description", "direct", "feb",
+  "february", "for", "from", "holder", "id", "inv", "jan", "january", "jul", "july",
+  "jun", "june", "mar", "march", "may", "name", "nov", "november", "oct", "october",
+  "of", "on", "order", "payee", "receiver", "remittance", "sender", "sep", "sept",
+  "september", "the", "to", "trace", "via", "wire",
+]);
+const contactCurrencyWords = new Set([
+  "aed", "aud", "bhd", "cad", "chf", "dkk", "eur", "gbp", "jpy", "kwd", "omr", "qar",
+  "sar", "sek", "usd",
+]);
+const contactCountryWords = new Set([
+  "ae", "at", "au", "be", "bh", "ca", "ch", "de", "dk", "es", "fi", "fr", "gb", "hk",
+  "in", "it", "kw", "nl", "no", "om", "qa", "sa", "se", "sg", "uae", "uk", "us",
+]);
+const contactPersonNameWords = new Set([
+  "alex", "alice", "anna", "anne", "ann", "ben", "bob", "chris", "christopher", "daniel",
+  "david", "emily", "emma", "james", "jane", "john", "joseph", "laura", "lisa",
+  "maria", "mark", "martin", "mary", "michael", "mike", "nicholas", "nick", "oliver",
+  "paul", "peter", "robert", "sam", "samuel", "sarah", "sophia", "sophie", "steven",
+  "susan", "susanne", "thomas", "william", "brown", "jones", "miller", "smith", "wilson",
 ]);
 
 function normalizeVendor(description: string) {
@@ -1941,6 +1970,67 @@ function isUsableContactIdentity(value: string | null | undefined) {
   if (!normalized) return false;
   const tokens = normalized.split(" ");
   return tokens.some((token) => !contactIdentityNoiseWords.has(token) && !vendorNoiseWords.has(token));
+}
+
+function contactNarrationTokens(value: string) {
+  return (value.match(/[a-z0-9]+/gi) ?? []).map((raw) => ({
+    raw,
+    normalized: raw.toLowerCase(),
+  }));
+}
+
+function isContactReferenceToken(token: string) {
+  return /^\d+$/.test(token)
+    || /[a-z]/i.test(token) && /\d/.test(token)
+    || /^(?:ref|reference|invoice|inv|txn|transaction|auth|authorization|order|trace|terminal|id)[-_]?\d+$/i.test(token);
+}
+
+function isContactCandidateToken(token: string) {
+  return token.length > 1
+    && !isContactReferenceToken(token)
+    && !contactBoundaryWords.has(token)
+    && !contactCurrencyWords.has(token)
+    && !contactCountryWords.has(token);
+}
+
+function isPersonOnlyContactCandidate(tokens: string[]) {
+  return tokens.length > 0 && tokens.every((token) => contactPersonNameWords.has(token));
+}
+
+function normalizedContactCandidate(value: unknown, description: string) {
+  if (typeof value !== "string") return null;
+  const candidateTokens = contactNarrationTokens(value).map((token) => token.normalized);
+  if (!candidateTokens.length || candidateTokens.length > 6 || candidateTokens.some((token) => !isContactCandidateToken(token))) {
+    return null;
+  }
+  const descriptionTokens = contactNarrationTokens(description).map((token) => token.normalized);
+  const isContiguousNarrationPhrase = descriptionTokens.some((_, start) =>
+    candidateTokens.every((token, offset) => descriptionTokens[start + offset] === token),
+  );
+  if (!isContiguousNarrationPhrase || isPersonOnlyContactCandidate(candidateTokens)) {
+    return null;
+  }
+  return candidateTokens.join(" ");
+}
+
+function deterministicContactCandidate(description: string) {
+  const tokens = contactNarrationTokens(description);
+  let start = 0;
+  while (start < tokens.length && !isContactCandidateToken(tokens[start]!.normalized)) start += 1;
+  if (start >= tokens.length) return null;
+
+  const candidate: string[] = [];
+  for (let index = start; index < tokens.length && candidate.length < 6; index += 1) {
+    const token = tokens[index]!.normalized;
+    if (!isContactCandidateToken(token)) break;
+    candidate.push(token);
+  }
+  if (!candidate.length || isPersonOnlyContactCandidate(candidate)) return null;
+  return candidate.join(" ");
+}
+
+function contactNameFromNormalized(value: string) {
+  return titleCaseContactName(value);
 }
 
 function normalizedContactAliases(values: string[]) {
@@ -1990,20 +2080,31 @@ function titleCaseContactName(value: string) {
   return value.split(" ").map((word) => word ? `${word[0].toUpperCase()}${word.slice(1)}` : word).join(" ");
 }
 
-function inferContactProposal(description: string, direction: string) {
-  const alias = normalizeVendor(description)
-    .split(" ")
-    .filter((token) => !contactIdentityNoiseWords.has(token))
-    .join(" ");
-  if (!alias || alias.length < 2) return null;
+function inferContactProposal(
+  description: string,
+  direction: string,
+  extracted?: { counterpartyName?: unknown; counterpartyAlias?: unknown; counterpartyConfidence?: unknown },
+) {
+  const aiName = normalizedContactCandidate(extracted?.counterpartyName, description);
+  const aiAlias = normalizedContactCandidate(extracted?.counterpartyAlias, description);
+  const deterministicName = deterministicContactCandidate(description);
+  const normalizedName = aiName ?? deterministicName;
+  if (!normalizedName || normalizedName.length < 2) return null;
   const contactType = direction === "inflow" ? "customer" as const : "supplier" as const;
-  const name = titleCaseContactName(alias);
+  const name = contactNameFromNormalized(normalizedName);
+  const alias = contactNameFromNormalized(aiAlias ?? normalizedName);
+  const parsedConfidence = Number(extracted?.counterpartyConfidence);
+  const confidence = aiName
+    ? Number.isFinite(parsedConfidence) && parsedConfidence >= 0 && parsedConfidence <= 1
+      ? Math.min(0.97, Math.max(0.78, parsedConfidence))
+      : 0.88
+    : 0.68;
   return {
     proposedContactName: name,
     proposedContactType: contactType,
-    proposedContactAlias: name,
-    proposedContactConfidence: 0.68,
-    proposedContactSource: "heuristic_description",
+    proposedContactAlias: alias,
+    proposedContactConfidence: confidence,
+    proposedContactSource: aiName ? "ai_counterparty_extraction" : "heuristic_description",
   };
 }
 
@@ -2031,7 +2132,7 @@ function temporaryContactSuggestion(proposal: InferredContactProposal | null): C
     contactType: null,
     contactMatchConfidence: null,
     contactSuggestionStatus: "temporary_proposal",
-    contactSuggestionReason: `Temporary proposal from the transaction description. ${proposal.proposedContactName} will become a client contact only when this entry is posted.`,
+    contactSuggestionReason: `${proposal.proposedContactSource === "ai_counterparty_extraction" ? "AI grounded extraction" : "Deterministic narration fallback"} identified ${proposal.proposedContactName} from the transaction description. It remains provisional and becomes a client contact only when this entry is posted.`,
     ...proposal,
     accountSuggestion: null,
     supportingPatternCount: 0,
@@ -2166,6 +2267,7 @@ async function resolveContactSuggestion(
   direction: string,
   explicitContactId?: number | null,
   storedProposal?: StoredContactProposal,
+  extractedProposal?: { counterpartyName?: unknown; counterpartyAlias?: unknown; counterpartyConfidence?: unknown },
 ): Promise<ContactSuggestion> {
   if (explicitContactId == null && storedProposal?.contactReviewDisposition === "dismissed") {
     return temporaryContactSuggestion(null);
@@ -2221,7 +2323,7 @@ async function resolveContactSuggestion(
         proposedContactConfidence: storedProposal.proposedContactConfidence == null ? 0.68 : Number(storedProposal.proposedContactConfidence),
         proposedContactSource: storedProposal.proposedContactSource ?? "heuristic_description",
       }
-      : inferContactProposal(description, direction);
+      : inferContactProposal(description, direction, extractedProposal);
     return stored
       ? temporaryContactSuggestion(stored)
       : needsIdentificationSuggestion(direction, description);
@@ -2740,7 +2842,10 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
 async function createStatementLineAndJournal(
   tx: AccountingTransaction,
   draft: typeof statementLinesTable.$inferInsert,
-  options?: { ignoreExistingImportDedupeKey?: boolean },
+  options?: {
+    ignoreExistingImportDedupeKey?: boolean;
+    extractedContact?: { counterpartyName?: unknown; counterpartyAlias?: unknown; counterpartyConfidence?: unknown };
+  },
 ) {
   const contactSuggestion = await resolveContactSuggestion(
     tx,
@@ -2749,6 +2854,7 @@ async function createStatementLineAndJournal(
     draft.direction,
     draft.contactId,
     draft,
+    options?.extractedContact,
   );
   const contactAccount = contactSuggestion.accountSuggestion;
   const enrichedDraft = {
@@ -2826,6 +2932,9 @@ type ParsedBankLine = {
   currency: string;
   accountSuggestion?: string;
   confidence?: number | string;
+  counterpartyName?: string | null;
+  counterpartyAlias?: string | null;
+  counterpartyConfidence?: number | string | null;
 };
 
 type BankAccountDraft = {
@@ -3666,7 +3775,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const textCurrency = statementCurrencyFromText(extractedText);
     const fallbackCurrency = normalizeCurrency(currency ?? textCurrency ?? client.functionalCurrency);
     const delimitedFallback = normalizeRows(extractedText, fallbackCurrency);
-    const pdfFallback = isPdfStatement
+    const pdfFallback: ParsedBankLine[] = isPdfStatement
       ? parsePdfBankStatementRows(extractedText, fallbackCurrency).map((line) => ({
         ...line,
         accountSuggestion: suggestAccount(line.description, line.direction),
@@ -3710,7 +3819,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const extractionAccountNames = [...await activeClientAccountNames(scopedClientId)];
     try {
       const completion = await completeAI(scopedClientId, [
-          { role: "system", content: `Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only with bankAccount and lines containing date, description, amount, direction, currency, accountSuggestion, and confidence. Never invent transactions or bank account numbers. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. accountSuggestion must exactly match one active account in this client chart: ${extractionAccountNames.join(" | ")}. Use Business travel only for clear business-purpose travel; use Entertainment & hospitality for clear customer or supplier entertainment; use Mixed or unsupported purpose when facts or evidence are uncertain. Set confidence between 0 and 1.` },
+          { role: "system", content: `Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only with bankAccount and lines containing date, description, amount, direction, currency, accountSuggestion, confidence, and optional counterpartyName, counterpartyAlias, and counterpartyConfidence. Never invent transactions, counterparties, aliases, or bank account numbers. Set counterpartyName and counterpartyAlias only when the narration explicitly supports a concise vendor, supplier, or customer identity; omit them for person-only or ambiguous narrations. Exclude payment rails, card labels, currencies, country codes, references, dates, authorization data, and cardholder names from counterparty fields. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. accountSuggestion must exactly match one active account in this client chart: ${extractionAccountNames.join(" | ")}. Use Business travel only for clear business-purpose travel; use Entertainment & hospitality for clear customer or supplier entertainment; use Mixed or unsupported purpose when facts or evidence are uncertain. Set confidence and counterpartyConfidence between 0 and 1.` },
           { role: "user", content: `File: ${fileName}\nInfer the statement currency from the document rather than assuming one.\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
         ], { json: true, maxTokens: 8192 });
       if (aiActivityId !== undefined) {
@@ -3833,33 +3942,61 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         importedCount: 0,
         duplicateCount: 0,
         duplicateLines: [],
-        lines: resolvedLines.map(({ line, currencyValue, conversion }, index) => ({
-          id: -(index + 1),
-          clientId: scopedClientId,
-          bankAccountId: selectedBankAccount?.id ?? null,
-          date: line.date,
-          description: line.description.trim(),
-          currency: currencyValue,
-          amount: Math.abs(Number(line.amount)),
-          direction: line.direction,
-          status: "needs_review",
-          source: `Preview: ${fileName}`,
-          contactDecisionState: inferContactProposal(line.description, line.direction)
-            ? "named_proposal"
-            : "needs_identification",
-          contactReviewDisposition: "pending",
-          accountSuggestion: line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction),
-          confidence: Number(line.confidence ?? 0.75),
-          suggestionSource: null,
-          supportingPatternCount: 0,
-          functionalCurrency: conversion.functionalCurrency,
-          functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
-          exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
-          exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
-          exchangeRateSourceScope: conversion.exchangeRateSourceScope,
-          exchangeRateStatus: conversion.exchangeRateStatus,
-          importDedupeKey: null,
-          createdAt: new Date(),
+        lines: await Promise.all(resolvedLines.map(async ({ line, currencyValue, conversion }, index) => {
+          const contactSuggestion = await resolveContactSuggestion(
+            db,
+            scopedClientId,
+            line.description,
+            line.direction,
+            null,
+            undefined,
+            line,
+          );
+          const contactAccount = contactSuggestion.accountSuggestion;
+          const contactDecisionState = contactSuggestion.contactId != null
+            ? "matched"
+            : contactSuggestion.contactSuggestionStatus === "temporary_proposal"
+              ? "named_proposal"
+              : "needs_identification";
+          return {
+            id: -(index + 1),
+            clientId: scopedClientId,
+            bankAccountId: selectedBankAccount?.id ?? null,
+            date: line.date,
+            description: line.description.trim(),
+            currency: currencyValue,
+            amount: Math.abs(Number(line.amount)),
+            direction: line.direction,
+            status: "needs_review",
+            source: `Preview: ${fileName}`,
+            contactId: contactSuggestion.contactId,
+            contactName: contactSuggestion.contactName,
+            contactType: contactSuggestion.contactType,
+            contactMatchConfidence: contactSuggestion.contactMatchConfidence,
+            contactSuggestionStatus: contactSuggestion.contactSuggestionStatus,
+            contactSuggestionReason: contactSuggestion.contactSuggestionReason,
+            proposedContactName: contactSuggestion.proposedContactName,
+            proposedContactType: contactSuggestion.proposedContactType,
+            proposedContactAlias: contactSuggestion.proposedContactAlias,
+            proposedContactConfidence: contactSuggestion.proposedContactConfidence,
+            proposedContactSource: contactSuggestion.proposedContactSource,
+            contactDecisionState,
+            contactReviewDisposition: "pending",
+            accountSuggestion: contactAccount ?? (line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction)),
+            confidence: contactAccount
+              ? (contactSuggestion.contactSuggestionStatus === "supported" ? 0.94 : 0.85)
+              : Number(line.confidence ?? 0.75),
+            suggestionSource: contactAccount ? "contact_history" : null,
+            supportingPatternCount: contactAccount ? contactSuggestion.supportingPatternCount : 0,
+            functionalCurrency: conversion.functionalCurrency,
+            functionalAmount: conversion.functionalAmount == null ? null : number(conversion.functionalAmount),
+            exchangeRate: conversion.exchangeRate == null ? null : number(conversion.exchangeRate),
+            exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+            exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+            exchangeRateStatus: conversion.exchangeRateStatus,
+            importDedupeKey: null,
+            createdAt: new Date(),
+          };
         })),
         bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
       }));
@@ -3965,6 +4102,9 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           source: `Imported: ${fileName}`,
           accountSuggestion,
           confidence,
+          counterpartyName: line.counterpartyName,
+          counterpartyAlias: line.counterpartyAlias,
+          counterpartyConfidence: line.counterpartyConfidence,
           functionalCurrency: conversion.functionalCurrency,
           functionalAmount: conversion.functionalAmount,
           exchangeRate: conversion.exchangeRate,
@@ -4021,8 +4161,15 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           continue;
         }
         seenKeys.add(line.importDedupeKey);
-        const insertedLine = await createStatementLineAndJournal(tx, line, {
+        const {
+          counterpartyName,
+          counterpartyAlias,
+          counterpartyConfidence,
+          ...statementLineDraft
+        } = line;
+        const insertedLine = await createStatementLineAndJournal(tx, statementLineDraft, {
           ignoreExistingImportDedupeKey: true,
+          extractedContact: { counterpartyName, counterpartyAlias, counterpartyConfidence },
         });
         if (!insertedLine) {
           const racedLine = (await tx.select().from(statementLinesTable).where(and(

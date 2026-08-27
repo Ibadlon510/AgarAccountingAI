@@ -2162,6 +2162,11 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const likelyContactType = line.direction === 'inflow' ? 'customer' : 'supplier';
   const hasTemporaryProposal = line.contactDecisionState === 'named_proposal';
   const needsIdentification = line.contactDecisionState === 'needs_identification';
+  const contactProposalSource = line.proposedContactSource === 'ai_counterparty_extraction'
+    ? 'AI grounded extraction'
+    : line.proposedContactSource === 'heuristic_description'
+      ? 'Narration fallback'
+      : (line.proposedContactSource ?? 'Description').replaceAll('_', ' ');
   const needsContactConfirmation = needsIdentification
     || (line.contactDecisionState === 'named_proposal' && line.contactReviewDisposition !== 'accepted');
   const showContactProposalEditor = hasTemporaryProposal || needsIdentification;
@@ -2228,7 +2233,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       <td className="px-4 py-4 align-top">
         <div className="text-[12px] font-semibold">{line.contactName || (hasTemporaryProposal ? line.proposedContactName : needsIdentification ? <span data-testid={`unknown-contact-${line.id}`} className="text-destructive">Unknown {likelyContactType}</span> : <span className="font-normal text-muted-foreground">Keep unlinked</span>)}</div>
         {hasTemporaryProposal && <div data-testid={`temporary-contact-proposal-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-accent-foreground">Temporary proposal</div>}
-        {hasTemporaryProposal && <div className="mt-1 text-[9px] leading-3 text-muted-foreground">{Math.round((line.proposedContactConfidence ?? 0) * 100)}% · {(line.proposedContactSource ?? 'description').replaceAll('_', ' ')} · creates on posting</div>}
+        {hasTemporaryProposal && <div className="mt-1 text-[9px] leading-3 text-muted-foreground">{Math.round((line.proposedContactConfidence ?? 0) * 100)}% · {contactProposalSource} · creates on posting</div>}
         {needsIdentification && <div data-testid={`needs-contact-identification-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-destructive">Needs identification</div>}
         {line.contactDecisionState === 'dismissed' && <div data-testid={`dismissed-contact-decision-${line.id}`} className="mt-1 text-[9px] font-bold uppercase tracking-[.05em] text-muted-foreground">Explicitly dismissed</div>}
         {line.contactName && line.contactSuggestionStatus && (

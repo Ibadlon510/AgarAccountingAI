@@ -316,6 +316,23 @@ test("uses client-scoped contact history without bypassing approval or chart saf
   assert.ok(temporary.proposedContactName);
   assert.ok(temporary.proposedContactAlias);
 
+  const reportedNarration = await createLine("Visa Purchase Circle Espergerde Dkk Susanne Chris Aed");
+  assert.equal(reportedNarration.contactDecisionState, "named_proposal");
+  assert.equal(reportedNarration.contactSuggestionStatus, "temporary_proposal");
+  assert.equal(reportedNarration.proposedContactName, "Circle Espergerde");
+  assert.equal(reportedNarration.proposedContactAlias, "Circle Espergerde");
+  assert.equal(reportedNarration.proposedContactSource, "heuristic_description");
+  assert.doesNotMatch(reportedNarration.proposedContactName ?? "", /visa|purchase|dkk|susanne|chris|aed/i);
+
+  const clearCompany = await createLine("MASTERCARD PURCHASE NORTHSTAR INDUSTRIAL SERVICES USD REF 8841");
+  assert.equal(clearCompany.proposedContactName, "Northstar Industrial Services");
+  assert.equal(clearCompany.contactDecisionState, "named_proposal");
+
+  const ambiguousPerson = await createLine("JOHN SMITH TRANSFER");
+  assert.equal(ambiguousPerson.contactDecisionState, "needs_identification");
+  assert.equal(ambiguousPerson.proposedContactName, null);
+  assert.equal(ambiguousPerson.proposedContactAlias, null);
+
   const pendingTemporaryEntry = await entryFor(temporary.id);
   assert.equal((await request(`/agaraccounting/journal-entries/${pendingTemporaryEntry.id}/approve`, {
     method: "POST",
