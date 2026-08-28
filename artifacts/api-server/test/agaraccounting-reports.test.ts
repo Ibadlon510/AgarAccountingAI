@@ -145,7 +145,7 @@ test("posting a draft journal entry updates client-scoped reports", async () => 
     body: JSON.stringify({
       clientId,
       date: "2026-08-25",
-      description: "Internal transfer to savings account",
+      description: "ACCT TO ACCT TRANSFER 01910198067",
       currency: "AED",
       amount: 75,
       direction: "outflow",

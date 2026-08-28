@@ -1826,6 +1826,10 @@ function isInterAccountTransferAccount(account: string) {
   return account === interAccountTransferAccount;
 }
 
+function isInterAccountTransferDescription(description: string) {
+  return /\b(?:internal|inter[\s-]?account|own[-\s]?account|account[\s-]+to[\s-]+account|acct[\s-]+to[\s-]+acct)\s+transfer\b|\b(?:transfer|xfer).*\b(?:savings|current|operating|reserve|wallet|own account)\b/i.test(description);
+}
+
 function ledgerAccountCategory(account: string, side: "debit" | "credit") {
   if (account === "Bank / cash" || isInterAccountTransferAccount(account)) return "Assets";
   if (side === "credit" && (account === "Revenue" || account === "Other income")) return "Revenue";
@@ -1843,7 +1847,7 @@ function chartAccountCategory(section: string) {
 
 function suggestAccount(description: string, direction: string) {
   const text = description.toLowerCase();
-  if (/\b(?:internal|inter[\s-]?account|own[-\s]?account)\s+transfer\b|\b(?:transfer|xfer).*\b(?:savings|current|operating|reserve|wallet|own account)\b/.test(text)) {
+  if (isInterAccountTransferDescription(text)) {
     return interAccountTransferAccount;
   }
   if (direction === "inflow") {
@@ -2968,14 +2972,17 @@ function lineSuggestion(
   line: { description: string; direction: string; accountSuggestion?: string | null; confidence?: string | number | null },
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
 ): ClassificationSuggestion {
-  const learned = findWorkspaceSuggestion(patterns, line.description);
+  const deterministicTransfer = isInterAccountTransferDescription(line.description);
+  const learned = deterministicTransfer ? null : findWorkspaceSuggestion(patterns, line.description);
   if (learned) return learned;
-  const accountSuggestion = line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
+  const accountSuggestion = deterministicTransfer
+    ? interAccountTransferAccount
+    : line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction);
   const confidence = Number(line.confidence);
   return {
     accountSuggestion,
-    confidence: Number.isFinite(confidence) ? confidence : 0.75,
-    suggestionSource: line.accountSuggestion ? "ai" : "heuristic",
+    confidence: deterministicTransfer ? Math.max(Number.isFinite(confidence) ? confidence : 0, 0.98) : Number.isFinite(confidence) ? confidence : 0.75,
+    suggestionSource: deterministicTransfer ? "heuristic" : line.accountSuggestion ? "ai" : "heuristic",
     supportingPatternCount: 0,
   };
 }
@@ -4496,8 +4503,12 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           proposedContactSource: contactSuggestion.proposedContactSource,
           contactDecisionState,
           contactReviewDisposition: "pending",
-          accountSuggestion: contactAccount ?? (line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction)),
-          confidence: contactAccount
+          accountSuggestion: isInterAccountTransferDescription(line.description)
+            ? interAccountTransferAccount
+            : contactAccount ?? (line.accountSuggestion?.trim() || suggestAccount(line.description, line.direction)),
+          confidence: isInterAccountTransferDescription(line.description)
+            ? Math.max(Number(line.confidence ?? 0), 0.98)
+            : contactAccount
             ? (contactSuggestion.contactSuggestionStatus === "supported" ? 0.94 : 0.85)
             : Number(line.confidence ?? 0.75),
           suggestionSource: contactAccount ? "contact_history" : null,
@@ -4635,7 +4646,8 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       const preparedLines = resolvedLines.map(({ line, currencyValue, conversion }, index) => {
         const canonicalPreviewLine = canonicalPreviewLines?.[index];
         const workspaceSuggestion = canonicalPreviewLine ? null : findWorkspaceSuggestion(workspacePatterns, line.description);
-        const accountSuggestion = canonicalPreviewLine?.accountSuggestion
+        const accountSuggestion = (isInterAccountTransferDescription(line.description) ? interAccountTransferAccount : null)
+          || canonicalPreviewLine?.accountSuggestion
           || workspaceSuggestion?.accountSuggestion
           || line.accountSuggestion?.trim()
           || suggestAccount(line.description, line.direction);
@@ -7936,8 +7948,10 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
     amount: String(body.amount),
     status: "draft",
     source: "Manual entry",
-    accountSuggestion: workspaceSuggestion?.accountSuggestion || suggestAccount(body.description, body.direction),
-    confidence: (workspaceSuggestion?.confidence ?? 0.75).toFixed(2),
+    accountSuggestion: isInterAccountTransferDescription(body.description)
+      ? interAccountTransferAccount
+      : workspaceSuggestion?.accountSuggestion || suggestAccount(body.description, body.direction),
+    confidence: (isInterAccountTransferDescription(body.description) ? 0.98 : workspaceSuggestion?.confidence ?? 0.75).toFixed(2),
     functionalCurrency: conversion.functionalCurrency,
     functionalAmount: conversion.functionalAmount,
     exchangeRate: conversion.exchangeRate,
