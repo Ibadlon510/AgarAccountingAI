@@ -8473,12 +8473,15 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
           if (!contact) return { kind: "contact_not_found" as const };
         }
         const proposedContactName = body.contactId != null ? null : body.proposedContactName?.trim().replace(/\s+/g, " ").slice(0, 160) || null;
+        const proposedContactAlias = body.contactId != null ? null : body.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160) || null;
+        const proposedContactType = body.contactId != null ? null : body.proposedContactType ?? null;
+        const hasCompleteProposal = Boolean(proposedContactName && proposedContactAlias && proposedContactType);
         const [updatedLine] = await tx.update(statementLinesTable).set({
           contactId: body.contactId ?? null,
-          proposedContactName,
-          proposedContactAlias: body.contactId != null ? null : body.proposedContactAlias?.trim().replace(/\s+/g, " ").slice(0, 160) || null,
-          proposedContactType: body.contactId != null ? null : body.proposedContactType ?? null,
-          contactReviewDisposition: body.contactId != null ? "replaced" : proposedContactName ? "accepted" : "dismissed",
+          proposedContactName: hasCompleteProposal ? proposedContactName : null,
+          proposedContactAlias: hasCompleteProposal ? proposedContactAlias : null,
+          proposedContactType: hasCompleteProposal ? proposedContactType : null,
+          contactReviewDisposition: body.contactId != null ? "replaced" : hasCompleteProposal ? "accepted" : "dismissed",
         }).where(and(
           eq(statementLinesTable.id, line.id),
           eq(statementLinesTable.clientId, client.id),

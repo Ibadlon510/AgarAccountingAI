@@ -2871,7 +2871,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     contactId: selectedContactId ? Number(selectedContactId) : null,
     proposedContactName: selectedContactId ? null : clippedName,
     proposedContactAlias: selectedContactId ? null : clippedName,
-    proposedContactType: selectedContactId ? null : proposedContactType,
+    proposedContactType: selectedContactId || !clippedName ? null : proposedContactType,
   };
   const postLabel = willCreateContact ? 'Post & create' : 'Post';
   const postTitle = missingRate

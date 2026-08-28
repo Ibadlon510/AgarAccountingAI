@@ -26,3 +26,9 @@ Only evidence whose linked journal entry is currently Posted may support live co
 **Why:** Unposting is an explicit decision to reopen the accounting treatment. Draft-inclusive evidence would let the reopened or recoded treatment continue influencing later drafts as if it remained confirmed.
 
 **How to apply:** Filter live learning and history by current Posted status. Do not delete historical evidence when unposting, and do not use a Draft-linked record as suggestion support.
+
+When an inline posting decision leaves a statement line unlinked, clear the proposed contact name, alias, and type together before updating the line. A partial null proposal violates the database shape constraint.
+
+**Why:** Production posting once sent a default customer/supplier type with blank identity fields, causing the whole journal transaction to fail even though leaving the line unlinked was valid.
+
+**How to apply:** Normalize the payload at the server boundary and mirror that behavior in the client. Cover explicit null name/alias values with a non-null type in the posting regression test.

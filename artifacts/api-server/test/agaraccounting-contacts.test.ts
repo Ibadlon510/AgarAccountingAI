@@ -301,6 +301,21 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   assert.equal(unpostedCustomer.body.status, "draft");
   assert.equal((await post(unidentifiedCustomerEntry.id)).response.status, 200);
 
+  const blankProposalLine = await createLine("ACCT TO ACCT TRANSFER 01910198067", "AED", 36500, "inflow");
+  const blankProposalEntry = await entryFor(blankProposalLine.id);
+  const blankProposalPost = await request<{ status: string }>(`/agaraccounting/journal-entries/${blankProposalEntry.id}/post`, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      contactId: null,
+      proposedContactName: null,
+      proposedContactAlias: null,
+      proposedContactType: "customer",
+    }),
+  });
+  assert.equal(blankProposalPost.response.status, 200);
+  assert.equal(blankProposalPost.body.status, "posted");
+
   const legacyLine = await createLine("LEGACY CONTACT NAME");
   await database.db.update(database.statementLinesTable).set({
     description: "CARD PAYMENT 12345",
