@@ -2790,14 +2790,22 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const posted = line.status.toLowerCase() === 'posted';
   const canConfirmClassification = !posted && entry?.status.toLowerCase() === 'draft';
   const accountConfirmationRequired = line.accountConfirmationRequired;
-  const [selectedAccount, setSelectedAccount] = useState(line.accountSuggestion ?? '');
-  useEffect(() => {
-    if (line.accountSuggestion) {
-      setSelectedAccount(line.accountSuggestion);
-      return;
+  const journalClassifiedAccount = entry
+    ? (line.direction === 'inflow'
+      ? entry.lines.find((item) => item.credit > 0)?.account
+      : entry.lines.find((item) => item.debit > 0)?.account)
+    : undefined;
+  const resolveSelectableAccount = (preferred?: string | null) => {
+    if (preferred && accounts.some((account) => account.accountName === preferred)) return preferred;
+    if (journalClassifiedAccount && accounts.some((account) => account.accountName === journalClassifiedAccount)) {
+      return journalClassifiedAccount;
     }
-    if (accounts[0]?.accountName) setSelectedAccount(accounts[0].accountName);
-  }, [accounts, line.accountSuggestion]);
+    return accounts[0]?.accountName ?? preferred ?? '';
+  };
+  const [selectedAccount, setSelectedAccount] = useState(() => resolveSelectableAccount(line.accountSuggestion));
+  useEffect(() => {
+    setSelectedAccount(resolveSelectableAccount(line.accountSuggestion));
+  }, [accounts, line.accountSuggestion, journalClassifiedAccount]);
   const debitLine = entry?.lines.find((item) => item.debit > 0);
   const creditLine = entry?.lines.find((item) => item.credit > 0);
   const previewLines = useMemo(() => {
@@ -2857,11 +2865,12 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const missingRate = Boolean(entry && functionalCurrency && entry.currency !== functionalCurrency && (exchangeRateStatus === 'missing' || functionalAmount == null));
   const knownAccount = accounts.some((account) => account.accountName === selectedAccount);
   const postBlocked = processing || missingRate || !entry;
+  const clippedName = proposedContactName.trim().slice(0, 160) || null;
   const postDecision: PostLineDecision = {
-    accountSuggestion: knownAccount ? selectedAccount : (line.accountSuggestion || null),
+    accountSuggestion: knownAccount ? selectedAccount : (resolveSelectableAccount(line.accountSuggestion) || null),
     contactId: selectedContactId ? Number(selectedContactId) : null,
-    proposedContactName: selectedContactId ? null : (proposedContactName.trim() || null),
-    proposedContactAlias: selectedContactId ? null : (proposedContactName.trim() || null),
+    proposedContactName: selectedContactId ? null : clippedName,
+    proposedContactAlias: selectedContactId ? null : clippedName,
     proposedContactType: selectedContactId ? null : proposedContactType,
   };
   const postLabel = willCreateContact ? 'Post & create' : 'Post';
@@ -4259,7 +4268,14 @@ function mutationErrorMessage(error: unknown, fallback = 'The bulk action could 
       return (data as { error: string }).error;
     }
   }
-  return error instanceof Error ? error.message : fallback;
+  if (error instanceof Error) {
+    const message = error.message.trim();
+    // Avoid dumping Express HTML 500 pages into the statement-line Post button.
+    if (!message || /<!DOCTYPE|<html[\s>]|Internal Server Error/i.test(message)) return fallback;
+    if (/^HTTP \d{3}\b/.test(message) && message.length > 180) return fallback;
+    return message;
+  }
+  return fallback;
 }
 
 function StatementSourcePreview({ source, onClose }: { source: StatementImport; onClose: () => void }) {

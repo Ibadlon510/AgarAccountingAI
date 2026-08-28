@@ -264,8 +264,8 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
     functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
     exchangeRate: entry.exchangeRate == null ? null : number(entry.exchangeRate),
     exchangeRateEffectiveDate: calendarDate(entry.exchangeRateEffectiveDate),
-    exchangeRateSourceScope: entry.exchangeRateSourceScope,
-    exchangeRateStatus: entry.exchangeRateStatus,
+    exchangeRateSourceScope: entry.exchangeRateSourceScope ?? "none",
+    exchangeRateStatus: entry.exchangeRateStatus ?? "none",
     lines: [
       { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
       { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
@@ -2610,6 +2610,10 @@ async function recordContactEvidence(
 ) {
   if (!line.contactId) return;
   const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  const activityDate = calendarDate(line.date) ?? calendarDate(entry.date);
+  if (!activityDate) {
+    throw new Error("Contact evidence could not be recorded because the activity date is missing.");
+  }
   await tx.insert(contactClassificationEvidenceTable).values({
     clientId: line.clientId,
     contactId: line.contactId,
@@ -2617,9 +2621,9 @@ async function recordContactEvidence(
     journalEntryId: entry.id,
     accountSuggestion,
     direction: line.direction,
-    amount: line.amount,
+    amount: String(line.amount),
     currency: line.currency,
-    activityDate: calendarDate(line.date) ?? line.date,
+    activityDate,
     entryStatus: entry.status,
     confirmedByUserId: userId,
   }).onConflictDoNothing({ target: contactClassificationEvidenceTable.statementLineId });
@@ -8547,7 +8551,12 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
       res.status(409).json({ error: `${error.message} The entry was not posted.` });
       return;
     }
-    throw error;
+    req.log.error({ err: error, entryId: id, clientId: body.clientId }, "Journal entry post failed");
+    const message = error instanceof Error && error.message.trim()
+      ? error.message
+      : "The journal entry could not be posted.";
+    res.status(500).json({ error: message });
+    return;
   }
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Journal entry not found for this client" });

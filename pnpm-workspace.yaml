@@ -65,6 +65,19 @@ catalog:
   wouter: ^3.3.5
   zod: ^3.25.76
 
+# @expo/metro-config's transform-worker requires these Babel internals
+# directly without declaring them as its own dependencies, so pnpm's strict
+# node_modules isolation never nests them where its require() calls can
+# reach — a known phantom-dependency gap in that package. packageExtensions
+# is pnpm's documented mechanism for patching exactly this.
+packageExtensions:
+  "@expo/metro-config":
+    dependencies:
+      "@babel/template": "*"
+      "@babel/traverse": "*"
+      "@babel/generator": "*"
+      "@babel/types": "*"
+
 autoInstallPeers: false
 
 # Some transitive dependencies (e.g. Solana wallet-adapter packages pulled in
