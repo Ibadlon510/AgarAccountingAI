@@ -2558,6 +2558,7 @@ function StatementLinesPage() {
   const [bulkError, setBulkError] = useState<unknown>(null);
   const [lineActionError, setLineActionError] = useState<{ lineId: number; message: string } | null>(null);
   const [pendingPostLineIds, setPendingPostLineIds] = useState<number[]>([]);
+  const pendingPostLineIdsRef = useRef(new Set<number>());
   const bulkActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const params = useMemo(() => ({ clientId: activeClient?.id ?? 1, ...(currency !== 'all' ? { currency } : {}), ...(status !== 'all' ? { status } : {}), ...(direction !== 'all' ? { direction } : {}) }), [activeClient?.id, currency, status, direction]);
   const catalogParams = useMemo(() => ({ clientId: activeClient?.id ?? 1 }), [activeClient?.id]);
@@ -2650,15 +2651,19 @@ function StatementLinesPage() {
         const line = byId.get(id);
         return Boolean(line && line.status.toLowerCase() !== 'posted');
       });
+      pendingPostLineIdsRef.current = new Set(next);
       return next.length === current.length ? current : next;
     });
   }, [query.data]);
   const postEntry = (entry: JournalEntry, decision: PostLineDecision) => {
+    if (pendingPostLineIdsRef.current.has(entry.statementLineId)) return;
+    pendingPostLineIdsRef.current.add(entry.statementLineId);
     setLineActionError(null);
     setPendingPostLineIds((current) => current.includes(entry.statementLineId) ? current : [...current, entry.statementLineId]);
     post.mutate({ id: entry.id, data: { clientId: journalParams.clientId, ...decision } }, {
       onSuccess: refreshPostedData,
       onError: (error) => {
+        pendingPostLineIdsRef.current.delete(entry.statementLineId);
         setPendingPostLineIds((current) => current.filter((id) => id !== entry.statementLineId));
         setLineActionError({
           lineId: entry.statementLineId,
@@ -2890,6 +2895,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
           data-testid={`button-post-line-${line.id}`}
           title={postTitle}
           aria-disabled={postBlocked}
+          disabled={postBlocked}
           onMouseDown={(event) => event.stopPropagation()}
           onClick={(event) => {
             event.preventDefault();

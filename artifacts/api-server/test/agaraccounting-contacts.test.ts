@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -59,7 +59,12 @@ async function createLine(description: string, currency = "AED", amount = 100, d
 }
 
 async function entryFor(lineId: number) {
-  const entries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
+  const entries = await request<Array<{
+    id: number;
+    statementLineId: number;
+    status: string;
+    lines: Array<{ account: string; debit: number; credit: number }>;
+  }>>(
     `/agaraccounting/journal-entries?clientId=${clientId}`,
   );
   assert.equal(entries.response.status, 200);
@@ -300,6 +305,65 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   assert.equal(unpostedCustomer.response.status, 200);
   assert.equal(unpostedCustomer.body.status, "draft");
   assert.equal((await post(unidentifiedCustomerEntry.id)).response.status, 200);
+
+  const doubleClickLine = await createLine("CARD PAYMENT RAPID CLICK SUPPLIES INVOICE 4401");
+  const doubleClickEntry = await entryFor(doubleClickLine.id);
+  const doubleClickPayload = {
+    clientId,
+    contactId: null,
+    proposedContactName: "Rapid Click Supplies",
+    proposedContactAlias: "RAPID CLICK SUPPLIES",
+    proposedContactType: "supplier",
+  };
+  const duplicatePosts = await Promise.all([
+    request<{ status: string }>(`/agaraccounting/journal-entries/${doubleClickEntry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify(doubleClickPayload),
+    }),
+    request<{ status: string }>(`/agaraccounting/journal-entries/${doubleClickEntry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify(doubleClickPayload),
+    }),
+  ]);
+  assert.deepEqual(duplicatePosts.map((result) => result.response.status).sort(), [200, 409]);
+  const rapidClickContacts = (await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`)).body
+    .filter((contact) => contact.displayName === "Rapid Click Supplies");
+  assert.equal(rapidClickContacts.length, 1);
+
+  const rollbackLine = await createLine("CARD PAYMENT ROLLBACK SUPPLIES INVOICE 5501");
+  const rollbackEntry = await entryFor(rollbackLine.id);
+  const rollbackAccount = rollbackEntry.lines.find((item) => item.debit > 0)?.account;
+  assert.ok(rollbackAccount);
+  await database.db.update(database.accountClassificationsTable).set({ isActive: false }).where(and(
+    eq(database.accountClassificationsTable.clientId, clientId),
+    eq(database.accountClassificationsTable.accountName, rollbackAccount),
+  ));
+  try {
+    const rejectedPost = await request<{ error: string }>(`/agaraccounting/journal-entries/${rollbackEntry.id}/post`, {
+      method: "POST",
+      body: JSON.stringify({
+        clientId,
+        contactId: null,
+        proposedContactName: "Rollback Supplies",
+        proposedContactAlias: "ROLLBACK SUPPLIES",
+        proposedContactType: "supplier",
+      }),
+    });
+    assert.equal(rejectedPost.response.status, 409);
+    assert.match(rejectedPost.body.error, /account is no longer active/i);
+    const [storedRollbackLine] = await database.db.select().from(database.statementLinesTable)
+      .where(eq(database.statementLinesTable.id, rollbackLine.id));
+    assert.equal(storedRollbackLine?.contactId, null);
+    assert.equal(storedRollbackLine?.contactReviewDisposition, "pending");
+    const rollbackContacts = (await request<Contact[]>(`/agaraccounting/contacts?clientId=${clientId}`)).body
+      .filter((contact) => contact.displayName === "Rollback Supplies");
+    assert.equal(rollbackContacts.length, 0);
+  } finally {
+    await database.db.update(database.accountClassificationsTable).set({ isActive: true }).where(and(
+      eq(database.accountClassificationsTable.clientId, clientId),
+      eq(database.accountClassificationsTable.accountName, rollbackAccount),
+    ));
+  }
 
   const blankProposalLine = await createLine("ACCT TO ACCT TRANSFER 01910198067", "AED", 36500, "inflow");
   const blankProposalEntry = await entryFor(blankProposalLine.id);

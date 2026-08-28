@@ -2635,6 +2635,16 @@ async function recordContactEvidence(
 
 class ContactMaterializationError extends Error {}
 
+class JournalPostRollback extends Error {
+  constructor(readonly result: {
+    kind: "account_not_found" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "missing_exchange_rate";
+    entry?: typeof journalEntriesTable.$inferSelect;
+    line?: typeof statementLinesTable.$inferSelect;
+  }) {
+    super(result.kind);
+  }
+}
+
 async function materializeProposedContact(
   tx: AccountingTransaction,
   line: typeof statementLinesTable.$inferSelect,
@@ -8459,13 +8469,13 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         eq(journalEntriesTable.clientId, client.id),
       )).for("update");
       if (!entry) return { kind: "not_found" as const };
-      if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
 
       let [line] = await tx.select().from(statementLinesTable).where(and(
         eq(statementLinesTable.id, entry.statementLineId),
         eq(statementLinesTable.clientId, client.id),
       )).for("update");
       if (!line) return { kind: "not_found" as const };
+      if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
       if (journalLifecycleStatus(line.status) !== "draft") return { kind: "line_conflict" as const };
 
       // The UI no longer has a separate "confirm contact" step: whatever contact
@@ -8514,7 +8524,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
           eq(accountClassificationsTable.accountName, body.accountSuggestion),
           eq(accountClassificationsTable.isActive, true),
         )).limit(1);
-        if (!account) return { kind: "account_not_found" as const };
+        if (!account) throw new JournalPostRollback({ kind: "account_not_found" });
         const [updatedEntry] = await tx.update(journalEntriesTable).set(
           line.direction === "inflow" ? { creditAccount: body.accountSuggestion } : { debitAccount: body.accountSuggestion },
         ).where(and(
@@ -8533,10 +8543,14 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         materialized.entry,
         false,
       );
-      if (treatmentValidation) return { kind: treatmentValidation };
+      if (treatmentValidation) throw new JournalPostRollback({ kind: treatmentValidation });
       if (isMissingExchangeRate(materialized.entry, client.functionalCurrency)
         || isMissingExchangeRate(materialized.line, client.functionalCurrency)) {
-        return { kind: "missing_exchange_rate" as const, entry: materialized.entry, line: materialized.line };
+        throw new JournalPostRollback({
+          kind: "missing_exchange_rate",
+          entry: materialized.entry,
+          line: materialized.line,
+        });
       }
 
       const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
@@ -8568,12 +8582,16 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
       res.status(409).json({ error: `${error.message} The entry was not posted.` });
       return;
     }
-    req.log.error({ err: error, entryId: id, clientId: body.clientId }, "Journal entry post failed");
-    const message = error instanceof Error && error.message.trim()
-      ? error.message
-      : "The journal entry could not be posted.";
-    res.status(500).json({ error: message });
-    return;
+    if (error instanceof JournalPostRollback) {
+      result = error.result;
+    } else {
+      req.log.error({ err: error, entryId: id, clientId: body.clientId }, "Journal entry post failed");
+      const message = error instanceof Error && error.message.trim()
+        ? error.message
+        : "The journal entry could not be posted.";
+      res.status(500).json({ error: message });
+      return;
+    }
   }
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Journal entry not found for this client" });
@@ -8612,6 +8630,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     return;
   }
   if (result.kind === "missing_exchange_rate") {
+    if (!result.entry || !result.line) throw new Error("Missing exchange-rate context for journal posting.");
     res.status(409).json({
       error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "posting"),
     });

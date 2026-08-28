@@ -32,3 +32,9 @@ When an inline posting decision leaves a statement line unlinked, clear the prop
 **Why:** Production posting once sent a default customer/supplier type with blank identity fields, causing the whole journal transaction to fail even though leaving the line unlinked was valid.
 
 **How to apply:** Normalize the payload at the server boundary and mirror that behavior in the client. Cover explicit null name/alias values with a non-null type in the posting regression test.
+
+Post-and-create is one atomic accounting action: if posting validation fails, contact creation and line/entry linking must roll back too. The UI must synchronously suppress repeated submissions and use a native disabled button.
+
+**Why:** Committing the contact while leaving the journal draft changed “Post & create” back to “Post”; a second click then encountered mismatched contact state.
+
+**How to apply:** Convert post-validation failures into transaction rollbacks, keep strict draft-to-post transition checks, and regression-test rapid duplicate clicks plus failed validation after contact materialization.
