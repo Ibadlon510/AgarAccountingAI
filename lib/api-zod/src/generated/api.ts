@@ -665,7 +665,8 @@ export const GetWorkspaceMembersResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "inviteLink": zod.string().optional(),
   "emailSubject": zod.string().optional(),
-  "emailBody": zod.string().optional()
+  "emailBody": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent']).optional()
 }))
 })
 
@@ -739,7 +740,8 @@ export const CreateWorkspaceInvitationResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "inviteLink": zod.string().optional(),
   "emailSubject": zod.string().optional(),
-  "emailBody": zod.string().optional()
+  "emailBody": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent']).optional()
 })
 
 
@@ -774,7 +776,8 @@ export const ResendWorkspaceInvitationResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "inviteLink": zod.string().optional(),
   "emailSubject": zod.string().optional(),
-  "emailBody": zod.string().optional()
+  "emailBody": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent']).optional()
 })
 
 

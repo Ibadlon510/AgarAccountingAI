@@ -204,7 +204,11 @@ async function listen(serverToStart: Server) {
 }
 
 before(async () => {
+  process.env.NODE_ENV = "test";
   process.env.DATABASE_URL = testDatabaseUrl();
+  process.env.AGARACCOUNTING_EMAIL_TEST_MODE = "success";
+  process.env.AGARACCOUNTING_PUBLIC_URL = "https://agaraccounting.example.test/";
+  process.env.RESEND_FROM_EMAIL = "AgarAccounting <invitations@example.test>";
   objectStorageService.getObjectEntityFile = (async (objectPath: string) => {
     const content = statementFiles.get(objectPath);
     if (!content) throw new ObjectNotFoundError();
@@ -1661,6 +1665,7 @@ test("resends a pending invitation with its approved scope and invalidates the e
     inviteLink: string;
     emailSubject: string;
     emailBody: string;
+    emailDeliveryStatus: "sent";
   };
   const created = await request<InvitationEmail>("/workspace/invitations", {
     method: "POST",
@@ -1671,6 +1676,7 @@ test("resends a pending invitation with its approved scope and invalidates the e
     }),
   });
   assert.equal(created.response.status, 201);
+  assert.equal(created.body.emailDeliveryStatus, "sent");
   assert.match(created.body.emailSubject, /invited to agaraccounting ai system/i);
   assert.match(created.body.emailBody, /invited you to agaraccounting ai system/i);
   assert.match(created.body.emailBody, /as an admin/i);
@@ -1683,6 +1689,7 @@ test("resends a pending invitation with its approved scope and invalidates the e
     method: "POST",
   });
   assert.equal(resent.response.status, 200);
+  assert.equal(resent.body.emailDeliveryStatus, "sent");
   assert.equal(resent.body.id, created.body.id);
   assert.equal(resent.body.role, created.body.role);
   assert.deepEqual(resent.body.clients, created.body.clients);
@@ -1705,6 +1712,128 @@ test("resends a pending invitation with its approved scope and invalidates the e
   assert.equal(accepted.response.status, 200);
   assert.equal(accepted.body.role, "admin");
   assert.deepEqual(accepted.body.clients.map((workspace) => workspace.id), [client.body.id]);
+});
+
+test("reports email delivery failures and removes an unsent new invitation", async () => {
+  const suffix = randomUUID();
+  const clientId = await createClient(`Failed delivery ${suffix}`);
+  const invitedEmail = `failed-delivery-${suffix}@example.test`;
+
+  process.env.AGARACCOUNTING_EMAIL_TEST_MODE = "failure";
+  try {
+    const invitation = await request<{ error: string }>("/workspace/invitations", {
+      method: "POST",
+      body: JSON.stringify({
+        email: invitedEmail,
+        role: "bookkeeper",
+        clientIds: [clientId],
+      }),
+    });
+    assert.equal(invitation.response.status, 502);
+    assert.match(invitation.body.error, /not sent/i);
+
+    assert.ok(database);
+    const unsentInvitations = await database.db.select({ id: database.workspaceInvitationsTable.id })
+      .from(database.workspaceInvitationsTable)
+      .where(eq(database.workspaceInvitationsTable.email, invitedEmail));
+    assert.equal(unsentInvitations.length, 0);
+  } finally {
+    process.env.AGARACCOUNTING_EMAIL_TEST_MODE = "success";
+  }
+});
+
+test("requires the AgarAccounting canonical URL before persisting an invitation", async () => {
+  const suffix = randomUUID();
+  const clientId = await createClient(`Missing canonical URL ${suffix}`);
+  const invitedEmail = `missing-canonical-url-${suffix}@example.test`;
+  const publicUrl = process.env.AGARACCOUNTING_PUBLIC_URL;
+  const nodeEnv = process.env.NODE_ENV;
+  delete process.env.AGARACCOUNTING_PUBLIC_URL;
+  process.env.NODE_ENV = "production";
+  process.env.LEDGERFLOW_PUBLIC_URL = "https://legacy-ledgerflow.example.test/";
+  try {
+    const invitation = await request<{ error: string }>("/workspace/invitations", {
+      method: "POST",
+      body: JSON.stringify({
+        email: invitedEmail,
+        role: "bookkeeper",
+        clientIds: [clientId],
+      }),
+    });
+    assert.equal(invitation.response.status, 502);
+    assert.match(invitation.body.error, /not sent/i);
+
+    assert.ok(database);
+    const invitations = await database.db.select({ id: database.workspaceInvitationsTable.id })
+      .from(database.workspaceInvitationsTable)
+      .where(eq(database.workspaceInvitationsTable.email, invitedEmail));
+    assert.equal(invitations.length, 0);
+  } finally {
+    if (publicUrl === undefined) delete process.env.AGARACCOUNTING_PUBLIC_URL;
+    else process.env.AGARACCOUNTING_PUBLIC_URL = publicUrl;
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+    delete process.env.LEDGERFLOW_PUBLIC_URL;
+  }
+});
+
+test("keeps a failed resend pending with its previous link invalidated and allows retry", async () => {
+  const suffix = randomUUID();
+  const clientId = await createClient(`Resend failure ${suffix}`);
+  const invitedUserId = `agaraccounting-resend-failure-${suffix}`;
+  const invitedEmail = `${invitedUserId}@example.test`;
+  assert.ok(database);
+  await database.db.insert(database.usersTable).values({
+    id: invitedUserId,
+    email: invitedEmail,
+    firstName: "Retry",
+    lastName: "Recipient",
+  });
+  createdUserIds.push(invitedUserId);
+
+  const created = await request<{ id: number; inviteLink: string }>("/workspace/invitations", {
+    method: "POST",
+    body: JSON.stringify({
+      email: invitedEmail,
+      role: "bookkeeper",
+      clientIds: [clientId],
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  const originalToken = new URL(created.body.inviteLink).searchParams.get("invite");
+  assert.ok(originalToken);
+
+  process.env.AGARACCOUNTING_EMAIL_TEST_MODE = "failure";
+  try {
+    const failedResend = await request<{ error: string }>(`/workspace/invitations/${created.body.id}/resend`, {
+      method: "POST",
+    });
+    assert.equal(failedResend.response.status, 502);
+    assert.match(failedResend.body.error, /not sent/i);
+  } finally {
+    process.env.AGARACCOUNTING_EMAIL_TEST_MODE = "success";
+  }
+
+  const invalidated = await request<{ error: string }>(`/workspace/invitations/${originalToken}/accept`, {
+    method: "POST",
+  }, invitedUserId);
+  assert.equal(invalidated.response.status, 404);
+
+  const retried = await request<{ inviteLink: string; emailDeliveryStatus: "sent" }>(
+    `/workspace/invitations/${created.body.id}/resend`,
+    { method: "POST" },
+  );
+  assert.equal(retried.response.status, 200);
+  assert.equal(retried.body.emailDeliveryStatus, "sent");
+  const retryToken = new URL(retried.body.inviteLink).searchParams.get("invite");
+  assert.ok(retryToken);
+  assert.notEqual(retryToken, originalToken);
+
+  const accepted = await request<{ role: string }>(`/workspace/invitations/${retryToken}/accept`, {
+    method: "POST",
+  }, invitedUserId);
+  assert.equal(accepted.response.status, 200);
+  assert.equal(accepted.body.role, "bookkeeper");
 });
 
 test("prepares unfamiliar exchange-rate CSV data without importing it", async () => {

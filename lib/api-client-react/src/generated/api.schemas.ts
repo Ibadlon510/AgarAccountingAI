@@ -590,6 +590,13 @@ export const WorkspaceInvitationStatus = {
   expired: 'expired',
 } as const;
 
+export type WorkspaceInvitationEmailDeliveryStatus = typeof WorkspaceInvitationEmailDeliveryStatus[keyof typeof WorkspaceInvitationEmailDeliveryStatus];
+
+
+export const WorkspaceInvitationEmailDeliveryStatus = {
+  sent: 'sent',
+} as const;
+
 export interface WorkspaceInvitation {
   id: number;
   email: string;
@@ -602,6 +609,7 @@ export interface WorkspaceInvitation {
   inviteLink?: string;
   emailSubject?: string;
   emailBody?: string;
+  emailDeliveryStatus?: WorkspaceInvitationEmailDeliveryStatus;
 }
 
 export interface WorkspaceMembers {
@@ -621,6 +629,10 @@ export interface WorkspaceInvitationInput {
   role: WorkspaceAssignableRole;
   /** @minItems 1 */
   clientIds: number[];
+}
+
+export interface InvitationDeliveryError {
+  error: string;
 }
 
 export interface WorkspaceMemberUpdate {

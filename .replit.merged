@@ -65,3 +65,6 @@ AGARACCOUNTING_PUBLIC_URL = "https://ai-financial-statements.replit.app"
 
 [userenv.shared]
 RESEND_FROM_EMAIL = "noreply@agaraccounting.com"
+
+[userenv.shared]
+RESEND_FROM_EMAIL = "noreply@agaraccounting.com"

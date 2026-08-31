@@ -208,6 +208,7 @@ import {
   saveAIProviderConfig,
   testAIProvider,
 } from "../lib/ai-provider";
+import { EmailDeliveryError, sendWorkspaceInvitationEmail } from "../lib/resend";
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import { objectStorageService } from "./storage";
 import {
@@ -1543,6 +1544,7 @@ function invitationResponse(
   clientsById: Map<number, typeof clientsTable.$inferSelect>,
   invitedBy: string,
   inviteLink?: string,
+  emailDeliveryStatus?: "sent",
 ) {
   const roleLabel = invitation.role === "admin" ? "an admin" : "a bookkeeper";
   const clients = invitation.clientIds
@@ -1579,25 +1581,36 @@ function invitationResponse(
         `If you were not expecting this invitation, you can ignore this email.`,
       ].join("\n"),
     } : {}),
+    ...(emailDeliveryStatus ? { emailDeliveryStatus } : {}),
   };
 }
 
-function invitationLink(req: Request, token: string) {
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  const protocol = typeof forwardedProto === "string" ? forwardedProto : req.protocol;
-  const forwardedHost = req.headers["x-forwarded-host"];
-  const host = typeof forwardedHost === "string" ? forwardedHost : req.get("host");
-  if (!host) throw new Error("Unable to determine the invitation host.");
-  return `${protocol}://${host}/?invite=${encodeURIComponent(token)}`;
+function invitationLink(token: string) {
+  const configuredOrigin = process.env.AGARACCOUNTING_PUBLIC_URL?.trim();
+  const developmentDomain = process.env.NODE_ENV === "production"
+    ? undefined
+    : process.env.REPLIT_DEV_DOMAIN?.trim();
+  const origin = configuredOrigin ?? (developmentDomain ? `https://${developmentDomain}` : undefined);
+  if (!origin) {
+    throw new Error("AGARACCOUNTING_PUBLIC_URL must be configured before invitations can be sent.");
+  }
+  const url = new URL(origin);
+  if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+    throw new Error("AGARACCOUNTING_PUBLIC_URL must use HTTPS.");
+  }
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("invite", token);
+  return url.toString();
 }
 
 async function invitationEmailResponse(
-  req: Request,
   invitation: typeof workspaceInvitationsTable.$inferSelect,
 ) {
   const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, invitation.clientIds));
   const [actor] = await db.select().from(usersTable).where(eq(usersTable.id, invitation.invitedByUserId)).limit(1);
   const token = randomBytes(32).toString("base64url");
+  const inviteLink = invitationLink(token);
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const [rotated] = await db.update(workspaceInvitationsTable)
     .set({
@@ -1614,8 +1627,20 @@ async function invitationEmailResponse(
     rotated,
     new Map(clients.map((client) => [client.id, client])),
     actor ? displayName(actor) : "Workspace admin",
-    invitationLink(req, token),
+    inviteLink,
   );
+}
+
+async function deliverInvitationEmail(invitation: ReturnType<typeof invitationResponse>) {
+  if (!invitation.emailSubject || !invitation.emailBody) {
+    throw new EmailDeliveryError("The invitation email content could not be prepared.");
+  }
+  await sendWorkspaceInvitationEmail({
+    to: invitation.email,
+    subject: invitation.emailSubject,
+    text: invitation.emailBody,
+  });
+  return { ...invitation, emailDeliveryStatus: "sent" as const };
 }
 
 async function workspaceMemberResponse(userId: string, clientIds: number[], currentUserId: string) {
@@ -7987,6 +8012,14 @@ router.post("/workspace/invitations", async (req, res) => {
     return;
   }
   const token = randomBytes(32).toString("base64url");
+  let inviteLink: string;
+  try {
+    inviteLink = invitationLink(token);
+  } catch (error) {
+    req.log.error({ error }, "Workspace invitation link configuration is invalid");
+    res.status(502).json({ error: "The invitation was not sent. Check the invitation link and email delivery configuration, then try again." });
+    return;
+  }
   const tokenHash = createHash("sha256").update(token).digest("hex");
   const [invitation] = await db.insert(workspaceInvitationsTable).values({
     email,
@@ -7998,13 +8031,24 @@ router.post("/workspace/invitations", async (req, res) => {
   }).returning();
   const clients = await db.select().from(clientsTable).where(inArray(clientsTable.id, selectedClientIds));
   const [actor] = await db.select().from(usersTable).where(eq(usersTable.id, actorUserId)).limit(1);
-  const inviteLink = invitationLink(req, token);
-  res.status(201).json(CreateWorkspaceInvitationResponse.parse(invitationResponse(
+  const preparedInvitation = invitationResponse(
     invitation,
     new Map(clients.map((client) => [client.id, client])),
     actor ? displayName(actor) : "Workspace admin",
     inviteLink,
-  )));
+  );
+  try {
+    const deliveredInvitation = await deliverInvitationEmail(preparedInvitation);
+    res.status(201).json(CreateWorkspaceInvitationResponse.parse(deliveredInvitation));
+  } catch (error) {
+    await db.delete(workspaceInvitationsTable).where(and(
+      eq(workspaceInvitationsTable.id, invitation.id),
+      eq(workspaceInvitationsTable.status, "pending"),
+      eq(workspaceInvitationsTable.tokenHash, invitation.tokenHash),
+    ));
+    req.log.error({ invitationId: invitation.id, error }, "Workspace invitation email delivery failed");
+    res.status(502).json({ error: "The invitation was not sent. Check the email delivery configuration and try again." });
+  }
 });
 
 router.post("/workspace/invitations/:id/resend", async (req, res) => {
@@ -8023,12 +8067,25 @@ router.post("/workspace/invitations/:id/resend", async (req, res) => {
     res.status(409).json({ error: "Only pending invitations can be resent." });
     return;
   }
-  const resent = await invitationEmailResponse(req, invitation);
+  let resent: Awaited<ReturnType<typeof invitationEmailResponse>>;
+  try {
+    resent = await invitationEmailResponse(invitation);
+  } catch (error) {
+    req.log.error({ invitationId: invitation.id, error }, "Workspace invitation link configuration is invalid");
+    res.status(502).json({ error: "The invitation email was not sent. Check the invitation link and email delivery configuration, then try again." });
+    return;
+  }
   if (!resent) {
     res.status(409).json({ error: "This invitation is no longer pending." });
     return;
   }
-  res.json(ResendWorkspaceInvitationResponse.parse(resent));
+  try {
+    const deliveredInvitation = await deliverInvitationEmail(resent);
+    res.json(ResendWorkspaceInvitationResponse.parse(deliveredInvitation));
+  } catch (error) {
+    req.log.error({ invitationId: invitation.id, error }, "Workspace invitation resend failed");
+    res.status(502).json({ error: "The invitation email was not sent. The link was rotated; resend again to retry delivery." });
+  }
 });
 
 router.patch("/workspace/members/:userId", async (req, res) => {

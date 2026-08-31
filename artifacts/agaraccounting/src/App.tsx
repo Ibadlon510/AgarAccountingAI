@@ -229,11 +229,6 @@ async function fileAsBase64(file: File) {
   return base64;
 }
 
-function openInvitationEmail(invitation: Pick<WorkspaceInvitation, 'email' | 'emailSubject' | 'emailBody'>) {
-  if (!invitation.emailSubject || !invitation.emailBody) return;
-  const mailto = `mailto:${encodeURIComponent(invitation.email)}?subject=${encodeURIComponent(invitation.emailSubject)}&body=${encodeURIComponent(invitation.emailBody)}`;
-  window.location.assign(mailto);
-}
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const clerkAppearance = {
@@ -942,6 +937,7 @@ function TeamAccessSection() {
   const revoke = useRevokeWorkspaceInvitation();
   const [form, setForm] = useState({ email: '', role: 'bookkeeper' as 'admin' | 'bookkeeper', clientIds: [] as number[] });
   const [link, setLink] = useState('');
+  const [deliveryMessage, setDeliveryMessage] = useState('');
   const refresh = () => queryClient.invalidateQueries({ queryKey: getGetWorkspaceMembersQueryKey() });
   const toggle = (id: number) => setForm((current) => ({ ...current, clientIds: current.clientIds.includes(id) ? current.clientIds.filter((item) => item !== id) : [...current.clientIds, id] }));
   const toggleMemberClient = (member: WorkspaceMember, clientId: number) => {
@@ -962,25 +958,28 @@ function TeamAccessSection() {
       {data?.canManage && <form onSubmit={(event) => {
         event.preventDefault();
         const invitedEmail = form.email;
+        setDeliveryMessage('');
+        setLink('');
         invite.mutate({ data: form }, {
           onSuccess: (result) => {
             setLink(result.inviteLink ?? '');
+            setDeliveryMessage(`Invitation sent to ${result.email}.`);
             setForm((current) => ({ ...current, email: '' }));
             refresh();
-            openInvitationEmail(result);
-            notify.success('Invitation prepared', { description: `Email opened for ${invitedEmail}.` });
+            notify.success('Invitation sent', { description: `Email delivered to ${invitedEmail}.` });
           },
         });
       }} className="mt-4 rounded border border-primary/20 bg-primary/5 p-3">
         <div className="flex items-center gap-2 text-xs font-semibold"><UserPlus size={14} /> Invite teammate</div>
         <div className="mt-3 flex flex-wrap gap-2"><input data-testid="input-invite-email" required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="teammate@firm.com" className="h-8 flex-1 rounded border border-input bg-card px-2 text-xs" /><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'bookkeeper' })} className="h-8 rounded border border-input bg-card px-2 text-xs"><option value="bookkeeper">Bookkeeper</option><option value="admin">Admin</option></select></div>
         <div className="mt-3 flex flex-wrap gap-3">{data.clients.map((client) => <label key={client.id} className="text-[11px]"><input data-testid={`checkbox-invite-client-${client.id}`} type="checkbox" checked={form.clientIds.includes(client.id)} onChange={() => toggle(client.id)} /> {client.name}</label>)}</div>
-        <button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{invite.isPending ? 'Preparing email…' : <><Mail size={13} /> Email invitation</>}</button>
-        {link && <><input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" /><p className="mt-2 text-[10px] leading-4 text-muted-foreground">Your email app opened with the role, client access, expiry, and secure link. If it did not open, use the invitation link above.</p></>}
-        {invite.isError && <p data-testid="status-invite-error" className="mt-2 text-[10px] text-destructive">The invitation could not be prepared. Check the email and selected client access.</p>}
+        <button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{invite.isPending ? 'Sending invitation…' : <><Mail size={13} /> Send invitation</>}</button>
+        {deliveryMessage && <p data-testid="status-invite-sent" className="mt-2 inline-flex items-center gap-1 text-[10px] text-primary"><Check size={12} /> {deliveryMessage}</p>}
+        {link && <><input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" /><p className="mt-2 text-[10px] leading-4 text-muted-foreground">Resend uses a new secure link each time. This link is also included in the email.</p></>}
+        {invite.isError && <p data-testid="status-invite-error" className="mt-2 text-[10px] text-destructive">The invitation was not sent. Check the email delivery configuration and try again.</p>}
       </form>}
-      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} data-testid={`row-workspace-invitation-${invitation.id}`} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.role} · {invitation.status}<small className="ml-2 text-muted-foreground">expires {shortDate(invitation.expiresAt)}</small></span>{invitation.status === 'pending' && <span className="flex gap-3"><button data-testid={`button-resend-invitation-${invitation.id}`} disabled={resend.isPending || revoke.isPending} onClick={() => resend.mutate({ id: invitation.id }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); openInvitationEmail(result); refresh(); notify.success('Invitation resent', { description: `Email opened for ${invitation.email}.` }); } })} className="inline-flex items-center gap-1 text-primary disabled:opacity-50"><RotateCw size={12} /> {resend.isPending ? 'Preparing…' : 'Resend email'}</button><button data-testid={`button-revoke-invitation-${invitation.id}`} disabled={revoke.isPending} onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: () => { refresh(); notify.success(`Invitation to ${invitation.email} revoked`); } })} className="text-destructive disabled:opacity-50">Revoke</button></span>}</div>)}
-      {resend.isError && <p data-testid="status-resend-invitation-error" className="mt-2 text-[10px] text-destructive">This invitation could not be resent. It may no longer be pending.</p>}
+      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} data-testid={`row-workspace-invitation-${invitation.id}`} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.role} · {invitation.status}<small className="ml-2 text-muted-foreground">expires {shortDate(invitation.expiresAt)}</small></span>{invitation.status === 'pending' && <span className="flex gap-3"><button data-testid={`button-resend-invitation-${invitation.id}`} disabled={resend.isPending || revoke.isPending} onClick={() => { setDeliveryMessage(''); setLink(''); resend.mutate({ id: invitation.id }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); setDeliveryMessage(`Invitation resent to ${result.email}.`); refresh(); notify.success('Invitation resent', { description: `Email delivered to ${invitation.email}.` }); } }); }} className="inline-flex items-center gap-1 text-primary disabled:opacity-50"><RotateCw size={12} /> {resend.isPending ? 'Sending…' : 'Resend email'}</button><button data-testid={`button-revoke-invitation-${invitation.id}`} disabled={revoke.isPending} onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: () => { refresh(); notify.success(`Invitation to ${invitation.email} revoked`); } })} className="text-destructive disabled:opacity-50">Revoke</button></span>}</div>)}
+      {resend.isError && <p data-testid="status-resend-invitation-error" className="mt-2 text-[10px] text-destructive">The invitation email was not sent. Its secure link was rotated; resend again to retry delivery.</p>}
     </>}
   </section>;
 }

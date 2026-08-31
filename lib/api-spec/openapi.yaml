@@ -451,6 +451,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceInvitation"
+        "502":
+          description: Invitation email delivery failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationDeliveryError"
   /workspace/invitations/{id}:
     delete:
       operationId: revokeWorkspaceInvitation
@@ -481,6 +487,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceInvitation"
+        "502":
+          description: Invitation email delivery failed after the secure link was rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationDeliveryError"
   /workspace/invitations/{token}/accept:
     post:
       operationId: acceptWorkspaceInvitation
@@ -2473,6 +2485,7 @@ components:
         inviteLink: { type: string }
         emailSubject: { type: string }
         emailBody: { type: string }
+        emailDeliveryStatus: { type: string, enum: [sent] }
     WorkspaceMembers:
       type: object
       required: [currentRole, canManage, clients, members, invitations]
@@ -2501,6 +2514,11 @@ components:
           type: array
           minItems: 1
           items: { type: number }
+    InvitationDeliveryError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
     WorkspaceMemberUpdate:
       type: object
       required: [role, clientIds]

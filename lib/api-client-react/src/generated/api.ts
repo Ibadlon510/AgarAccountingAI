@@ -90,6 +90,7 @@ import type {
   GetUploadedFilesParams,
   HealthStatus,
   ImportExchangeRatesParams,
+  InvitationDeliveryError,
   JournalEntry,
   LedgerOverview,
   LedgerflowAccount,
@@ -2042,7 +2043,7 @@ export const createWorkspaceInvitation = async (workspaceInvitationInput: Worksp
 
 
 
-export const getCreateWorkspaceInvitationMutationOptions = <TError = ErrorType<unknown>,
+export const getCreateWorkspaceInvitationMutationOptions = <TError = ErrorType<InvitationDeliveryError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvitation>>, TError,{data: BodyType<WorkspaceInvitationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvitation>>, TError,{data: BodyType<WorkspaceInvitationInput>}, TContext> => {
 
@@ -2071,12 +2072,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateWorkspaceInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof createWorkspaceInvitation>>>
     export type CreateWorkspaceInvitationMutationBody = BodyType<WorkspaceInvitationInput>
-    export type CreateWorkspaceInvitationMutationError = ErrorType<unknown>
+    export type CreateWorkspaceInvitationMutationError = ErrorType<InvitationDeliveryError>
 
     /**
  * @summary Invite a teammate to the workspace
  */
-export const useCreateWorkspaceInvitation = <TError = ErrorType<unknown>,
+export const useCreateWorkspaceInvitation = <TError = ErrorType<InvitationDeliveryError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWorkspaceInvitation>>, TError,{data: BodyType<WorkspaceInvitationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createWorkspaceInvitation>>,
@@ -2184,7 +2185,7 @@ export const resendWorkspaceInvitation = async (id: number, options?: Parameters
 
 
 
-export const getResendWorkspaceInvitationMutationOptions = <TError = ErrorType<unknown>,
+export const getResendWorkspaceInvitationMutationOptions = <TError = ErrorType<InvitationDeliveryError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendWorkspaceInvitation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof resendWorkspaceInvitation>>, TError,{id: number}, TContext> => {
 
@@ -2213,12 +2214,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ResendWorkspaceInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof resendWorkspaceInvitation>>>
 
-    export type ResendWorkspaceInvitationMutationError = ErrorType<unknown>
+    export type ResendWorkspaceInvitationMutationError = ErrorType<InvitationDeliveryError>
 
     /**
  * @summary Resend a pending workspace invitation
  */
-export const useResendWorkspaceInvitation = <TError = ErrorType<unknown>,
+export const useResendWorkspaceInvitation = <TError = ErrorType<InvitationDeliveryError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendWorkspaceInvitation>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof resendWorkspaceInvitation>>,
