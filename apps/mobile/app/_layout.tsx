@@ -14,6 +14,7 @@ import { Fraunces_500Medium_Italic, Fraunces_600SemiBold } from '@expo-google-fo
 import { IBMPlexMono_400Regular, IBMPlexMono_500Medium } from '@expo-google-fonts/ibm-plex-mono';
 import { tokenCache } from '../src/lib/tokenCache';
 import { queryClient } from '../src/lib/api';
+import { ClientProvider } from '../src/lib/ClientContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
@@ -44,7 +45,13 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={clerkPublishableKey} tokenCache={tokenCache}>
       <ClerkLoaded>
         <QueryClientProvider client={queryClient}>
-          <Stack screenOptions={{ headerShown: false }} />
+          <ClientProvider>
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="sign-in" />
+              <Stack.Screen name="switch-client" options={{ presentation: 'modal' }} />
+            </Stack>
+          </ClientProvider>
         </QueryClientProvider>
       </ClerkLoaded>
     </ClerkProvider>

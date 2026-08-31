@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { useGetLedgerOverview, getGetLedgerOverviewQueryKey } from '@workspace/api-client-react';
 import { Screen } from '../../src/components/Screen';
+import { ScreenHeader } from '../../src/components/ScreenHeader';
 import { useTheme } from '../../src/theme/useTheme';
 import { fonts, spacing, radius } from '../../src/theme/tokens';
 import { money } from '../../src/lib/format';
@@ -58,10 +59,7 @@ export default function OverviewScreen() {
 
   return (
     <Screen>
-      <Text style={[styles.eyebrow, { color: colors.accent, fontFamily: fonts.mono }]}>
-        {activeClient.name.toUpperCase()}
-      </Text>
-      <Text style={[styles.title, { color: colors.foreground, fontFamily: fonts.display }]}>Overview</Text>
+      <ScreenHeader title="Overview" />
 
       {overview && (
         <>

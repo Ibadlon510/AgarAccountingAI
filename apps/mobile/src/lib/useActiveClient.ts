@@ -1,10 +1,8 @@
-import { useGetClients } from '@workspace/api-client-react';
+import { useClientWorkspace } from './ClientContext';
 
-// The web app has a full client switcher (useClientWorkspace). This is the
-// minimal version for the first mobile pass: the first client in the list.
-// A real switcher is tracked as a follow-up, not deferred by accident.
+// Thin alias over the workspace context. Screens only ever need the selected
+// client, so they read this rather than the full switcher surface.
 export function useActiveClient() {
-  const query = useGetClients();
-  const activeClient = query.data?.[0];
-  return { activeClient, isLoading: query.isLoading, isError: query.isError, refetch: query.refetch };
+  const { activeClient, isLoading, isError, refetch } = useClientWorkspace();
+  return { activeClient, isLoading, isError, refetch };
 }

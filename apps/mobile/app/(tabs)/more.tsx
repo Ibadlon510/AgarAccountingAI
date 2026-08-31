@@ -1,16 +1,19 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { useTheme } from '../../src/theme/useTheme';
 import { fonts, spacing, radius } from '../../src/theme/tokens';
-import { useActiveClient } from '../../src/lib/useActiveClient';
+import { useClientWorkspace } from '../../src/lib/ClientContext';
 
 export default function MoreScreen() {
   const { colors } = useTheme();
   const { user } = useUser();
   const { signOut } = useAuth();
-  const { activeClient } = useActiveClient();
+  const router = useRouter();
+  const { activeClient, clients } = useClientWorkspace();
+  const canSwitch = clients.length > 1;
 
   return (
     <Screen>
@@ -24,15 +27,28 @@ export default function MoreScreen() {
       </View>
 
       {activeClient && (
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.cardLabel, { color: colors.mutedForeground, fontFamily: fonts.mono }]}>WORKSPACE</Text>
-          <Text style={[styles.cardValue, { color: colors.foreground, fontFamily: fonts.sansMedium }]}>
-            {activeClient.name}
-          </Text>
-          <Text style={[styles.cardSub, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
-            {activeClient.functionalCurrency} · {activeClient.basis}
-          </Text>
-        </View>
+        <Pressable
+          onPress={() => (canSwitch ? router.push('/switch-client') : undefined)}
+          disabled={!canSwitch}
+          accessibilityRole={canSwitch ? 'button' : undefined}
+          style={({ pressed }) => [
+            styles.card,
+            styles.workspaceCard,
+            { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed && canSwitch ? 0.7 : 1 },
+          ]}
+        >
+          <View style={styles.workspaceText}>
+            <Text style={[styles.cardLabel, { color: colors.mutedForeground, fontFamily: fonts.mono }]}>WORKSPACE</Text>
+            <Text style={[styles.cardValue, { color: colors.foreground, fontFamily: fonts.sansMedium }]}>
+              {activeClient.name}
+            </Text>
+            <Text style={[styles.cardSub, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
+              {activeClient.functionalCurrency} · {activeClient.basis}
+              {canSwitch ? ` · ${clients.length} workspaces` : ''}
+            </Text>
+          </View>
+          {canSwitch && <Feather name="chevron-right" size={18} color={colors.mutedForeground} />}
+        </Pressable>
       )}
 
       <Pressable
@@ -54,6 +70,8 @@ export default function MoreScreen() {
 const styles = StyleSheet.create({
   title: { fontSize: 26, marginBottom: spacing.lg },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.md },
+  workspaceCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  workspaceText: { flex: 1 },
   cardLabel: { fontSize: 10, letterSpacing: 1 },
   cardValue: { fontSize: 15, marginTop: spacing.xs },
   cardSub: { fontSize: 12, marginTop: 2 },
