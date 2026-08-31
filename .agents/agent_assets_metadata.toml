@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "IQLDc1CqXH3xOqhxyuNND"
+uri = "file://downloads/agaraccounting.com-godaddy-zone.txt"
+type = "text"
+title = "GoDaddy DNS import file for agaraccounting.com"
+description = "BIND-format DNS zone file preserving the supplied email, Microsoft, Clerk, Resend, and Render records while keeping the Replit root-domain records. SOA and NS records are omitted because GoDaddy manages them."
+logical_id = "322eaee1-2947-483e-8362-7db9c6ba84e7"
+content_hash = "sha256:b763661591fd67734aac2c738427f84a09e46c8fea16cb4dde9066e05ab94fe6"
+size = 2462
+mtime_ms = 1788164339179
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:e0084adf-47ef-4138-801e-f77f435ad94e/322eaee1-2947-483e-8362-7db9c6ba84e7/94b6d436-ebee-4134-828b-40a6857e881d"
+storage_version_token = "1788164351696941"
+content_type = "text/plain"

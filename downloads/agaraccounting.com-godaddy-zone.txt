@@ -1,0 +1,55 @@
+; agaraccounting.com — GoDaddy DNS import file
+; Generated from the supplied GoDaddy zone export.
+; SOA and NS records are intentionally omitted because GoDaddy manages
+; the authoritative nameservers for this domain.
+;
+; Replit root-domain records:
+;   @ A   34.111.179.208
+;   @ TXT replit-verify=...
+;   @ CAA letsencrypt.org
+;
+; The www record remains pointed at the existing Render service. If
+; www.agaraccounting.com should also move to Replit, connect that hostname
+; separately in Replit and replace the www CNAME with the exact value Replit
+; provides before importing.
+
+$ORIGIN agaraccounting.com.
+
+; Replit application
+@ 600 IN A 34.111.179.208
+@ 600 IN TXT "replit-verify=e0084adf-47ef-4138-801e-f77f435ad94e"
+@ 3600 IN CAA 0 issue "letsencrypt.org"
+
+; Existing verification and email records
+@ 3600 IN TXT "NETORGFT19500322.onmicrosoft.com"
+@ 3600 IN TXT "resend-domain-verification=21dca462bed9ffd33ff436b936297ff2"
+@ 3600 IN TXT "v=spf1 include:secureserver.net -all"
+resend._domainkey 3600 IN TXT "p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCymv16V8U2yex3Dx0bDl/NpT5kIJRr+986zmLfVurjn4uW3eLZs1jtY588XfajQRarhUySfF3IbQ7XV2qP+BOyPq1lrD9rEXOJ+ArJE+2wmj3ZCspPeK/iy4RDdXhqY9Of1P/4dL/dsYbT7pHMI/TOJtaVu6B3jXEFLnIv/CMOdwIDAQAB"
+send 3600 IN TXT "v=spf1 include:amazonses.com ~all"
+_dmarc 3600 IN TXT "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
+
+; Clerk authentication
+accounts 600 IN CNAME accounts.clerk.services.
+clerk 600 IN CNAME frontend-api.clerk.services.
+clk._domainkey 600 IN CNAME dkim1.uow85kgdj3ln.clerk.services.
+clk2._domainkey 600 IN CNAME dkim2.uow85kgdj3ln.clerk.services.
+clkmail 600 IN CNAME mail.uow85kgdj3ln.clerk.services.
+
+; Existing Microsoft, GoDaddy, and mail discovery records
+autodiscover 3600 IN CNAME autodiscover.outlook.com.
+email 3600 IN CNAME email.secureserver.net.
+lyncdiscover 3600 IN CNAME webdir.online.lync.com.
+msoid 3600 IN CNAME clientconfig.microsoftonline-p.net.
+sip 3600 IN CNAME sipdir.online.lync.com.
+_domainconnect 3600 IN CNAME _domainconnect.gd.domaincontrol.com.
+
+; Existing Render hostname — intentionally preserved
+www 600 IN CNAME accounting-ai-iy56.onrender.com.
+
+; SIP service records
+_sip._tls 3600 IN SRV 100 1 443 sipdir.online.lync.com.
+_sipfederationtls._tcp 3600 IN SRV 100 1 5061 sipfed.online.lync.com.
+
+; Mail delivery
+@ 3600 IN MX 0 agaraccounting-com.mail.protection.outlook.com.
+send 3600 IN MX 10 feedback-smtp.ap-northeast-1.amazonses.com.
