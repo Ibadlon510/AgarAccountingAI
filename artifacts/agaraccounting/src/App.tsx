@@ -2681,6 +2681,8 @@ function StatementLinesPage() {
   const [bulkError, setBulkError] = useState<unknown>(null);
   const [lineActionError, setLineActionError] = useState<{ lineId: number; message: string } | null>(null);
   const [pendingPostLineIds, setPendingPostLineIds] = useState<number[]>([]);
+  const [refreshingLines, setRefreshingLines] = useState(false);
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const pendingPostLineIdsRef = useRef(new Set<number>());
   const bulkActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const params = useMemo(() => ({ clientId: activeClient?.id ?? 1, ...(currency !== 'all' ? { currency } : {}), ...(status !== 'all' ? { status } : {}), ...(direction !== 'all' ? { direction } : {}) }), [activeClient?.id, currency, status, direction]);
@@ -2872,6 +2874,9 @@ function StatementLinesPage() {
   };
   const refreshingSuggestions = query.isFetching || catalogQuery.isFetching || journalQuery.isFetching || bankAccountsQuery.isFetching;
   const refreshSuggestions = async () => {
+    if (refreshingSuggestions || refreshingLines) return;
+    const refreshStartedAt = Date.now();
+    setRefreshingLines(true);
     setLineActionError(null);
     // Statement-line GET recomputes learned account/contact suggestions from current
     // workspace patterns, so an explicit refetch is enough to surface new learning.
@@ -2884,11 +2889,18 @@ function StatementLinesPage() {
         queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId: journalParams.clientId }) }),
         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAccountsQueryKey({ clientId: journalParams.clientId }) }),
       ]);
+      const elapsed = Date.now() - refreshStartedAt;
+      if (elapsed < 500) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500 - elapsed));
+      }
       notify.success('Suggestions refreshed', {
         description: 'Draft accounts and contacts now reflect the latest learning.',
       });
+      setLastRefreshAt(new Date());
     } catch (error) {
       notify.error(error, { title: 'Refresh failed', fallback: 'Some suggestions could not be reloaded. Try again in a moment.' });
+    } finally {
+      setRefreshingLines(false);
     }
   };
   return <div>
@@ -2902,11 +2914,11 @@ function StatementLinesPage() {
           data-testid="button-refresh-statement-lines"
           title="Reload statement lines and refresh learned account and contact suggestions"
           onClick={() => { void refreshSuggestions(); }}
-          disabled={refreshingSuggestions}
+          disabled={refreshingSuggestions || refreshingLines}
           className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground shadow-sm transition-transform hover:-translate-y-0.5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
         >
-          <RefreshCw size={14} className={refreshingSuggestions ? 'animate-spin' : ''} />
-          {refreshingSuggestions ? 'Refreshing…' : 'Refresh suggestions'}
+          <RefreshCw size={14} className={refreshingSuggestions || refreshingLines ? 'animate-spin' : ''} />
+          {refreshingSuggestions || refreshingLines ? 'Refreshing…' : 'Refresh suggestions'}
         </button>
         <button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>
       </div>}
@@ -2955,8 +2967,18 @@ function StatementLinesPage() {
         <DateRangeFilter compact from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-statement-lines-date-from" toTestId="input-statement-lines-date-to" clearTestId="button-clear-statement-lines-date-filter" />
     </FilterToolbar>
     <QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} filtered={activeFilterCount > 0} onClearFilters={clearAllFilters} onRetry={() => query.refetch()}>
-      <div className="overflow-hidden rounded-lg border border-card-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div>
+      <div
+        data-testid="statement-lines-review-queue"
+        aria-busy={refreshingLines}
+        className="relative overflow-hidden rounded-lg border border-card-border bg-card"
+      >
+        {refreshingLines && <div data-testid="statement-lines-refresh-state" className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-card/75 p-6 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-full border border-primary/25 bg-background/95 px-4 py-2.5 text-xs font-semibold text-primary shadow-lg" role="status" aria-live="polite">
+            <RefreshCw size={14} className="animate-spin" />
+            Refreshing review queue…
+          </div>
+        </div>}
+         <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><div className="flex items-center gap-3">{lastRefreshAt && <span data-testid="statement-lines-refresh-success" title={`Last refreshed ${lastRefreshAt.toLocaleTimeString()}`} className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.08em] text-primary"><Check size={12} /> Queue refreshed</span>}<span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div></div>
         {selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue ? 'text-destructive' : 'text-muted-foreground'}`}>{selectionIssue ?? 'Draft entries selected · recoding and posting are available.'}</p></div>}
          <div className="overflow-x-auto"><table className="w-full min-w-[1220px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[360px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[148px] px-3 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(pendingPostLineIds.includes(line.id) || post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={lineActionError?.lineId === line.id ? lineActionError.message : null} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onPost={postEntry} onUnpost={unpostEntry} />)}</tbody></table></div>
         {rows.length > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, rows.length)} of {rows.length} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
