@@ -42,6 +42,16 @@ type ErrorOptions = BaseOptions & {
   action?: { label: string; onClick: () => void };
 };
 
+const handledErrors = new WeakSet<object>();
+
+export function markErrorHandled(error: unknown) {
+  if (typeof error === "object" && error !== null) handledErrors.add(error);
+}
+
+export function isErrorHandled(error: unknown) {
+  return typeof error === "object" && error !== null && handledErrors.has(error);
+}
+
 function success(title: string, opts: BaseOptions = {}) {
   return sonnerToast.success(title, opts);
 }
@@ -61,6 +71,7 @@ export function isErrorHandled(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as Record<string, unknown>)[HANDLED_ERROR_MARK] === true;
 }
 function error(err: unknown, opts: ErrorOptions = {}) {
+  markErrorHandled(err);
   const { fallback, action, title, description, duration, id } = opts;
   const body = description ?? readErrorMessage(err, fallback);
   if (err && typeof err === 'object') {

@@ -2887,13 +2887,6 @@ export const GetReportPackParams = zod.object({
   "id": zod.coerce.number()
 })
 
-/**
- * @summary Delete a saved report-pack snapshot
- */
-export const DeleteReportPackParams = zod.object({
-  "id": zod.coerce.number()
-})
-
 export const GetReportPackResponse = zod.object({
   "id": zod.number(),
   "clientId": zod.number(),
@@ -3216,6 +3209,26 @@ export const UpdateReportPackResponse = zod.object({
 
 
 /**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const DeleteReportPackParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteReportPackResponse = zod.void()
+
+
+/**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const DeleteReportPackByPostParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteReportPackByPostResponse = zod.void()
+
+
+/**
  * @summary Download the saved report-pack snapshot as a PDF
  */
 export const DownloadReportPackPdfParams = zod.object({
@@ -3254,6 +3267,264 @@ export const GetStorageObjectParams = zod.object({
 })
 
 export const GetStorageObjectResponse = zod.unknown()
+
+
+/**
+ * @summary List published feedback posts (public)
+ */
+export const listFeedbackPostsQueryLimitDefault = 20;
+export const listFeedbackPostsQueryLimitMax = 50;
+
+
+
+export const ListFeedbackPostsQueryParams = zod.object({
+  "limit": zod.coerce.number().min(1).max(listFeedbackPostsQueryLimitMax).default(listFeedbackPostsQueryLimitDefault),
+  "cursor": zod.coerce.string().optional()
+})
+
+export const listFeedbackPostsResponseItemsItemLinksItemRegExp = new RegExp('^https:[/][/]');
+
+
+export const ListFeedbackPostsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "author": zod.object({
+  "id": zod.string(),
+  "displayName": zod.string(),
+  "initials": zod.string(),
+  "profileImageUrl": zod.string().nullish()
+}),
+  "body": zod.string(),
+  "imageUrl": zod.string().nullish(),
+  "links": zod.array(zod.string().regex(listFeedbackPostsResponseItemsItemLinksItemRegExp)),
+  "createdAt": zod.coerce.date(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})),
+  "replyCount": zod.number()
+})),
+  "nextCursor": zod.string().nullish()
+})
+
+
+/**
+ * @summary Create a feedback post
+ */
+export const createFeedbackPostBodyBodyMax = 2000;
+
+export const createFeedbackPostBodyLinksItemRegExp = new RegExp('^https:[/][/]');
+export const createFeedbackPostBodyLinksMax = 5;
+
+
+
+export const CreateFeedbackPostBody = zod.object({
+  "body": zod.string().min(1).max(createFeedbackPostBodyBodyMax),
+  "links": zod.array(zod.string().regex(createFeedbackPostBodyLinksItemRegExp)).max(createFeedbackPostBodyLinksMax).optional(),
+  "imageObjectPath": zod.string().nullish()
+})
+
+export const createFeedbackPostResponseLinksItemRegExp = new RegExp('^https:[/][/]');
+
+
+export const CreateFeedbackPostResponse = zod.object({
+  "id": zod.number(),
+  "author": zod.object({
+  "id": zod.string(),
+  "displayName": zod.string(),
+  "initials": zod.string(),
+  "profileImageUrl": zod.string().nullish()
+}),
+  "body": zod.string(),
+  "imageUrl": zod.string().nullish(),
+  "links": zod.array(zod.string().regex(createFeedbackPostResponseLinksItemRegExp)),
+  "createdAt": zod.coerce.date(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})),
+  "replyCount": zod.number()
+})
+
+
+/**
+ * @summary Get a feedback post with flat replies (public)
+ */
+export const GetFeedbackPostParams = zod.object({
+  "postId": zod.coerce.number()
+})
+
+export const getFeedbackPostResponsePostLinksItemRegExp = new RegExp('^https:[/][/]');
+
+
+export const GetFeedbackPostResponse = zod.object({
+  "post": zod.object({
+  "id": zod.number(),
+  "author": zod.object({
+  "id": zod.string(),
+  "displayName": zod.string(),
+  "initials": zod.string(),
+  "profileImageUrl": zod.string().nullish()
+}),
+  "body": zod.string(),
+  "imageUrl": zod.string().nullish(),
+  "links": zod.array(zod.string().regex(getFeedbackPostResponsePostLinksItemRegExp)),
+  "createdAt": zod.coerce.date(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})),
+  "replyCount": zod.number()
+}),
+  "replies": zod.array(zod.object({
+  "id": zod.number(),
+  "postId": zod.number(),
+  "author": zod.object({
+  "id": zod.string(),
+  "displayName": zod.string(),
+  "initials": zod.string(),
+  "profileImageUrl": zod.string().nullish()
+}),
+  "body": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+}))
+}))
+})
+
+
+/**
+ * @summary Reply to a feedback post
+ */
+export const CreateFeedbackReplyParams = zod.object({
+  "postId": zod.coerce.number()
+})
+
+export const createFeedbackReplyBodyBodyMax = 1000;
+
+
+
+export const CreateFeedbackReplyBody = zod.object({
+  "body": zod.string().min(1).max(createFeedbackReplyBodyBodyMax)
+})
+
+export const CreateFeedbackReplyResponse = zod.object({
+  "id": zod.number(),
+  "postId": zod.number(),
+  "author": zod.object({
+  "id": zod.string(),
+  "displayName": zod.string(),
+  "initials": zod.string(),
+  "profileImageUrl": zod.string().nullish()
+}),
+  "body": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "reactions": zod.array(zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Add a reaction to a feedback post
+ */
+export const AddFeedbackPostReactionParams = zod.object({
+  "postId": zod.coerce.number(),
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh'])
+})
+
+export const AddFeedbackPostReactionResponseItem = zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})
+export const AddFeedbackPostReactionResponse = zod.array(AddFeedbackPostReactionResponseItem)
+
+
+/**
+ * @summary Remove a reaction from a feedback post
+ */
+export const RemoveFeedbackPostReactionParams = zod.object({
+  "postId": zod.coerce.number(),
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh'])
+})
+
+export const RemoveFeedbackPostReactionResponseItem = zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})
+export const RemoveFeedbackPostReactionResponse = zod.array(RemoveFeedbackPostReactionResponseItem)
+
+
+/**
+ * @summary Add a reaction to a feedback reply
+ */
+export const AddFeedbackReplyReactionParams = zod.object({
+  "replyId": zod.coerce.number(),
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh'])
+})
+
+export const AddFeedbackReplyReactionResponseItem = zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})
+export const AddFeedbackReplyReactionResponse = zod.array(AddFeedbackReplyReactionResponseItem)
+
+
+/**
+ * @summary Remove a reaction from a feedback reply
+ */
+export const RemoveFeedbackReplyReactionParams = zod.object({
+  "replyId": zod.coerce.number(),
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh'])
+})
+
+export const RemoveFeedbackReplyReactionResponseItem = zod.object({
+  "emoji": zod.enum(['thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh']),
+  "count": zod.number(),
+  "viewerReacted": zod.boolean()
+})
+export const RemoveFeedbackReplyReactionResponse = zod.array(RemoveFeedbackReplyReactionResponseItem)
+
+
+/**
+ * @summary Request a presigned URL for a feedback image upload
+ */
+export const RequestFeedbackImageUploadUrlBody = zod.object({
+  "name": zod.string(),
+  "size": zod.number(),
+  "contentType": zod.string()
+})
+
+export const RequestFeedbackImageUploadUrlResponse = zod.object({
+  "uploadURL": zod.string(),
+  "objectPath": zod.string(),
+  "metadata": zod.object({
+  "name": zod.string(),
+  "size": zod.number(),
+  "contentType": zod.string()
+})
+})
+
+
+/**
+ * @summary Serve a published feedback image (public)
+ */
+export const GetFeedbackImageParams = zod.object({
+  "objectPath": zod.coerce.string()
+})
+
+export const GetFeedbackImageResponse = zod.unknown()
 
 
 /**

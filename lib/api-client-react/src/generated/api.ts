@@ -56,6 +56,15 @@ import type {
   ExchangeRateParseInput,
   ExchangeRateParseResult,
   ExchangeRateUpdate,
+  FeedbackEmoji,
+  FeedbackFeedPage,
+  FeedbackImageUploadRequest,
+  FeedbackPost,
+  FeedbackPostDetail,
+  FeedbackPostInput,
+  FeedbackReactionSummary,
+  FeedbackReply,
+  FeedbackReplyInput,
   FinancialStatements,
   FirmEngagement,
   FirmEngagementInviteInput,
@@ -87,6 +96,7 @@ import type {
   LedgerflowAccountInput,
   LedgerflowAccountMutation,
   LedgerflowAccountUpdate,
+  ListFeedbackPostsParams,
   LogoutBrowserSessionParams,
   LogoutSuccess,
   MobileTokenExchangeRequest,
@@ -6548,7 +6558,7 @@ export const getDeleteReportPackUrl = (id: number,) => {
 
 
 
-  return `/api/agaraccounting/report-packs/${id}/delete`
+  return `/api/agaraccounting/report-packs/${id}`
 }
 
 /**
@@ -6559,7 +6569,7 @@ export const deleteReportPack = async (id: number, options?: Parameters<typeof c
   return customFetch<void>(getDeleteReportPackUrl(id),
   {
     ...options,
-    method: 'POST'
+    method: 'DELETE'
 
 
   }
@@ -6569,8 +6579,7 @@ export const deleteReportPack = async (id: number, options?: Parameters<typeof c
 
 
 
-
-export const getDeleteReportPackMutationOptions = <TError = ErrorType<unknown>,
+export const getDeleteReportPackMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReportPack>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof deleteReportPack>>, TError,{id: number}, TContext> => {
 
@@ -6593,15 +6602,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
+
+
   return  { mutationFn, ...mutationOptions }}
 
     export type DeleteReportPackMutationResult = NonNullable<Awaited<ReturnType<typeof deleteReportPack>>>
-    export type DeleteReportPackMutationError = ErrorType<unknown>
+
+    export type DeleteReportPackMutationError = ErrorType<void>
 
     /**
  * @summary Delete a saved report-pack snapshot
  */
-export const useDeleteReportPack = <TError = ErrorType<unknown>,
+export const useDeleteReportPack = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReportPack>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof deleteReportPack>>,
@@ -6610,6 +6622,77 @@ export const useDeleteReportPack = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteReportPackMutationOptions(options));
+    }
+
+export const getDeleteReportPackByPostUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/report-packs/${id}/delete`
+}
+
+/**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const deleteReportPackByPost = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteReportPackByPostUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteReportPackByPostMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReportPackByPost>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteReportPackByPost>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteReportPackByPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteReportPackByPost>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteReportPackByPost(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteReportPackByPostMutationResult = NonNullable<Awaited<ReturnType<typeof deleteReportPackByPost>>>
+
+    export type DeleteReportPackByPostMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete a saved report-pack snapshot
+ */
+export const useDeleteReportPackByPost = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReportPackByPost>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteReportPackByPost>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteReportPackByPostMutationOptions(options));
     }
 
 export const getDownloadReportPackPdfUrl = (id: number,) => {
@@ -6825,6 +6908,750 @@ export function useGetStorageObject<TData = Awaited<ReturnType<typeof getStorage
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetStorageObjectQueryOptions(objectPath,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListFeedbackPostsUrl = (params?: ListFeedbackPostsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/feedback/posts?${stringifiedParams}` : `/api/feedback/posts`
+}
+
+/**
+ * @summary List published feedback posts (public)
+ */
+export const listFeedbackPosts = async (params?: ListFeedbackPostsParams, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackFeedPage> => {
+
+  return customFetch<FeedbackFeedPage>(getListFeedbackPostsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListFeedbackPostsQueryKey = (params?: ListFeedbackPostsParams,) => {
+    return [
+    `/api/feedback/posts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListFeedbackPostsQueryOptions = <TData = Awaited<ReturnType<typeof listFeedbackPosts>>, TError = ErrorType<unknown>>(params?: ListFeedbackPostsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFeedbackPosts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListFeedbackPostsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFeedbackPosts>>> = ({ signal }) => listFeedbackPosts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFeedbackPosts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListFeedbackPostsQueryResult = NonNullable<Awaited<ReturnType<typeof listFeedbackPosts>>>
+export type ListFeedbackPostsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List published feedback posts (public)
+ */
+
+export function useListFeedbackPosts<TData = Awaited<ReturnType<typeof listFeedbackPosts>>, TError = ErrorType<unknown>>(
+ params?: ListFeedbackPostsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFeedbackPosts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListFeedbackPostsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateFeedbackPostUrl = () => {
+
+
+
+
+  return `/api/feedback/posts`
+}
+
+/**
+ * @summary Create a feedback post
+ */
+export const createFeedbackPost = async (feedbackPostInput: FeedbackPostInput, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackPost> => {
+
+  return customFetch<FeedbackPost>(getCreateFeedbackPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(feedbackPostInput)
+  }
+);}
+
+
+
+
+
+export const getCreateFeedbackPostMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createFeedbackPost>>, TError,{data: BodyType<FeedbackPostInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createFeedbackPost>>, TError,{data: BodyType<FeedbackPostInput>}, TContext> => {
+
+const mutationKey = ['createFeedbackPost'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createFeedbackPost>>, {data: BodyType<FeedbackPostInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createFeedbackPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateFeedbackPostMutationResult = NonNullable<Awaited<ReturnType<typeof createFeedbackPost>>>
+    export type CreateFeedbackPostMutationBody = BodyType<FeedbackPostInput>
+    export type CreateFeedbackPostMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a feedback post
+ */
+export const useCreateFeedbackPost = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createFeedbackPost>>, TError,{data: BodyType<FeedbackPostInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createFeedbackPost>>,
+        TError,
+        {data: BodyType<FeedbackPostInput>},
+        TContext
+      > => {
+      return useMutation(getCreateFeedbackPostMutationOptions(options));
+    }
+
+export const getGetFeedbackPostUrl = (postId: number,) => {
+
+
+
+
+  return `/api/feedback/posts/${postId}`
+}
+
+/**
+ * @summary Get a feedback post with flat replies (public)
+ */
+export const getFeedbackPost = async (postId: number, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackPostDetail> => {
+
+  return customFetch<FeedbackPostDetail>(getGetFeedbackPostUrl(postId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFeedbackPostQueryKey = (postId: number,) => {
+    return [
+    `/api/feedback/posts/${postId}`
+    ] as const;
+    }
+
+
+export const getGetFeedbackPostQueryOptions = <TData = Awaited<ReturnType<typeof getFeedbackPost>>, TError = ErrorType<void>>(postId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFeedbackPost>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFeedbackPostQueryKey(postId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFeedbackPost>>> = ({ signal }) => getFeedbackPost(postId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: postId !== null && postId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFeedbackPost>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFeedbackPostQueryResult = NonNullable<Awaited<ReturnType<typeof getFeedbackPost>>>
+export type GetFeedbackPostQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a feedback post with flat replies (public)
+ */
+
+export function useGetFeedbackPost<TData = Awaited<ReturnType<typeof getFeedbackPost>>, TError = ErrorType<void>>(
+ postId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFeedbackPost>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFeedbackPostQueryOptions(postId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateFeedbackReplyUrl = (postId: number,) => {
+
+
+
+
+  return `/api/feedback/posts/${postId}/replies`
+}
+
+/**
+ * @summary Reply to a feedback post
+ */
+export const createFeedbackReply = async (postId: number,
+    feedbackReplyInput: FeedbackReplyInput, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackReply> => {
+
+  return customFetch<FeedbackReply>(getCreateFeedbackReplyUrl(postId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(feedbackReplyInput)
+  }
+);}
+
+
+
+
+
+export const getCreateFeedbackReplyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createFeedbackReply>>, TError,{postId: number;data: BodyType<FeedbackReplyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createFeedbackReply>>, TError,{postId: number;data: BodyType<FeedbackReplyInput>}, TContext> => {
+
+const mutationKey = ['createFeedbackReply'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createFeedbackReply>>, {postId: number;data: BodyType<FeedbackReplyInput>}> = (props) => {
+          const {postId,data} = props ?? {};
+
+          return  createFeedbackReply(postId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateFeedbackReplyMutationResult = NonNullable<Awaited<ReturnType<typeof createFeedbackReply>>>
+    export type CreateFeedbackReplyMutationBody = BodyType<FeedbackReplyInput>
+    export type CreateFeedbackReplyMutationError = ErrorType<void>
+
+    /**
+ * @summary Reply to a feedback post
+ */
+export const useCreateFeedbackReply = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createFeedbackReply>>, TError,{postId: number;data: BodyType<FeedbackReplyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createFeedbackReply>>,
+        TError,
+        {postId: number;data: BodyType<FeedbackReplyInput>},
+        TContext
+      > => {
+      return useMutation(getCreateFeedbackReplyMutationOptions(options));
+    }
+
+export const getAddFeedbackPostReactionUrl = (postId: number,
+    emoji: FeedbackEmoji,) => {
+
+
+
+
+  return `/api/feedback/posts/${postId}/reactions/${emoji}`
+}
+
+/**
+ * @summary Add a reaction to a feedback post
+ */
+export const addFeedbackPostReaction = async (postId: number,
+    emoji: FeedbackEmoji, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackReactionSummary[]> => {
+
+  return customFetch<FeedbackReactionSummary[]>(getAddFeedbackPostReactionUrl(postId,emoji),
+  {
+    ...options,
+    method: 'PUT'
+
+
+  }
+);}
+
+
+
+
+
+export const getAddFeedbackPostReactionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addFeedbackPostReaction>>, TError,{postId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addFeedbackPostReaction>>, TError,{postId: number;emoji: FeedbackEmoji}, TContext> => {
+
+const mutationKey = ['addFeedbackPostReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addFeedbackPostReaction>>, {postId: number;emoji: FeedbackEmoji}> = (props) => {
+          const {postId,emoji} = props ?? {};
+
+          return  addFeedbackPostReaction(postId,emoji,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddFeedbackPostReactionMutationResult = NonNullable<Awaited<ReturnType<typeof addFeedbackPostReaction>>>
+
+    export type AddFeedbackPostReactionMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a reaction to a feedback post
+ */
+export const useAddFeedbackPostReaction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addFeedbackPostReaction>>, TError,{postId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addFeedbackPostReaction>>,
+        TError,
+        {postId: number;emoji: FeedbackEmoji},
+        TContext
+      > => {
+      return useMutation(getAddFeedbackPostReactionMutationOptions(options));
+    }
+
+export const getRemoveFeedbackPostReactionUrl = (postId: number,
+    emoji: FeedbackEmoji,) => {
+
+
+
+
+  return `/api/feedback/posts/${postId}/reactions/${emoji}`
+}
+
+/**
+ * @summary Remove a reaction from a feedback post
+ */
+export const removeFeedbackPostReaction = async (postId: number,
+    emoji: FeedbackEmoji, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackReactionSummary[]> => {
+
+  return customFetch<FeedbackReactionSummary[]>(getRemoveFeedbackPostReactionUrl(postId,emoji),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemoveFeedbackPostReactionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeFeedbackPostReaction>>, TError,{postId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeFeedbackPostReaction>>, TError,{postId: number;emoji: FeedbackEmoji}, TContext> => {
+
+const mutationKey = ['removeFeedbackPostReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeFeedbackPostReaction>>, {postId: number;emoji: FeedbackEmoji}> = (props) => {
+          const {postId,emoji} = props ?? {};
+
+          return  removeFeedbackPostReaction(postId,emoji,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveFeedbackPostReactionMutationResult = NonNullable<Awaited<ReturnType<typeof removeFeedbackPostReaction>>>
+
+    export type RemoveFeedbackPostReactionMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove a reaction from a feedback post
+ */
+export const useRemoveFeedbackPostReaction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeFeedbackPostReaction>>, TError,{postId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeFeedbackPostReaction>>,
+        TError,
+        {postId: number;emoji: FeedbackEmoji},
+        TContext
+      > => {
+      return useMutation(getRemoveFeedbackPostReactionMutationOptions(options));
+    }
+
+export const getAddFeedbackReplyReactionUrl = (replyId: number,
+    emoji: FeedbackEmoji,) => {
+
+
+
+
+  return `/api/feedback/replies/${replyId}/reactions/${emoji}`
+}
+
+/**
+ * @summary Add a reaction to a feedback reply
+ */
+export const addFeedbackReplyReaction = async (replyId: number,
+    emoji: FeedbackEmoji, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackReactionSummary[]> => {
+
+  return customFetch<FeedbackReactionSummary[]>(getAddFeedbackReplyReactionUrl(replyId,emoji),
+  {
+    ...options,
+    method: 'PUT'
+
+
+  }
+);}
+
+
+
+
+
+export const getAddFeedbackReplyReactionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addFeedbackReplyReaction>>, TError,{replyId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof addFeedbackReplyReaction>>, TError,{replyId: number;emoji: FeedbackEmoji}, TContext> => {
+
+const mutationKey = ['addFeedbackReplyReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof addFeedbackReplyReaction>>, {replyId: number;emoji: FeedbackEmoji}> = (props) => {
+          const {replyId,emoji} = props ?? {};
+
+          return  addFeedbackReplyReaction(replyId,emoji,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AddFeedbackReplyReactionMutationResult = NonNullable<Awaited<ReturnType<typeof addFeedbackReplyReaction>>>
+
+    export type AddFeedbackReplyReactionMutationError = ErrorType<void>
+
+    /**
+ * @summary Add a reaction to a feedback reply
+ */
+export const useAddFeedbackReplyReaction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addFeedbackReplyReaction>>, TError,{replyId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof addFeedbackReplyReaction>>,
+        TError,
+        {replyId: number;emoji: FeedbackEmoji},
+        TContext
+      > => {
+      return useMutation(getAddFeedbackReplyReactionMutationOptions(options));
+    }
+
+export const getRemoveFeedbackReplyReactionUrl = (replyId: number,
+    emoji: FeedbackEmoji,) => {
+
+
+
+
+  return `/api/feedback/replies/${replyId}/reactions/${emoji}`
+}
+
+/**
+ * @summary Remove a reaction from a feedback reply
+ */
+export const removeFeedbackReplyReaction = async (replyId: number,
+    emoji: FeedbackEmoji, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackReactionSummary[]> => {
+
+  return customFetch<FeedbackReactionSummary[]>(getRemoveFeedbackReplyReactionUrl(replyId,emoji),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getRemoveFeedbackReplyReactionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeFeedbackReplyReaction>>, TError,{replyId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof removeFeedbackReplyReaction>>, TError,{replyId: number;emoji: FeedbackEmoji}, TContext> => {
+
+const mutationKey = ['removeFeedbackReplyReaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof removeFeedbackReplyReaction>>, {replyId: number;emoji: FeedbackEmoji}> = (props) => {
+          const {replyId,emoji} = props ?? {};
+
+          return  removeFeedbackReplyReaction(replyId,emoji,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RemoveFeedbackReplyReactionMutationResult = NonNullable<Awaited<ReturnType<typeof removeFeedbackReplyReaction>>>
+
+    export type RemoveFeedbackReplyReactionMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove a reaction from a feedback reply
+ */
+export const useRemoveFeedbackReplyReaction = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof removeFeedbackReplyReaction>>, TError,{replyId: number;emoji: FeedbackEmoji}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof removeFeedbackReplyReaction>>,
+        TError,
+        {replyId: number;emoji: FeedbackEmoji},
+        TContext
+      > => {
+      return useMutation(getRemoveFeedbackReplyReactionMutationOptions(options));
+    }
+
+export const getRequestFeedbackImageUploadUrlUrl = () => {
+
+
+
+
+  return `/api/feedback/images/upload-url`
+}
+
+/**
+ * @summary Request a presigned URL for a feedback image upload
+ */
+export const requestFeedbackImageUploadUrl = async (feedbackImageUploadRequest: FeedbackImageUploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<UploadUrlResponse> => {
+
+  return customFetch<UploadUrlResponse>(getRequestFeedbackImageUploadUrlUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(feedbackImageUploadRequest)
+  }
+);}
+
+
+
+
+
+export const getRequestFeedbackImageUploadUrlMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestFeedbackImageUploadUrl>>, TError,{data: BodyType<FeedbackImageUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestFeedbackImageUploadUrl>>, TError,{data: BodyType<FeedbackImageUploadRequest>}, TContext> => {
+
+const mutationKey = ['requestFeedbackImageUploadUrl'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestFeedbackImageUploadUrl>>, {data: BodyType<FeedbackImageUploadRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestFeedbackImageUploadUrl(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestFeedbackImageUploadUrlMutationResult = NonNullable<Awaited<ReturnType<typeof requestFeedbackImageUploadUrl>>>
+    export type RequestFeedbackImageUploadUrlMutationBody = BodyType<FeedbackImageUploadRequest>
+    export type RequestFeedbackImageUploadUrlMutationError = ErrorType<void>
+
+    /**
+ * @summary Request a presigned URL for a feedback image upload
+ */
+export const useRequestFeedbackImageUploadUrl = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestFeedbackImageUploadUrl>>, TError,{data: BodyType<FeedbackImageUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestFeedbackImageUploadUrl>>,
+        TError,
+        {data: BodyType<FeedbackImageUploadRequest>},
+        TContext
+      > => {
+      return useMutation(getRequestFeedbackImageUploadUrlMutationOptions(options));
+    }
+
+export const getGetFeedbackImageUrl = (objectPath: string,) => {
+
+
+
+
+  return `/api/feedback/images/${objectPath}`
+}
+
+/**
+ * @summary Serve a published feedback image (public)
+ */
+export const getFeedbackImage = async (objectPath: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetFeedbackImageUrl(objectPath),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFeedbackImageQueryKey = (objectPath: string,) => {
+    return [
+    `/api/feedback/images/${objectPath}`
+    ] as const;
+    }
+
+
+export const getGetFeedbackImageQueryOptions = <TData = Awaited<ReturnType<typeof getFeedbackImage>>, TError = ErrorType<void>>(objectPath: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFeedbackImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFeedbackImageQueryKey(objectPath);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFeedbackImage>>> = ({ signal }) => getFeedbackImage(objectPath, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: objectPath !== null && objectPath !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFeedbackImage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFeedbackImageQueryResult = NonNullable<Awaited<ReturnType<typeof getFeedbackImage>>>
+export type GetFeedbackImageQueryError = ErrorType<void>
+
+
+/**
+ * @summary Serve a published feedback image (public)
+ */
+
+export function useGetFeedbackImage<TData = Awaited<ReturnType<typeof getFeedbackImage>>, TError = ErrorType<void>>(
+ objectPath: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFeedbackImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFeedbackImageQueryOptions(objectPath,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

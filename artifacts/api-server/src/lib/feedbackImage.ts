@@ -28,6 +28,28 @@ export function validateFeedbackImageContent(contentType: string, size: number) 
   return null;
 }
 
+export function validateFeedbackImageBytes(bytes: Buffer, contentType: string) {
+  const normalizedType = contentType.toLowerCase().split(";")[0]?.trim() ?? "";
+  const isPng = bytes.length >= 8
+    && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const isJpeg = bytes.length >= 3
+    && bytes[0] === 0xff
+    && bytes[1] === 0xd8
+    && bytes[2] === 0xff;
+  const signature = bytes.subarray(0, 6).toString("ascii");
+  const isGif = signature === "GIF87a" || signature === "GIF89a";
+  const isWebp = bytes.length >= 12
+    && bytes.subarray(0, 4).toString("ascii") === "RIFF"
+    && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  const matches = (
+    (normalizedType === "image/png" && isPng)
+    || (normalizedType === "image/jpeg" && isJpeg)
+    || (normalizedType === "image/gif" && isGif)
+    || (normalizedType === "image/webp" && isWebp)
+  );
+  return matches ? null : "Uploaded file content does not match its declared image type.";
+}
+
 export function validateFeedbackImageMetadata(name: string, contentType: string, size: number) {
   const contentError = validateFeedbackImageContent(contentType, size);
   if (contentError) return contentError;

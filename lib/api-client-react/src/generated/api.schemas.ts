@@ -1598,6 +1598,13 @@ export interface AIAccountingFilters {
   recordId?: number;
 }
 
+export interface AIAssistantPageContext {
+  route?: string;
+  selectedLineIds?: number[];
+  visibleLineIds?: number[];
+  statementLineSearch?: string;
+}
+
 export interface AIChatInput {
   clientId: number;
   /**
@@ -1608,13 +1615,6 @@ export interface AIChatInput {
   threadId?: number;
   filters?: AIAccountingFilters;
   pageContext?: AIAssistantPageContext;
-}
-
-export interface AIAssistantPageContext {
-  route?: string;
-  selectedLineIds?: number[];
-  visibleLineIds?: number[];
-  statementLineSearch?: string;
 }
 
 export type AIChatResponseContext = {
@@ -2219,6 +2219,94 @@ export interface ReportPackUpdate {
   signatory?: ReportSignatory;
 }
 
+export type FeedbackEmoji = typeof FeedbackEmoji[keyof typeof FeedbackEmoji];
+
+
+export const FeedbackEmoji = {
+  thumbs_up: 'thumbs_up',
+  heart: 'heart',
+  celebrate: 'celebrate',
+  eyes: 'eyes',
+  rocket: 'rocket',
+  laugh: 'laugh',
+} as const;
+
+export interface FeedbackAuthor {
+  id: string;
+  displayName: string;
+  initials: string;
+  /** @nullable */
+  profileImageUrl?: string | null;
+}
+
+export interface FeedbackReactionSummary {
+  emoji: FeedbackEmoji;
+  count: number;
+  viewerReacted: boolean;
+}
+
+export interface FeedbackPost {
+  id: number;
+  author: FeedbackAuthor;
+  body: string;
+  /** @nullable */
+  imageUrl?: string | null;
+  /** @items.pattern ^https:[/][/] */
+  links: string[];
+  createdAt: string;
+  reactions: FeedbackReactionSummary[];
+  replyCount: number;
+}
+
+export interface FeedbackReply {
+  id: number;
+  postId: number;
+  author: FeedbackAuthor;
+  body: string;
+  createdAt: string;
+  reactions: FeedbackReactionSummary[];
+}
+
+export interface FeedbackPostDetail {
+  post: FeedbackPost;
+  replies: FeedbackReply[];
+}
+
+export interface FeedbackFeedPage {
+  items: FeedbackPost[];
+  /** @nullable */
+  nextCursor?: string | null;
+}
+
+export interface FeedbackPostInput {
+  /**
+     * @minLength 1
+     * @maxLength 2000
+     */
+  body: string;
+  /**
+     * @maxItems 5
+     * @items.pattern ^https:[/][/]
+     */
+  links?: string[];
+  /** @nullable */
+  imageObjectPath?: string | null;
+}
+
+export interface FeedbackReplyInput {
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  body: string;
+}
+
+export interface FeedbackImageUploadRequest {
+  name: string;
+  size: number;
+  contentType: string;
+}
+
 /**
  * Company ledger whose persisted rate profile is being managed.
  */
@@ -2337,6 +2425,15 @@ period?: string;
 
 export type GetReportPacksParams = {
 clientId: number;
+};
+
+export type ListFeedbackPostsParams = {
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+cursor?: string;
 };
 
 export type GetLedgerflowAccountsParams = {

@@ -98,7 +98,9 @@ after(async () => {
       await database.db.delete(database.feedbackPostsTable).where(
         like(database.feedbackPostsTable.body, "feedback-test-%"),
       );
-      await database.db.delete(database.usersTable).where(inArray(database.usersTable.id, userIds));
+      // Authentication provisioning also creates each user's starter workspace.
+      // Leave those isolated test identities for the disposable CI database
+      // rather than coupling feedback teardown to unrelated workspace tables.
     }
   } finally {
     if (server) {

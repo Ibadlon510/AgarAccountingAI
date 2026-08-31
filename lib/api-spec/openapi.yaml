@@ -3776,7 +3776,7 @@ components:
         imageUrl: { type: ["string", "null"] }
         links:
           type: array
-          items: { type: string, format: uri }
+          items: { type: string, pattern: '^https:[/][/]' }
         createdAt: { type: string, format: date-time }
         reactions:
           type: array
@@ -3818,7 +3818,7 @@ components:
         links:
           type: array
           maxItems: 5
-          items: { type: string, format: uri }
+          items: { type: string, pattern: '^https:[/][/]' }
         imageObjectPath: { type: ["string", "null"] }
     FeedbackReplyInput:
       type: object

@@ -16,6 +16,7 @@ import {
   isFeedbackObjectPath,
   MAX_FEEDBACK_IMAGE_SIZE,
   normalizeFeedbackObjectPath,
+  validateFeedbackImageBytes,
   validateFeedbackImageContent,
   validateFeedbackImageMetadata,
 } from "../lib/feedbackImage";
@@ -36,7 +37,6 @@ function authorSummary(user: {
   id: string;
   firstName: string | null;
   lastName: string | null;
-  email: string | null;
   profileImageUrl: string | null;
 } | null | undefined) {
   if (!user) {
@@ -50,7 +50,6 @@ function authorSummary(user: {
   const first = user.firstName?.trim() ?? "";
   const last = user.lastName?.trim() ?? "";
   const displayName = [first, last].filter(Boolean).join(" ")
-    || (user.email ? user.email.split("@")[0] : null)
     || "AgarAccounting user";
   const initials = [first[0], last[0]].filter(Boolean).join("").toUpperCase()
     || displayName.slice(0, 2).toUpperCase();
@@ -322,6 +321,8 @@ feedbackPublicRouter.get("/feedback/images/*objectPath", async (req: Request, re
     const response = await objectStorageService.downloadObject(objectFile);
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", "inline");
     if (response.body) Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
     else res.end();
   } catch (error) {
@@ -351,7 +352,7 @@ feedbackAuthRouter.post("/feedback/images/upload-url", async (req: Request, res:
   }
   try {
     const prefix = `feedback/${encodeURIComponent(req.dbUser.id)}`;
-    const uploadURL = await objectStorageService.getObjectEntityUploadURL(prefix, { visibility: "public" });
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL(prefix, { visibility: "private" });
     const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
     res.json({
       uploadURL,
@@ -402,7 +403,16 @@ feedbackAuthRouter.post("/feedback/posts", async (req: Request, res: Response) =
     }
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(imageObjectPath);
-      const aclPolicy = await getObjectAclPolicy(objectFile);
+      let aclPolicy = await getObjectAclPolicy(objectFile);
+      // Cloud signed PUT uploads cannot attach custom metadata. Establish the
+      // private owner policy server-side before trusting or publishing them.
+      if (!aclPolicy) {
+        await objectStorageService.trySetObjectEntityAclPolicy(imageObjectPath, {
+          owner: req.dbUser.id,
+          visibility: "private",
+        });
+        aclPolicy = await getObjectAclPolicy(objectFile);
+      }
       if (!aclPolicy || aclPolicy.owner !== req.dbUser.id) {
         res.status(400).json({ error: "Invalid feedback image reference." });
         return;
@@ -415,11 +425,11 @@ feedbackAuthRouter.post("/feedback/posts", async (req: Request, res: Response) =
         res.status(400).json({ error: validationError });
         return;
       }
-      if (aclPolicy.visibility !== "public") {
-        await objectStorageService.trySetObjectEntityAclPolicy(imageObjectPath, {
-          owner: req.dbUser.id,
-          visibility: "public",
-        });
+      const [bytes] = await objectFile.download();
+      const bytesError = validateFeedbackImageBytes(bytes, contentType);
+      if (bytesError) {
+        res.status(400).json({ error: bytesError });
+        return;
       }
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {
@@ -439,18 +449,34 @@ feedbackAuthRouter.post("/feedback/posts", async (req: Request, res: Response) =
     }
   }
 
-  const [post] = await db.insert(feedbackPostsTable).values({
-    authorId: req.dbUser.id,
-    body: text,
-    imageObjectPath,
-  }).returning();
+  const post = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(feedbackPostsTable).values({
+      authorId: req.dbUser!.id,
+      body: text,
+      imageObjectPath,
+    }).returning();
+    if (links.length) {
+      await tx.insert(feedbackPostLinksTable).values(links.map((url, position) => ({
+        postId: created.id,
+        url,
+        position,
+      })));
+    }
+    return created;
+  });
 
-  if (links.length) {
-    await db.insert(feedbackPostLinksTable).values(links.map((url, position) => ({
-      postId: post.id,
-      url,
-      position,
-    })));
+  if (imageObjectPath) {
+    try {
+      await objectStorageService.trySetObjectEntityAclPolicy(imageObjectPath, {
+        owner: req.dbUser.id,
+        visibility: "public",
+      });
+    } catch (error) {
+      await db.delete(feedbackPostsTable).where(eq(feedbackPostsTable.id, post.id));
+      req.log?.error({ err: error }, "Error publishing feedback image");
+      res.status(500).json({ error: "Could not publish the feedback image. Try again." });
+      return;
+    }
   }
 
   const [serialized] = await serializePosts([post], req.dbUser.id);
