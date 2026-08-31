@@ -119,7 +119,7 @@ function joinLabels(labels: string[]) {
 }
 
 function buildDefaultReportNotes(input: {
-  legalName: string;
+  entityName: string;
   periodEnd: string;
   comparativePeriodEnd: string;
   presentationCurrency: string;
@@ -166,7 +166,7 @@ function buildDefaultReportNotes(input: {
       number: 1,
       title: "Basis of preparation",
       narrative: [
-        `These financial statements of ${input.legalName} have been prepared for the year ended ${periodLabel} in accordance with ${framework}.`,
+        `These financial statements of ${input.entityName} have been prepared for the year ended ${periodLabel} in accordance with ${framework}.`,
         presentation,
         `They are presented in ${currency}, which is also the entity’s presentation currency for this report pack.`,
         "Management has prepared the statements on a going-concern basis and has applied materiality when deciding which disclosures are necessary for an understanding of the financial position and performance.",
@@ -606,7 +606,7 @@ export function buildReportPack(input: {
   const hasPpe = values.some((item) => ppePattern.test(item.account) || ppePattern.test(item.meta.displayName));
   const hasPayroll = values.some((item) => payrollPattern.test(item.account) || payrollPattern.test(item.meta.displayName));
   const notes: ReportNote[] = buildDefaultReportNotes({
-    legalName: input.client.legalName,
+    entityName: input.client.name,
     periodEnd: periods.periodEnd,
     comparativePeriodEnd: periods.comparativePeriodEnd,
     presentationCurrency: input.presentationCurrency,

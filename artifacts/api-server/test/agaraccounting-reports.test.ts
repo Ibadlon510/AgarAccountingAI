@@ -364,7 +364,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
         .where(eq(database.bulkTransitionAuditsTable.id, persistedPostAudit.id)),
     );
 
-    const draft = await request<{ id: number; snapshot: { traceability: { postedEntryCount: number } } }>("/agaraccounting/report-packs", {
+   const draft = await request<{ id: number; snapshot: { traceability: { postedEntryCount: number }; notes: Array<{ number: number; narrative: string }> } }>("/agaraccounting/report-packs", {
       method: "POST",
       body: JSON.stringify({
         clientId: lifecycleClientId,
@@ -376,6 +376,10 @@ test("posting can be reversed without rewriting reports or accountability eviden
     });
     assert.equal(draft.response.status, 201);
     assert.equal(draft.body.snapshot.traceability.postedEntryCount, 1);
+   const basisNote = draft.body.snapshot.notes.find((note) => note.number === 1);
+   assert.ok(basisNote);
+   assert.match(basisNote.narrative, /Reversible lifecycle/);
+   assert.doesNotMatch(basisNote.narrative, /Reversible lifecycle LLC/);
 
     const forbiddenUnpost = await request<{ error: string }>(`/agaraccounting/journal-entries/${entry.id}/unpost`, {
       method: "POST",
