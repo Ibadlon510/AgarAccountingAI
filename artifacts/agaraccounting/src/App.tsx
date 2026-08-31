@@ -3818,7 +3818,7 @@ function FinancialStatementsPage() {
   </div>;
 }
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route path="/feedback">{() => <FeedbackPage signedIn />}</Route><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
@@ -4202,7 +4202,7 @@ function PublicFeedbackEntry() {
       clearUserScopedState(queryClient);
       void signOut({ redirectUrl: basePath || "/" });
     };
-    return <InviteAcceptanceGate><AgarAccountingApp key={user.externalId ?? user.id} user={user} profileUser={user} onLogout={handleLogout} /></InviteAcceptanceGate>;
+    return <InviteAcceptanceGate><FeedbackPublicShell signedIn onLogout={handleLogout}><FeedbackPage signedIn /></FeedbackPublicShell></InviteAcceptanceGate>;
   }
   return <FeedbackPublicShell><FeedbackPage signedIn={false} /></FeedbackPublicShell>;
 }

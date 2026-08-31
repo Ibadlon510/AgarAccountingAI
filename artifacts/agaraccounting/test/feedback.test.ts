@@ -9,6 +9,8 @@ test("registers a public /feedback route outside the auth catch-all", async () =
   assert.match(app, /path="\/feedback"/);
   assert.match(app, /PublicFeedbackEntry/);
   assert.match(app, /<Route path="\/sign-in\/\*\?" component=\{SignInPage\} \/>[\s\S]*<Route path="\/feedback">[\s\S]*<Route component=\{AuthBoundary\} \/>/);
+  assert.match(app, /if \(isSignedIn && user\) \{[\s\S]*return <InviteAcceptanceGate><FeedbackPublicShell signedIn onLogout=\{handleLogout\}><FeedbackPage signedIn \/><\/FeedbackPublicShell><\/InviteAcceptanceGate>;/);
+  assert.doesNotMatch(app, /if \(isSignedIn && user\) \{[\s\S]*return <InviteAcceptanceGate><AgarAccountingApp/);
   assert.match(app, /link-feedback-account-menu/);
   assert.match(app, /Feedback & reviews/);
   assert.match(app, /link-feedback-access-screen/);
@@ -45,4 +47,13 @@ test("feedback UX covers sign-in return, optimistic reactions, and image guardra
   assert.match(page, /onDrop/);
   assert.match(page, /setReplyCount\(\(count\) => count \+ 1\)/);
   assert.match(page, /feedback-composer-success/);
+});
+
+test("signed-in feedback shell provides a workspace exit and sign-out controls", async () => {
+  const page = await readFile(artifactFile("src/pages/feedback.tsx"), "utf8");
+  assert.match(page, /signedIn = false/);
+  assert.match(page, /link-feedback-back-to-workspace/);
+  assert.match(page, /href="\/user-portal"/);
+  assert.match(page, /button-feedback-signout/);
+  assert.match(page, /link-feedback-signin/);
 });
