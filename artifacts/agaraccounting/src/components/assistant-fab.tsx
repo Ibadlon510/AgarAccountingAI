@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Sparkles, X, Paperclip, Send, Loader2, ArrowRight, Check, CircleAlert,
   Menu, Maximize2, Minimize2, Plus, MoreVertical, Trash2, Edit2, AlertCircle,
-  ListTodo, Search, TrendingUp, Tag, ArrowUpRight, Landmark, RotateCw
+  ListTodo, Search, TrendingUp, Tag, ArrowUpRight, Landmark, RotateCw, MessageSquarePlus
 } from 'lucide-react';
 import { useClientWorkspace } from '@/lib/workspace-context';
 import {
@@ -1133,6 +1133,17 @@ export function AssistantFAB() {
 
           {/* Composer */}
           <div className="min-w-0 shrink-0 overflow-hidden border-t border-border bg-card p-3">
+            <div className="mb-2 flex justify-end">
+              <Link
+                href="/feedback?from=assistant"
+                data-testid="link-assistant-send-feedback"
+                onClick={() => setIsOpen(false)}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-primary underline-offset-2 hover:bg-secondary hover:underline"
+              >
+                <MessageSquarePlus size={13} />
+                Send feedback
+              </Link>
+            </div>
             <form onSubmit={handleSend} className="flex min-w-0 items-end gap-2 rounded-xl border border-input bg-background p-1.5 shadow-sm transition-all focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20">
               <input
                 type="file"

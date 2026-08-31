@@ -86,6 +86,7 @@ type RequestAuth = {
 type ClerkIdentityReader = (clerkUserId: string) => Promise<ClerkIdentity>;
 
 export const requireAuth = createRequireAuth();
+export const optionalAuth = createOptionalAuth();
 
 export function createRequireAuth(
   readAuth?: (request: Request) => RequestAuth,
@@ -150,5 +151,71 @@ export function createRequireAuth(
       req.log?.error({ err: error }, "Local user provisioning failed");
       next(error);
     }
+  };
+}
+
+export function createOptionalAuth(
+  readAuth?: (request: Request) => RequestAuth,
+  readClerkIdentity?: ClerkIdentityReader,
+) {
+  return async function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+    let auth: RequestAuth;
+    try {
+      auth = readAuth ? readAuth(req) : getAuth(req);
+    } catch {
+      next();
+      return;
+    }
+
+    const sessionClaims = auth.sessionClaims as { userId?: unknown; sub?: unknown } | null | undefined;
+    const headerUserId = typeof req.headers["x-test-user-id"] === "string"
+      ? req.headers["x-test-user-id"]
+      : null;
+    const userId = typeof sessionClaims?.userId === "string"
+      ? sessionClaims.userId
+      : typeof auth.userId === "string"
+        ? auth.userId
+        : typeof sessionClaims?.sub === "string"
+          ? sessionClaims.sub
+          : headerUserId;
+
+    if (!userId) {
+      next();
+      return;
+    }
+
+    try {
+      let identity: ClerkIdentity | undefined;
+      if (!readAuth || readClerkIdentity) {
+        const clerkUserId = typeof auth.userId === "string"
+          ? auth.userId
+          : typeof sessionClaims?.sub === "string"
+            ? sessionClaims.sub
+            : null;
+        if (clerkUserId) {
+          if (readClerkIdentity) {
+            identity = await readClerkIdentity(clerkUserId);
+          } else {
+            try {
+              const clerkUser = await clerkClient.users.getUser(clerkUserId);
+              const primaryEmail = clerkUser.emailAddresses.find((email) =>
+                email.id === clerkUser.primaryEmailAddressId && email.verification?.status === "verified",
+              )?.emailAddress;
+              identity = {
+                email: primaryEmail?.toLowerCase() ?? null,
+                firstName: clerkUser.firstName ?? null,
+                lastName: clerkUser.lastName ?? null,
+              };
+            } catch {
+              identity = undefined;
+            }
+          }
+        }
+      }
+      req.dbUser = await provisionLocalUser(userId, identity);
+    } catch (error) {
+      req.log?.error({ err: error }, "Optional auth user provisioning failed");
+    }
+    next();
   };
 }

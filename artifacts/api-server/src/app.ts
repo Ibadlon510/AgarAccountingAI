@@ -18,6 +18,7 @@ export default app;
 type AppOptions = {
   clerkAuthMiddleware?: RequestHandler;
   requireAuthMiddleware?: RequestHandler;
+  optionalAuthMiddleware?: RequestHandler;
 };
 
 function zodIssueMessages(error: unknown): string | null {
@@ -61,7 +62,10 @@ export function createApp(options: AppOptions = {}): Express {
         ),
       })),
   );
-  app.use("/api", createRouter(options.requireAuthMiddleware));
+  app.use("/api", createRouter({
+    authMiddleware: options.requireAuthMiddleware,
+    optionalAuthMiddleware: options.optionalAuthMiddleware,
+  }));
 
   app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
     const bodyError = error as { type?: string; status?: number };

@@ -1,4 +1,4 @@
-import { bigint, boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgTable, smallint, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const usersTable = pgTable("users", {
@@ -770,3 +770,79 @@ export const systemRateAuditEventsTable = pgTable("agaraccounting_system_rate_au
     name: "agaraccounting_system_rate_audit_events_rate_fk",
   }).onDelete("set null"),
 ]);
+
+export const feedbackPostsTable = pgTable("agaraccounting_feedback_posts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  authorId: varchar("author_id"),
+  body: text("body").notNull(),
+  imageObjectPath: varchar("image_object_path"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("agaraccounting_feedback_posts_feed_idx").on(table.createdAt, table.id),
+  foreignKey({
+    columns: [table.authorId],
+    foreignColumns: [usersTable.id],
+    name: "agaraccounting_feedback_posts_author_fk",
+  }).onDelete("set null"),
+]);
+
+export const feedbackRepliesTable = pgTable("agaraccounting_feedback_replies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  postId: integer("post_id").notNull(),
+  authorId: varchar("author_id"),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("agaraccounting_feedback_replies_post_thread_idx").on(table.postId, table.createdAt, table.id),
+  foreignKey({
+    columns: [table.postId],
+    foreignColumns: [feedbackPostsTable.id],
+    name: "agaraccounting_feedback_replies_post_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.authorId],
+    foreignColumns: [usersTable.id],
+    name: "agaraccounting_feedback_replies_author_fk",
+  }).onDelete("set null"),
+]);
+
+export const feedbackPostLinksTable = pgTable("agaraccounting_feedback_post_links", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  postId: integer("post_id").notNull(),
+  url: varchar("url").notNull(),
+  position: smallint("position").notNull(),
+}, (table) => [
+  uniqueIndex("agaraccounting_feedback_post_links_post_position_idx").on(table.postId, table.position),
+  check("agaraccounting_feedback_post_links_position_check", sql`position between 0 and 4`),
+  foreignKey({
+    columns: [table.postId],
+    foreignColumns: [feedbackPostsTable.id],
+    name: "agaraccounting_feedback_post_links_post_fk",
+  }).onDelete("cascade"),
+]);
+
+export const feedbackReactionsTable = pgTable("agaraccounting_feedback_reactions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: varchar("user_id").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: integer("target_id").notNull(),
+  emoji: text("emoji").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("agaraccounting_feedback_reactions_unique_idx").on(table.userId, table.targetType, table.targetId, table.emoji),
+  index("agaraccounting_feedback_reactions_target_idx").on(table.targetType, table.targetId),
+  check("agaraccounting_feedback_reactions_target_type_check", sql`target_type in ('post', 'reply')`),
+  check("agaraccounting_feedback_reactions_emoji_check", sql`emoji in ('thumbs_up', 'heart', 'celebrate', 'eyes', 'rocket', 'laugh')`),
+  foreignKey({
+    columns: [table.userId],
+    foreignColumns: [usersTable.id],
+    name: "agaraccounting_feedback_reactions_user_fk",
+  }).onDelete("cascade"),
+]);
+
+export type FeedbackPost = typeof feedbackPostsTable.$inferSelect;
+export type FeedbackReply = typeof feedbackRepliesTable.$inferSelect;
+export type FeedbackPostLink = typeof feedbackPostLinksTable.$inferSelect;
+export type FeedbackReaction = typeof feedbackReactionsTable.$inferSelect;

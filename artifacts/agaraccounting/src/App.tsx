@@ -26,7 +26,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Toaster as SonnerToaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { notify, readErrorMessage } from '@/lib/notify';
+import { notify, readErrorMessage, isErrorHandled } from '@/lib/notify';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -50,10 +50,16 @@ import {
   type ImportActivitySequenceState,
   type ImportActivityStage,
 } from './lib/import-activity';
-// AgarAccounting mutations can opt into toast reporting via
-// `mutate(..., { meta: { notify: true | { success?: string; error?: string } } })`
-// so we don't double-notify for flows that still use inline banners.
-type NotifyMeta = boolean | { success?: string; error?: string; title?: string };
+// Toast reporting for mutations is auto-on for errors: any mutation that
+// throws will surface a generic toast unless one of these opt-outs applies:
+//   - the mutation's onError explicitly called notify.error() (isErrorHandled)
+//   - the hook was created with { mutation: { meta: { notify: false } } }
+//   - the hook was created with { mutation: { meta: { notify: { silent: true } } } }
+// Optional per-hook customization:
+//   - meta.notify.title / meta.notify.error   → title for the auto error toast
+//   - meta.notify.success                     → success toast text
+// Queries are silent by default; opt in with the same meta.notify shape.
+type NotifyMeta = boolean | { success?: string; error?: string; title?: string; silent?: boolean };
 function readNotifyMeta(meta: unknown): NotifyMeta | null {
   if (!meta || typeof meta !== 'object') return null;
   const value = (meta as { notify?: unknown }).notify;
@@ -65,20 +71,25 @@ const queryClient = new QueryClient({
     onError: (error, query) => {
       const notifyMeta = readNotifyMeta(query.meta);
       if (!notifyMeta) return;
+      if (notifyMeta === false) return;
+      if (typeof notifyMeta === 'object' && notifyMeta.silent) return;
       const title = typeof notifyMeta === 'object' ? notifyMeta.error ?? notifyMeta.title : undefined;
       notify.error(error, { title });
     },
   }),
   mutationCache: new MutationCache({
     onError: (error, _variables, _context, mutation) => {
+      // Contextual toast already fired via notify.error inside the mutation's
+      // own onError handler — skip to avoid stacking two toasts.
+      if (isErrorHandled(error)) return;
       const notifyMeta = readNotifyMeta(mutation.meta);
-      if (!notifyMeta) return;
+      if (notifyMeta === false) return;
+      if (typeof notifyMeta === 'object' && notifyMeta.silent) return;
       const title = typeof notifyMeta === 'object' ? notifyMeta.error ?? notifyMeta.title : undefined;
       notify.error(error, { title });
     },
     onSuccess: (_data, _variables, _context, mutation) => {
       const notifyMeta = readNotifyMeta(mutation.meta);
-      if (!notifyMeta || notifyMeta === true) return;
       if (typeof notifyMeta === 'object' && notifyMeta.success) notify.success(notifyMeta.success);
     },
   }),
@@ -268,8 +279,10 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
     e.preventDefault();
     inviteFirm.mutate({ id: clientId, data: { email, firmId: Number(firmId), role: 'admin' } }, {
       onSuccess: () => {
+        const invited = email;
         setEmail('');
         queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+        notify.success('Firm invitation sent', { description: `${invited} will receive access to this company.` });
       }
     });
   };
@@ -278,8 +291,10 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
     e.preventDefault();
     inviteTransfer.mutate({ id: clientId, data: { email: transferEmail } }, {
       onSuccess: () => {
+        const invited = transferEmail;
         setTransferEmail('');
         queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+        notify.success('Ownership transfer invitation sent', { description: `${invited} was invited to take ownership.` });
       }
     });
   };
@@ -338,7 +353,7 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
               <h3 className="text-sm font-semibold">{engagement.firmName}</h3>
               <div className="font-mono text-[10px] uppercase text-muted-foreground mt-1">{engagement.status}</div>
             </div>
-            {engagement.canManageCompany && <button onClick={() => { if(confirm("Revoke this firm's access to your company?")) revokeEngagement.mutate({ id: engagement.id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke Firm Access</button>}
+            {engagement.canManageCompany && <button onClick={() => { if(confirm("Revoke this firm's access to your company?")) revokeEngagement.mutate({ id: engagement.id }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${engagement.firmName} access revoked`); } }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke Firm Access</button>}
           </div>
 
           <div className="mt-4 border-t border-border pt-4">
@@ -352,10 +367,10 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-[9px] uppercase text-muted-foreground">{m.status}</span>
                     {engagement.canManageCompany && m.status === 'nominated' && (
-                      <button onClick={() => approveMember.mutate({ id: engagement.id, userId: m.userId }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) })} className="rounded bg-primary/10 px-2 py-1 text-primary hover:bg-primary/20">Approve</button>
+                      <button onClick={() => approveMember.mutate({ id: engagement.id, userId: m.userId }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${m.name} approved`); } })} className="rounded bg-primary/10 px-2 py-1 text-primary hover:bg-primary/20">Approve</button>
                     )}
                     {engagement.canManageCompany && (m.status === 'nominated' || m.status === 'approved') && (
-                      <button onClick={() => revokeMember.mutate({ id: engagement.id, userId: m.userId }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) })} className="rounded bg-destructive/10 px-2 py-1 text-destructive hover:bg-destructive/20">Revoke</button>
+                      <button onClick={() => revokeMember.mutate({ id: engagement.id, userId: m.userId }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${m.name} access revoked`); } })} className="rounded bg-destructive/10 px-2 py-1 text-destructive hover:bg-destructive/20">Revoke</button>
                     )}
                   </div>
                 </div>
@@ -424,13 +439,22 @@ function ClientSettingsPage() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
         setSaved(true);
+        notify.success('Workspace settings saved');
       },
     });
   };
   const saveRate = (event: React.FormEvent) => {
     event.preventDefault();
     const data = { ...rateForm, sourceCurrency: rateForm.sourceCurrency.toUpperCase(), functionalCurrency: rateForm.functionalCurrency.toUpperCase(), rate: Number(rateForm.rate), note: rateForm.note || null };
-    const options = { onSuccess: () => { invalidateRates(); resetRateForm(); } };
+    const pair = `${data.sourceCurrency} → ${data.functionalCurrency}`;
+    const options = {
+      onSuccess: () => {
+        invalidateRates();
+        const wasEditing = editingRateId !== null;
+        resetRateForm();
+        notify.success(wasEditing ? 'Exchange rate updated' : 'Exchange rate saved', { description: `${pair} @ ${data.rate} (${data.effectiveDate})` });
+      },
+    };
     if (editingRateId) updateRate.mutate({ id: editingRateId, data }, options);
     else createRate.mutate({ data, params: rateScope }, options);
   };
@@ -443,9 +467,14 @@ function ClientSettingsPage() {
       const result = await importRates.mutateAsync({ data: { rates }, params: rateScope });
       invalidateRates();
       setRatePreview(null);
-      setRateImportNotice(`${result.importedCount + result.updatedCount} rate${result.importedCount + result.updatedCount === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`);
+      const total = result.importedCount + result.updatedCount;
+      const summary = `${total} rate${total === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`;
+      setRateImportNotice(summary);
+      notify.success('Exchange rates imported', { description: summary });
     } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The detected rates could not be imported. Check the preview and try again.');
+      const message = error instanceof Error ? error.message : 'The detected rates could not be imported. Check the preview and try again.';
+      setRateImportError(message);
+      notify.error(error, { title: 'Rate import failed', description: message, fallback: message });
     }
   };
   const importRateFile = async (file: File | undefined) => {
@@ -476,7 +505,9 @@ function ClientSettingsPage() {
       if (!preview.rates.length) throw new Error('No safe exchange-rate rows were found. Add clear date, currency, and rate values, then try again.');
       setRatePreview(preview);
     } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read or mapped safely.');
+      const message = error instanceof Error ? error.message : 'The rate file could not be read or mapped safely.';
+      setRateImportError(message);
+      notify.error(error, { title: 'Rate file rejected', description: message, fallback: message });
     }
   };
   const update = (field: keyof typeof form, value: string) => setForm((current) => ({ ...current, [field]: value }));
@@ -540,7 +571,7 @@ function ClientSettingsPage() {
             {ratePreview.rates.length > 10 && <p className="mt-2 text-[10px] text-muted-foreground">Showing 10 of {ratePreview.rates.length} detected rates.</p>}
             <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" data-testid="button-page-cancel-exchange-rate-ai-preview" onClick={() => setRatePreview(null)} disabled={importRates.isPending} className="rounded border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground">Discard</button><button type="button" data-testid="button-page-confirm-exchange-rate-ai-preview" onClick={() => void importParsedRates(ratePreview.rates, 'ai')} disabled={importRates.isPending} className="rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{importRates.isPending ? 'Importing…' : `Confirm & import ${ratePreview.rates.length} rate${ratePreview.rates.length === 1 ? '' : 's'}`}</button></div>
           </section>}
-        <div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data?.map((rate) => <tr data-testid={`row-page-exchange-rate-${rate.id}`} key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-page-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-page-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: invalidateRates })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div>
+        <div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data?.map((rate) => <tr data-testid={`row-page-exchange-rate-${rate.id}`} key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-page-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-page-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: () => { invalidateRates(); notify.success(`${rate.sourceCurrency} → ${rate.functionalCurrency} removed`); } })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div>
         </section></>}
         <section id="bank-accounts" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Import another statement to add a new account.</p></div></div>
@@ -577,10 +608,12 @@ function FirmMembersSection({ firmId, members, invitations }: { firmId: number, 
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    const invited = email;
     invite.mutate({ id: firmId, data: { email, role: 'accountant' } }, {
       onSuccess: () => {
         setEmail('');
         queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+        notify.success('Firm member invited', { description: `Invitation sent to ${invited}.` });
       }
     });
   };
@@ -637,7 +670,7 @@ function FirmEngagementsSection({ engagements }: { engagements: FirmEngagement[]
                   <h3 className="text-sm font-semibold">{eng.companyName}</h3>
                   <div className="mt-1 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">{eng.status} engagement</div>
                 </div>
-                {eng.canManageCompany && <button onClick={() => { if(confirm("Revoke engagement?")) revoke.mutate({ id: eng.id }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }) }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke</button>}
+                {eng.canManageCompany && <button onClick={() => { if(confirm("Revoke engagement?")) revoke.mutate({ id: eng.id }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${eng.companyName} engagement revoked`); } }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke</button>}
               </div>
 
               <div className="mt-4 border-t border-border pt-4">
@@ -654,10 +687,12 @@ function FirmEngagementsSection({ engagements }: { engagements: FirmEngagement[]
                 {eng.canManageFirm && eng.status === 'active' && <form className="mt-3 flex gap-2" onSubmit={e => {
                   e.preventDefault();
                   const form = new FormData(e.currentTarget);
-                  nominate.mutate({ id: eng.id, data: { email: form.get('email') as string, role: 'bookkeeper' } }, {
+                  const nominatedEmail = form.get('email') as string;
+                  nominate.mutate({ id: eng.id, data: { email: nominatedEmail, role: 'bookkeeper' } }, {
                     onSuccess: () => {
                       (e.target as HTMLFormElement).reset();
                       queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
+                      notify.success('Member nominated', { description: `${nominatedEmail} is awaiting company approval.` });
                     }
                   });
                 }}>
@@ -715,9 +750,14 @@ function FirmSettingsPage() {
       refreshRates();
       setRatePage(1);
       setRatePreview(null);
-      setRateImportNotice(`${result.importedCount + result.updatedCount} rate${result.importedCount + result.updatedCount === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`);
+      const total = result.importedCount + result.updatedCount;
+      const summary = `${total} rate${total === 1 ? '' : 's'} ${source === 'ai' ? 'confirmed and ' : ''}imported (${result.updatedCount} updated).`;
+      setRateImportNotice(summary);
+      notify.success('Firm rates imported', { description: summary });
     } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The detected rates could not be imported. Check the preview and try again.');
+      const message = error instanceof Error ? error.message : 'The detected rates could not be imported. Check the preview and try again.';
+      setRateImportError(message);
+      notify.error(error, { title: 'Firm rate import failed', description: message, fallback: message });
     }
   };
   const importRateFile = async (file: File | undefined) => {
@@ -752,7 +792,9 @@ function FirmSettingsPage() {
       if (!preview.rates.length) throw new Error('No safe exchange-rate rows were found. Add clear date, currency, and rate values, then try again.');
       setRatePreview(preview);
     } catch (error) {
-      setRateImportError(error instanceof Error ? error.message : 'The rate file could not be read or mapped safely.');
+      const message = error instanceof Error ? error.message : 'The rate file could not be read or mapped safely.';
+      setRateImportError(message);
+      notify.error(error, { title: 'Rate file rejected', description: message, fallback: message });
     }
   };
   return <div>
@@ -818,7 +860,7 @@ function FirmSettingsPage() {
           {ratePreview.rates.length > 10 && <p className="mt-2 text-[10px] text-muted-foreground">Showing 10 of {ratePreview.rates.length} detected rates.</p>}
           <div className="mt-4 flex flex-wrap justify-end gap-2"><button type="button" data-testid="button-discard-firm-exchange-rate-preview" onClick={() => setRatePreview(null)} disabled={importRates.isPending} className="rounded border border-border px-3 py-2 text-[11px] font-semibold text-muted-foreground">Discard</button><button type="button" data-testid="button-confirm-firm-exchange-rate-import" onClick={() => void importParsedRates(ratePreview.rates, 'ai')} disabled={importRates.isPending} className="rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{importRates.isPending ? 'Importing…' : `Confirm & import ${ratePreview.rates.length} rate${ratePreview.rates.length === 1 ? '' : 's'}`}</button></div>
         </div>}
-        <div className="mt-5 divide-y rounded-md border border-border">{ratesQuery.isLoading ? <p className="p-3 text-xs text-muted-foreground">Loading firm schedule…</p> : firmRates.length ? visibleFirmRates.map((item) => <div key={item.id} data-testid={`row-firm-exchange-rate-${item.id}`} className="flex items-center justify-between gap-3 p-3 text-xs"><span><strong>{item.sourceCurrency} → {item.functionalCurrency}</strong> · {item.rate} · {shortDate(item.effectiveDate)}</span><button onClick={() => deleteRate.mutate({ id: item.id }, { onSuccess: refreshRates })} className="text-destructive">Remove</button></div>) : <p className="p-3 text-xs text-muted-foreground">No shared rates yet.</p>}</div>
+        <div className="mt-5 divide-y rounded-md border border-border">{ratesQuery.isLoading ? <p className="p-3 text-xs text-muted-foreground">Loading firm schedule…</p> : firmRates.length ? visibleFirmRates.map((item) => <div key={item.id} data-testid={`row-firm-exchange-rate-${item.id}`} className="flex items-center justify-between gap-3 p-3 text-xs"><span><strong>{item.sourceCurrency} → {item.functionalCurrency}</strong> · {item.rate} · {shortDate(item.effectiveDate)}</span><button onClick={() => deleteRate.mutate({ id: item.id }, { onSuccess: () => { refreshRates(); notify.success(`${item.sourceCurrency} → ${item.functionalCurrency} removed`); } })} className="text-destructive">Remove</button></div>) : <p className="p-3 text-xs text-muted-foreground">No shared rates yet.</p>}</div>
         {firmRates.length > FIRM_RATE_PAGE_SIZE && <div data-testid="pagination-firm-exchange-rates" className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-muted-foreground">
           <span>Showing {(currentFirmRatePage - 1) * FIRM_RATE_PAGE_SIZE + 1}–{Math.min(currentFirmRatePage * FIRM_RATE_PAGE_SIZE, firmRates.length)} of {firmRates.length} rates</span>
           <div className="flex items-center gap-2">
@@ -868,6 +910,7 @@ function AddClientDialog({ onClose }: { onClose: () => void }) {
         ]);
         setActiveClientId(client.id);
         onClose();
+        notify.success('Client workspace created', { description: `${client.name} is ready to use.` });
       },
     });
   };
@@ -907,7 +950,7 @@ function TeamAccessSection() {
     const clientIds = member.clients.some((client) => client.id === clientId)
       ? member.clients.filter((client) => client.id !== clientId).map((client) => client.id)
       : [...member.clients.map((client) => client.id), clientId];
-    updateMember.mutate({ userId: member.userId, data: { role: member.role, clientIds } }, { onSuccess: refresh });
+    updateMember.mutate({ userId: member.userId, data: { role: member.role, clientIds } }, { onSuccess: () => { refresh(); notify.success('Client access updated', { description: `${member.name}'s access was saved.` }); } });
   };
   const data = team.data;
   return <section data-testid="card-settings-users" className="mt-8 border-t border-border pt-6">
@@ -915,16 +958,18 @@ function TeamAccessSection() {
     {team.isLoading ? <p className="mt-4 text-xs text-muted-foreground">Loading team access…</p> : team.isError ? <p className="mt-4 text-xs text-destructive">Team access could not be loaded.</p> : <>
       <div className="mt-4 divide-y rounded border border-border">{data?.members.map((member: WorkspaceMember) => <div key={member.userId} data-testid={`row-workspace-member-${member.userId}`} className="flex flex-wrap items-center justify-between gap-3 p-3 text-xs">
         <div><strong>{member.name}</strong> · {member.role}<div className="mt-2 flex flex-wrap gap-3 text-[11px]">{data?.canManage && !member.isCurrentUser ? data.clients.map((client) => <label key={client.id}><input data-testid={`checkbox-member-client-${member.userId}-${client.id}`} type="checkbox" checked={member.clients.some((assigned) => assigned.id === client.id)} disabled={updateMember.isPending} onChange={() => toggleMemberClient(member, client.id)} /> {client.name}</label>) : member.clients.map((client) => <span key={client.id}>{client.name}</span>)}</div></div>
-        {data?.canManage && !member.isCurrentUser && member.role !== 'owner' && <span className="flex gap-2"><select value={member.role} disabled={updateMember.isPending} onChange={(event) => updateMember.mutate({ userId: member.userId, data: { role: event.target.value as 'admin' | 'bookkeeper', clientIds: member.clients.map((client) => client.id) } }, { onSuccess: refresh })} className="rounded border border-input bg-card px-1 text-[11px]"><option value="admin">Admin</option><option value="bookkeeper">Bookkeeper</option></select><button data-testid={`button-remove-member-${member.userId}`} onClick={() => removeMember.mutate({ userId: member.userId }, { onSuccess: refresh })} className="text-destructive"><Trash2 size={14} /></button></span>}
+        {data?.canManage && !member.isCurrentUser && member.role !== 'owner' && <span className="flex gap-2"><select value={member.role} disabled={updateMember.isPending} onChange={(event) => { const newRole = event.target.value as 'admin' | 'bookkeeper'; updateMember.mutate({ userId: member.userId, data: { role: newRole, clientIds: member.clients.map((client) => client.id) } }, { onSuccess: () => { refresh(); notify.success('Role updated', { description: `${member.name} is now ${newRole}.` }); } }); }} className="rounded border border-input bg-card px-1 text-[11px]"><option value="admin">Admin</option><option value="bookkeeper">Bookkeeper</option></select><button data-testid={`button-remove-member-${member.userId}`} onClick={() => removeMember.mutate({ userId: member.userId }, { onSuccess: () => { refresh(); notify.success(`${member.name} removed from workspace`); } })} className="text-destructive"><Trash2 size={14} /></button></span>}
       </div>)}</div>
       {data?.canManage && <form onSubmit={(event) => {
         event.preventDefault();
+        const invitedEmail = form.email;
         invite.mutate({ data: form }, {
           onSuccess: (result) => {
             setLink(result.inviteLink ?? '');
             setForm((current) => ({ ...current, email: '' }));
             refresh();
             openInvitationEmail(result);
+            notify.success('Invitation prepared', { description: `Email opened for ${invitedEmail}.` });
           },
         });
       }} className="mt-4 rounded border border-primary/20 bg-primary/5 p-3">
@@ -4045,10 +4090,27 @@ function AccessScreen() {
 }
 
 function SignInPage() {
-  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>;
+  const redirectTarget = safePostAuthRedirect(new URLSearchParams(window.location.search).get("redirect_url"));
+  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={redirectTarget} fallbackRedirectUrl={redirectTarget} /></div>;
 }
 function SignUpPage() {
-  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>;
+  const redirectTarget = safePostAuthRedirect(new URLSearchParams(window.location.search).get("redirect_url"));
+  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} forceRedirectUrl={redirectTarget} fallbackRedirectUrl={redirectTarget} /></div>;
+}
+
+function safePostAuthRedirect(raw: string | null) {
+  const fallback = `${window.location.origin}${basePath || ""}/` || `${window.location.origin}/`;
+  if (!raw) return fallback;
+  try {
+    if (raw.startsWith("/") && !raw.startsWith("//")) {
+      return `${window.location.origin}${basePath}${raw}`;
+    }
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin) return fallback;
+    return url.toString();
+  } catch {
+    return fallback;
+  }
 }
 function ClerkQueryClientCacheInvalidator() {
   const { addListener } = useClerk();

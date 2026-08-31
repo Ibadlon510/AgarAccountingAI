@@ -41,6 +41,7 @@ export class ObjectNotFoundError extends Error {
 type PendingLocalUpload = {
   objectPath: string;
   ownerUserId: string;
+  visibility: "public" | "private";
   expiresAt: number;
 };
 
@@ -153,8 +154,9 @@ export class ObjectStorageService {
     return dir;
   }
 
-  async getObjectEntityUploadURL(prefix = "uploads") {
+  async getObjectEntityUploadURL(prefix = "uploads", options: { visibility?: "public" | "private" } = {}) {
     assertUploadPrefix(prefix);
+    const visibility = options.visibility ?? "private";
     if (useLocalObjectStorage()) {
       const token = randomUUID();
       const objectPath = `/objects/${prefix}/${randomUUID()}`;
@@ -162,6 +164,7 @@ export class ObjectStorageService {
       pendingLocalUploads.set(token, {
         objectPath,
         ownerUserId,
+        visibility,
         expiresAt: Date.now() + LOCAL_UPLOAD_TTL_MS,
       });
       return `${LOCAL_UPLOAD_URL_PREFIX}${token}`;
@@ -179,7 +182,7 @@ export class ObjectStorageService {
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, buffer);
     const aclPolicy: ObjectAclPolicy | undefined = pending.ownerUserId
-      ? { owner: pending.ownerUserId, visibility: "private" }
+      ? { owner: pending.ownerUserId, visibility: pending.visibility }
       : undefined;
     await writeFile(metaPath, JSON.stringify({ contentType, aclPolicy } satisfies LocalObjectMeta), "utf8");
     return pending.objectPath;

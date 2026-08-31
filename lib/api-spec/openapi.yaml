@@ -16,6 +16,8 @@ tags:
     description: Browser and mobile authentication endpoints
   - name: Storage
     description: Object storage upload and serving endpoints.
+  - name: feedback
+    description: Public feedback board reads and authenticated writes
 paths:
   /auth/user:
     get:
@@ -1680,6 +1682,248 @@ paths:
           description: Object access denied
         "404":
           description: Object not found
+  /feedback/posts:
+    get:
+      tags: [feedback]
+      operationId: listFeedbackPosts
+      summary: List published feedback posts (public)
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: number, minimum: 1, maximum: 50, default: 20 }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Paginated feedback feed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackFeedPage"
+    post:
+      tags: [feedback]
+      operationId: createFeedbackPost
+      summary: Create a feedback post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackPostInput"
+      responses:
+        "201":
+          description: Feedback post created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackPost"
+        "400":
+          description: Invalid feedback payload
+        "401":
+          description: Authentication required
+  /feedback/posts/{postId}:
+    get:
+      tags: [feedback]
+      operationId: getFeedbackPost
+      summary: Get a feedback post with flat replies (public)
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Feedback post detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackPostDetail"
+        "404":
+          description: Feedback post not found
+  /feedback/posts/{postId}/replies:
+    post:
+      tags: [feedback]
+      operationId: createFeedbackReply
+      summary: Reply to a feedback post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackReplyInput"
+      responses:
+        "201":
+          description: Reply created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackReply"
+        "400":
+          description: Invalid reply payload
+        "401":
+          description: Authentication required
+        "404":
+          description: Feedback post not found
+  /feedback/posts/{postId}/reactions/{emoji}:
+    put:
+      tags: [feedback]
+      operationId: addFeedbackPostReaction
+      summary: Add a reaction to a feedback post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema: { type: number }
+        - name: emoji
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/FeedbackEmoji"
+      responses:
+        "200":
+          description: Reaction totals after add
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedbackReactionSummary"
+        "401":
+          description: Authentication required
+        "404":
+          description: Feedback post not found
+    delete:
+      tags: [feedback]
+      operationId: removeFeedbackPostReaction
+      summary: Remove a reaction from a feedback post
+      parameters:
+        - name: postId
+          in: path
+          required: true
+          schema: { type: number }
+        - name: emoji
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/FeedbackEmoji"
+      responses:
+        "200":
+          description: Reaction totals after remove
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedbackReactionSummary"
+        "401":
+          description: Authentication required
+        "404":
+          description: Feedback post not found
+  /feedback/replies/{replyId}/reactions/{emoji}:
+    put:
+      tags: [feedback]
+      operationId: addFeedbackReplyReaction
+      summary: Add a reaction to a feedback reply
+      parameters:
+        - name: replyId
+          in: path
+          required: true
+          schema: { type: number }
+        - name: emoji
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/FeedbackEmoji"
+      responses:
+        "200":
+          description: Reaction totals after add
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedbackReactionSummary"
+        "401":
+          description: Authentication required
+        "404":
+          description: Feedback reply not found
+    delete:
+      tags: [feedback]
+      operationId: removeFeedbackReplyReaction
+      summary: Remove a reaction from a feedback reply
+      parameters:
+        - name: replyId
+          in: path
+          required: true
+          schema: { type: number }
+        - name: emoji
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/FeedbackEmoji"
+      responses:
+        "200":
+          description: Reaction totals after remove
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedbackReactionSummary"
+        "401":
+          description: Authentication required
+        "404":
+          description: Feedback reply not found
+  /feedback/images/upload-url:
+    post:
+      tags: [feedback]
+      operationId: requestFeedbackImageUploadUrl
+      summary: Request a presigned URL for a feedback image upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackImageUploadRequest"
+      responses:
+        "200":
+          description: Presigned upload URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        "400":
+          description: Invalid image metadata
+        "401":
+          description: Authentication required
+  /feedback/images/{objectPath}:
+    get:
+      tags: [feedback]
+      operationId: getFeedbackImage
+      summary: Serve a published feedback image (public)
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Feedback image content
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Feedback image not found
   /agaraccounting/accounts:
     get:
       operationId: getLedgerflowAccounts
@@ -3504,3 +3748,87 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ReportChecklistItem" }
         signatory: { $ref: "#/components/schemas/ReportSignatory" }
+    FeedbackEmoji:
+      type: string
+      enum: [thumbs_up, heart, celebrate, eyes, rocket, laugh]
+    FeedbackAuthor:
+      type: object
+      required: [id, displayName, initials]
+      properties:
+        id: { type: string }
+        displayName: { type: string }
+        initials: { type: string }
+        profileImageUrl: { type: ["string", "null"] }
+    FeedbackReactionSummary:
+      type: object
+      required: [emoji, count, viewerReacted]
+      properties:
+        emoji: { $ref: "#/components/schemas/FeedbackEmoji" }
+        count: { type: number }
+        viewerReacted: { type: boolean }
+    FeedbackPost:
+      type: object
+      required: [id, author, body, links, createdAt, reactions, replyCount]
+      properties:
+        id: { type: number }
+        author: { $ref: "#/components/schemas/FeedbackAuthor" }
+        body: { type: string }
+        imageUrl: { type: ["string", "null"] }
+        links:
+          type: array
+          items: { type: string, format: uri }
+        createdAt: { type: string, format: date-time }
+        reactions:
+          type: array
+          items: { $ref: "#/components/schemas/FeedbackReactionSummary" }
+        replyCount: { type: number }
+    FeedbackReply:
+      type: object
+      required: [id, postId, author, body, createdAt, reactions]
+      properties:
+        id: { type: number }
+        postId: { type: number }
+        author: { $ref: "#/components/schemas/FeedbackAuthor" }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        reactions:
+          type: array
+          items: { $ref: "#/components/schemas/FeedbackReactionSummary" }
+    FeedbackPostDetail:
+      type: object
+      required: [post, replies]
+      properties:
+        post: { $ref: "#/components/schemas/FeedbackPost" }
+        replies:
+          type: array
+          items: { $ref: "#/components/schemas/FeedbackReply" }
+    FeedbackFeedPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/FeedbackPost" }
+        nextCursor: { type: ["string", "null"] }
+    FeedbackPostInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        links:
+          type: array
+          maxItems: 5
+          items: { type: string, format: uri }
+        imageObjectPath: { type: ["string", "null"] }
+    FeedbackReplyInput:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 1000 }
+    FeedbackImageUploadRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name: { type: string }
+        size: { type: number }
+        contentType: { type: string }
