@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
@@ -23,8 +23,10 @@ import type {
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
+import { Toaster as SonnerToaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { notify, readErrorMessage } from '@/lib/notify';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -47,7 +49,39 @@ import {
   type ImportActivitySequenceState,
   type ImportActivityStage,
 } from './lib/import-activity';
-const queryClient = new QueryClient();
+// AgarAccounting mutations can opt into toast reporting via
+// `mutate(..., { meta: { notify: true | { success?: string; error?: string } } })`
+// so we don't double-notify for flows that still use inline banners.
+type NotifyMeta = boolean | { success?: string; error?: string; title?: string };
+function readNotifyMeta(meta: unknown): NotifyMeta | null {
+  if (!meta || typeof meta !== 'object') return null;
+  const value = (meta as { notify?: unknown }).notify;
+  if (typeof value === 'boolean' || (typeof value === 'object' && value !== null)) return value as NotifyMeta;
+  return null;
+}
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      const notifyMeta = readNotifyMeta(query.meta);
+      if (!notifyMeta) return;
+      const title = typeof notifyMeta === 'object' ? notifyMeta.error ?? notifyMeta.title : undefined;
+      notify.error(error, { title });
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      const notifyMeta = readNotifyMeta(mutation.meta);
+      if (!notifyMeta) return;
+      const title = typeof notifyMeta === 'object' ? notifyMeta.error ?? notifyMeta.title : undefined;
+      notify.error(error, { title });
+    },
+    onSuccess: (_data, _variables, _context, mutation) => {
+      const notifyMeta = readNotifyMeta(mutation.meta);
+      if (!notifyMeta || notifyMeta === true) return;
+      if (typeof notifyMeta === 'object' && notifyMeta.success) notify.success(notifyMeta.success);
+    },
+  }),
+});
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const brandMarkUrl = `${basePath}/mark.svg`;
 const nav = [
@@ -2661,14 +2695,18 @@ function StatementLinesPage() {
     setLineActionError(null);
     setPendingPostLineIds((current) => current.includes(entry.statementLineId) ? current : [...current, entry.statementLineId]);
     post.mutate({ id: entry.id, data: { clientId: journalParams.clientId, ...decision } }, {
-      onSuccess: refreshPostedData,
+      onSuccess: () => {
+        refreshPostedData();
+        notify.success('Journal entry posted', {
+          description: `Entry #${entry.id} is now live in reports.`,
+        });
+      },
       onError: (error) => {
         pendingPostLineIdsRef.current.delete(entry.statementLineId);
         setPendingPostLineIds((current) => current.filter((id) => id !== entry.statementLineId));
-        setLineActionError({
-          lineId: entry.statementLineId,
-          message: mutationErrorMessage(error, 'This entry could not be posted. Open the line and review the contact, account, and exchange rate.'),
-        });
+        const message = readErrorMessage(error, 'This entry could not be posted. Open the line and review the contact, account, and exchange rate.');
+        setLineActionError({ lineId: entry.statementLineId, message });
+        notify.error(error, { title: 'Post failed', description: message, fallback: message });
       },
     });
   };
@@ -2725,8 +2763,47 @@ function StatementLinesPage() {
       setSortDirection('asc');
     }
   };
+  const refreshingSuggestions = query.isFetching || catalogQuery.isFetching || journalQuery.isFetching || bankAccountsQuery.isFetching;
+  const refreshSuggestions = async () => {
+    setLineActionError(null);
+    // Statement-line GET recomputes learned account/contact suggestions from current
+    // workspace patterns, so an explicit refetch is enough to surface new learning.
+    try {
+      await Promise.all([
+        query.refetch(),
+        catalogQuery.refetch(),
+        journalQuery.refetch(),
+        bankAccountsQuery.refetch(),
+        queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId: journalParams.clientId }) }),
+        queryClient.invalidateQueries({ queryKey: getGetLedgerflowAccountsQueryKey({ clientId: journalParams.clientId }) }),
+      ]);
+      notify.success('Suggestions refreshed', {
+        description: 'Draft accounts and contacts now reflect the latest learning.',
+      });
+    } catch (error) {
+      notify.error(error, { title: 'Refresh failed', fallback: 'Some suggestions could not be reloaded. Try again in a moment.' });
+    }
+  };
   return <div>
-    <PageHeading eyebrow="Evidence review / bank activity" title="Statement lines" description="Start with the source. Review each movement, inspect its linked draft journal entry, then post only the entries you stand behind." action={<button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>} />
+    <PageHeading
+      eyebrow="Evidence review / bank activity"
+      title="Statement lines"
+      description="Start with the source. Review each movement, inspect its linked draft journal entry, then post only the entries you stand behind."
+      action={<div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-testid="button-refresh-statement-lines"
+          title="Reload statement lines and refresh learned account and contact suggestions"
+          onClick={() => { void refreshSuggestions(); }}
+          disabled={refreshingSuggestions}
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground shadow-sm transition-transform hover:-translate-y-0.5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+        >
+          <RefreshCw size={14} className={refreshingSuggestions ? 'animate-spin' : ''} />
+          {refreshingSuggestions ? 'Refreshing…' : 'Refresh suggestions'}
+        </button>
+        <button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>
+      </div>}
+    />
     <FilterToolbar
       search={search}
       onSearchChange={setSearch}
@@ -3512,11 +3589,12 @@ function FinancialStatementsPage() {
   }, []);
   const handleGenerate = () => generate.mutate({ data: { clientId, periodEnd, reportingBasis, presentationProfile, presentationCurrency: activeClient?.functionalCurrency ?? 'AED', roundingPolicy: 'Nearest whole unit' } }, { onSuccess: (created) => { setLocalPack(created); setSelectedId(created.id); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); } });
   const save = (action: 'update_inputs' | 'finalize') => { if (!pack) return; update.mutate({ id: pack.id, data: { clientId, action, notes, checklist, signatory } }, { onSuccess: (saved) => { setLocalPack(saved); queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) }); queryClient.invalidateQueries({ queryKey: getGetReportPackQueryKey(saved.id) }); } }); };
-  const handleDeletePack = (id: number) => {
-    if (pendingDeleteId !== id) {
-      setPendingDeleteId(id);
-      return;
-    }
+  const requestDeletePack = (id: number) => setPendingDeleteId(id);
+  const cancelDeletePack = () => { if (!removePack.isPending) setPendingDeleteId(null); };
+  const pendingDeletePack = pendingDeleteId ? list.data?.find((item) => item.id === pendingDeleteId) ?? null : null;
+  const confirmDeletePack = () => {
+    const id = pendingDeleteId;
+    if (id == null) return;
     removePack.mutate({ id }, {
       onSuccess: async () => {
         setPendingDeleteId(null);
@@ -3527,8 +3605,13 @@ function FinancialStatementsPage() {
         }
         await queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey(listParams) });
         await list.refetch();
+        notify.success('Report pack deleted', {
+          description: pendingDeletePack ? `Snapshot for ${pendingDeletePack.periodEnd.slice(0, 10)} was removed.` : undefined,
+        });
       },
-      onError: () => setPendingDeleteId(null),
+      onError: (error) => {
+        notify.error(error, { title: 'Delete failed', fallback: 'The report pack could not be deleted. Refresh and try again.' });
+      },
     });
   };  const focusCheckTarget = (checkId: string) => {
     const target = reportCheckFocusTargets[checkId];
@@ -3540,19 +3623,41 @@ function FinancialStatementsPage() {
     focusReportSection(target.sectionId);
   };
   const blocked = pack?.validation.status !== 'pass';
-  const errorText = generate.error || update.error || removePack.error
-    ? (removePack.error
-      ? `The report pack could not be deleted${removePack.error instanceof Error && removePack.error.message ? `: ${removePack.error.message}` : '. Refresh and try again.'}`
-      : 'The report pack could not be saved. Review the visible requirements and try again.')
+  const errorText = generate.error || update.error
+    ? 'The report pack could not be saved. Review the visible requirements and try again.'
     : '';
-  return <div><PageHeading eyebrow="Reporting / IFRS close" title="Financial statement pack" description="Generate a comparative, traceable report snapshot from posted ledger entries. AgarAccounting AI System prepares accounting output for human review; it never provides an audit opinion, statutory filing, or tax return." action={<div id="report-period-controls" className="flex flex-wrap items-end gap-2"><label className="text-[10px] font-semibold text-muted-foreground">Annual period end<input data-testid="input-report-period-end" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" /></label><button data-testid="button-generate-report-pack" onClick={handleGenerate} disabled={generate.isPending} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{generate.isPending ? <LoaderCircle size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}{generate.isPending ? 'Building snapshot…' : 'Generate report pack'}</button></div>} />{errorText && <div className="mb-5 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-3 text-xs text-destructive">{errorText}</div>}<div className="mb-6 grid gap-3 md:grid-cols-[.8fr_1.2fr]"><section className="rounded-lg border border-card-border bg-card p-4"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Saved snapshots</div><div className="mt-3 space-y-2">{list.isLoading ? <div className="text-xs text-muted-foreground">Loading saved packs…</div> : list.data?.length ? list.data.map((item) => <div key={item.id} className={`flex items-stretch gap-1 rounded-md border ${selectedId === item.id ? 'border-primary/40 bg-primary/5' : 'border-border'}`}><button type="button" onClick={() => { setPendingDeleteId(null); setLocalPack(null); setSelectedId(item.id); }} className={`flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left ${selectedId === item.id ? '' : 'hover:bg-muted/50'}`}><div className="min-w-0"><div className="text-xs font-semibold">{item.periodEnd.slice(0, 10)} annual pack</div><div className="mt-1 font-mono text-[9px] text-muted-foreground">{item.status} · {item.validationErrorCount} blocking checks</div></div><ChevronRight size={14} className="shrink-0 text-muted-foreground" /></button><button type="button" data-testid={`button-delete-report-pack-${item.id}`} aria-label={`Delete ${item.periodEnd.slice(0, 10)} report pack`} disabled={removePack.isPending} title={pendingDeleteId === item.id ? 'Click again to confirm delete' : 'Delete report pack'} onClick={(event) => { event.preventDefault(); event.stopPropagation(); handleDeletePack(item.id); }} className={`shrink-0 self-stretch rounded-r-md px-2.5 transition-colors disabled:opacity-50 ${pendingDeleteId === item.id ? 'bg-destructive text-destructive-foreground' : 'text-muted-foreground hover:bg-destructive/10 hover:text-destructive'}`}>{pendingDeleteId === item.id ? <span className="px-0.5 text-[10px] font-semibold">Yes</span> : <Trash2 size={14} />}</button></div>) : <div className="rounded-md border border-dashed border-border px-3 py-4 text-[11px] leading-5 text-muted-foreground">No report snapshot yet. Choose an annual period end and generate a review draft.</div>}</div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-3"><CircleAlert className="mt-0.5 shrink-0 text-accent-foreground" size={17} /><div><div className="text-xs font-semibold text-accent-foreground">Finalization is deliberately gated</div><p className="mt-1 text-[11px] leading-5 text-accent-foreground/75">The pack includes posted entries only. Missing comparative evidence, FX coverage, reconciliations, disclosure inputs, checklist decisions, or signatories prevent the final PDF download.</p></div></div></section></div>{detail.isLoading && !localPack ? <LoadingRows /> : pack ? <div className="space-y-6"><section className={`rounded-lg border p-5 ${blocked ? 'border-destructive/30 bg-destructive/5' : 'border-primary/30 bg-primary/5'}`}><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><div className="flex items-center gap-2 text-sm font-semibold">{blocked ? <CircleAlert className="text-destructive" size={17} /> : <CircleCheck className="text-primary" size={17} />}{blocked ? `${pack.validation.errorCount} finalization blocker${pack.validation.errorCount === 1 ? '' : 's'}` : 'All deterministic checks pass'}</div><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Snapshot #{pack.id} · {pack.periodStart.slice(0, 10)} to {pack.periodEnd.slice(0, 10)} · comparative {pack.comparativePeriodStart.slice(0, 10)} to {pack.comparativePeriodEnd.slice(0, 10)}</p></div><div className="flex flex-wrap gap-2"><button data-testid="button-save-report-inputs" onClick={() => save('update_inputs')} disabled={update.isPending || pack.status === 'finalized'} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">Save review inputs</button>{pack.status === 'finalized' ? <a data-testid="link-download-report-pdf" href={`/api/agaraccounting/report-packs/${pack.id}/pdf`} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"><ArrowDownLeft size={14} /> Download final PDF</a> : <button data-testid="button-finalize-report-pack" onClick={() => save('finalize')} disabled={update.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{update.isPending ? 'Checking finalization…' : 'Finalize & unlock PDF'}</button>}</div></div><div className="mt-4 grid gap-2 md:grid-cols-2">{pack.validation.checks.map((check) => {
+  return <div><PageHeading eyebrow="Reporting / IFRS close" title="Financial statement pack" description="Generate a comparative, traceable report snapshot from posted ledger entries. AgarAccounting AI System prepares accounting output for human review; it never provides an audit opinion, statutory filing, or tax return." action={<div id="report-period-controls" className="flex flex-wrap items-end gap-2"><label className="text-[10px] font-semibold text-muted-foreground">Annual period end<input data-testid="input-report-period-end" type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="mt-1 block h-9 rounded-md border border-input bg-card px-2 text-xs text-foreground outline-none focus:border-primary" /></label><button data-testid="button-generate-report-pack" onClick={handleGenerate} disabled={generate.isPending} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{generate.isPending ? <LoaderCircle size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}{generate.isPending ? 'Building snapshot…' : 'Generate report pack'}</button></div>} />{errorText && <div className="mb-5 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-3 text-xs text-destructive">{errorText}</div>}<div className="mb-6 grid gap-3 md:grid-cols-[.8fr_1.2fr]"><section className="rounded-lg border border-card-border bg-card p-4"><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Saved snapshots</div><div className="mt-3 space-y-2">{list.isLoading ? <div className="text-xs text-muted-foreground">Loading saved packs…</div> : list.data?.length ? list.data.map((item) => <div key={item.id} className={`flex items-stretch gap-1 rounded-md border ${selectedId === item.id ? 'border-primary/40 bg-primary/5' : 'border-border'}`}><button type="button" onClick={() => { setPendingDeleteId(null); setLocalPack(null); setSelectedId(item.id); }} className={`flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-left ${selectedId === item.id ? '' : 'hover:bg-muted/50'}`}><div className="min-w-0"><div className="text-xs font-semibold">{item.periodEnd.slice(0, 10)} annual pack</div><div className="mt-1 font-mono text-[9px] text-muted-foreground">{item.status} · {item.validationErrorCount} blocking checks</div></div><ChevronRight size={14} className="shrink-0 text-muted-foreground" /></button><button type="button" data-testid={`button-delete-report-pack-${item.id}`} aria-label={`Delete ${item.periodEnd.slice(0, 10)} report pack`} disabled={removePack.isPending} title="Delete report pack" onClick={(event) => { event.preventDefault(); event.stopPropagation(); requestDeletePack(item.id); }} className="shrink-0 self-stretch rounded-r-md px-2.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"><Trash2 size={14} /></button></div>) : <div className="rounded-md border border-dashed border-border px-3 py-4 text-[11px] leading-5 text-muted-foreground">No report snapshot yet. Choose an annual period end and generate a review draft.</div>}</div></section><section className="rounded-lg border border-accent/25 bg-accent/10 p-4"><div className="flex gap-3"><CircleAlert className="mt-0.5 shrink-0 text-accent-foreground" size={17} /><div><div className="text-xs font-semibold text-accent-foreground">Finalization is deliberately gated</div><p className="mt-1 text-[11px] leading-5 text-accent-foreground/75">The pack includes posted entries only. Missing comparative evidence, FX coverage, reconciliations, disclosure inputs, checklist decisions, or signatories prevent the final PDF download.</p></div></div></section></div>{detail.isLoading && !localPack ? <LoadingRows /> : pack ? <div className="space-y-6"><section className={`rounded-lg border p-5 ${blocked ? 'border-destructive/30 bg-destructive/5' : 'border-primary/30 bg-primary/5'}`}><div className="flex flex-col justify-between gap-4 md:flex-row md:items-start"><div><div className="flex items-center gap-2 text-sm font-semibold">{blocked ? <CircleAlert className="text-destructive" size={17} /> : <CircleCheck className="text-primary" size={17} />}{blocked ? `${pack.validation.errorCount} finalization blocker${pack.validation.errorCount === 1 ? '' : 's'}` : 'All deterministic checks pass'}</div><p className="mt-2 text-[11px] leading-5 text-muted-foreground">Snapshot #{pack.id} · {pack.periodStart.slice(0, 10)} to {pack.periodEnd.slice(0, 10)} · comparative {pack.comparativePeriodStart.slice(0, 10)} to {pack.comparativePeriodEnd.slice(0, 10)}</p></div><div className="flex flex-wrap gap-2"><button data-testid="button-save-report-inputs" onClick={() => save('update_inputs')} disabled={update.isPending || pack.status === 'finalized'} className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold hover:bg-muted disabled:opacity-50">Save review inputs</button>{pack.status === 'finalized' ? <a data-testid="link-download-report-pdf" href={`/api/agaraccounting/report-packs/${pack.id}/pdf`} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"><ArrowDownLeft size={14} /> Download final PDF</a> : <button data-testid="button-finalize-report-pack" onClick={() => save('finalize')} disabled={update.isPending} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50">{update.isPending ? 'Checking finalization…' : 'Finalize & unlock PDF'}</button>}</div></div><div className="mt-4 grid gap-2 md:grid-cols-2">{pack.validation.checks.map((check) => {
     const focusable = check.status !== 'pass' && Boolean(reportCheckFocusTargets[check.id]);
     const cardClass = `rounded-md border px-3 py-3 text-left text-[11px] transition-colors ${check.status === 'pass' ? 'border-primary/20 bg-card' : check.status === 'warning' ? 'border-accent/35 bg-accent/10' : 'border-destructive/50 bg-destructive/10 shadow-sm ring-1 ring-destructive/15'} ${focusable ? 'cursor-pointer hover:border-primary/50 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40' : ''}`;
     const body = <><div className="flex items-start justify-between gap-3"><div className="flex items-start gap-2 font-semibold">{check.status === 'pass' ? <CircleCheck size={14} className="mt-0.5 shrink-0 text-primary" /> : <span className={`grid size-6 shrink-0 place-items-center rounded-full ${check.status === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}><CircleAlert size={14} /></span>}<span className={check.status === 'error' ? 'pt-1 text-destructive' : check.status === 'warning' ? 'pt-1 text-accent-foreground' : ''}>{check.label}</span></div>{check.status !== 'pass' && <span className={`shrink-0 rounded-full px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-[.08em] ${check.status === 'error' ? 'bg-destructive text-destructive-foreground' : 'bg-accent/20 text-accent-foreground'}`}>{check.status === 'error' ? 'Action required' : 'Review'}</span>}</div><p className={`mt-1.5 leading-5 ${check.status === 'pass' ? 'pl-[22px] text-muted-foreground' : 'pl-8'} ${check.status === 'error' ? 'font-medium text-foreground' : 'text-muted-foreground'}`}>{check.detail}</p>{focusable && <div className="mt-2 pl-8 font-mono text-[9px] font-semibold uppercase tracking-[.08em] text-primary">Jump to section</div>}</>;
     return focusable
       ? <button key={check.id} type="button" data-testid={`button-focus-report-check-${check.id}`} className={cardClass} onClick={() => focusCheckTarget(check.id)}>{body}</button>
       : <div key={check.id} className={cardClass}>{body}</div>;
-  })}</div></section><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div><div className="text-xs font-semibold">Report presentation</div><p className="mt-0.5 text-[11px] text-muted-foreground">Choose whether statement and note tables include comparative-year columns.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[11px] font-semibold"><input data-testid="checkbox-show-comparatives" type="checkbox" checked={showComparatives} onChange={(event) => setShowComparatives(event.target.checked)} className="size-3.5 accent-primary" />Show comparative figures</label></div><article key={showComparatives ? 'report-with-comparatives' : 'report-current-only'} id="report-comparative-statements" tabIndex={-1} data-show-comparatives={showComparatives ? 'true' : 'false'} className="report-sheet scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="report-cover"><div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">AgarAccounting AI System / generated accounting output</div><h2 className="mt-14 font-display text-5xl leading-none">{pack.snapshot.legalName}</h2><div className="mt-7 h-px w-20 bg-foreground/40" /><p className="mt-7 font-display text-3xl">Financial statements</p><p className="mt-3 text-[12px]">For the year ended {pack.snapshot.periodEnd.slice(0, 10)}</p>{showComparatives ? <p className="mt-1 text-[11px] text-muted-foreground">Comparative period ended {pack.snapshot.comparativePeriodEnd.slice(0, 10)} · {pack.snapshot.presentationCurrency}</p> : <p className="mt-1 text-[11px] text-muted-foreground">{pack.snapshot.presentationCurrency} · Current period only</p>}<div className="mt-20 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Prepared under {pack.snapshot.reportingBasis} using the {pack.snapshot.presentationProfile} presentation profile. This document is not an audit opinion, statutory filing, tax return, or assurance conclusion.</div></div><ReportStatement id="report-statement-financial-position" title="Statement of financial position" rows={pack.snapshot.statementOfFinancialPosition} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-profit-or-loss" title="Statement of profit or loss and other comprehensive income" rows={pack.snapshot.profitOrLossAndOci} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-equity" title="Statement of changes in equity" rows={pack.snapshot.changesInEquity} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-cash-flows" title="Statement of cash flows — indirect method" rows={pack.snapshot.cashFlows} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><section id="report-statement-notes" tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><h3 className="text-center font-display text-[26px]">Notes to the financial statements</h3><div className="mt-7 space-y-6">{notes.map((note) => <div key={note.number}><div className="font-semibold text-[12px]">Note {note.number} — {note.title}</div><p className="mt-2 whitespace-pre-line text-[11px] leading-5 text-muted-foreground">{note.narrative}</p>{note.tables.length ? <div className="mt-3 grid gap-x-4 gap-y-1 text-[10px]" style={{ gridTemplateColumns: showComparatives ? '1fr auto auto' : '1fr auto' }}>{note.tables.map((row) => <Fragment key={`${note.number}-${row.label}`}><span>{row.label}</span><span className="text-right font-mono tabular-nums">{reportMoney(row.current)}</span>{showComparatives ? <span className="text-right font-mono tabular-nums text-muted-foreground">{reportMoney(row.comparative)}</span> : null}</Fragment>)}</div> : null}</div>)}</div><div className="mt-10 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Traceability: {pack.snapshot.traceability.postedEntryCount} posted journal entries · {pack.snapshot.traceability.postedLineCount} linked statement lines · {pack.snapshot.traceability.sourceImportCount} source imports in the client workspace.</div></section></article><div className="grid gap-6 xl:grid-cols-2"><ReportNotesEditor notes={notes} onChange={setNotes} showComparatives={showComparatives} /><ChecklistEditor checklist={checklist} onChange={setChecklist} /></div><SignatoryEditor signatory={signatory} onChange={setSignatory} /></div> : <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center"><FileSpreadsheet className="mx-auto text-primary" size={24} /><h2 className="mt-4 text-sm font-semibold">Generate a controlled report snapshot</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">Select a 31 December annual reporting period to derive statements, notes, comparative columns, controls, and ledger traceability from the client’s posted entries.</p></div>}</div>;
+  })}</div></section><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div><div className="text-xs font-semibold">Report presentation</div><p className="mt-0.5 text-[11px] text-muted-foreground">Choose whether statement and note tables include comparative-year columns.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[11px] font-semibold"><input data-testid="checkbox-show-comparatives" type="checkbox" checked={showComparatives} onChange={(event) => setShowComparatives(event.target.checked)} className="size-3.5 accent-primary" />Show comparative figures</label></div><article key={showComparatives ? 'report-with-comparatives' : 'report-current-only'} id="report-comparative-statements" tabIndex={-1} data-show-comparatives={showComparatives ? 'true' : 'false'} className="report-sheet scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="report-cover"><div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">AgarAccounting AI System / generated accounting output</div><h2 className="mt-14 font-display text-5xl leading-none">{pack.snapshot.legalName}</h2><div className="mt-7 h-px w-20 bg-foreground/40" /><p className="mt-7 font-display text-3xl">Financial statements</p><p className="mt-3 text-[12px]">For the year ended {pack.snapshot.periodEnd.slice(0, 10)}</p>{showComparatives ? <p className="mt-1 text-[11px] text-muted-foreground">Comparative period ended {pack.snapshot.comparativePeriodEnd.slice(0, 10)} · {pack.snapshot.presentationCurrency}</p> : <p className="mt-1 text-[11px] text-muted-foreground">{pack.snapshot.presentationCurrency} · Current period only</p>}<div className="mt-20 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Prepared under {pack.snapshot.reportingBasis} using the {pack.snapshot.presentationProfile} presentation profile. This document is not an audit opinion, statutory filing, tax return, or assurance conclusion.</div></div><ReportStatement id="report-statement-financial-position" title="Statement of financial position" rows={pack.snapshot.statementOfFinancialPosition} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-profit-or-loss" title="Statement of profit or loss and other comprehensive income" rows={pack.snapshot.profitOrLossAndOci} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-equity" title="Statement of changes in equity" rows={pack.snapshot.changesInEquity} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-cash-flows" title="Statement of cash flows — indirect method" rows={pack.snapshot.cashFlows} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><section id="report-statement-notes" tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><h3 className="text-center font-display text-[26px]">Notes to the financial statements</h3><div className="mt-7 space-y-6">{notes.map((note) => <div key={note.number}><div className="font-semibold text-[12px]">Note {note.number} — {note.title}</div><p className="mt-2 whitespace-pre-line text-[11px] leading-5 text-muted-foreground">{note.narrative}</p>{note.tables.length ? <div className="mt-3 grid gap-x-4 gap-y-1 text-[10px]" style={{ gridTemplateColumns: showComparatives ? '1fr auto auto' : '1fr auto' }}>{note.tables.map((row) => <Fragment key={`${note.number}-${row.label}`}><span>{row.label}</span><span className="text-right font-mono tabular-nums">{reportMoney(row.current)}</span>{showComparatives ? <span className="text-right font-mono tabular-nums text-muted-foreground">{reportMoney(row.comparative)}</span> : null}</Fragment>)}</div> : null}</div>)}</div><div className="mt-10 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Traceability: {pack.snapshot.traceability.postedEntryCount} posted journal entries · {pack.snapshot.traceability.postedLineCount} linked statement lines · {pack.snapshot.traceability.sourceImportCount} source imports in the client workspace.</div></section></article><div className="grid gap-6 xl:grid-cols-2"><ReportNotesEditor notes={notes} onChange={setNotes} showComparatives={showComparatives} /><ChecklistEditor checklist={checklist} onChange={setChecklist} /></div><SignatoryEditor signatory={signatory} onChange={setSignatory} /></div> : <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center"><FileSpreadsheet className="mx-auto text-primary" size={24} /><h2 className="mt-4 text-sm font-semibold">Generate a controlled report snapshot</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">Select a 31 December annual reporting period to derive statements, notes, comparative columns, controls, and ledger traceability from the client’s posted entries.</p></div>}
+    <AlertDialog open={pendingDeleteId !== null} onOpenChange={(open) => { if (!open) cancelDeletePack(); }}>
+      <AlertDialogContent data-testid="dialog-delete-report-pack">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this report pack?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {pendingDeletePack
+              ? `Snapshot for ${pendingDeletePack.periodEnd.slice(0, 10)} (status: ${pendingDeletePack.status}) will be permanently removed. Posted journal entries and statement lines are not affected.`
+              : 'The saved report snapshot will be permanently removed. Posted entries are not affected.'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="button-cancel-delete-report-pack" disabled={removePack.isPending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            data-testid="button-confirm-delete-report-pack"
+            disabled={removePack.isPending}
+            onClick={(event) => { event.preventDefault(); confirmDeletePack(); }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 focus:ring-destructive"
+          >
+            {removePack.isPending ? 'Deleting…' : 'Delete report pack'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </div>;
 }
 function Router() {
   return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
@@ -3768,7 +3873,7 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
     return <CompanyOnboarding user={profileUser} onComplete={completeOnboarding} onLogout={onLogout} />;
   }
 
-  return <TooltipProvider><OrgContext.Provider value={orgContext}><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary resetKey={location}><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider></OrgContext.Provider><Toaster /></TooltipProvider>;
+  return <TooltipProvider><OrgContext.Provider value={orgContext}><ClientContext.Provider value={{ activeClient: selectedClient, clients, setActiveClientId: chooseClient }}><ErrorBoundary resetKey={location}><Shell user={user} onLogout={onLogout}><Router /></Shell></ErrorBoundary></ClientContext.Provider></OrgContext.Provider><Toaster /><SonnerToaster /></TooltipProvider>;
 }
 
 function AuthBoundary() {
