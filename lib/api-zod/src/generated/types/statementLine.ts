@@ -78,4 +78,20 @@ export interface StatementLine {
   exchangeRateEffectiveDate?: Date | null;
   exchangeRateSourceScope?: StatementLineExchangeRateSourceScope;
   exchangeRateStatus?: string;
+  noteSummary?: StatementLineNoteSummary;
+  pendingClarification?: StatementLinePendingClarification | null;
+}
+
+export interface StatementLineNoteSummary {
+  hasNote: boolean;
+  latestNotePreview?: string | null;
+  latestNoteAt?: Date | null;
+  attachmentCount: number;
+}
+
+export interface StatementLinePendingClarification {
+  requestId: number;
+  recipientEmail: string;
+  sentAt: Date;
+  expiresAt: Date;
 }

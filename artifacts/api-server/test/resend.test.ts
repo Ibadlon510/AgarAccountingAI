@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { EmailDeliveryError, sendWorkspaceInvitationEmail } from "../src/lib/resend";
+import { EmailDeliveryError, sendDetailRequestEmail, sendWorkspaceInvitationEmail } from "../src/lib/resend";
 
 const originalFromAddress = process.env.RESEND_FROM_EMAIL;
 const originalTestMode = process.env.AGARACCOUNTING_EMAIL_TEST_MODE;
@@ -40,6 +40,24 @@ test("sends invitation content through the Resend email endpoint", async () => {
       text: "Role, client access, expiry, and secure link",
     },
   });
+});
+
+test("sends remarks-request content through the same Resend email endpoint", async () => {
+  process.env.RESEND_FROM_EMAIL = "AgarAccounting <invitations@agaraccounting.test>";
+  delete process.env.AGARACCOUNTING_EMAIL_TEST_MODE;
+  let request: { connector: string; path: string; body: unknown } | undefined;
+
+  const result = await sendDetailRequestEmail({
+    to: "owner@client.test",
+    subject: "Please add remarks for 2 transactions",
+    text: "https://127.0.0.1/detail-request/token",
+  }, async (connector, path, options) => {
+    request = { connector, path, body: JSON.parse(options.body) };
+    return Response.json({ id: "email-456" });
+  });
+
+  assert.deepEqual(result, { id: "email-456" });
+  assert.equal((request?.body as { subject?: string }).subject, "Please add remarks for 2 transactions");
 });
 
 test("rejects delivery when no verified sender is configured", async () => {

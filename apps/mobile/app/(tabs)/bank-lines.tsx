@@ -79,6 +79,16 @@ function LineRow({
       >
         {line.description}
       </Text>
+      {line.status === 'draft' && (line.pendingClarification || line.noteSummary?.hasNote) && (
+        <View style={styles.iconRow}>
+          {line.pendingClarification && (
+            <Feather name="clock" size={12} color={colors.accent} accessibilityLabel="Awaiting remarks" />
+          )}
+          {line.noteSummary?.hasNote && (
+            <Feather name="message-square" size={12} color={colors.primary} accessibilityLabel="Remark added" />
+          )}
+        </View>
+      )}
 
       {counterparty && (
         <Text style={[styles.meta, { color: colors.mutedForeground, fontFamily: fonts.sans }]} numberOfLines={1}>
@@ -136,7 +146,9 @@ export default function BankLinesScreen() {
   const entryByLineId = useMemo(() => {
     const map = new Map<number, number>();
     for (const entry of entriesQuery.data ?? []) {
-      if (entry.status === 'draft') map.set(entry.statementLineId, entry.id);
+      if (entry.status === 'draft' && entry.statementLineId != null) {
+        map.set(entry.statementLineId, entry.id);
+      }
     }
     return map;
   }, [entriesQuery.data]);
@@ -299,6 +311,7 @@ const styles = StyleSheet.create({
   date: { fontSize: 11 },
   amount: { fontSize: 15 },
   description: { fontSize: 14, lineHeight: 19 },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: 2 },
   meta: { fontSize: 12 },
   cardBottom: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
   account: { fontSize: 10, flexShrink: 1 },

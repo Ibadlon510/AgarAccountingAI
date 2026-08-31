@@ -2745,7 +2745,8 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "toStatus": zod.string().optional(),
   "entries": zod.array(zod.object({
   "id": zod.number(),
-  "statementLineId": zod.number(),
+  "statementLineId": zod.number().nullable(),
+  "source": zod.enum(['statement', 'manual']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -2826,7 +2827,8 @@ export const GetJournalEntriesQueryParams = zod.object({
 
 export const GetJournalEntriesResponseItem = zod.object({
   "id": zod.number(),
-  "statementLineId": zod.number(),
+  "statementLineId": zod.number().nullable(),
+  "source": zod.enum(['statement', 'manual']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -2861,6 +2863,42 @@ export const GetJournalEntriesResponseItem = zod.object({
 export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem)
 
 
+export const createJournalEntryBodyMemoMax = 500;
+export const createJournalEntryBodyCurrencyMin = 3;
+export const createJournalEntryBodyCurrencyMax = 3;
+export const createJournalEntryBodyDebitAccountMax = 160;
+export const createJournalEntryBodyCreditAccountMax = 160;
+
+export const CreateJournalEntryBody = zod.object({
+  "clientId": zod.number(),
+  "date": zod.string(),
+  "memo": zod.string().min(1).max(createJournalEntryBodyMemoMax),
+  "currency": zod.string().min(createJournalEntryBodyCurrencyMin).max(createJournalEntryBodyCurrencyMax),
+  "amount": zod.number().gt(0),
+  "debitAccount": zod.string().min(1).max(createJournalEntryBodyDebitAccountMax),
+  "creditAccount": zod.string().min(1).max(createJournalEntryBodyCreditAccountMax),
+  "contactId": zod.number().nullish()
+})
+
+export const CreateJournalEntryResponse = GetJournalEntriesResponseItem
+
+export const UpdateJournalEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateJournalEntryBody = CreateJournalEntryBody
+
+export const UpdateJournalEntryResponse = GetJournalEntriesResponseItem
+
+export const DeleteJournalEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteJournalEntryBody = zod.object({
+  "clientId": zod.number()
+})
+
+
 /**
  * @summary Post an eligible draft journal entry to the ledger
  */
@@ -2884,7 +2922,8 @@ export const PostJournalEntryBody = zod.object({
 
 export const PostJournalEntryResponse = zod.object({
   "id": zod.number(),
-  "statementLineId": zod.number(),
+  "statementLineId": zod.number().nullable(),
+  "source": zod.enum(['statement', 'manual']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -2931,7 +2970,8 @@ export const UnpostJournalEntryBody = zod.object({
 
 export const UnpostJournalEntryResponse = zod.object({
   "id": zod.number(),
-  "statementLineId": zod.number(),
+  "statementLineId": zod.number().nullable(),
+  "source": zod.enum(['statement', 'manual']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -2995,7 +3035,7 @@ export const GetTrialBalanceAccountTransactionsQueryParams = zod.object({
 
 export const GetTrialBalanceAccountTransactionsResponseItem = zod.object({
   "entryId": zod.number(),
-  "statementLineId": zod.number(),
+  "statementLineId": zod.number().nullable(),
   "date": zod.string(),
   "description": zod.string(),
   "side": zod.enum(['debit', 'credit']),

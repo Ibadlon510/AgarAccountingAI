@@ -12,6 +12,7 @@ import {
   getGetLedgerflowAccountsQueryKey,
   useGetContacts,
   getGetContactsQueryKey,
+  useGetStatementLineNotes,
 } from '@workspace/api-client-react';
 import { StatusPill } from '../../src/components/Chips';
 import { LoadingState, ErrorState } from '../../src/components/StateViews';
@@ -51,6 +52,9 @@ export default function LineDetailScreen() {
   });
   const contactsQuery = useGetContacts(params, {
     query: { queryKey: getGetContactsQueryKey(params), enabled },
+  });
+  const notesQuery = useGetStatementLineNotes(lineId, clientId, {
+    query: { enabled: enabled && Number.isFinite(lineId) && lineId > 0 },
   });
   const { post, busyId } = useEntryActions(clientId);
 
@@ -240,6 +244,29 @@ export default function LineDetailScreen() {
           <Text style={[styles.note, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
             This line has no draft entry yet, so there's nothing to post.
           </Text>
+        )}
+
+        {line.pendingClarification && line.status === 'draft' && (
+          <Text style={[styles.note, { color: colors.mutedForeground, fontFamily: fonts.sans }]}>
+            Awaiting remarks from {line.pendingClarification.recipientEmail}.
+          </Text>
+        )}
+
+        {(notesQuery.data?.notes.length ?? 0) > 0 && (
+          <View style={{ marginTop: spacing.lg, gap: spacing.sm }}>
+            <Text style={[styles.fieldLabel, { color: colors.mutedForeground, fontFamily: fonts.mono }]}>REMARKS</Text>
+            {notesQuery.data?.notes.map((note) => (
+              <View key={note.id} style={[styles.field, { borderColor: colors.border, backgroundColor: colors.card }]}>
+                <View style={styles.fieldText}>
+                  <Text style={[styles.fieldValue, { color: colors.foreground, fontFamily: fonts.sans }]}>{note.noteText}</Text>
+                  <Text style={[styles.note, { color: colors.mutedForeground, fontFamily: fonts.sans, marginTop: spacing.xs }]}>
+                    {note.submittedByEmail}
+                    {note.attachments.length > 0 ? ` · ${note.attachments.length} attachment${note.attachments.length === 1 ? '' : 's'}` : ''}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
         )}
       </ScrollView>
     </Shell>

@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import agaraccountingRouter from "./agaraccounting";
 import storageRouter from "./storage";
 import { feedbackAuthRouter, feedbackPublicRouter } from "./feedback";
+import publicStatementLineRequestsRouter from "./statementLineRequests";
 import { optionalAuth, requireAuth } from "../middlewares/authMiddleware";
 
 type RouterAuthOptions = {
@@ -27,6 +28,7 @@ export function createRouter(
 
   router.use(healthRouter);
   router.use(publicFeedback);
+  router.use(publicStatementLineRequestsRouter);
   router.use(authMiddleware);
   router.use(storageRouter);
   router.use(feedbackAuthRouter);

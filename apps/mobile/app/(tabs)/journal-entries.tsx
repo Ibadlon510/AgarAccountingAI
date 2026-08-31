@@ -90,6 +90,11 @@ function EntryRow({
 
       <View style={styles.cardBottom}>
         <StatusPill status={entry.status} />
+        {entry.source === 'manual' && (
+          <Text style={[styles.meta, { color: colors.mutedForeground, fontFamily: fonts.mono }]}>
+            Manual
+          </Text>
+        )}
         {entry.functionalCurrency && entry.functionalCurrency !== entry.currency && entry.functionalAmount != null && (
           <Text style={[styles.functional, { color: colors.mutedForeground, fontFamily: fonts.mono }]}>
             ≈ {money(entry.functionalAmount, entry.functionalCurrency)}
@@ -189,7 +194,7 @@ export default function JournalEntriesScreen() {
             <EmptyState
               icon="check-square"
               title="No journal entries yet"
-              body="Entries appear here once bank lines have been reviewed."
+              body="Bank-line drafts and posted manuals appear here. Add a manual journal from the web workspace."
             />
           ) : (
             <EmptyState

@@ -10,7 +10,7 @@ export class EmailDeliveryError extends Error {
   }
 }
 
-type InvitationEmail = {
+type OutboundEmail = {
   to: string;
   subject: string;
   text: string;
@@ -49,8 +49,8 @@ function verifiedFromAddress() {
   return from;
 }
 
-export async function sendWorkspaceInvitationEmail(
-  email: InvitationEmail,
+async function sendEmail(
+  email: OutboundEmail,
   proxy?: ConnectorProxy,
 ): Promise<{ id: string }> {
   // The integration suite must not send messages to its synthetic addresses. This
@@ -98,4 +98,18 @@ export async function sendWorkspaceInvitationEmail(
     throw new EmailDeliveryError("The email provider returned an invalid delivery response.");
   }
   return { id: body.id };
+}
+
+export async function sendWorkspaceInvitationEmail(
+  email: OutboundEmail,
+  proxy?: ConnectorProxy,
+): Promise<{ id: string }> {
+  return sendEmail(email, proxy);
+}
+
+export async function sendDetailRequestEmail(
+  email: OutboundEmail,
+  proxy?: ConnectorProxy,
+): Promise<{ id: string }> {
+  return sendEmail(email, proxy);
 }

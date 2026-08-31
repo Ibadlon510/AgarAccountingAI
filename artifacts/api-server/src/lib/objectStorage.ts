@@ -253,6 +253,34 @@ export class ObjectStorageService {
     );
     return response;
   }
+
+  async storePrivateObject(prefix: string, buffer: Buffer, contentType: string): Promise<string> {
+    assertUploadPrefix(prefix);
+    const entityId = `${prefix}/${randomUUID()}`;
+    const objectPath = `/objects/${entityId}`;
+    if (useLocalObjectStorage()) {
+      const { filePath, metaPath } = localPaths(objectPath);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, buffer);
+      await writeFile(metaPath, JSON.stringify({ contentType } satisfies LocalObjectMeta), "utf8");
+      return objectPath;
+    }
+    const privateDir = this.getPrivateObjectDir().replace(/\/+$/, "");
+    const { bucketName, objectName } = parseObjectPath(`${privateDir}/${entityId}`);
+    const objectFile = objectStorageClient.bucket(bucketName).file(objectName);
+    await objectFile.save(buffer, { contentType, resumable: false });
+    return objectPath;
+  }
+
+  async deleteObject(objectPath: string): Promise<void> {
+    try {
+      const objectFile = await this.getObjectEntityFile(objectPath);
+      await objectFile.delete({ ignoreNotFound: true });
+    } catch (error) {
+      if (error instanceof ObjectNotFoundError) return;
+      throw error;
+    }
+  }
 }
 
 function parseObjectPath(path: string) {

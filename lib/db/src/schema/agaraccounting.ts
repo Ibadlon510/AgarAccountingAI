@@ -585,7 +585,7 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
 export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   clientId: integer("client_id").notNull(),
-  statementLineId: integer("statement_line_id").notNull(),
+  statementLineId: integer("statement_line_id"),
   date: text("date").notNull(),
   memo: text("memo").notNull(),
   currency: text("currency").notNull(),
@@ -716,8 +716,100 @@ export const statementImportUndoAuditsTable = pgTable("agaraccounting_statement_
 }, (table) => [
   index("agaraccounting_statement_import_undo_audits_client_undone_idx").on(table.clientId, table.undoneAt),
 ]);
+export const statementLineDetailRequestsTable = pgTable("agaraccounting_statement_line_detail_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  createdByUserId: varchar("created_by_user_id").notNull(),
+  recipientEmail: text("recipient_email").notNull(),
+  senderMessage: text("sender_message"),
+  token: text("token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("agaraccounting_statement_line_detail_requests_token_idx").on(table.token),
+  index("agaraccounting_statement_line_detail_requests_client_idx").on(table.clientId, table.createdAt),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "agaraccounting_statement_line_detail_requests_client_fk",
+  }),
+  foreignKey({
+    columns: [table.createdByUserId],
+    foreignColumns: [usersTable.id],
+    name: "agaraccounting_statement_line_detail_requests_creator_fk",
+  }),
+]);
+
+export const statementLineDetailRequestItemsTable = pgTable("agaraccounting_statement_line_detail_request_items", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  requestId: integer("request_id").notNull(),
+  statementLineId: integer("statement_line_id").notNull(),
+}, (table) => [
+  uniqueIndex("agaraccounting_statement_line_detail_request_items_unique_idx").on(table.requestId, table.statementLineId),
+  index("agaraccounting_statement_line_detail_request_items_line_idx").on(table.statementLineId),
+  foreignKey({
+    columns: [table.requestId],
+    foreignColumns: [statementLineDetailRequestsTable.id],
+    name: "agaraccounting_statement_line_detail_request_items_request_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.statementLineId],
+    foreignColumns: [statementLinesTable.id],
+    name: "agaraccounting_statement_line_detail_request_items_line_fk",
+  }).onDelete("cascade"),
+]);
+
+export const statementLineNotesTable = pgTable("agaraccounting_statement_line_notes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  statementLineId: integer("statement_line_id").notNull(),
+  requestId: integer("request_id").notNull(),
+  submittedByEmail: text("submitted_by_email").notNull(),
+  noteText: text("note_text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("agaraccounting_statement_line_notes_line_request_idx").on(table.statementLineId, table.requestId),
+  index("agaraccounting_statement_line_notes_line_idx").on(table.statementLineId, table.createdAt),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "agaraccounting_statement_line_notes_client_fk",
+  }),
+  foreignKey({
+    columns: [table.statementLineId],
+    foreignColumns: [statementLinesTable.id],
+    name: "agaraccounting_statement_line_notes_line_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.requestId],
+    foreignColumns: [statementLineDetailRequestsTable.id],
+    name: "agaraccounting_statement_line_notes_request_fk",
+  }).onDelete("cascade"),
+]);
+
+export const statementLineNoteAttachmentsTable = pgTable("agaraccounting_statement_line_note_attachments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  noteId: integer("note_id").notNull(),
+  objectKey: text("object_key").notNull(),
+  filename: text("filename").notNull(),
+  contentType: text("content_type").notNull(),
+  size: integer("size").notNull(),
+}, (table) => [
+  index("agaraccounting_statement_line_note_attachments_note_idx").on(table.noteId),
+  foreignKey({
+    columns: [table.noteId],
+    foreignColumns: [statementLineNotesTable.id],
+    name: "agaraccounting_statement_line_note_attachments_note_fk",
+  }).onDelete("cascade"),
+]);
+
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
+export type StatementLineDetailRequest = typeof statementLineDetailRequestsTable.$inferSelect;
+export type StatementLineNote = typeof statementLineNotesTable.$inferSelect;
+export type StatementLineNoteAttachment = typeof statementLineNoteAttachmentsTable.$inferSelect;
 export type JournalEntry = typeof journalEntriesTable.$inferSelect;
 export type AccountClassification = typeof accountClassificationsTable.$inferSelect;
 export type ReportPack = typeof reportPacksTable.$inferSelect;

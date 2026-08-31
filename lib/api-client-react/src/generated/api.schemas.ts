@@ -2029,9 +2029,19 @@ export const JournalEntryExchangeRateSourceScope = {
   system: 'system',
 } as const;
 
+export type JournalEntrySource = typeof JournalEntrySource[keyof typeof JournalEntrySource];
+
+
+export const JournalEntrySource = {
+  statement: 'statement',
+  manual: 'manual',
+} as const;
+
 export interface JournalEntry {
   id: number;
-  statementLineId: number;
+  /** @nullable */
+  statementLineId: number | null;
+  source: JournalEntrySource;
   /** @nullable */
   contactId?: number | null;
   /** @nullable */
@@ -2052,6 +2062,41 @@ export interface JournalEntry {
   exchangeRateEffectiveDate?: string | null;
   exchangeRateSourceScope?: JournalEntryExchangeRateSourceScope;
   exchangeRateStatus?: string;
+}
+
+export interface JournalEntryInput {
+  clientId: number;
+  date: string;
+  /**
+   * @minLength 1
+   * @maxLength 500
+   */
+  memo: string;
+  /**
+   * @minLength 3
+   * @maxLength 3
+   */
+  currency: string;
+  /**
+   * @exclusiveMin 0
+   */
+  amount: number;
+  /**
+   * @minLength 1
+   * @maxLength 160
+   */
+  debitAccount: string;
+  /**
+   * @minLength 1
+   * @maxLength 160
+   */
+  creditAccount: string;
+  /** @nullable */
+  contactId?: number | null;
+}
+
+export interface DeleteJournalEntryInput {
+  clientId: number;
 }
 
 export interface AICopilotActionResult {
@@ -2125,7 +2170,8 @@ export const TrialBalanceAccountTransactionSide = {
 
 export interface TrialBalanceAccountTransaction {
   entryId: number;
-  statementLineId: number;
+  /** @nullable */
+  statementLineId: number | null;
   date: string;
   description: string;
   side: TrialBalanceAccountTransactionSide;

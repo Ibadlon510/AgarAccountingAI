@@ -470,11 +470,11 @@ export function buildReportPack(input: {
       if (period === "current") {
         if (debit) balance.currentDebit += amount; else balance.currentCredit += amount;
         balance.currentEntryIds.add(entry.id);
-        balance.currentLineIds.add(entry.statementLineId);
+        if (entry.statementLineId != null) balance.currentLineIds.add(entry.statementLineId);
       } else {
         if (debit) balance.comparativeDebit += amount; else balance.comparativeCredit += amount;
         balance.comparativeEntryIds.add(entry.id);
-        balance.comparativeLineIds.add(entry.statementLineId);
+        if (entry.statementLineId != null) balance.comparativeLineIds.add(entry.statementLineId);
       }
     }
     balances.set(account, balance);
@@ -687,7 +687,9 @@ export function buildReportPack(input: {
     notes,
     traceability: {
       postedEntryCount: currentEntries.length,
-      postedLineCount: new Set(currentEntries.map((entry) => entry.statementLineId)).size,
+      postedLineCount: new Set(
+        currentEntries.flatMap((entry) => entry.statementLineId == null ? [] : [entry.statementLineId]),
+      ).size,
       sourceImportCount: input.sourceImportCount,
     },
     taxSummary: calculateUaeCorporateTaxSummary(

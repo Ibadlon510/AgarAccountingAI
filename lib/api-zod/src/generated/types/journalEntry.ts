@@ -6,12 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { JournalEntryExchangeRateSourceScope } from './journalEntryExchangeRateSourceScope';
+import type { JournalEntrySource } from './journalEntrySource';
 import type { JournalEntryStatus } from './journalEntryStatus';
 import type { JournalLine } from './journalLine';
 
 export interface JournalEntry {
   id: number;
-  statementLineId: number;
+  /** @nullable */
+  statementLineId: number | null;
+  source: JournalEntrySource;
   /** @nullable */
   contactId?: number | null;
   /** @nullable */

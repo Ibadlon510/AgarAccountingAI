@@ -91,6 +91,13 @@ import {
   GetAgarAccountingAISettingsQueryParams,
   GetAgarAccountingAISettingsResponse,
   GetJournalEntriesResponse,
+  CreateJournalEntryBody,
+  CreateJournalEntryResponse,
+  UpdateJournalEntryParams,
+  UpdateJournalEntryBody,
+  UpdateJournalEntryResponse,
+  DeleteJournalEntryParams,
+  DeleteJournalEntryBody,
   GetLedgerOverviewResponse,
   GetStatementLinesQueryParams,
   GetStatementLinesResponse,
@@ -201,6 +208,8 @@ import {
   statementLinesTable,
   statementLineDetailRequestsTable,
   statementLineDetailRequestItemsTable,
+  statementLineNotesTable,
+  statementLineNoteAttachmentsTable,
   systemRateAdminBootstrapStateTable,
   systemRateAdminsTable,
   systemRateAuditEventsTable,
@@ -220,11 +229,13 @@ import {
   testAIProvider,
 } from "../lib/ai-provider";
 import { EmailDeliveryError, sendDetailRequestEmail, sendWorkspaceInvitationEmail } from "../lib/resend";
+import { ObjectNotFoundError } from "../lib/objectStorage";
 import {
   emptyNoteSummary,
   listLineNotes,
   loadRemarkState,
   publicDetailRequestLink,
+  remarkObjectStorage,
   DETAIL_REQUEST_TTL_MS,
   type RemarkState,
 } from "../lib/statementLineRemarks";
@@ -282,6 +293,7 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
   return {
     id: entry.id,
     statementLineId: entry.statementLineId,
+    source: entry.statementLineId == null ? "manual" as const : "statement" as const,
     contactId: entry.contactId,
     contactName,
     date: calendarDate(entry.date),
@@ -300,6 +312,42 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
       { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
     ],
   };
+}
+
+function journalEntriesByStatementLineId<T extends { statementLineId: number | null }>(entries: T[]) {
+  return new Map(
+    entries
+      .filter((entry): entry is T & { statementLineId: number } => entry.statementLineId != null)
+      .map((entry) => [entry.statementLineId, entry] as const),
+  );
+}
+
+function linkedStatementLineIds(entries: Array<{ statementLineId: number | null }>) {
+  return entries.flatMap((entry) => entry.statementLineId == null ? [] : [entry.statementLineId]);
+}
+
+async function resolveManualJournalAccounts(
+  executor: Pick<typeof db, "select">,
+  clientId: number,
+  debitAccount: string,
+  creditAccount: string,
+) {
+  const debitName = debitAccount.trim();
+  const creditName = creditAccount.trim();
+  if (!debitName || !creditName) return { kind: "missing_account" as const };
+  if (debitName === creditName) return { kind: "same_account" as const };
+  const accounts = await executor.select({
+    id: accountClassificationsTable.id,
+    accountName: accountClassificationsTable.accountName,
+  }).from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, clientId),
+    inArray(accountClassificationsTable.accountName, [debitName, creditName]),
+    eq(accountClassificationsTable.isActive, true),
+  ));
+  const debit = accounts.find((account) => account.accountName === debitName);
+  const credit = accounts.find((account) => account.accountName === creditName);
+  if (!debit || !credit) return { kind: "account_not_found" as const };
+  return { kind: "ok" as const, debit, credit, debitName, creditName };
 }
 function number(value: string | null | undefined) {
   return Number(value ?? 0);
@@ -847,6 +895,42 @@ async function refreshClientRateConversions(clients: Array<typeof clientsTable.$
         }
       });
     }
+    const standaloneEntries = await db.select({ id: journalEntriesTable.id }).from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.clientId, client.id),
+      isNull(journalEntriesTable.statementLineId),
+    ));
+    for (const standalone of standaloneEntries) {
+      await db.transaction(async (tx) => {
+        const [currentClient] = await tx.select().from(clientsTable)
+          .where(eq(clientsTable.id, client.id))
+          .for("update");
+        if (!currentClient) return;
+        const [currentEntry] = await tx.select().from(journalEntriesTable)
+          .where(and(
+            eq(journalEntriesTable.id, standalone.id),
+            eq(journalEntriesTable.clientId, currentClient.id),
+            isNull(journalEntriesTable.statementLineId),
+          ))
+          .for("update");
+        if (!currentEntry) return;
+        if (currentEntry.status === "posted" && hasConversionEvidence(currentEntry)) return;
+        const conversion = await resolveExchangeRate(
+          currentClient,
+          currentEntry.currency,
+          currentClient.functionalCurrency,
+          calendarDate(currentEntry.date) ?? "",
+          currentEntry.amount,
+        );
+        await tx.update(journalEntriesTable).set({
+          functionalCurrency: conversion.functionalCurrency,
+          functionalAmount: conversion.functionalAmount,
+          exchangeRate: conversion.exchangeRate,
+          exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+          exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+          exchangeRateStatus: conversion.exchangeRateStatus,
+        }).where(eq(journalEntriesTable.id, currentEntry.id));
+      });
+    }
   }
 }
 
@@ -940,7 +1024,7 @@ async function recordJournalTransitionAudit(
     fromStatus: string;
     toStatus: string;
     entryId: number;
-    statementLineId: number;
+    statementLineId?: number | null;
   },
 ) {
   await tx.insert(bulkTransitionAuditsTable).values({
@@ -952,7 +1036,7 @@ async function recordJournalTransitionAudit(
     fromStatus: input.fromStatus,
     toStatus: input.toStatus,
     entryIds: [input.entryId],
-    statementLineIds: [input.statementLineId],
+    statementLineIds: input.statementLineId == null ? [] : [input.statementLineId],
   });
 }
 
@@ -3049,6 +3133,7 @@ async function statementLineResponse(
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
   contactSuggestion?: ContactSuggestion,
   prefetchedEntry?: { status: string; debitAccount: string; creditAccount: string } | null,
+  remark?: RemarkState,
 ) {
   const suggestion = lineSuggestion(line, patterns);
   const [queriedEntry] = prefetchedEntry === undefined ? await db.select({
@@ -3119,6 +3204,8 @@ async function statementLineResponse(
     functionalAmount: line.functionalAmount == null ? null : number(line.functionalAmount),
     exchangeRate: line.exchangeRate == null ? null : number(line.exchangeRate),
     exchangeRateEffectiveDate: calendarDate(line.exchangeRateEffectiveDate),
+    noteSummary: remark?.noteSummary ?? emptyNoteSummary,
+    pendingClarification: remark?.pendingClarification ?? null,
   };
 }
 
@@ -3774,18 +3861,16 @@ function draftLinesMatchingAccount(
       return { eligible: [], postedCount: 0, error: "The selected or visible lines include both draft and posted activity. I will not silently narrow that selection. Choose only draft lines, or ask with an account scope." };
     }
   }
-  const entriesByLine = new Map(entries.filter((entry) => entry.clientId === clientId).map((entry) => [entry.statementLineId, entry]));
+  const entriesByLine = journalEntriesByStatementLineId(entries.filter((entry) => entry.clientId === clientId));
   const matching = scopedLines.filter((line) => {
     const counterpart = lineCounterpartAccount(line, entriesByLine.get(line.id));
     return line.accountSuggestion === accountName || counterpart === accountName;
   });
   const postedMatching = matching.filter((line) => line.status === "posted");
   const draftMatching = matching.filter((line) => line.status !== "posted");
-  const draftEntryLineIds = new Set(
-    entries
-      .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
-      .map((entry) => entry.statementLineId),
-  );
+  const draftEntryLineIds = new Set(linkedStatementLineIds(
+    entries.filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft"),
+  ));
   const eligible = draftMatching.filter((line) => draftEntryLineIds.has(line.id)).slice(0, 100);
   return { eligible, postedCount: postedMatching.length };
 }
@@ -3909,11 +3994,9 @@ async function prepareAssignContactsAction(
       return { error: "I do not see any selected or visible statement lines on the current page. Select rows or open the Statement lines view, then ask again." };
     }
     const pageSet = new Set(pageLineIds);
-    const draftEntryLineIds = new Set(
-      entries
-        .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
-        .map((entry) => entry.statementLineId),
-    );
+    const draftEntryLineIds = new Set(linkedStatementLineIds(
+      entries.filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft"),
+    ));
     const pageLines = lines.filter((line) => line.clientId === clientId && pageSet.has(line.id));
     if (pageLines.some((line) => line.status === "posted") && pageLines.some((line) => line.status !== "posted")) {
       return { error: "The selected or visible lines include both draft and posted activity. I will not silently narrow that selection." };
@@ -4012,9 +4095,9 @@ function prepareDescriptionRecodeRecommendation(
     return { error: `I could not find any unposted statement lines matching “${descriptionScopes.join("” or “")}” by description or contact in this client workspace.${hintText}` };
   }
 
-  const draftEntryLineIds = new Set(entries
-    .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
-    .map((entry) => entry.statementLineId));
+  const draftEntryLineIds = new Set(linkedStatementLineIds(
+    entries.filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft"),
+  ));
   const eligibleLines = draftMatching.filter((line) => draftEntryLineIds.has(line.id));
   if (!eligibleLines.length) {
     return { error: `I found ${draftMatching.length} matching draft line${draftMatching.length === 1 ? "" : "s"}, but none have a draft journal entry eligible to recode.` };
@@ -4116,7 +4199,7 @@ async function applyRecodeLinesAction(
       eq(journalEntriesTable.clientId, clientId),
       inArray(journalEntriesTable.statementLineId, lineIds),
     )).for("update");
-    const entryLineIds = new Set(lockedEntries.map((entry) => entry.statementLineId));
+    const entryLineIds = new Set(linkedStatementLineIds(lockedEntries));
     if (
       lockedEntries.length !== lockedLines.length
       || entryLineIds.size !== lockedLines.length
@@ -4175,11 +4258,9 @@ async function prepareDismissContactProposalsAction(
     if (scoped.error) return { error: scoped.error };
     eligible = scoped.eligible;
   } else if (descriptionScopes.length) {
-    const draftEntryLineIds = new Set(
-      entries
-        .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
-        .map((entry) => entry.statementLineId),
-    );
+    const draftEntryLineIds = new Set(linkedStatementLineIds(
+      entries.filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft"),
+    ));
     eligible = lines
       .filter((line) => line.clientId === clientId && line.status !== "posted" && draftEntryLineIds.has(line.id))
       .filter((line) => lineMatchesDescriptionScopes(line, descriptionScopes, contacts))
@@ -4192,11 +4273,9 @@ async function prepareDismissContactProposalsAction(
       return { error: "I do not see any selected or visible statement lines on the current page." };
     }
     const pageSet = new Set(pageLineIds);
-    const draftEntryLineIds = new Set(
-      entries
-        .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
-        .map((entry) => entry.statementLineId),
-    );
+    const draftEntryLineIds = new Set(linkedStatementLineIds(
+      entries.filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft"),
+    ));
     eligible = lines
       .filter((line) => line.clientId === clientId && pageSet.has(line.id) && line.status !== "posted" && draftEntryLineIds.has(line.id))
       .slice(0, 100);
@@ -4428,7 +4507,7 @@ function prepareUnpostRecommendation(
       return { error: "I do not see any selected or visible statement lines on the current page." };
     }
     const pageSet = new Set(pageLineIds);
-    selectedEntries = entries.filter((entry) => entry.clientId === clientId && pageSet.has(entry.statementLineId) && entry.status === "posted");
+    selectedEntries = entries.filter((entry) => entry.clientId === clientId && entry.statementLineId != null && pageSet.has(entry.statementLineId) && entry.status === "posted");
   } else if (descriptionScopes.length) {
     selectedEntries = entries.filter((entry) => {
       if (entry.clientId !== clientId || entry.status !== "posted") return false;
@@ -4436,13 +4515,13 @@ function prepareUnpostRecommendation(
       return Boolean(line && lineMatchesDescriptionScopes(line, descriptionScopes, contacts));
     });
   } else if (/\ball\b/i.test(message) && /\bposted\b/i.test(message)) {
-    selectedEntries = entries.filter((entry) => entry.clientId === clientId && entry.status === "posted");
+    selectedEntries = entries.filter((entry) => entry.clientId === clientId && entry.status === "posted" && entry.statementLineId != null);
   } else {
     return { error: "I need a clear posted scope to unpost. Name a merchant/contact, say selected/visible lines, or ask to unpost all posted entries." };
   }
   selectedEntries = selectedEntries.slice(0, 100);
   if (!selectedEntries.length) return { error: "There are no posted entries in that scope to unpost." };
-  const statementLineIds = selectedEntries.map((entry) => entry.statementLineId);
+  const statementLineIds = linkedStatementLineIds(selectedEntries);
   const entryIds = selectedEntries.map((entry) => entry.id);
   return {
     recommendation: {
@@ -4652,10 +4731,10 @@ function collectAICopilotRecommendations(
         : [];
       const statementLineIds = Array.isArray(candidate.statementLineIds)
         ? [...new Set(candidate.statementLineIds.filter((id): id is number => typeof id === "number" && validLineIds.has(id)))]
-        : entryIds.map((id) => draftEntryById.get(id)!.statementLineId);
+        : linkedStatementLineIds(entryIds.map((id) => draftEntryById.get(id)!));
       if (!entryIds.length || !statementLineIds.length) continue;
       const matchedEntries = entryIds.map((id) => draftEntryById.get(id)!);
-      if (matchedEntries.some((entry) => !statementLineIds.includes(entry.statementLineId))) continue;
+      if (matchedEntries.some((entry) => entry.statementLineId == null || !statementLineIds.includes(entry.statementLineId))) continue;
       recommendations.push({
         id: `bulk-post-${entryIds.join("-")}`,
         clientId,
@@ -4871,7 +4950,7 @@ function prepareBulkActionRecommendation(
       return { error: "I do not see any selected or visible statement lines on the current page. Select rows or open the Statement lines view, then ask again." };
     }
     const pageLineIdSet = new Set(pageLineIds);
-    selectedEntries = entries.filter((entry) => pageLineIdSet.has(entry.statementLineId));
+    selectedEntries = entries.filter((entry) => entry.statementLineId != null && pageLineIdSet.has(entry.statementLineId));
     scopeDescription = pageContext?.selectedLineIds?.length
       ? "the selected statement lines"
       : "the currently visible statement lines";
@@ -4944,7 +5023,7 @@ function prepareBulkActionRecommendation(
     return { error: bulkStatusConflictError(selectedEntries, lines) };
   }
 
-  const selectedLineIds = [...new Set(selectedEntries.map((entry) => entry.statementLineId))];
+  const selectedLineIds = [...new Set(linkedStatementLineIds(selectedEntries))];
   const selectedLines = lines.filter((line) => selectedLineIds.includes(line.id));
   if (selectedLines.length !== selectedLineIds.length || selectedLines.some((line) => line.clientId !== clientId)) {
     return { error: "The requested entries do not have a complete statement-line scope in this client workspace." };
@@ -6419,7 +6498,7 @@ function accountingResultForLines(
   filters: AccountingFilters,
   workspacePatterns: Array<typeof classificationPatternsTable.$inferSelect>,
 ) {
-  const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+  const entriesByLine = journalEntriesByStatementLineId(entries);
   const selected = lines.filter((line) => lineMatchesAccountingFilters(line, entriesByLine.get(line.id), filters));
   const byCurrency = (direction: "inflow" | "outflow") => Object.fromEntries(
     [...new Set(selected.filter((line) => line.direction === direction).map((line) => line.currency.toUpperCase()))]
@@ -6462,6 +6541,25 @@ function accountingResultForEntries(
 ) {
   const linesById = new Map(lines.map((line) => [line.id, line]));
   const selected = entries.filter((entry) => {
+    if (entry.statementLineId == null) {
+      const amount = number(entry.amount);
+      const account = `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase();
+      const periodMatch = !filters.period
+        || (filters.period.length === 4 && entry.date.startsWith(filters.period))
+        || (filters.period.length === 7 && entry.date.startsWith(filters.period))
+        || (filters.period.length === 10 && entry.date === filters.period);
+      return (!filters.recordId || entry.id === filters.recordId)
+        && periodMatch
+        && (!filters.dateFrom || entry.date >= filters.dateFrom)
+        && (!filters.dateTo || entry.date <= filters.dateTo)
+        && (filters.minAmount === undefined || amount >= filters.minAmount)
+        && (filters.maxAmount === undefined || amount <= filters.maxAmount)
+        && !filters.direction
+        && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
+        && (!filters.status || journalLifecycleStatus(entry.status) === filters.status)
+        && (!filters.merchant || haystackMatchesMerchantScope(entry.memo, filters.merchant))
+        && (!filters.account || account.includes(filters.account.toLowerCase()));
+    }
     const line = linesById.get(entry.statementLineId);
     return Boolean(line && lineMatchesAccountingFilters(line, entry, filters));
   });
@@ -7021,10 +7119,10 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
   const aiActivityId = aiActivity?.id;
   let aiCompletionRecorded = false;
   try {
-    const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+    const entriesByLine = journalEntriesByStatementLineId(entries);
     const scopedLines = lines.filter((line) => lineMatchesAccountingFilters(line, entriesByLine.get(line.id), activeFilters));
     const scopedLineIds = new Set(scopedLines.map((line) => line.id));
-    const scopedEntries = entries.filter((entry) => scopedLineIds.has(entry.statementLineId));
+    const scopedEntries = entries.filter((entry) => entry.statementLineId != null && scopedLineIds.has(entry.statementLineId));
     const completion = await completeAI(client.id, [
         {
           role: "system",
@@ -7260,8 +7358,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         )).for("update");
         if (lines.length !== statementLineIds.length) throw new BulkActionValidationError("not_found");
 
-        const entryLineIds = entries.map((entry) => entry.statementLineId);
-        if (new Set(entryLineIds).size !== entryLineIds.length
+        const entryLineIds = linkedStatementLineIds(entries);
+        if (entryLineIds.length !== entries.length
+          || new Set(entryLineIds).size !== entryLineIds.length
           || entryLineIds.some((lineId) => !statementLineIds.includes(lineId))
           || statementLineIds.some((lineId) => !entryLineIds.includes(lineId))) {
           throw new BulkActionValidationError("invalid_scope");
@@ -7420,8 +7519,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           inArray(statementLinesTable.id, statementLineIds),
         )).for("update");
         if (lines.length !== statementLineIds.length) throw new BulkActionValidationError("not_found");
-        const entryLineIds = entries.map((entry) => entry.statementLineId);
-        if (new Set(entryLineIds).size !== entryLineIds.length
+        const entryLineIds = linkedStatementLineIds(entries);
+        if (entryLineIds.length !== entries.length
+          || new Set(entryLineIds).size !== entryLineIds.length
           || entryLineIds.some((lineId) => !statementLineIds.includes(lineId))
           || statementLineIds.some((lineId) => !entryLineIds.includes(lineId))) {
           throw new BulkActionValidationError("invalid_scope");
@@ -9233,12 +9333,14 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
     eq(journalEntriesTable.clientId, client.id),
     inArray(journalEntriesTable.statementLineId, lines.map((line) => line.id)),
   )) : [];
-  const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+  const entriesByLine = journalEntriesByStatementLineId(entries);
+  const remarks = await loadRemarkState(client.id, lines.map((line) => line.id));
   const responses = await Promise.all(lines.map(async (line) => statementLineResponse(
     line,
     workspacePatterns,
     await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line, undefined, contactLookup),
     entriesByLine.get(line.id) ?? null,
+    remarks.get(line.id),
   )));
   return res.json(GetStatementLinesResponse.parse(responses));
 });
@@ -9343,7 +9445,7 @@ router.post("/agaraccounting/statement-lines/export", async (req, res) => {
   )) : [];
   const contactsById = new Map(contacts.map((contact) => [contact.id, contact.displayName]));
   const bankAccountsById = new Map(bankAccounts.map((account) => [account.id, account.name]));
-  const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+  const entriesByLine = journalEntriesByStatementLineId(entries);
   const rows: StatementLineExportRow[] = lines.map((line) => {
     const entry = entriesByLine.get(line.id);
     const account = entry
@@ -9379,6 +9481,170 @@ router.post("/agaraccounting/statement-lines/export", async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   return res.send(statementLineExportPdf(document));
+});
+
+router.post("/agaraccounting/statement-lines/request-details", async (req, res) => {
+  const parsed = RequestStatementLineDetailsBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Select 1 to 50 draft statement lines and enter a valid email address." });
+  }
+  const client = await requireOwnedClient(req, res, parsed.data.clientId);
+  if (!client) return;
+  const lineIds = [...new Set(parsed.data.statementLineIds)];
+  const lines = await db.select().from(statementLinesTable).where(and(
+    eq(statementLinesTable.clientId, client.id),
+    inArray(statementLinesTable.id, lineIds),
+  ));
+  if (lines.length !== lineIds.length) {
+    return res.status(400).json({ error: "One or more selected statement lines are not available in this client." });
+  }
+  if (lines.some((line) => journalLifecycleStatus(line.status) !== "draft")) {
+    return res.status(400).json({ error: "Only draft statement lines can be sent for remarks." });
+  }
+  const token = randomBytes(24).toString("base64url");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + DETAIL_REQUEST_TTL_MS);
+  const senderMessage = parsed.data.senderMessage?.trim() || null;
+  let requestId: number;
+  try {
+    requestId = await db.transaction(async (tx) => {
+      const [created] = await tx.insert(statementLineDetailRequestsTable).values({
+        clientId: client.id,
+        createdByUserId: currentUserId(req),
+        recipientEmail: parsed.data.recipientEmail.trim().toLowerCase(),
+        senderMessage,
+        token,
+        expiresAt,
+      }).returning({ id: statementLineDetailRequestsTable.id });
+      if (!created) throw new Error("The remarks request could not be created.");
+      await tx.insert(statementLineDetailRequestItemsTable).values(
+        lineIds.map((statementLineId) => ({ requestId: created.id, statementLineId })),
+      );
+      return created.id;
+    });
+  } catch (error) {
+    req.log.error({ err: error }, "Failed to create statement-line remarks request");
+    return res.status(500).json({ error: "The remarks request could not be created." });
+  }
+  const count = lineIds.length;
+  const link = publicDetailRequestLink(token, req);
+  const subject = `Please add remarks for ${count} transaction${count === 1 ? "" : "s"}`;
+  const text = [
+    senderMessage,
+    senderMessage ? "" : null,
+    `Please add remarks for ${count} draft statement line${count === 1 ? "" : "s"} in ${client.name}.`,
+    `This link expires on ${expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" })} UTC.`,
+    "",
+    link,
+  ].filter((part) => part !== null).join("\n");
+  try {
+    await sendDetailRequestEmail({
+      to: parsed.data.recipientEmail.trim(),
+      subject,
+      text,
+    });
+  } catch (error) {
+    await db.update(statementLineDetailRequestsTable)
+      .set({ revokedAt: new Date() })
+      .where(eq(statementLineDetailRequestsTable.id, requestId));
+    req.log.error({ err: error, requestId }, "Remarks request email failed");
+    const message = error instanceof EmailDeliveryError
+      ? "The remarks email was not sent. Try again in a moment."
+      : "The remarks email was not sent. Try again in a moment.";
+    return res.status(502).json({ error: message });
+  }
+  return res.status(201).json(RequestStatementLineDetailsResponse.parse({
+    id: requestId,
+    recipientEmail: parsed.data.recipientEmail.trim().toLowerCase(),
+    expiresAt,
+    sentAt: now,
+    revokedAt: null,
+  }));
+});
+
+router.post("/agaraccounting/statement-lines/detail-requests/:id/revoke", async (req, res) => {
+  const params = RevokeStatementLineDetailRequestParams.safeParse({ id: Number(req.params.id) });
+  const body = RevokeStatementLineDetailRequestBody.safeParse(req.body);
+  if (!params.success || !body.success) {
+    return res.status(400).json({ error: "This remarks request could not be revoked." });
+  }
+  const client = await requireOwnedClient(req, res, body.data.clientId);
+  if (!client) return;
+  const [request] = await db.select().from(statementLineDetailRequestsTable).where(and(
+    eq(statementLineDetailRequestsTable.id, params.data.id),
+    eq(statementLineDetailRequestsTable.clientId, client.id),
+  )).limit(1);
+  if (!request) return res.status(404).json({ error: "This remarks request was not found." });
+  const revokedAt = request.revokedAt ?? new Date();
+  if (!request.revokedAt) {
+    await db.update(statementLineDetailRequestsTable)
+      .set({ revokedAt })
+      .where(eq(statementLineDetailRequestsTable.id, request.id));
+  }
+  return res.json(RevokeStatementLineDetailRequestResponse.parse({
+    id: request.id,
+    recipientEmail: request.recipientEmail,
+    expiresAt: request.expiresAt,
+    sentAt: request.createdAt,
+    revokedAt,
+  }));
+});
+
+router.get("/agaraccounting/statement-lines/:id/notes", async (req, res) => {
+  const params = GetStatementLineNotesParams.safeParse({ id: Number(req.params.id) });
+  const query = GetStatementLineNotesQueryParams.safeParse(req.query);
+  if (!params.success || !query.success) {
+    return res.status(400).json({ error: "Statement line notes could not be loaded." });
+  }
+  const client = await requireOwnedClient(req, res, query.data.clientId);
+  if (!client) return;
+  const [line] = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).where(and(
+    eq(statementLinesTable.id, params.data.id),
+    eq(statementLinesTable.clientId, client.id),
+  )).limit(1);
+  if (!line) return res.status(404).json({ error: "This statement line was not found." });
+  const notes = await listLineNotes(client.id, line.id);
+  return res.json(GetStatementLineNotesResponse.parse({ lineId: line.id, notes }));
+});
+
+router.get("/agaraccounting/statement-lines/:id/notes/attachments/:attachmentId", async (req, res) => {
+  const lineId = Number(req.params.id);
+  const attachmentId = Number(req.params.attachmentId);
+  const clientId = Number(req.query.clientId);
+  if (!Number.isFinite(lineId) || !Number.isFinite(attachmentId) || !Number.isFinite(clientId)) {
+    return res.status(400).json({ error: "This attachment could not be loaded." });
+  }
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const [line] = await db.select({ id: statementLinesTable.id }).from(statementLinesTable).where(and(
+    eq(statementLinesTable.id, lineId),
+    eq(statementLinesTable.clientId, client.id),
+  )).limit(1);
+  if (!line) return res.status(404).json({ error: "This statement line was not found." });
+  const [row] = await db.select({
+    attachment: statementLineNoteAttachmentsTable,
+  }).from(statementLineNoteAttachmentsTable)
+    .innerJoin(statementLineNotesTable, eq(statementLineNotesTable.id, statementLineNoteAttachmentsTable.noteId))
+    .where(and(
+      eq(statementLineNoteAttachmentsTable.id, attachmentId),
+      eq(statementLineNotesTable.statementLineId, line.id),
+      eq(statementLineNotesTable.clientId, client.id),
+    ))
+    .limit(1);
+  if (!row) return res.status(404).json({ error: "This attachment was not found." });
+  try {
+    const objectFile = await remarkObjectStorage.getObjectEntityFile(row.attachment.objectKey);
+    const response = await remarkObjectStorage.downloadObject(objectFile);
+    res.status(response.status);
+    res.setHeader("Content-Type", row.attachment.contentType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${row.attachment.filename.replaceAll('"', "")}"`);
+    if (response.body) Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
+    else res.end();
+    return;
+  } catch (error) {
+    if (error instanceof ObjectNotFoundError) return res.status(404).json({ error: "This attachment was not found." });
+    throw error;
+  }
 });
 
 router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => {
@@ -9862,6 +10128,172 @@ router.get("/agaraccounting/journal-entries", async (req, res) => {
   res.json(GetJournalEntriesResponse.parse(entries.map((entry) => journalEntryResponse(entry))));
 });
 
+router.post("/agaraccounting/journal-entries", async (req, res) => {
+  const body = CreateJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  if (body.contactId != null) {
+    const [contact] = await db.select({ id: contactsTable.id }).from(contactsTable).where(and(
+      eq(contactsTable.id, body.contactId),
+      eq(contactsTable.clientId, client.id),
+      eq(contactsTable.status, "active"),
+    )).limit(1);
+    if (!contact) return res.status(400).json({ error: "Selected contact was not found for this client." });
+  }
+  const currency = normalizeCurrency(body.currency);
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return res.status(400).json({ error: "Currency must use a three-letter ISO code." });
+  }
+  if (!isIsoDate(body.date)) {
+    return res.status(400).json({ error: "Journal date must be a calendar date." });
+  }
+  const memo = body.memo.trim().replace(/\s+/g, " ");
+  if (!memo) return res.status(400).json({ error: "A memo is required." });
+  const accounts = await resolveManualJournalAccounts(db, client.id, body.debitAccount, body.creditAccount);
+  if (accounts.kind === "same_account") {
+    return res.status(400).json({ error: "Debit and credit accounts must be different." });
+  }
+  if (accounts.kind !== "ok") {
+    return res.status(400).json({ error: "Both accounts must be active in this client's chart." });
+  }
+  await getRateProfileForClient(client);
+  const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
+  const conversion = await resolveExchangeRate(
+    rateClient ?? client,
+    currency,
+    normalizeCurrency(client.functionalCurrency),
+    body.date,
+    body.amount,
+  );
+  const [entry] = await db.insert(journalEntriesTable).values({
+    statementLineId: null,
+    clientId: client.id,
+    date: body.date,
+    memo,
+    currency,
+    status: "draft",
+    confidence: "1.00",
+    debitAccount: accounts.debitName,
+    creditAccount: accounts.creditName,
+    debitAccountClassificationId: accounts.debit.id,
+    creditAccountClassificationId: accounts.credit.id,
+    contactId: body.contactId ?? null,
+    amount: body.amount.toFixed(2),
+    functionalCurrency: conversion.functionalCurrency,
+    functionalAmount: conversion.functionalAmount,
+    exchangeRate: conversion.exchangeRate,
+    exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+    exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+    exchangeRateStatus: conversion.exchangeRateStatus,
+  }).returning();
+  if (!entry) throw new Error("Manual journal entry was not created.");
+  return res.status(201).json(CreateJournalEntryResponse.parse(journalEntryResponse(entry)));
+});
+
+router.patch("/agaraccounting/journal-entries/:id", async (req, res) => {
+  const { id } = UpdateJournalEntryParams.parse({ id: Number(req.params.id) });
+  const body = UpdateJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+  if (body.contactId != null) {
+    const [contact] = await db.select({ id: contactsTable.id }).from(contactsTable).where(and(
+      eq(contactsTable.id, body.contactId),
+      eq(contactsTable.clientId, client.id),
+      eq(contactsTable.status, "active"),
+    )).limit(1);
+    if (!contact) return res.status(400).json({ error: "Selected contact was not found for this client." });
+  }
+  const currency = normalizeCurrency(body.currency);
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return res.status(400).json({ error: "Currency must use a three-letter ISO code." });
+  }
+  if (!isIsoDate(body.date)) {
+    return res.status(400).json({ error: "Journal date must be a calendar date." });
+  }
+  const memo = body.memo.trim().replace(/\s+/g, " ");
+  if (!memo) return res.status(400).json({ error: "A memo is required." });
+  const accounts = await resolveManualJournalAccounts(db, client.id, body.debitAccount, body.creditAccount);
+  if (accounts.kind === "same_account") {
+    return res.status(400).json({ error: "Debit and credit accounts must be different." });
+  }
+  if (accounts.kind !== "ok") {
+    return res.status(400).json({ error: "Both accounts must be active in this client's chart." });
+  }
+  await getRateProfileForClient(client);
+  const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
+  const conversion = await resolveExchangeRate(
+    rateClient ?? client,
+    currency,
+    normalizeCurrency(client.functionalCurrency),
+    body.date,
+    body.amount,
+  );
+  const [entry] = await db.update(journalEntriesTable).set({
+    date: body.date,
+    memo,
+    currency,
+    debitAccount: accounts.debitName,
+    creditAccount: accounts.creditName,
+    debitAccountClassificationId: accounts.debit.id,
+    creditAccountClassificationId: accounts.credit.id,
+    contactId: body.contactId ?? null,
+    amount: body.amount.toFixed(2),
+    functionalCurrency: conversion.functionalCurrency,
+    functionalAmount: conversion.functionalAmount,
+    exchangeRate: conversion.exchangeRate,
+    exchangeRateEffectiveDate: conversion.exchangeRateEffectiveDate,
+    exchangeRateSourceScope: conversion.exchangeRateSourceScope,
+    exchangeRateStatus: conversion.exchangeRateStatus,
+  }).where(and(
+    eq(journalEntriesTable.id, id),
+    eq(journalEntriesTable.clientId, client.id),
+    isNull(journalEntriesTable.statementLineId),
+    inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+  )).returning();
+  if (!entry) {
+    const [existing] = await db.select({
+      id: journalEntriesTable.id,
+      statementLineId: journalEntriesTable.statementLineId,
+      status: journalEntriesTable.status,
+    }).from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.id, id),
+      eq(journalEntriesTable.clientId, client.id),
+    )).limit(1);
+    if (!existing) return res.status(404).json({ error: "Journal entry not found for this client" });
+    return res.status(409).json({ error: "Only draft manual journal entries can be edited." });
+  }
+  return res.json(UpdateJournalEntryResponse.parse(journalEntryResponse(entry)));
+});
+
+router.delete("/agaraccounting/journal-entries/:id", async (req, res) => {
+  const { id } = DeleteJournalEntryParams.parse({ id: Number(req.params.id) });
+  const { clientId } = DeleteJournalEntryBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, clientId);
+  if (!client) return;
+  const [existing] = await db.select({
+    id: journalEntriesTable.id,
+    statementLineId: journalEntriesTable.statementLineId,
+    status: journalEntriesTable.status,
+  }).from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.id, id),
+    eq(journalEntriesTable.clientId, client.id),
+  )).limit(1);
+  if (!existing) return res.status(404).json({ error: "Journal entry not found for this client" });
+  if (existing.statementLineId != null || journalLifecycleStatus(existing.status) !== "draft") {
+    return res.status(409).json({ error: "Only draft manual journal entries can be deleted." });
+  }
+  const deleted = await db.delete(journalEntriesTable).where(and(
+    eq(journalEntriesTable.id, id),
+    eq(journalEntriesTable.clientId, client.id),
+    isNull(journalEntriesTable.statementLineId),
+    inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+  )).returning({ id: journalEntriesTable.id });
+  if (!deleted.length) {
+    return res.status(409).json({ error: "Only draft manual journal entries can be deleted." });
+  }
+  return res.status(204).end();
+});
+
 router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
   const { id } = PostJournalEntryParams.parse({ id: Number(req.params.id) });
   const body = PostJournalEntryBody.parse(req.body);
@@ -9876,6 +10308,29 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         eq(journalEntriesTable.clientId, client.id),
       )).for("update");
       if (!entry) return { kind: "not_found" as const };
+      if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
+
+      if (entry.statementLineId == null) {
+        const accounts = await resolveManualJournalAccounts(tx, client.id, entry.debitAccount, entry.creditAccount);
+        if (accounts.kind !== "ok") throw new JournalPostRollback({ kind: "stale_treatment" });
+        if (isMissingExchangeRate(entry, client.functionalCurrency)) {
+          throw new JournalPostRollback({ kind: "missing_exchange_rate", entry });
+        }
+        const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
+          eq(journalEntriesTable.id, entry.id),
+          eq(journalEntriesTable.clientId, client.id),
+          inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+        )).returning();
+        if (!postedEntry) return { kind: "not_draft" as const };
+        await recordJournalTransitionAudit(tx, req, {
+          clientId: client.id,
+          transition: "post_entry",
+          fromStatus: "draft",
+          toStatus: "posted",
+          entryId: postedEntry.id,
+        });
+        return { kind: "posted" as const, entry: postedEntry, line: null };
+      }
 
       let [line] = await tx.select().from(statementLinesTable).where(and(
         eq(statementLinesTable.id, entry.statementLineId),
@@ -10068,20 +10523,26 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     return;
   }
   if (result.kind === "missing_exchange_rate") {
-    if (!result.entry || !result.line) throw new Error("Missing exchange-rate context for journal posting.");
+    if (!result.entry) throw new Error("Missing exchange-rate context for journal posting.");
     res.status(409).json({
-      error: exchangeRateRequiredMessage([result.entry, result.line], client.functionalCurrency, "posting"),
+      error: exchangeRateRequiredMessage(
+        result.line ? [result.entry, result.line] : [result.entry],
+        client.functionalCurrency,
+        "posting",
+      ),
     });
     return;
   }
   if (result.kind !== "posted") {
     throw new Error("Unexpected journal posting result.");
   }
-  const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
-  try {
-    await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
-  } catch (error) {
-    req.log.warn({ err: error }, "Classification learning could not be recorded after posting");
+  if (result.line) {
+    const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
+    try {
+      await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
+    } catch (error) {
+      req.log.warn({ err: error }, "Classification learning could not be recorded after posting");
+    }
   }
   return res.json(PostJournalEntryResponse.parse(journalEntryResponse(result.entry)));
 });
@@ -10099,6 +10560,23 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
     )).for("update");
     if (!entry) return { kind: "not_found" as const };
     if (entry.status !== "posted") return { kind: "not_posted" as const };
+
+    if (entry.statementLineId == null) {
+      const [draftEntry] = await tx.update(journalEntriesTable).set({ status: "draft" }).where(and(
+        eq(journalEntriesTable.id, entry.id),
+        eq(journalEntriesTable.clientId, client.id),
+        eq(journalEntriesTable.status, "posted"),
+      )).returning();
+      if (!draftEntry) return { kind: "not_posted" as const };
+      await recordJournalTransitionAudit(tx, req, {
+        clientId: client.id,
+        transition: "unpost_entry",
+        fromStatus: "posted",
+        toStatus: "draft",
+        entryId: draftEntry.id,
+      });
+      return { kind: "unposted" as const, entry: draftEntry };
+    }
 
     const [line] = await tx.select().from(statementLinesTable).where(and(
       eq(statementLinesTable.id, entry.statementLineId),

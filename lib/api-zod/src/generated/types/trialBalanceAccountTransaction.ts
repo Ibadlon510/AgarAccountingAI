@@ -9,7 +9,8 @@ import type { TrialBalanceAccountTransactionSide } from './trialBalanceAccountTr
 
 export interface TrialBalanceAccountTransaction {
   entryId: number;
-  statementLineId: number;
+  /** @nullable */
+  statementLineId: number | null;
   date: string;
   description: string;
   side: TrialBalanceAccountTransactionSide;
