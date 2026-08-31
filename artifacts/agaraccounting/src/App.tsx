@@ -4,7 +4,7 @@ import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } fr
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, Download, FileCheck2, FileSpreadsheet, Filter, Landmark,
-  LayoutDashboard, LoaderCircle, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
+  LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
   Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X, CalendarDays
 } from 'lucide-react';
 import {
@@ -31,6 +31,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { AssistantFAB } from './components/assistant-fab';
+import FeedbackPage, { FeedbackPublicShell } from './pages/feedback';
 import { AssistantPageContextProvider, usePublishAssistantPageContext } from './lib/assistant-page-context';
 import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
@@ -1117,6 +1118,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                    <button data-testid="button-add-client" type="button" onClick={() => { setCreateClientOpen(true); setAccountMenuOpen(false); }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />Add client</button>
                  </div>
                  <Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link>
+                 <Link data-testid="link-feedback-account-menu" href="/feedback" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-0.5 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><MessageSquarePlus size={14} className="text-primary" /> Feedback & reviews</Link>
                  <button data-testid="button-logout" type="button" role="menuitem" onClick={onLogout} className="mt-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"><LogOut size={14} /> Sign out</button>
                </div>}
              </div>
@@ -3037,10 +3039,25 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Review</div>
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Contact</span>
-                <select data-testid={`select-contact-${line.id}`} aria-label="Contact" disabled={!canEditContact} value={selectedContactId} onChange={(event) => { contactSelectionEditedRef.current = true; setSelectedContactId(event.target.value); }} className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
-                  <option value="">{needsIdentification ? `Identify ${likelyContactType}` : 'No contact'}</option>
-                  {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
+                <span className="flex w-14 shrink-0 items-center gap-1 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+                  Contact
+                  {contactsQuery.isFetching && <LoaderCircle size={11} className="animate-spin text-primary" aria-label="Refreshing contacts" />}
+                </span>
+                <select
+                  data-testid={`select-contact-${line.id}`}
+                  aria-label="Contact"
+                  aria-busy={contactsQuery.isLoading}
+                  disabled={!canEditContact || contactsQuery.isLoading}
+                  value={selectedContactId}
+                  onChange={(event) => { contactSelectionEditedRef.current = true; setSelectedContactId(event.target.value); }}
+                  className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"
+                >
+                  {contactsQuery.isLoading
+                    ? <option value="">Loading contacts…</option>
+                    : <>
+                      <option value="">{needsIdentification ? `Identify ${likelyContactType}` : 'No contact'}</option>
+                      {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
+                    </>}
                 </select>
               </div>
               {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className="flex flex-wrap items-center gap-2 pl-16">
@@ -3084,20 +3101,28 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                           className="px-2.5 py-1.5"
                         >
                           {classifiedLeg && canConfirmClassification ? (
-                            <select
-                              data-testid={`select-account-suggestion-${line.id}`}
-                              aria-label="Classification decision"
-                              value={selectedAccount}
-                              onChange={(event) => {
-                                accountSelectionEditedRef.current = true;
-                                setSelectedAccount(event.target.value);
-                              }}
-                              onClick={(event) => event.stopPropagation()}
-                              className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary"
-                            >
-                              {!accounts.length && <option value="">No active accounts available</option>}
-                              {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName}</option>)}
-                            </select>
+                            <span className="flex items-center gap-1.5">
+                              <select
+                                data-testid={`select-account-suggestion-${line.id}`}
+                                aria-label="Classification decision"
+                                aria-busy={accountQuery.isLoading}
+                                disabled={accountQuery.isLoading}
+                                value={selectedAccount}
+                                onChange={(event) => {
+                                  accountSelectionEditedRef.current = true;
+                                  setSelectedAccount(event.target.value);
+                                }}
+                                onClick={(event) => event.stopPropagation()}
+                                className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary disabled:opacity-50"
+                              >
+                                {accountQuery.isLoading
+                                  ? <option value="">Loading accounts…</option>
+                                  : !accounts.length
+                                    ? <option value="">No active accounts available</option>
+                                    : accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName}</option>)}
+                              </select>
+                              {accountQuery.isFetching && !accountQuery.isLoading && <LoaderCircle size={12} className="shrink-0 animate-spin text-primary" aria-label="Refreshing accounts" />}
+                            </span>
                           ) : <span className="font-semibold">{journalLine.account}</span>}
                         </td>
                         <td className="px-2.5 py-2 text-right font-mono tabular-nums">{journalLine.debit ? money(journalLine.debit, entry.currency) : ''}</td>
@@ -3660,7 +3685,7 @@ function FinancialStatementsPage() {
   </div>;
 }
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route path="/feedback">{() => <FeedbackPage signedIn />}</Route><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
@@ -3965,7 +3990,7 @@ function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
 }
 
 function AccessScreen() {
-  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="auth-access-screen"><div className="w-full max-w-[420px]"><div className="rounded-lg border border-card-border bg-card p-7 shadow-md sm:p-9"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center"><img src={brandMarkUrl} alt="" className="size-10 rounded-lg" /></div><div><div className="font-display text-[22px] leading-none tracking-tight">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Review desk</div></div></div><div className="mt-10"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Secure access</div><h1 className="mt-3 font-display text-[36px] leading-[.98] tracking-tight">Your close, ready for review.</h1><p className="mt-4 text-[13px] leading-6 text-muted-foreground">Sign in to open your private bookkeeping review desk. New to AgarAccounting AI System? The same secure flow lets you create an account.</p><Link data-testid="button-login" href="/sign-in" className="focus-ring mt-7 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Sign in or create account</Link></div></div><p className="mt-5 text-center font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground/70">Secure session · Human posting control</p></div></main>;
+  return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="auth-access-screen"><div className="w-full max-w-[420px]"><div className="rounded-lg border border-card-border bg-card p-7 shadow-md sm:p-9"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center"><img src={brandMarkUrl} alt="" className="size-10 rounded-lg" /></div><div><div className="font-display text-[22px] leading-none tracking-tight">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Review desk</div></div></div><div className="mt-10"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Secure access</div><h1 className="mt-3 font-display text-[36px] leading-[.98] tracking-tight">Your close, ready for review.</h1><p className="mt-4 text-[13px] leading-6 text-muted-foreground">Sign in to open your private bookkeeping review desk. New to AgarAccounting AI System? The same secure flow lets you create an account.</p><Link data-testid="button-login" href="/sign-in" className="focus-ring mt-7 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Sign in or create account</Link><Link data-testid="link-feedback-access-screen" href="/feedback" className="mt-4 flex w-full items-center justify-center gap-1 text-[12px] font-semibold text-primary underline-offset-2 hover:underline">See what others are saying <ArrowRight size={12} /></Link></div></div><p className="mt-5 text-center font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground/70">Secure session · Human posting control</p></div></main>;
 }
 
 function SignInPage() {
@@ -3995,10 +4020,28 @@ function ClerkProviderWithRoutes() {
       <Switch>
         <Route path="/sign-in/*?" component={SignInPage} />
         <Route path="/sign-up/*?" component={SignUpPage} />
+        <Route path="/feedback">
+          <PublicFeedbackEntry />
+        </Route>
         <Route component={AuthBoundary} />
       </Switch>
     </QueryClientProvider>
   </ClerkProvider>;
+}
+
+function PublicFeedbackEntry() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  if (!isLoaded) return <div className="grid min-h-[100dvh] place-items-center text-xs text-muted-foreground">Loading feedback…</div>;
+  if (isSignedIn && user) {
+    const handleLogout = () => {
+      clearUserScopedState(queryClient);
+      void signOut({ redirectUrl: basePath || "/" });
+    };
+    return <InviteAcceptanceGate><AgarAccountingApp key={user.externalId ?? user.id} user={user} profileUser={user} onLogout={handleLogout} /></InviteAcceptanceGate>;
+  }
+  return <FeedbackPublicShell><FeedbackPage signedIn={false} /></FeedbackPublicShell>;
 }
 
 type AIProviderName = 'managed_openai' | 'openai' | 'anthropic';
@@ -4361,10 +4404,24 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
           ? `You are about to recode ${lines.length} draft ${lines.length === 1 ? 'line' : 'lines'} to one account. This updates the draft classification but does not post it.`
           : `Confirm ${transition.label} for ${lines.length} ${lines.length === 1 ? 'entry' : 'entries'}: ${transition.from} → ${transition.to}. ${action.type === 'bulk_post_entries' && proposedContactCount ? `${proposedContactCount} temporary contact ${proposedContactCount === 1 ? 'profile will' : 'profiles will'} be created or reused atomically.` : 'This cannot include entries that have changed status.'}`}
       </AlertDialogDescription>
-      {isRecode && <label className="block text-xs font-semibold">Supported account
-        <select data-testid="select-bulk-recode-account" value={accountSuggestion} onChange={(event) => setAccountSuggestion(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-normal outline-none focus:border-primary">
-          {!accounts.length && <option value="">No active accounts available</option>}
-          {accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
+      {isRecode && <label className="block text-xs font-semibold">
+        <span className="flex items-center gap-1.5">
+          Supported account
+          {accountQuery.isFetching && <LoaderCircle size={11} className="animate-spin text-primary" aria-label="Refreshing accounts" />}
+        </span>
+        <select
+          data-testid="select-bulk-recode-account"
+          aria-busy={accountQuery.isLoading}
+          disabled={accountQuery.isLoading}
+          value={accountSuggestion}
+          onChange={(event) => setAccountSuggestion(event.target.value)}
+          className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-normal outline-none focus:border-primary disabled:opacity-50"
+        >
+          {accountQuery.isLoading
+            ? <option value="">Loading accounts…</option>
+            : !accounts.length
+              ? <option value="">No active accounts available</option>
+              : accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName} · {account.statementSection} · {account.taxTreatment.replaceAll('_', ' ')}</option>)}
         </select>
       </label>}
       <div className="mt-4 rounded-md border border-border bg-muted/35 p-3">
