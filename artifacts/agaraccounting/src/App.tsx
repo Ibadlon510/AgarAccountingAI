@@ -575,7 +575,7 @@ function ClientSettingsPage() {
           <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Import another statement to add a new account.</p></div></div>
           <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
         </section>
-        <RemarksLinksSettings clientId={activeClient.id} />
+        <RemarksLinksSettings clientId={activeClient.id} clientName={activeClient.name} />
         {false && <WorkspaceUsageSection />}
         <div id="ai-connection" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <AIProviderSettingsPanel clientId={activeClient.id} />
@@ -3191,7 +3191,7 @@ function StatementLinesPage() {
     </QueryState>
     {addOpen && <AddLineDialog onClose={() => { setAddOpen(false); queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }); }} />}
     {bulkAction && <BulkStatementActionDialog action={bulkAction} lines={rows.filter((line) => bulkAction.lineIds.includes(line.id))} pending={bulkMutation.isPending} error={bulkError} onCancel={cancelBulkAction} onConfirm={confirmBulkAction} />}
-    {sendRemarksOpen && <SendForRemarksDialog clientId={journalParams.clientId} lines={selectedLines} onClose={() => setSendRemarksOpen(false)} onSent={() => { setSendRemarksOpen(false); setSelectedLineIds([]); query.refetch(); }} />}
+    {sendRemarksOpen && activeClient && <SendForRemarksDialog clientId={journalParams.clientId} clientName={activeClient.name} lines={selectedLines} onClose={() => setSendRemarksOpen(false)} onSent={() => { setSendRemarksOpen(false); setSelectedLineIds([]); query.refetch(); }} />}
     <StatementLineNotesDrawer line={notesLine} clientId={journalParams.clientId} onClose={() => setNotesLine(null)} />
   </div>;
 }

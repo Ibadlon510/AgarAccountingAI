@@ -139,6 +139,10 @@ test("emails a public remarks link for selected draft lines", async () => {
   assert.equal(sent.body?.recipientEmail, "owner@client.test");
   assert.equal(sent.body?.status, "active");
   assert.ok(sent.body?.publicUrl?.includes("/detail-request/"));
+  const [client] = await database.db.select({ name: database.clientsTable.name })
+    .from(database.clientsTable)
+    .where(eq(database.clientsTable.id, clientId));
+  assert.ok(client?.name);
   const ttlMs = new Date(sent.body!.expiresAt).getTime() - new Date(sent.body!.sentAt).getTime();
   assert.ok(ttlMs > 2.5 * 24 * 60 * 60 * 1000 && ttlMs < 3.5 * 24 * 60 * 60 * 1000);
 

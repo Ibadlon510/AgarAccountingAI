@@ -51,7 +51,7 @@ export type ReportValidation = {
 };
 
 export type ReportSnapshot = {
-  legalName: string;
+  entityName: string;
   legalName: string;
   periodEnd: string;
   comparativePeriodEnd: string;
@@ -119,7 +119,7 @@ function joinLabels(labels: string[]) {
 }
 
 function buildDefaultReportNotes(input: {
-  entityName: string;
+  legalName: string;
   periodEnd: string;
   comparativePeriodEnd: string;
   presentationCurrency: string;

@@ -9494,6 +9494,11 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
   }
   const client = await requireOwnedClient(req, res, parsed.data.clientId);
   if (!client) return;
+  const senderEmail = req.dbUser?.email?.trim();
+  if (!senderEmail || !req.dbUser) {
+    return res.status(400).json({ error: "Your account needs a verified email address before sending remarks." });
+  }
+  const senderName = displayName(req.dbUser);
   const lineIds = [...new Set(parsed.data.statementLineIds)];
   const lines = await db.select().from(statementLinesTable).where(and(
     eq(statementLinesTable.clientId, client.id),
@@ -9532,10 +9537,12 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
   }
   const count = lineIds.length;
   const link = publicDetailRequestLink(token, req);
-  const subject = `Please add remarks for ${count} transaction${count === 1 ? "" : "s"}`;
+  const subject = `Please add remarks for ${client.name} — ${count} transaction${count === 1 ? "" : "s"}`;
   const text = [
     senderMessage,
     senderMessage ? "" : null,
+    `Sent by ${senderName} through AgarAccounting AI.`,
+    "",
     `Please add remarks for ${count} draft statement line${count === 1 ? "" : "s"} in ${client.name}.`,
     `This link stays active for 3 days and expires on ${expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" })} UTC.`,
     "",
@@ -9546,6 +9553,7 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
       to: parsed.data.recipientEmail.trim(),
       subject,
       text,
+      replyTo: senderEmail,
     });
   } catch (error) {
     await db.update(statementLineDetailRequestsTable)
