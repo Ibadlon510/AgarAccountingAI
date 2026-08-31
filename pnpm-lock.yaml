@@ -155,6 +155,8 @@ overrides:
   nanoid@3.3.16: 3.3.18
   uuid@9.0.1: 11.1.1
 
+packageExtensionsChecksum: sha256-a2OX2BwP10G7axrst5RLWUKnFwYklwjwaZDCChyACZg=
+
 importers:
 
   .:
@@ -1741,7 +1743,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {node: '>=0.10.0'}
+    engines: {'0': node >=0.10.0}
 
   '@expo/cli@0.22.28':
     resolution: {integrity: sha512-lvt72KNitGuixYD2l3SZmRKVu2G4zJpmg5V7WfUBNpmUU5oODBw/6qmiJ6kSLAlfDozscUk+BBGknBBzxUrwrA==}
@@ -8869,6 +8871,8 @@ snapshots:
       '@babel/core': 7.29.7
       '@babel/generator': 7.29.7
       '@babel/parser': 7.29.7
+      '@babel/template': 7.29.7
+      '@babel/traverse': 7.29.7
       '@babel/types': 7.29.7
       '@expo/config': 10.0.11
       '@expo/env': 0.4.2

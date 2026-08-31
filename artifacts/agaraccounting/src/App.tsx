@@ -26,7 +26,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { Toaster as SonnerToaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { notify, readErrorMessage, isErrorHandled, HANDLED_ERROR_MARK } from '@/lib/notify';
+import { notify, readErrorMessage, isErrorHandled, markErrorHandled } from '@/lib/notify';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -3704,7 +3704,7 @@ function FinancialStatementsPage() {
         },
         // Background auto-hydration — errors should stay silent (user did not
         // click Save). Mark the error handled so the global toast skips it.
-        onError: (err) => { if (err && typeof err === 'object') { try { (err as unknown as Record<string, unknown>)[HANDLED_ERROR_MARK] = true; } catch { /* frozen */ } } },
+        onError: (err) => { markErrorHandled(err); },
       },
     );
   }, [rawPack?.id, rawPack?.updatedAt, clientId]);
