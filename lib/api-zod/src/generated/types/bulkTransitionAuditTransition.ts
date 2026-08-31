@@ -12,6 +12,7 @@ export type BulkTransitionAuditTransition = typeof BulkTransitionAuditTransition
 export const BulkTransitionAuditTransition = {
   bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
+  bulk_unpost_entries: 'bulk_unpost_entries',
   post_entry: 'post_entry',
   unpost_entry: 'unpost_entry',
 } as const;

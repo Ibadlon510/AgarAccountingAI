@@ -19,5 +19,11 @@ export interface AICopilotActionResult {
   toStatus?: string;
   entries?: JournalEntry[];
   updatedLineCount: number;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  survivingContactId?: number | null;
+  /** @nullable */
+  mergedContactId?: number | null;
   bankAccount: BankAccount | null;
 }

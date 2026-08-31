@@ -3376,7 +3376,7 @@ components:
       properties:
         id: { type: string }
         clientId: { type: number }
-        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account, bulk_post_entries] }
+        type: { type: string, enum: [next_step, review_group, recode_lines, create_bank_account, bulk_post_entries, bulk_unpost_entries, assign_contacts, create_contact, update_contact, archive_contact, merge_contacts] }
         title: { type: string }
         summary: { type: string }
         lineIds:
@@ -3402,6 +3402,11 @@ components:
         confidence: { type: ["number", "null"] }
         suggestionSource: { type: ["string", "null"] }
         supportingPatternCount: { type: ["number", "null"] }
+        contactId: { type: ["number", "null"] }
+        contactName: { type: ["string", "null"] }
+        survivingContactId: { type: ["number", "null"] }
+        mergedContactId: { type: ["number", "null"] }
+        applied: { type: boolean }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccountDraft"
@@ -3420,7 +3425,7 @@ components:
       required: [clientId, type]
       properties:
         clientId: { type: number }
-        type: { type: string, enum: [recode_lines, create_bank_account, bulk_post_entries] }
+        type: { type: string, enum: [recode_lines, create_bank_account, bulk_post_entries, bulk_unpost_entries, merge_contacts] }
         lineIds:
           type: array
           items: { type: number }
@@ -3436,6 +3441,9 @@ components:
         accountSuggestion: { type: ["string", "null"] }
         confidence: { type: ["number", "null"] }
         confirmLearnedSuggestion: { type: boolean }
+        contactId: { type: ["number", "null"] }
+        survivingContactId: { type: ["number", "null"] }
+        mergedContactId: { type: ["number", "null"] }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccountDraft"
@@ -3461,6 +3469,9 @@ components:
           items:
             $ref: "#/components/schemas/JournalEntry"
         updatedLineCount: { type: number }
+        contactId: { type: ["number", "null"] }
+        survivingContactId: { type: ["number", "null"] }
+        mergedContactId: { type: ["number", "null"] }
         bankAccount:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
@@ -3473,7 +3484,7 @@ components:
         clientId: { type: number }
         actor:
           $ref: "#/components/schemas/BulkTransitionAuditActor"
-        transition: { type: string, enum: [bulk_approve_entries, bulk_post_entries, post_entry, unpost_entry] }
+        transition: { type: string, enum: [bulk_approve_entries, bulk_post_entries, bulk_unpost_entries, post_entry, unpost_entry] }
         fromStatus: { type: string }
         toStatus: { type: string }
         entryIds:

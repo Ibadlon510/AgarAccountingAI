@@ -22,5 +22,11 @@ export interface AICopilotActionInput {
   /** @nullable */
   confidence?: number | null;
   confirmLearnedSuggestion?: boolean;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  survivingContactId?: number | null;
+  /** @nullable */
+  mergedContactId?: number | null;
   bankAccount?: BankAccountDraft | null;
 }

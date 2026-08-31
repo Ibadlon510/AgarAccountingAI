@@ -1632,6 +1632,12 @@ export const AICopilotRecommendationType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
   bulk_post_entries: 'bulk_post_entries',
+  bulk_unpost_entries: 'bulk_unpost_entries',
+  assign_contacts: 'assign_contacts',
+  create_contact: 'create_contact',
+  update_contact: 'update_contact',
+  archive_contact: 'archive_contact',
+  merge_contacts: 'merge_contacts',
 } as const;
 
 export interface BankAccountDraft {
@@ -1673,6 +1679,15 @@ export interface AICopilotRecommendation {
   suggestionSource?: string | null;
   /** @nullable */
   supportingPatternCount?: number | null;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  contactName?: string | null;
+  /** @nullable */
+  survivingContactId?: number | null;
+  /** @nullable */
+  mergedContactId?: number | null;
+  applied?: boolean;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }
@@ -1844,6 +1859,8 @@ export const AICopilotActionInputType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
   bulk_post_entries: 'bulk_post_entries',
+  bulk_unpost_entries: 'bulk_unpost_entries',
+  merge_contacts: 'merge_contacts',
 } as const;
 
 export interface AICopilotActionInput {
@@ -1860,6 +1877,12 @@ export interface AICopilotActionInput {
   /** @nullable */
   confidence?: number | null;
   confirmLearnedSuggestion?: boolean;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  survivingContactId?: number | null;
+  /** @nullable */
+  mergedContactId?: number | null;
   bankAccount?: BankAccountDraft | null;
 }
 
@@ -1923,6 +1946,12 @@ export interface AICopilotActionResult {
   toStatus?: string;
   entries?: JournalEntry[];
   updatedLineCount: number;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  survivingContactId?: number | null;
+  /** @nullable */
+  mergedContactId?: number | null;
   bankAccount: BankAccount | null;
 }
 
@@ -1932,6 +1961,7 @@ export type BulkTransitionAuditTransition = typeof BulkTransitionAuditTransition
 export const BulkTransitionAuditTransition = {
   bulk_approve_entries: 'bulk_approve_entries',
   bulk_post_entries: 'bulk_post_entries',
+  bulk_unpost_entries: 'bulk_unpost_entries',
   post_entry: 'post_entry',
   unpost_entry: 'unpost_entry',
 } as const;

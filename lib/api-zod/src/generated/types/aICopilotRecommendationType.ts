@@ -15,4 +15,10 @@ export const AICopilotRecommendationType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
   bulk_post_entries: 'bulk_post_entries',
+  bulk_unpost_entries: 'bulk_unpost_entries',
+  assign_contacts: 'assign_contacts',
+  create_contact: 'create_contact',
+  update_contact: 'update_contact',
+  archive_contact: 'archive_contact',
+  merge_contacts: 'merge_contacts',
 } as const;

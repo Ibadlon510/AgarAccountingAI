@@ -197,33 +197,67 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
   const confirmMutation = useConfirmAICopilotAction();
   const queryClient = useQueryClient();
 
-  const isBulkAction = rec.type === 'bulk_post_entries';
-  const isConfirmable = rec.requiresConfirmation && (rec.type === 'recode_lines' || rec.type === 'create_bank_account' || isBulkAction);
+  const isBulkAction = rec.type === 'bulk_post_entries' || rec.type === 'bulk_unpost_entries';
+  const isAppliedResult = Boolean(rec.applied) || (
+    !rec.requiresConfirmation && (
+      rec.type === 'assign_contacts'
+      || rec.type === 'create_contact'
+      || rec.type === 'update_contact'
+      || rec.type === 'archive_contact'
+      || (rec.type === 'recode_lines' && rec.applied)
+    )
+  );
+  const isConfirmable = rec.requiresConfirmation && (
+    rec.type === 'recode_lines'
+    || rec.type === 'create_bank_account'
+    || rec.type === 'bulk_post_entries'
+    || rec.type === 'bulk_unpost_entries'
+    || rec.type === 'merge_contacts'
+  );
   const isNavigable = rec.type === 'next_step' || rec.type === 'review_group';
-  const actionLabel = rec.type === 'bulk_post_entries' ? 'posting' : 'proposal';
+  const actionLabel = rec.type === 'bulk_post_entries'
+    ? 'posting'
+    : rec.type === 'bulk_unpost_entries'
+      ? 'unposting'
+      : rec.type === 'merge_contacts'
+        ? 'merge'
+        : 'proposal';
+
+  const invalidateAccountantQueries = () => {
+    queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetBulkTransitionAuditsQueryKey({ clientId: activeClientId }) });
+    queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClientId }) });
+    queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey() });
+  };
+
+  useEffect(() => {
+    if (!isAppliedResult) return;
+    invalidateAccountantQueries();
+    onApplied?.();
+  }, [isAppliedResult, rec.id]);
 
   const handleConfirm = () => {
     confirmMutation.mutate({
       data: {
         clientId: rec.clientId,
-        type: rec.type as 'recode_lines' | 'create_bank_account' | 'bulk_post_entries',
+        type: rec.type as 'recode_lines' | 'create_bank_account' | 'bulk_post_entries' | 'bulk_unpost_entries' | 'merge_contacts',
         lineIds: rec.lineIds,
         entryIds: rec.entryIds,
         statementLineIds: rec.statementLineIds,
         accountSuggestion: rec.accountSuggestion,
         confidence: rec.confidence,
-        bankAccount: rec.bankAccount
+        bankAccount: rec.bankAccount,
+        survivingContactId: rec.survivingContactId,
+        mergedContactId: rec.mergedContactId,
+        contactId: rec.contactId,
       }
     }, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetBulkTransitionAuditsQueryKey({ clientId: activeClientId }) });
-        queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClientId }) });
-        queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey() });
+        invalidateAccountantQueries();
         onApplied?.();
       }
     });
@@ -248,8 +282,23 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
 
       {rec.type === 'recode_lines' && rec.accountSuggestion && (
         <div className="mt-2.5 flex items-center gap-2 text-[10px] font-mono">
-          <span className="text-muted-foreground">Suggests:</span>
+          <span className="text-muted-foreground">{isAppliedResult ? 'Applied:' : 'Suggests:'}</span>
           <span className="font-semibold px-1.5 py-0.5 bg-secondary/40 rounded">{rec.accountSuggestion}</span>
+        </div>
+      )}
+
+      {(rec.type === 'assign_contacts' || rec.type === 'create_contact' || rec.type === 'update_contact' || rec.type === 'archive_contact' || rec.type === 'merge_contacts') && (
+        <div data-testid={`assign-contacts-result-${rec.id}`} className="mt-2.5 rounded bg-muted/40 p-2 font-mono text-[10px] text-foreground space-y-1">
+          {rec.contactName && <div><span className="text-muted-foreground">Contact:</span> {rec.contactName}</div>}
+          {rec.lineCount != null && <div><span className="text-muted-foreground">Lines:</span> {rec.lineCount}</div>}
+          {rec.type === 'merge_contacts' && (
+            <div><span className="text-muted-foreground">Merge:</span> #{rec.mergedContactId} → #{rec.survivingContactId}</div>
+          )}
+          {isAppliedResult && (
+            <div className="flex items-center gap-1.5 font-semibold text-primary">
+              <Check size={12} /> Applied to draft records
+            </div>
+          )}
         </div>
       )}
 
@@ -284,7 +333,7 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
         <div className="mt-3 border-t border-border/60 pt-3">
           {confirmMutation.isSuccess ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-primary">
-              <Check size={13} /> {actionLabel === 'posting' ? 'Posting confirmed' : 'Applied successfully'}
+              <Check size={13} /> {actionLabel === 'posting' ? 'Posting confirmed' : actionLabel === 'unposting' ? 'Unpost confirmed' : actionLabel === 'merge' ? 'Merge confirmed' : 'Applied successfully'}
             </div>
           ) : confirmMutation.isError ? (
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-destructive">
@@ -292,13 +341,29 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
             </div>
           ) : (
             <button
-              data-testid={rec.type === 'bulk_post_entries' ? `button-confirm-bulk-posting-${rec.id}` : `button-confirm-ai-proposal-${rec.id}`}
+              data-testid={
+                rec.type === 'bulk_post_entries'
+                  ? `button-confirm-bulk-posting-${rec.id}`
+                  : rec.type === 'bulk_unpost_entries'
+                    ? `button-confirm-bulk-unposting-${rec.id}`
+                    : rec.type === 'merge_contacts'
+                      ? `button-confirm-merge-contacts-${rec.id}`
+                      : `button-confirm-ai-proposal-${rec.id}`
+              }
               onClick={handleConfirm}
               disabled={confirmMutation.isPending}
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-sm disabled:opacity-50"
             >
               {confirmMutation.isPending && <Loader2 size={12} className="animate-spin" />}
-              {confirmMutation.isPending ? 'Applying...' : rec.type === 'bulk_post_entries' ? 'Confirm posting' : 'Confirm proposal'}
+              {confirmMutation.isPending
+                ? 'Applying...'
+                : rec.type === 'bulk_post_entries'
+                  ? 'Confirm posting'
+                  : rec.type === 'bulk_unpost_entries'
+                    ? 'Confirm unpost'
+                    : rec.type === 'merge_contacts'
+                      ? 'Confirm merge'
+                      : 'Confirm proposal'}
             </button>
           )}
         </div>

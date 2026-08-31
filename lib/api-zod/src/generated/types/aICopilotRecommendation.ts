@@ -31,6 +31,15 @@ export interface AICopilotRecommendation {
   suggestionSource?: string | null;
   /** @nullable */
   supportingPatternCount?: number | null;
+  /** @nullable */
+  contactId?: number | null;
+  /** @nullable */
+  contactName?: string | null;
+  /** @nullable */
+  survivingContactId?: number | null;
+  /** @nullable */
+  mergedContactId?: number | null;
+  applied?: boolean;
   bankAccount?: BankAccountDraft | null;
   requiresConfirmation: boolean;
 }

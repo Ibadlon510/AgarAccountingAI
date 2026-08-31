@@ -1157,3 +1157,320 @@ test("bulk posting treats learned account recommendations as optional", async ()
   assert.equal(postedEntry?.debitAccount, "General expenses");
   assert.equal(postedEntry?.status, "posted");
 });
+
+test("applies Bank charges contact assignment in one chat turn without guessing", async () => {
+  const created = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `AI assign contacts ${randomUUID()}`,
+      legalName: "AI Assign Contacts LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "2026",
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  const scopedClientId = created.body.id;
+  await database.db.insert(database.clientWorkspacesTable).values({ clientId: scopedClientId, userId: memberId, role: "bookkeeper" });
+
+  // Ensure the seeded chart is present, then resolve Bank charges from it.
+  await request("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      date: "2026-09-01",
+      description: "SEED CHART",
+      currency: "AED",
+      amount: 1,
+      direction: "outflow",
+    }),
+  });
+  const accounts = await request<Array<{ id: number; accountName: string }>>(
+    `/agaraccounting/accounts?clientId=${scopedClientId}`,
+  );
+  assert.equal(accounts.response.status, 200);
+  const bankChargesAccount = accounts.body.find((account) => account.accountName === "Bank charges");
+  assert.ok(bankChargesAccount, "Expected seeded Bank charges account");
+  const bankCharges = bankChargesAccount;
+
+  const mashreq = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      displayName: "Mashreq Bank",
+      legalName: "Mashreq Bank PSC",
+      contactType: "supplier",
+      aliases: ["MASHREQ"],
+    }),
+  });
+  assert.equal(mashreq.response.status, 201);
+
+  const foreign = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Foreign assign ${randomUUID()}`,
+      legalName: "Foreign Assign LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "2026",
+    }),
+  }, foreignId);
+  assert.equal(foreign.response.status, 201);
+  const foreignMashreq = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: foreign.body.id,
+      displayName: "Mashreq Bank",
+      legalName: "Mashreq Bank Foreign",
+      contactType: "supplier",
+    }),
+  }, foreignId);
+  assert.equal(foreignMashreq.response.status, 201);
+
+  async function createScopedLine(description: string, accountSuggestion?: string) {
+    const line = await request<Line>("/agaraccounting/statement-lines", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: scopedClientId,
+        date: "2026-09-15",
+        description,
+        currency: "AED",
+        amount: 25,
+        direction: "outflow",
+      }),
+    });
+    assert.equal(line.response.status, 201);
+    if (accountSuggestion) {
+      const entries = await request<Array<{ id: number; statementLineId: number }>>(
+        `/agaraccounting/journal-entries?clientId=${scopedClientId}`,
+      );
+      const entry = entries.body.find((item) => item.statementLineId === line.body.id);
+      assert.ok(entry);
+      await database.db.update(database.statementLinesTable).set({
+        accountSuggestion,
+        accountClassificationId: bankCharges.id,
+        proposedContactName: "Temp Fee Vendor",
+        proposedContactAlias: "Temp Fee Vendor",
+        proposedContactType: "supplier",
+        proposedContactConfidence: "0.7",
+        proposedContactSource: "heuristic_description",
+      }).where(eq(database.statementLinesTable.id, line.body.id));
+      await database.db.update(database.journalEntriesTable).set({
+        debitAccount: accountSuggestion,
+        debitAccountClassificationId: bankCharges.id,
+      }).where(eq(database.journalEntriesTable.id, entry.id));
+    }
+    return line.body;
+  }
+
+  const chargeLine = await createScopedLine("CARD FEE REF 1001", "Bank charges");
+  const otherAccountLine = await createScopedLine("OFFICE SUPPLIES INVOICE 55");
+  const untouchedProposal = await createScopedLine("OTHER FEE", "Bank charges");
+  const postedCharge = await createScopedLine("POSTED BANK FEE", "Bank charges");
+  const postedEntries = await request<Array<{ id: number; statementLineId: number }>>(
+    `/agaraccounting/journal-entries?clientId=${scopedClientId}`,
+  );
+  const postedEntry = postedEntries.body.find((item) => item.statementLineId === postedCharge.id);
+  assert.ok(postedEntry);
+  assert.equal((await request(`/agaraccounting/statement-lines/${postedCharge.id}/contact`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId: scopedClientId, contactId: null, contactReviewDisposition: "dismissed" }),
+  })).response.status, 200);
+  assert.equal((await request(`/agaraccounting/journal-entries/${postedEntry.id}/post`, {
+    method: "POST",
+    body: JSON.stringify({ clientId: scopedClientId }),
+  })).response.status, 200);
+
+  const missing = await request<{ answer: string; recommendations: Array<{ type: string }> }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "update all Bank charges statement lines' proposed contact to Missing Bank",
+    }),
+  });
+  assert.equal(missing.response.status, 200);
+  assert.equal(missing.body.recommendations.length, 0);
+  assert.match(missing.body.answer, /could not find an active contact/i);
+  const [untouchedAfterMissing] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, chargeLine.id));
+  assert.equal(untouchedAfterMissing?.contactId, null);
+  assert.equal(untouchedAfterMissing?.proposedContactName, "Temp Fee Vendor");
+
+  const archivedContact = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      displayName: "Archived Fee Bank",
+      legalName: "Archived Fee Bank LLC",
+      contactType: "supplier",
+    }),
+  });
+  assert.equal(archivedContact.response.status, 201);
+  assert.equal((await request(`/agaraccounting/contacts/${archivedContact.body.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ clientId: scopedClientId, status: "archived" }),
+  })).response.status, 200);
+  const archivedPrompt = await request<{ answer: string; recommendations: unknown[] }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "update all Bank charges statement lines' proposed contact to Archived Fee Bank",
+    }),
+  });
+  assert.equal(archivedPrompt.response.status, 200);
+  assert.equal(archivedPrompt.body.recommendations.length, 0);
+  assert.match(archivedPrompt.body.answer, /archived/i);
+
+  const duplicate = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      displayName: "Duplicate Bank",
+      legalName: "Duplicate Bank A LLC",
+      contactType: "supplier",
+    }),
+  });
+  assert.equal(duplicate.response.status, 201);
+  const duplicateB = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      displayName: "Duplicate Bank",
+      legalName: "Duplicate Bank B LLC",
+      contactType: "supplier",
+    }),
+  });
+  assert.equal(duplicateB.response.status, 201);
+  const ambiguous = await request<{ answer: string; recommendations: unknown[] }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "update all Bank charges statement lines' proposed contact to Duplicate Bank",
+    }),
+  });
+  assert.equal(ambiguous.response.status, 200);
+  assert.equal(ambiguous.body.recommendations.length, 0);
+  assert.match(ambiguous.body.answer, /more than one contact/i);
+
+  const aliasApplied = await request<{
+    recommendations: Array<{ type: string; applied?: boolean; contactId?: number; contactName?: string }>;
+  }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "update all Bank charges statement lines' proposed contact to MASHREQ",
+    }),
+  });
+  assert.equal(aliasApplied.response.status, 200);
+  assert.equal(aliasApplied.body.recommendations[0]?.type, "assign_contacts");
+  assert.equal(aliasApplied.body.recommendations[0]?.applied, true);
+  assert.equal(aliasApplied.body.recommendations[0]?.contactId, mashreq.body.id);
+
+  // Reset proposals on one line to re-test the display-name path after alias assignment
+  await database.db.update(database.statementLinesTable).set({
+    contactId: null,
+    proposedContactName: "Temp Fee Vendor",
+    proposedContactAlias: "Temp Fee Vendor",
+    proposedContactType: "supplier",
+    proposedContactConfidence: "0.7",
+    proposedContactSource: "heuristic_description",
+    contactReviewDisposition: "pending",
+  }).where(eq(database.statementLinesTable.id, untouchedProposal.id));
+  await database.db.update(database.journalEntriesTable).set({ contactId: null })
+    .where(eq(database.journalEntriesTable.statementLineId, untouchedProposal.id));
+
+  const applied = await request<{
+    answer: string;
+    recommendations: Array<{
+      type: string;
+      applied?: boolean;
+      requiresConfirmation?: boolean;
+      contactId?: number;
+      contactName?: string;
+      lineIds?: number[];
+      lineCount?: number;
+      summary?: string;
+    }>;
+  }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "update all Bank charges statement lines' proposed contact to Mashreq Bank",
+    }),
+  });
+  assert.equal(applied.response.status, 200);
+  assert.equal(applied.body.recommendations.length, 1);
+  assert.equal(applied.body.recommendations[0]?.type, "assign_contacts");
+  assert.equal(applied.body.recommendations[0]?.applied, true);
+  assert.equal(applied.body.recommendations[0]?.requiresConfirmation, false);
+  assert.equal(applied.body.recommendations[0]?.contactId, mashreq.body.id);
+  assert.notEqual(applied.body.recommendations[0]?.contactId, foreignMashreq.body.id);
+  assert.equal(applied.body.recommendations[0]?.contactName, "Mashreq Bank");
+  assert.ok(applied.body.recommendations[0]?.lineIds?.includes(chargeLine.id));
+  assert.ok(applied.body.recommendations[0]?.lineIds?.includes(untouchedProposal.id));
+  assert.ok(!applied.body.recommendations[0]?.lineIds?.includes(otherAccountLine.id));
+  assert.ok(!applied.body.recommendations[0]?.lineIds?.includes(postedCharge.id));
+  assert.match(applied.body.recommendations[0]?.summary ?? "", /posted/i);
+
+  const [storedCharge] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, chargeLine.id));
+  assert.equal(storedCharge?.contactId, mashreq.body.id);
+  assert.equal(storedCharge?.proposedContactName, null);
+  assert.equal(storedCharge?.proposedContactAlias, null);
+  assert.equal(storedCharge?.proposedContactType, null);
+  assert.equal(storedCharge?.proposedContactSource, null);
+  assert.equal(storedCharge?.contactReviewDisposition, "replaced");
+
+  const [storedPosted] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, postedCharge.id));
+  assert.equal(storedPosted?.status, "posted");
+  assert.notEqual(storedPosted?.contactId, mashreq.body.id);
+
+  const chargeEntry = await request<Array<{ id: number; statementLineId: number; contactId: number | null }>>(
+    `/agaraccounting/journal-entries?clientId=${scopedClientId}`,
+  );
+  const linked = chargeEntry.body.find((item) => item.statementLineId === chargeLine.id);
+  assert.equal(linked?.contactId, mashreq.body.id);
+
+  const [otherStored] = await database.db.select().from(database.statementLinesTable)
+    .where(eq(database.statementLinesTable.id, otherAccountLine.id));
+  assert.equal(otherStored?.contactId, null);
+
+  const mixed = await request<{ answer: string; recommendations: unknown[] }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "update all Bank charges proposed contact to Mashreq Bank and post them",
+    }),
+  });
+  assert.equal(mixed.response.status, 200);
+  assert.equal(mixed.body.recommendations.length, 0);
+  assert.match(mixed.body.answer, /separate steps/i);
+
+  const report = await request<{ answer: string; recommendations: unknown[]; results?: unknown[] }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "Show the trial balance",
+    }),
+  });
+  assert.equal(report.response.status, 200);
+  assert.equal(report.body.recommendations.length, 0);
+  assert.ok(Array.isArray(report.body.results));
+
+  const postCard = await request<{
+    recommendations: Array<{ type: string; requiresConfirmation?: boolean; entryIds?: number[] }>;
+  }>("/agaraccounting/ai-chat", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: scopedClientId,
+      message: "Post all draft entries",
+    }),
+  });
+  assert.equal(postCard.response.status, 200);
+  assert.equal(postCard.body.recommendations[0]?.type, "bulk_post_entries");
+  assert.equal(postCard.body.recommendations[0]?.requiresConfirmation, true);
+  const stillDraft = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.clientId, scopedClientId));
+  assert.ok(stillDraft.some((entry) => entry.status !== "posted"));
+});

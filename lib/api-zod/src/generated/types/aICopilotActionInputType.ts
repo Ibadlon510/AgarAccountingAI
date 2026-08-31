@@ -13,4 +13,6 @@ export const AICopilotActionInputType = {
   recode_lines: 'recode_lines',
   create_bank_account: 'create_bank_account',
   bulk_post_entries: 'bulk_post_entries',
+  bulk_unpost_entries: 'bulk_unpost_entries',
+  merge_contacts: 'merge_contacts',
 } as const;

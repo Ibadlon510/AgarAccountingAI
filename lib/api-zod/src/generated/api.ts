@@ -2099,7 +2099,7 @@ export const AskAgarAccountingAIResponse = zod.object({
   "recommendations": zod.array(zod.object({
   "id": zod.string(),
   "clientId": zod.number(),
-  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account', 'bulk_post_entries']),
+  "type": zod.enum(['next_step', 'review_group', 'recode_lines', 'create_bank_account', 'bulk_post_entries', 'bulk_unpost_entries', 'assign_contacts', 'create_contact', 'update_contact', 'archive_contact', 'merge_contacts']),
   "title": zod.string(),
   "summary": zod.string(),
   "lineIds": zod.array(zod.number()).optional(),
@@ -2117,6 +2117,11 @@ export const AskAgarAccountingAIResponse = zod.object({
   "confidence": zod.number().nullish(),
   "suggestionSource": zod.string().nullish(),
   "supportingPatternCount": zod.number().nullish(),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "survivingContactId": zod.number().nullish(),
+  "mergedContactId": zod.number().nullish(),
+  "applied": zod.boolean().optional(),
   "bankAccount": zod.union([zod.object({
   "name": zod.string(),
   "bankName": zod.string().nullish(),
@@ -2395,13 +2400,16 @@ export const confirmAICopilotActionBodyBankAccountOneAccountNumberLast4RegExp = 
 
 export const ConfirmAICopilotActionBody = zod.object({
   "clientId": zod.number(),
-  "type": zod.enum(['recode_lines', 'create_bank_account', 'bulk_post_entries']),
+  "type": zod.enum(['recode_lines', 'create_bank_account', 'bulk_post_entries', 'bulk_unpost_entries', 'merge_contacts']),
   "lineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyLineIdsMax).optional(),
   "entryIds": zod.array(zod.number()).max(confirmAICopilotActionBodyEntryIdsMax).optional(),
   "statementLineIds": zod.array(zod.number()).max(confirmAICopilotActionBodyStatementLineIdsMax).optional(),
   "accountSuggestion": zod.string().nullish(),
   "confidence": zod.number().nullish(),
   "confirmLearnedSuggestion": zod.boolean().optional(),
+  "contactId": zod.number().nullish(),
+  "survivingContactId": zod.number().nullish(),
+  "mergedContactId": zod.number().nullish(),
   "bankAccount": zod.union([zod.object({
   "name": zod.string(),
   "bankName": zod.string().nullish(),
@@ -2442,6 +2450,9 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "exchangeRateStatus": zod.string().optional()
 })).optional(),
   "updatedLineCount": zod.number(),
+  "contactId": zod.number().nullish(),
+  "survivingContactId": zod.number().nullish(),
+  "mergedContactId": zod.number().nullish(),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
   "clientId": zod.number(),
@@ -2468,7 +2479,7 @@ export const GetBulkTransitionAuditsResponseItem = zod.object({
   "name": zod.string(),
   "email": zod.string().nullable()
 }),
-  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries', 'post_entry', 'unpost_entry']),
+  "transition": zod.enum(['bulk_approve_entries', 'bulk_post_entries', 'bulk_unpost_entries', 'post_entry', 'unpost_entry']),
   "fromStatus": zod.string(),
   "toStatus": zod.string(),
   "entryIds": zod.array(zod.number()),

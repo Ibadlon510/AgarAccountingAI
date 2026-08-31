@@ -1890,23 +1890,11 @@ async function activeClientChartAccounts(clientId: number): Promise<ChartAccount
   }));
 }
 
-async function contactIdentityIndexForClient(clientId: number): Promise<ContactIdentityIndex> {
-  const [contacts, aliases] = await Promise.all([
-    db.select({ id: contactsTable.id, displayName: contactsTable.displayName })
-      .from(contactsTable)
-      .where(and(eq(contactsTable.clientId, clientId), eq(contactsTable.status, "active"))),
-    db.select({ contactId: contactAliasesTable.contactId, alias: contactAliasesTable.alias })
-      .from(contactAliasesTable)
-      .where(eq(contactAliasesTable.clientId, clientId)),
-  ]);
-  const byId = new Map<number, { displayName: string; aliases: string[] }>();
-  for (const contact of contacts) {
-    byId.set(contact.id, { displayName: contact.displayName, aliases: [] });
-  }
-  for (const alias of aliases) {
-    const entry = byId.get(alias.contactId);
-    if (entry) entry.aliases.push(alias.alias);
-  }
+async function loadActiveContactIdentityIndex(clientId: number): Promise<ContactIdentityIndex> {
+  const full = await contactIdentityIndexForClient(clientId);
+  const byId = new Map(
+    [...full.byId.entries()].filter(([, contact]) => contact.status === "active"),
+  );
   return { byId };
 }
 
@@ -3213,7 +3201,7 @@ type BankAccountDraft = {
 type AICopilotRecommendation = {
   id: string;
   clientId: number;
-  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account" | "bulk_post_entries";
+  type: "next_step" | "review_group" | "recode_lines" | "create_bank_account" | "bulk_post_entries" | "bulk_unpost_entries" | "assign_contacts" | "create_contact" | "update_contact" | "archive_contact" | "merge_contacts";
   title: string;
   summary: string;
   lineIds?: number[];
@@ -3228,6 +3216,11 @@ type AICopilotRecommendation = {
   confidence?: number | null;
   suggestionSource?: SuggestionSource;
   supportingPatternCount?: number;
+  contactId?: number | null;
+  contactName?: string | null;
+  survivingContactId?: number | null;
+  mergedContactId?: number | null;
+  applied?: boolean;
   bankAccount?: { name: string; bankName: string | null; accountNumberLast4: string | null; currency: string } | null;
   requiresConfirmation: boolean;
 };
@@ -3290,8 +3283,38 @@ const merchantScopeFillerWords = new Set([
 ]);
 
 type ContactIdentityIndex = {
-  byId: Map<number, { displayName: string; aliases: string[] }>;
+  byId: Map<number, { displayName: string; legalName: string; status: string; aliases: string[] }>;
 };
+
+async function contactIdentityIndexForClient(clientId: number): Promise<ContactIdentityIndex> {
+  const [contacts, aliases] = await Promise.all([
+    db.select({
+      id: contactsTable.id,
+      displayName: contactsTable.displayName,
+      legalName: contactsTable.legalName,
+      status: contactsTable.status,
+    })
+      .from(contactsTable)
+      .where(eq(contactsTable.clientId, clientId)),
+    db.select({ contactId: contactAliasesTable.contactId, alias: contactAliasesTable.alias })
+      .from(contactAliasesTable)
+      .where(eq(contactAliasesTable.clientId, clientId)),
+  ]);
+  const byId = new Map<number, { displayName: string; legalName: string; status: string; aliases: string[] }>();
+  for (const contact of contacts) {
+    byId.set(contact.id, {
+      displayName: contact.displayName,
+      legalName: contact.legalName,
+      status: contact.status,
+      aliases: [],
+    });
+  }
+  for (const alias of aliases) {
+    const entry = byId.get(alias.contactId);
+    if (entry) entry.aliases.push(alias.alias);
+  }
+  return { byId };
+}
 
 function stripMerchantPhraseNoise(phrase: string) {
   return phrase
@@ -3456,7 +3479,373 @@ function asksForLedgerTransition(message: string, clientAccountNames: Set<string
     new RegExp(`\\b(?:must|should|need(?:s)?)\\s+be\\s+posted\\s+as\\s+(?:an?\\s+)?(?:${accountNames})\\b`, "gi"),
     "",
   );
-  return /\b(?:approve|approval|approving|post|posted|posting)\b/i.test(withoutClassificationClause);
+  const withoutUnpost = withoutClassificationClause.replace(/\b(?:unpost|un-post|reverse\s+post(?:ing)?)\b/gi, "");
+  return /\b(?:approve|approval|approving|post|posted|posting)\b/i.test(withoutUnpost);
+}
+
+function asksForUnpost(message: string) {
+  return /\b(?:unpost|un-post|reverse\s+post(?:ing)?)\b/i.test(message);
+}
+
+function asksForContactAssignment(message: string) {
+  if (
+    asksForContactCreate(message)
+    || asksForContactArchive(message)
+    || asksForContactUpdate(message)
+    || asksForContactMerge(message)
+    || asksForContactDismiss(message)
+  ) {
+    return false;
+  }
+  return (
+    /\bproposed\s+contact\b/i.test(message)
+    || /\b(?:assign|link|set|update|change|replace)\b.+\b(?:contact|supplier|customer|vendor)\b/i.test(message)
+    || (/\b(?:contact|supplier|customer|vendor)\b/i.test(message) && /\b(?:statement\s+lines?|draft\s+lines?|these|selected|visible)\b/i.test(message))
+  ) && /\b(?:assign|set|update|change|link|replace|proposed)\b/i.test(message);
+}
+
+function asksForContactDismiss(message: string) {
+  return /\b(?:dismiss|clear|remove)\b.+\b(?:contact\s+proposal|proposed\s+contact|temporary\s+contact)\b/i.test(message)
+    || /\b(?:dismiss|clear)\s+(?:the\s+)?(?:contact|proposal)\b/i.test(message);
+}
+
+function asksForContactCreate(message: string) {
+  return /\b(?:create|add|new)\s+(?:a\s+)?(?:contact|supplier|customer|vendor)\b/i.test(message);
+}
+
+function asksForContactArchive(message: string) {
+  return /\barchive\s+(?:the\s+)?(?:contact|supplier|customer|vendor)\b/i.test(message)
+    || /\b(?:archive|deactivate)\b.+\b(?:contact|supplier|customer|vendor)\b/i.test(message);
+}
+
+function asksForContactUpdate(message: string) {
+  return /\b(?:rename|update|edit)\s+(?:the\s+)?(?:contact|supplier|customer|vendor)\b/i.test(message)
+    || /\b(?:change|set)\s+(?:the\s+)?(?:contact|supplier|customer|vendor)\s+name\b/i.test(message);
+}
+
+function asksForContactMerge(message: string) {
+  return /\bmerge\s+(?:the\s+)?(?:contacts?|suppliers?|customers?|vendors?)\b/i.test(message)
+    || /\bmerge\b.+\binto\b/i.test(message);
+}
+
+function accountantMixedIntentMessage(message: string, clientAccountNames: Set<string>) {
+  const flags = [
+    asksForContactAssignment(message),
+    asksForContactDismiss(message),
+    asksForContactCreate(message),
+    asksForContactArchive(message),
+    asksForContactUpdate(message),
+    asksForContactMerge(message),
+    asksForDescriptionClassification(message),
+    asksForLedgerTransition(message, clientAccountNames),
+    asksForUnpost(message),
+  ].filter(Boolean).length;
+  return flags > 1;
+}
+
+function destinationContactNameFromMessage(message: string) {
+  const proposed = message.match(
+    /\b(?:proposed\s+)?contact\s+(?:to|as|into)\s+["“']?(.+?)["”']?(?:[.!?]|$)/i,
+  )?.[1];
+  if (proposed?.trim()) return proposed.trim().replace(/\s+/g, " ").slice(0, 160);
+  const assign = message.match(
+    /\b(?:assign|link|set|update|change|replace)\b(?:\s+\w+){0,6}\s+(?:to|as|into)\s+["“']?(.+?)["”']?(?:[.!?]|$)/i,
+  )?.[1];
+  if (assign?.trim()) return assign.trim().replace(/\s+/g, " ").slice(0, 160);
+  const trailing = message.match(/\b(?:to|as|into)\s+["“']?(.+?)["”']?(?:[.!?]|$)/i)?.[1];
+  return trailing?.trim().replace(/\s+/g, " ").slice(0, 160) ?? null;
+}
+
+function contactNameFromCrudMessage(message: string) {
+  const named = message.match(
+    /\b(?:contact|supplier|customer|vendor)\s+["“']?([A-Za-z0-9][\w &.'-]{1,158})["”']?/i,
+  )?.[1];
+  if (named?.trim()) return named.trim().replace(/\s+/g, " ").slice(0, 160);
+  const createNamed = message.match(
+    /\b(?:create|add|new|archive|rename|update|edit)\s+(?:a\s+)?(?:contact|supplier|customer|vendor)\s+(?:named\s+|called\s+)?["“']?([A-Za-z0-9][\w &.'-]{1,158})["”']?/i,
+  )?.[1];
+  return createNamed?.trim().replace(/\s+/g, " ").slice(0, 160) ?? null;
+}
+
+function renameTargetFromMessage(message: string) {
+  const match = message.match(
+    /\b(?:to|as)\s+["“']?([A-Za-z0-9][\w &.'-]{1,158})["”']?(?:[.!?]|$)/i,
+  )?.[1];
+  return match?.trim().replace(/\s+/g, " ").slice(0, 160) ?? null;
+}
+
+function mergeContactNamesFromMessage(message: string): { surviving: string | null; merged: string | null } {
+  const into = message.match(
+    /\bmerge\s+["“']?(.+?)["”']?\s+into\s+["“']?(.+?)["”']?(?:[.!?]|$)/i,
+  );
+  if (into) {
+    return {
+      merged: into[1]?.trim().replace(/\s+/g, " ").slice(0, 160) ?? null,
+      surviving: into[2]?.trim().replace(/\s+/g, " ").slice(0, 160) ?? null,
+    };
+  }
+  return { surviving: null, merged: null };
+}
+
+type ResolvedContactMatch =
+  | { kind: "active"; id: number; name: string }
+  | { kind: "missing"; requested: string }
+  | { kind: "archived"; requested: string; id: number; name: string }
+  | { kind: "ambiguous"; requested: string; names: string[] };
+
+function resolveExactClientContact(
+  contacts: ContactIdentityIndex,
+  requestedName: string,
+): ResolvedContactMatch {
+  const requested = normalizeContactAlias(requestedName);
+  if (!requested) return { kind: "missing", requested: requestedName };
+  const matches: Array<{ id: number; name: string; status: string }> = [];
+  for (const [id, contact] of contacts.byId.entries()) {
+    const identities = [contact.displayName, contact.legalName, ...contact.aliases]
+      .map((value) => normalizeContactAlias(value))
+      .filter(Boolean);
+    if (identities.includes(requested)) {
+      matches.push({ id, name: contact.displayName, status: contact.status });
+    }
+  }
+  const active = matches.filter((match) => match.status === "active");
+  if (active.length === 1) return { kind: "active", id: active[0].id, name: active[0].name };
+  if (active.length > 1) {
+    return { kind: "ambiguous", requested: requestedName, names: active.map((match) => match.name) };
+  }
+  const archived = matches.filter((match) => match.status === "archived");
+  if (archived.length === 1) {
+    return { kind: "archived", requested: requestedName, id: archived[0].id, name: archived[0].name };
+  }
+  if (archived.length > 1) {
+    return { kind: "ambiguous", requested: requestedName, names: archived.map((match) => match.name) };
+  }
+  return { kind: "missing", requested: requestedName };
+}
+
+function contactResolutionGuidance(match: Exclude<ResolvedContactMatch, { kind: "active" }>) {
+  if (match.kind === "missing") {
+    return `I could not find an active contact named “${match.requested}” in this client. Create the contact first, then ask me to assign it.`;
+  }
+  if (match.kind === "archived") {
+    return `“${match.name}” is archived in this client. Restore or recreate an active contact before assigning it.`;
+  }
+  return `“${match.requested}” matches more than one contact (${match.names.map((name) => `“${name}”`).join(", ")}). Use an exact unique name or alias.`;
+}
+
+function lineCounterpartAccount(
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect | undefined,
+) {
+  if (!entry) return line.accountSuggestion ?? null;
+  return line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+}
+
+function draftLinesMatchingAccount(
+  clientId: number,
+  accountName: string,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  pageContext?: AssistantPageContext | null,
+  message?: string,
+): { eligible: Array<typeof statementLinesTable.$inferSelect>; postedCount: number; error?: string } {
+  const pageScoped = message ? /\b(?:these|selected|visible|shown)\b/i.test(message) : false;
+  let scopedLines = lines.filter((line) => line.clientId === clientId);
+  if (pageScoped) {
+    const pageLineIds = (pageContext?.selectedLineIds?.length
+      ? pageContext.selectedLineIds
+      : pageContext?.visibleLineIds) ?? [];
+    if (!pageLineIds.length) {
+      return { eligible: [], postedCount: 0, error: "I do not see any selected or visible statement lines on the current page. Select rows or open the Statement lines view, then ask again." };
+    }
+    const pageSet = new Set(pageLineIds);
+    scopedLines = scopedLines.filter((line) => pageSet.has(line.id));
+    const mixed = scopedLines.some((line) => line.status === "posted")
+      && scopedLines.some((line) => line.status !== "posted");
+    if (mixed) {
+      return { eligible: [], postedCount: 0, error: "The selected or visible lines include both draft and posted activity. I will not silently narrow that selection. Choose only draft lines, or ask with an account scope." };
+    }
+  }
+  const entriesByLine = new Map(entries.filter((entry) => entry.clientId === clientId).map((entry) => [entry.statementLineId, entry]));
+  const matching = scopedLines.filter((line) => {
+    const counterpart = lineCounterpartAccount(line, entriesByLine.get(line.id));
+    return line.accountSuggestion === accountName || counterpart === accountName;
+  });
+  const postedMatching = matching.filter((line) => line.status === "posted");
+  const draftMatching = matching.filter((line) => line.status !== "posted");
+  const draftEntryLineIds = new Set(
+    entries
+      .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
+      .map((entry) => entry.statementLineId),
+  );
+  const eligible = draftMatching.filter((line) => draftEntryLineIds.has(line.id)).slice(0, 100);
+  return { eligible, postedCount: postedMatching.length };
+}
+
+class AssignContactsConflictError extends Error {}
+
+async function assignExistingContactToDraftLine(
+  tx: AccountingTransaction,
+  clientId: number,
+  line: typeof statementLinesTable.$inferSelect,
+  entry: typeof journalEntriesTable.$inferSelect,
+  contactId: number,
+) {
+  if (journalLifecycleStatus(entry.status) !== "draft" || line.status === "posted") {
+    throw new AssignContactsConflictError("Posted accounting activity cannot be relinked through the assistant.");
+  }
+  const contactSuggestion = await resolveContactSuggestion(tx, clientId, line.description, line.direction, contactId, line);
+  const [updatedLine] = await tx.update(statementLinesTable).set({
+    contactId,
+    proposedContactName: null,
+    proposedContactAlias: null,
+    proposedContactType: null,
+    proposedContactConfidence: null,
+    proposedContactSource: null,
+    contactReviewDisposition: "replaced",
+    contactSuggestionEvidenceCount: contactSuggestion?.accountSuggestion
+      ? contactSuggestion.supportingPatternCount
+      : null,
+  }).where(and(
+    eq(statementLinesTable.id, line.id),
+    eq(statementLinesTable.clientId, clientId),
+    ne(statementLinesTable.status, "posted"),
+  )).returning();
+  if (!updatedLine) throw new AssignContactsConflictError("A selected statement line changed while its contact was being assigned.");
+  const [updatedEntry] = await tx.update(journalEntriesTable).set({
+    contactId,
+  }).where(and(
+    eq(journalEntriesTable.id, entry.id),
+    eq(journalEntriesTable.clientId, clientId),
+    inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+  )).returning({ id: journalEntriesTable.id });
+  if (!updatedEntry) throw new AssignContactsConflictError("A selected journal entry changed while its contact was being assigned.");
+  return updatedLine;
+}
+
+async function applyAssignContactsToLines(
+  clientId: number,
+  lineIds: number[],
+  contactId: number,
+) {
+  return db.transaction(async (tx) => {
+    const [contact] = await tx.select().from(contactsTable).where(and(
+      eq(contactsTable.id, contactId),
+      eq(contactsTable.clientId, clientId),
+      eq(contactsTable.status, "active"),
+    )).for("update");
+    if (!contact) throw new AssignContactsConflictError("The destination contact is missing or no longer active in this client.");
+
+    const lockedLines = await tx.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.clientId, clientId),
+      inArray(statementLinesTable.id, lineIds),
+    )).for("update");
+    if (lockedLines.length !== lineIds.length) {
+      throw new AssignContactsConflictError("One or more selected statement lines are not available in this client.");
+    }
+    const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.clientId, clientId),
+      inArray(journalEntriesTable.statementLineId, lineIds),
+    )).for("update");
+    if (lockedEntries.length !== lockedLines.length) {
+      throw new AssignContactsConflictError("Every selected statement line needs a draft journal entry before contact assignment.");
+    }
+    for (const line of lockedLines) {
+      const entry = lockedEntries.find((candidate) => candidate.statementLineId === line.id);
+      if (!entry) throw new AssignContactsConflictError("Every selected statement line needs a draft journal entry before contact assignment.");
+      await assignExistingContactToDraftLine(tx, clientId, line, entry, contactId);
+    }
+    return { contact, updatedLineCount: lockedLines.length };
+  });
+}
+
+async function prepareAssignContactsAction(
+  message: string,
+  clientId: number,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  chartAccounts: ChartAccountRef[],
+  contacts: ContactIdentityIndex,
+  pageContext?: AssistantPageContext | null,
+): Promise<{ recommendation?: AICopilotRecommendation; error?: string; applied?: boolean } | null> {
+  if (!asksForContactAssignment(message)) return null;
+  const resolvedAccount = resolveChartAccountFromMessage(message, chartAccounts);
+  const destinationName = destinationContactNameFromMessage(message);
+  if (!resolvedAccount && !/\b(?:these|selected|visible|shown)\b/i.test(message)) {
+    return { error: "I need an account or category scope (for example Bank charges) or selected/visible statement lines to assign a contact." };
+  }
+  if (!destinationName) {
+    return { error: "Name the destination contact exactly (for example “to Mashreq Bank”). I will not guess or create a contact from this assign prompt." };
+  }
+  const contactMatch = resolveExactClientContact(contacts, destinationName);
+  if (contactMatch.kind !== "active") return { error: contactResolutionGuidance(contactMatch) };
+
+  let eligible: Array<typeof statementLinesTable.$inferSelect> = [];
+  let postedCount = 0;
+  if (resolvedAccount) {
+    const scoped = draftLinesMatchingAccount(clientId, resolvedAccount.accountName, lines, entries, pageContext, message);
+    if (scoped.error) return { error: scoped.error };
+    eligible = scoped.eligible;
+    postedCount = scoped.postedCount;
+    if (!eligible.length) {
+      if (postedCount) {
+        return { error: `I found ${postedCount} posted line${postedCount === 1 ? "" : "s"} on ${resolvedAccount.accountName}, but no draft lines are eligible to update.` };
+      }
+      return { error: `I could not find any draft statement lines classified as ${resolvedAccount.accountName} in this client.` };
+    }
+  } else {
+    const pageLineIds = (pageContext?.selectedLineIds?.length
+      ? pageContext.selectedLineIds
+      : pageContext?.visibleLineIds) ?? [];
+    if (!pageLineIds.length) {
+      return { error: "I do not see any selected or visible statement lines on the current page. Select rows or open the Statement lines view, then ask again." };
+    }
+    const pageSet = new Set(pageLineIds);
+    const draftEntryLineIds = new Set(
+      entries
+        .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
+        .map((entry) => entry.statementLineId),
+    );
+    const pageLines = lines.filter((line) => line.clientId === clientId && pageSet.has(line.id));
+    if (pageLines.some((line) => line.status === "posted") && pageLines.some((line) => line.status !== "posted")) {
+      return { error: "The selected or visible lines include both draft and posted activity. I will not silently narrow that selection." };
+    }
+    postedCount = pageLines.filter((line) => line.status === "posted").length;
+    eligible = pageLines.filter((line) => line.status !== "posted" && draftEntryLineIds.has(line.id)).slice(0, 100);
+    if (!eligible.length) {
+      return { error: "There are no eligible draft statement lines in the current page selection." };
+    }
+  }
+
+  const lineIds = eligible.map((line) => line.id);
+  try {
+    await applyAssignContactsToLines(clientId, lineIds, contactMatch.id);
+  } catch (error) {
+    if (error instanceof AssignContactsConflictError) return { error: error.message };
+    throw error;
+  }
+  const scopeLabel = resolvedAccount
+    ? `${resolvedAccount.accountName} draft lines`
+    : "the selected or visible draft lines";
+  const postedNote = postedCount
+    ? ` Left ${postedCount} already-posted matching line${postedCount === 1 ? "" : "s"} unchanged.`
+    : "";
+  return {
+    applied: true,
+    recommendation: {
+      id: `assign-contacts-${lineIds.join("-")}-${contactMatch.id}`,
+      clientId,
+      type: "assign_contacts",
+      title: `Assigned ${contactMatch.name} to ${lineIds.length} draft line${lineIds.length === 1 ? "" : "s"}`,
+      summary: `Applied ${contactMatch.name} to ${scopeLabel}. Temporary contact proposals were cleared.${postedNote}`,
+      lineIds,
+      lineCount: lineIds.length,
+      contactId: contactMatch.id,
+      contactName: contactMatch.name,
+      applied: true,
+      requiresConfirmation: false,
+    },
+  };
 }
 
 function nearbyContactHints(
@@ -3524,7 +3913,6 @@ function prepareDescriptionRecodeRecommendation(
   }
 
   const lineIds = eligibleLines.map((line) => line.id);
-  const postingRequested = /\b(?:post|posted|posting)\b/.test(message);
   const mappingNote = resolvedAccount.requestedLabel
     && normalizeDescription(resolvedAccount.requestedLabel) !== normalizeDescription(accountSuggestion)
     ? ` Mapped “${resolvedAccount.requestedLabel.trim()}” → ${accountSuggestion}.`
@@ -3537,11 +3925,407 @@ function prepareDescriptionRecodeRecommendation(
       id: `recode-description-${lineIds.join("-")}-${accountSuggestion.toLowerCase().replace(/\W+/g, "-")}`,
       clientId,
       type: "recode_lines",
-      title: `Classify ${lineIds.length} draft line${lineIds.length === 1 ? "" : "s"} as ${accountSuggestion}`,
-      summary: `Apply ${accountSuggestion} to draft lines matching “${descriptionScopes.join("” or “")}” by description or contact.${mappingNote}${postedNote}${postingRequested ? " Confirm this classification first, then request posting separately." : ""}`,
+      title: `Classified ${lineIds.length} draft line${lineIds.length === 1 ? "" : "s"} as ${accountSuggestion}`,
+      summary: `Applied ${accountSuggestion} to draft lines matching “${descriptionScopes.join("” or “")}” by description or contact.${mappingNote}${postedNote}`,
       lineIds,
       accountSuggestion,
       confidence: 0.9,
+      applied: true,
+      requiresConfirmation: false,
+    },
+  };
+}
+
+async function applyRecodeLinesAction(
+  clientId: number,
+  userId: string,
+  lineIds: number[],
+  accountSuggestion: string,
+  confidenceInput?: number | null,
+  confirmLearnedSuggestion?: boolean,
+) {
+  const [selectedAccount] = await db.select().from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, clientId),
+    eq(accountClassificationsTable.accountName, accountSuggestion),
+    eq(accountClassificationsTable.isActive, true),
+  )).limit(1);
+  if (!selectedAccount) {
+    throw new RecodeConflictError("Choose an active account from this client's chart before confirming a classification.");
+  }
+  const [bankAccountClassification] = await db.select().from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, clientId),
+    eq(accountClassificationsTable.accountName, "Bank / cash"),
+  )).limit(1);
+  const confidence = Number.isFinite(Number(confidenceInput)) && Number(confidenceInput) >= 0 && Number(confidenceInput) <= 1
+    ? Number(confidenceInput).toFixed(2)
+    : "0.75";
+  return db.transaction(async (tx) => {
+    const lockedLines = await tx.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.clientId, clientId),
+      inArray(statementLinesTable.id, lineIds),
+    )).for("update");
+    if (lockedLines.length !== lineIds.length) {
+      throw new RecodeConflictError("One or more selected statement lines are not available in this client.");
+    }
+    if (lockedLines.some((line) => line.status === "posted")) {
+      throw new RecodeConflictError("Posted statement lines cannot be recoded through the AI assistant.");
+    }
+    if (confirmLearnedSuggestion) {
+      const currentPatterns = await tx.select().from(classificationPatternsTable)
+        .where(eq(classificationPatternsTable.userId, userId));
+      for (const line of lockedLines) {
+        const currentLearned = findWorkspaceSuggestion(currentPatterns, line.description);
+        if (!currentLearned || currentLearned.accountSuggestion !== accountSuggestion) {
+          throw new RecodeConflictError("The learned account recommendation changed. Refresh the line and confirm the current recommendation.");
+        }
+      }
+    }
+    const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
+      eq(journalEntriesTable.clientId, clientId),
+      inArray(journalEntriesTable.statementLineId, lineIds),
+    )).for("update");
+    const entryLineIds = new Set(lockedEntries.map((entry) => entry.statementLineId));
+    if (
+      lockedEntries.length !== lockedLines.length
+      || entryLineIds.size !== lockedLines.length
+      || lockedEntries.some((entry) => journalLifecycleStatus(entry.status) !== "draft")
+    ) {
+      throw new RecodeConflictError("Only draft journal entries can be recoded. Review posted entries individually.");
+    }
+    for (const line of lockedLines) {
+      const [updatedEntry] = await tx.update(journalEntriesTable).set({
+        confidence,
+        ...journalAccountsForSuggestion(line.direction, accountSuggestion),
+        debitAccountClassificationId: line.direction === "inflow" ? bankAccountClassification?.id ?? null : selectedAccount.id,
+        creditAccountClassificationId: line.direction === "inflow" ? selectedAccount.id : bankAccountClassification?.id ?? null,
+      }).where(and(
+        eq(journalEntriesTable.clientId, clientId),
+        eq(journalEntriesTable.statementLineId, line.id),
+        inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+      )).returning({ id: journalEntriesTable.id });
+      if (!updatedEntry) throw new RecodeConflictError("A selected journal entry changed while its classification was being confirmed.");
+    }
+    const updatedLines = await tx.update(statementLinesTable).set({
+      accountSuggestion,
+      accountClassificationId: selectedAccount.id,
+      confidence,
+      contactSuggestionEvidenceCount: null,
+    }).where(and(
+      eq(statementLinesTable.clientId, clientId),
+      inArray(statementLinesTable.id, lineIds),
+      ne(statementLinesTable.status, "posted"),
+    )).returning({ id: statementLinesTable.id });
+    if (updatedLines.length !== lockedLines.length) {
+      throw new RecodeConflictError("A selected statement line changed while its classification was being confirmed.");
+    }
+    for (const line of lockedLines) {
+      await recordClassificationPattern(userId, line.description, accountSuggestion, confidence, tx);
+    }
+    return lockedLines;
+  });
+}
+
+async function prepareDismissContactProposalsAction(
+  message: string,
+  clientId: number,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  chartAccounts: ChartAccountRef[],
+  contacts?: ContactIdentityIndex,
+  pageContext?: AssistantPageContext | null,
+): Promise<{ recommendation?: AICopilotRecommendation; error?: string } | null> {
+  if (!asksForContactDismiss(message)) return null;
+  const resolvedAccount = resolveChartAccountFromMessage(message, chartAccounts);
+  const descriptionScopes = descriptionScopesFromMessage(message);
+  let eligible: Array<typeof statementLinesTable.$inferSelect> = [];
+  if (resolvedAccount) {
+    const scoped = draftLinesMatchingAccount(clientId, resolvedAccount.accountName, lines, entries, pageContext, message);
+    if (scoped.error) return { error: scoped.error };
+    eligible = scoped.eligible;
+  } else if (descriptionScopes.length) {
+    const draftEntryLineIds = new Set(
+      entries
+        .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
+        .map((entry) => entry.statementLineId),
+    );
+    eligible = lines
+      .filter((line) => line.clientId === clientId && line.status !== "posted" && draftEntryLineIds.has(line.id))
+      .filter((line) => lineMatchesDescriptionScopes(line, descriptionScopes, contacts))
+      .slice(0, 100);
+  } else if (/\b(?:these|selected|visible|shown)\b/i.test(message)) {
+    const pageLineIds = (pageContext?.selectedLineIds?.length
+      ? pageContext.selectedLineIds
+      : pageContext?.visibleLineIds) ?? [];
+    if (!pageLineIds.length) {
+      return { error: "I do not see any selected or visible statement lines on the current page." };
+    }
+    const pageSet = new Set(pageLineIds);
+    const draftEntryLineIds = new Set(
+      entries
+        .filter((entry) => entry.clientId === clientId && journalLifecycleStatus(entry.status) === "draft")
+        .map((entry) => entry.statementLineId),
+    );
+    eligible = lines
+      .filter((line) => line.clientId === clientId && pageSet.has(line.id) && line.status !== "posted" && draftEntryLineIds.has(line.id))
+      .slice(0, 100);
+  } else {
+    return { error: "Tell me which draft lines to dismiss (account, merchant/contact scope, or selected/visible rows)." };
+  }
+  eligible = eligible.filter((line) => line.proposedContactName || line.contactReviewDisposition === "pending");
+  if (!eligible.length) return { error: "No eligible draft lines with a temporary contact proposal matched that scope." };
+  const lineIds = eligible.map((line) => line.id);
+  try {
+    await db.transaction(async (tx) => {
+      const lockedLines = await tx.select().from(statementLinesTable).where(and(
+        eq(statementLinesTable.clientId, clientId),
+        inArray(statementLinesTable.id, lineIds),
+      )).for("update");
+      if (lockedLines.length !== lineIds.length) throw new AssignContactsConflictError("One or more selected statement lines are not available in this client.");
+      const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
+        eq(journalEntriesTable.clientId, clientId),
+        inArray(journalEntriesTable.statementLineId, lineIds),
+      )).for("update");
+      for (const line of lockedLines) {
+        const entry = lockedEntries.find((candidate) => candidate.statementLineId === line.id);
+        if (!entry || journalLifecycleStatus(entry.status) !== "draft" || line.status === "posted") {
+          throw new AssignContactsConflictError("Only draft statement lines can dismiss a contact proposal.");
+        }
+        await tx.update(statementLinesTable).set({
+          contactId: null,
+          contactReviewDisposition: "dismissed",
+        }).where(and(
+          eq(statementLinesTable.id, line.id),
+          eq(statementLinesTable.clientId, clientId),
+          ne(statementLinesTable.status, "posted"),
+        ));
+        await tx.update(journalEntriesTable).set({ contactId: null }).where(and(
+          eq(journalEntriesTable.id, entry.id),
+          eq(journalEntriesTable.clientId, clientId),
+          inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+        ));
+      }
+    });
+  } catch (error) {
+    if (error instanceof AssignContactsConflictError) return { error: error.message };
+    throw error;
+  }
+  return {
+    recommendation: {
+      id: `dismiss-contacts-${lineIds.join("-")}`,
+      clientId,
+      type: "assign_contacts",
+      title: `Dismissed contact proposals on ${lineIds.length} draft line${lineIds.length === 1 ? "" : "s"}`,
+      summary: "Temporary contact proposals were dismissed. The draft lines remain unlinked until you assign a contact.",
+      lineIds,
+      lineCount: lineIds.length,
+      contactId: null,
+      contactName: null,
+      applied: true,
+      requiresConfirmation: false,
+    },
+  };
+}
+
+async function prepareContactCrudAction(
+  message: string,
+  clientId: number,
+  contacts: ContactIdentityIndex,
+): Promise<{ recommendation?: AICopilotRecommendation; error?: string } | null> {
+  if (asksForContactCreate(message)) {
+    const name = contactNameFromCrudMessage(message);
+    if (!name || !isUsableContactIdentity(name)) {
+      return { error: "Name the contact to create with a real, non-generic identity." };
+    }
+    const existing = resolveExactClientContact(contacts, name);
+    if (existing.kind === "active") {
+      return { error: `“${existing.name}” already exists as an active contact in this client.` };
+    }
+    if (existing.kind === "ambiguous") return { error: contactResolutionGuidance(existing) };
+    const contactType = /\bcustomer\b/i.test(message) ? "customer" : /\bboth\b/i.test(message) ? "both" : "supplier";
+    const aliases = normalizedContactAliases([name]);
+    const created = await db.transaction(async (tx) => {
+      const [row] = await tx.insert(contactsTable).values({
+        clientId,
+        displayName: name,
+        legalName: name,
+        contactType,
+      }).returning();
+      if (aliases.length) {
+        await tx.insert(contactAliasesTable).values(aliases.map((alias) => ({
+          clientId,
+          contactId: row.id,
+          ...alias,
+        })));
+      }
+      return row;
+    });
+    return {
+      recommendation: {
+        id: `create-contact-${created.id}`,
+        clientId,
+        type: "create_contact",
+        title: `Created contact ${created.displayName}`,
+        summary: `Created an active ${contactType} contact in this client. Nothing else was changed.`,
+        contactId: created.id,
+        contactName: created.displayName,
+        applied: true,
+        requiresConfirmation: false,
+      },
+    };
+  }
+
+  if (asksForContactArchive(message)) {
+    const name = contactNameFromCrudMessage(message);
+    if (!name) return { error: "Name the contact to archive exactly." };
+    const match = resolveExactClientContact(contacts, name);
+    if (match.kind !== "active") return { error: contactResolutionGuidance(match) };
+    await db.update(contactsTable).set({ status: "archived", updatedAt: new Date() }).where(and(
+      eq(contactsTable.id, match.id),
+      eq(contactsTable.clientId, clientId),
+    ));
+    return {
+      recommendation: {
+        id: `archive-contact-${match.id}`,
+        clientId,
+        type: "archive_contact",
+        title: `Archived contact ${match.name}`,
+        summary: "The contact is archived in this client. Existing draft and posted links remain until you reassign them.",
+        contactId: match.id,
+        contactName: match.name,
+        applied: true,
+        requiresConfirmation: false,
+      },
+    };
+  }
+
+  if (asksForContactUpdate(message)) {
+    const currentName = contactNameFromCrudMessage(message);
+    const nextName = renameTargetFromMessage(message);
+    if (!currentName || !nextName) {
+      return { error: "Say which contact to rename and the new name, for example “rename contact Acme to Acme Supplies”." };
+    }
+    if (!isUsableContactIdentity(nextName)) {
+      return { error: "The new contact name must be a real, non-generic identity." };
+    }
+    const match = resolveExactClientContact(contacts, currentName);
+    if (match.kind !== "active") return { error: contactResolutionGuidance(match) };
+    const aliases = normalizedContactAliases([nextName]);
+    await db.transaction(async (tx) => {
+      await tx.update(contactsTable).set({
+        displayName: nextName,
+        legalName: nextName,
+        updatedAt: new Date(),
+      }).where(and(eq(contactsTable.id, match.id), eq(contactsTable.clientId, clientId)));
+      await tx.delete(contactAliasesTable).where(and(
+        eq(contactAliasesTable.clientId, clientId),
+        eq(contactAliasesTable.contactId, match.id),
+      ));
+      if (aliases.length) {
+        await tx.insert(contactAliasesTable).values(aliases.map((alias) => ({
+          clientId,
+          contactId: match.id,
+          ...alias,
+        })));
+      }
+    });
+    return {
+      recommendation: {
+        id: `update-contact-${match.id}`,
+        clientId,
+        type: "update_contact",
+        title: `Renamed contact to ${nextName}`,
+        summary: `Updated “${match.name}” to “${nextName}” in this client.`,
+        contactId: match.id,
+        contactName: nextName,
+        applied: true,
+        requiresConfirmation: false,
+      },
+    };
+  }
+
+  return null;
+}
+
+function prepareMergeContactsRecommendation(
+  message: string,
+  clientId: number,
+  contacts: ContactIdentityIndex,
+): { recommendation?: AICopilotRecommendation; error?: string } | null {
+  if (!asksForContactMerge(message)) return null;
+  const names = mergeContactNamesFromMessage(message);
+  if (!names.surviving || !names.merged) {
+    return { error: "Say which contact to merge into which survivor, for example “merge Acme Old into Acme Supplies”." };
+  }
+  const surviving = resolveExactClientContact(contacts, names.surviving);
+  const merged = resolveExactClientContact(contacts, names.merged);
+  if (surviving.kind !== "active") return { error: contactResolutionGuidance(surviving) };
+  if (merged.kind !== "active") return { error: contactResolutionGuidance(merged) };
+  if (surviving.id === merged.id) return { error: "Choose two different contacts to merge." };
+  return {
+    recommendation: {
+      id: `merge-contacts-${merged.id}-into-${surviving.id}`,
+      clientId,
+      type: "merge_contacts",
+      title: `Merge ${merged.name} into ${surviving.name}`,
+      summary: "Confirm to archive the duplicate and reassign its aliases, statement lines, and journals to the surviving contact. Nothing has changed yet.",
+      survivingContactId: surviving.id,
+      mergedContactId: merged.id,
+      contactName: surviving.name,
+      requiresConfirmation: true,
+    },
+  };
+}
+
+function prepareUnpostRecommendation(
+  message: string,
+  clientId: number,
+  entries: Array<typeof journalEntriesTable.$inferSelect>,
+  lines: Array<typeof statementLinesTable.$inferSelect>,
+  contacts?: ContactIdentityIndex,
+  pageContext?: AssistantPageContext | null,
+): { recommendation?: AICopilotRecommendation; error?: string } | null {
+  if (!asksForUnpost(message)) return null;
+  const descriptionScopes = descriptionScopesFromMessage(message);
+  const pageScoped = /\b(?:these|selected|visible|shown)\b/i.test(message);
+  let selectedEntries: Array<typeof journalEntriesTable.$inferSelect> = [];
+  if (pageScoped && !descriptionScopes.length) {
+    const pageLineIds = (pageContext?.selectedLineIds?.length
+      ? pageContext.selectedLineIds
+      : pageContext?.visibleLineIds) ?? [];
+    if (!pageLineIds.length) {
+      return { error: "I do not see any selected or visible statement lines on the current page." };
+    }
+    const pageSet = new Set(pageLineIds);
+    selectedEntries = entries.filter((entry) => entry.clientId === clientId && pageSet.has(entry.statementLineId) && entry.status === "posted");
+  } else if (descriptionScopes.length) {
+    selectedEntries = entries.filter((entry) => {
+      if (entry.clientId !== clientId || entry.status !== "posted") return false;
+      const line = lines.find((candidate) => candidate.id === entry.statementLineId);
+      return Boolean(line && lineMatchesDescriptionScopes(line, descriptionScopes, contacts));
+    });
+  } else if (/\ball\b/i.test(message) && /\bposted\b/i.test(message)) {
+    selectedEntries = entries.filter((entry) => entry.clientId === clientId && entry.status === "posted");
+  } else {
+    return { error: "I need a clear posted scope to unpost. Name a merchant/contact, say selected/visible lines, or ask to unpost all posted entries." };
+  }
+  selectedEntries = selectedEntries.slice(0, 100);
+  if (!selectedEntries.length) return { error: "There are no posted entries in that scope to unpost." };
+  const statementLineIds = selectedEntries.map((entry) => entry.statementLineId);
+  const entryIds = selectedEntries.map((entry) => entry.id);
+  return {
+    recommendation: {
+      id: `bulk-unpost-${entryIds.join("-")}`,
+      clientId,
+      type: "bulk_unpost_entries",
+      title: `Unpost ${entryIds.length} journal ${entryIds.length === 1 ? "entry" : "entries"}`,
+      summary: `Return ${entryIds.length} posted ${entryIds.length === 1 ? "entry" : "entries"} and ${statementLineIds.length} statement ${statementLineIds.length === 1 ? "line" : "lines"} to draft. Confirm to apply; nothing has changed yet.`,
+      entryIds,
+      statementLineIds,
+      entryCount: entryIds.length,
+      lineCount: statementLineIds.length,
+      fromStatus: "posted",
+      toStatus: "draft",
+      statusTransition: { from: "posted", to: "draft" },
       requiresConfirmation: true,
     },
   };
@@ -5261,9 +6045,9 @@ function readOnlyIntent(message: string) {
   const normalized = message.toLowerCase();
   if (/\b(imports?|uploads?|statements? imported|import history)\b/.test(normalized)) return "imports";
   if (/\btrial balance\b/.test(normalized)) return "trial_balance";
-  if (/\b(financial statements?|income statement|profit and loss|balance sheet|cash flow|report balances?)\b/.test(normalized)) return "financial_statements";
+  if (/\b(financial statements?|income statement|profit and loss|balance sheet|cash flow|report balances?|explain(?:\s+the)?\s+balances?|operating expenses?)\b/.test(normalized)) return "financial_statements";
   if (/\b(journal entries?|journals?|je-\d+)\b/.test(normalized)) return "journal_entries";
-  if (/\b(review|queue|exceptions?|transactions?|statement lines?|find|search|merchant|sl-\d+)\b/.test(normalized)) return "statement_lines";
+  if (/\b(review|queue|exceptions?|transactions?|statement lines?|find|search|merchant|sl-\d+|summarize(?:\s+the)?\s+(?:pending\s+)?(?:review\s+)?queue)\b/.test(normalized)) return "statement_lines";
   return null;
 }
 
@@ -5731,28 +6515,110 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
     await pruneAssistantTurns(thread.id);
     res.json(response);
   };
-  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines, chartAccounts, contactIndex);
-  const asksToClassify = asksForDescriptionClassification(message);
-  const asksToTransition = asksForLedgerTransition(message, clientAccountNames);
-  if (asksToClassify && asksToTransition) {
+  if (accountantMixedIntentMessage(message, clientAccountNames)) {
     await sendChatResponse({
-      answer: "Classification and ledger posting are separate steps. Confirm the classification card first, then ask me to prepare a posting confirmation for the eligible draft entries.",
+      answer: "Classification, posting, contact assignment, and contact merges are separate steps. I can only run one accountant action per prompt—ask for one action at a time.",
     });
     return;
   }
-  if (descriptionRecode?.error) {
+
+  const assignContacts = await prepareAssignContactsAction(
+    message, clientId, entries, lines, chartAccounts, contactIndex, pageContext,
+  );
+  if (assignContacts?.error) {
+    await sendChatResponse({ answer: assignContacts.error });
+    return;
+  }
+  if (assignContacts?.recommendation) {
     await sendChatResponse({
-      answer: descriptionRecode.error,
+      answer: `Done. ${assignContacts.recommendation.summary}`,
+      recommendations: [assignContacts.recommendation],
     });
+    return;
+  }
+
+  const dismissContacts = await prepareDismissContactProposalsAction(
+    message, clientId, entries, lines, chartAccounts, contactIndex, pageContext,
+  );
+  if (dismissContacts?.error) {
+    await sendChatResponse({ answer: dismissContacts.error });
+    return;
+  }
+  if (dismissContacts?.recommendation) {
+    await sendChatResponse({
+      answer: `Done. ${dismissContacts.recommendation.summary}`,
+      recommendations: [dismissContacts.recommendation],
+    });
+    return;
+  }
+
+  const contactCrud = await prepareContactCrudAction(message, clientId, contactIndex);
+  if (contactCrud?.error) {
+    await sendChatResponse({ answer: contactCrud.error });
+    return;
+  }
+  if (contactCrud?.recommendation) {
+    await sendChatResponse({
+      answer: `Done. ${contactCrud.recommendation.summary}`,
+      recommendations: [contactCrud.recommendation],
+    });
+    return;
+  }
+
+  const mergeContacts = prepareMergeContactsRecommendation(message, clientId, contactIndex);
+  if (mergeContacts?.error) {
+    await sendChatResponse({ answer: mergeContacts.error });
+    return;
+  }
+  if (mergeContacts?.recommendation) {
+    await sendChatResponse({
+      answer: "I prepared this contact merge for your confirmation. Nothing has changed yet.",
+      recommendations: [mergeContacts.recommendation],
+    });
+    return;
+  }
+
+  const descriptionRecode = prepareDescriptionRecodeRecommendation(message, clientId, entries, lines, chartAccounts, contactIndex);
+  if (descriptionRecode?.error) {
+    await sendChatResponse({ answer: descriptionRecode.error });
     return;
   }
   if (descriptionRecode?.recommendation) {
+    try {
+      await applyRecodeLinesAction(
+        clientId,
+        currentUserId(req),
+        descriptionRecode.recommendation.lineIds ?? [],
+        descriptionRecode.recommendation.accountSuggestion ?? "",
+        descriptionRecode.recommendation.confidence,
+      );
+    } catch (error) {
+      if (error instanceof RecodeConflictError) {
+        await sendChatResponse({ answer: error.message });
+        return;
+      }
+      throw error;
+    }
     await sendChatResponse({
-      answer: "I prepared this client-scoped classification for your confirmation. Nothing has changed yet; posting remains a separate confirmation.",
+      answer: `Done. ${descriptionRecode.recommendation.summary}`,
       recommendations: [descriptionRecode.recommendation],
     });
     return;
   }
+
+  const unpostAction = prepareUnpostRecommendation(message, clientId, entries, lines, contactIndex, pageContext);
+  if (unpostAction?.error) {
+    await sendChatResponse({ answer: unpostAction.error });
+    return;
+  }
+  if (unpostAction?.recommendation) {
+    await sendChatResponse({
+      answer: "I prepared this client-scoped unpost for your review. Nothing has changed yet.",
+      recommendations: [unpostAction.recommendation],
+    });
+    return;
+  }
+
   const bulkAction = prepareBulkActionRecommendation(message, clientId, entries, lines, contactIndex, pageContext);
   if (bulkAction?.error) {
     await sendChatResponse({
@@ -6174,96 +7040,209 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
     }));
   }
 
+  if (body.type === "bulk_unpost_entries") {
+    const entryIds = [...new Set(body.entryIds ?? [])];
+    const statementLineIds = [...new Set(body.statementLineIds ?? [])];
+    if (!entryIds.length || !statementLineIds.length || entryIds.length !== statementLineIds.length) {
+      return res.status(400).json({ error: "A bulk unpost needs matching, non-empty journal-entry and statement-line selections." });
+    }
+    try {
+      const result = await db.transaction(async (tx) => {
+        const entries = await tx.select().from(journalEntriesTable).where(and(
+          eq(journalEntriesTable.clientId, body.clientId),
+          inArray(journalEntriesTable.id, entryIds),
+        )).for("update");
+        if (entries.length !== entryIds.length) throw new BulkActionValidationError("not_found");
+        const lines = await tx.select().from(statementLinesTable).where(and(
+          eq(statementLinesTable.clientId, body.clientId),
+          inArray(statementLinesTable.id, statementLineIds),
+        )).for("update");
+        if (lines.length !== statementLineIds.length) throw new BulkActionValidationError("not_found");
+        const entryLineIds = entries.map((entry) => entry.statementLineId);
+        if (new Set(entryLineIds).size !== entryLineIds.length
+          || entryLineIds.some((lineId) => !statementLineIds.includes(lineId))
+          || statementLineIds.some((lineId) => !entryLineIds.includes(lineId))) {
+          throw new BulkActionValidationError("invalid_scope");
+        }
+        if (entries.some((entry) => entry.status !== "posted") || lines.some((line) => line.status !== "posted")) {
+          throw new BulkActionValidationError("invalid_status");
+        }
+        const updatedEntries = await tx.update(journalEntriesTable)
+          .set({ status: "draft" })
+          .where(and(
+            eq(journalEntriesTable.clientId, body.clientId),
+            inArray(journalEntriesTable.id, entryIds),
+            eq(journalEntriesTable.status, "posted"),
+          ))
+          .returning();
+        if (updatedEntries.length !== entryIds.length) throw new BulkActionValidationError("invalid_status");
+        const updatedLines = await tx.update(statementLinesTable)
+          .set({ status: "draft" })
+          .where(and(
+            eq(statementLinesTable.clientId, body.clientId),
+            inArray(statementLinesTable.id, statementLineIds),
+            eq(statementLinesTable.status, "posted"),
+          ))
+          .returning();
+        if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
+        await tx.insert(bulkTransitionAuditsTable).values({
+          clientId: body.clientId,
+          actorUserId: currentUserId(req),
+          actorName: displayName(req.dbUser!),
+          actorEmail: req.dbUser!.email,
+          transition: "bulk_unpost_entries",
+          fromStatus: "posted",
+          toStatus: "draft",
+          entryIds,
+          statementLineIds,
+        });
+        return { entries: updatedEntries };
+      });
+      return res.json(ConfirmAICopilotActionResponse.parse({
+        type: body.type,
+        clientId: body.clientId,
+        entryIds,
+        statementLineIds,
+        entryCount: result.entries.length,
+        lineCount: statementLineIds.length,
+        fromStatus: "posted",
+        toStatus: "draft",
+        entries: result.entries.map((entry) => journalEntryResponse(entry)),
+        updatedLineCount: statementLineIds.length,
+        bankAccount: null,
+      }));
+    } catch (error) {
+      if (error instanceof BulkActionValidationError) {
+        if (error.kind === "not_found") {
+          return res.status(404).json({ error: "One or more selected journal entries or statement lines are not available in this client." });
+        }
+        if (error.kind === "invalid_scope") {
+          return res.status(400).json({ error: "The selected journal entries and statement lines do not describe one matching client-scoped selection." });
+        }
+        return res.status(409).json({ error: "Only posted entries can be bulk unposted. Draft or mixed selections were rejected." });
+      }
+      throw error;
+    }
+  }
+
+  if (body.type === "merge_contacts") {
+    const survivingContactId = body.survivingContactId;
+    const mergedContactId = body.mergedContactId;
+    if (survivingContactId == null || mergedContactId == null) {
+      return res.status(400).json({ error: "A contact merge needs both the surviving and merged contact IDs." });
+    }
+    const membership = await requireContactMergeAccess(req, res, body.clientId);
+    if (!membership) return;
+    const actorUserId = currentUserId(req);
+    const mergedAt = new Date();
+    try {
+      const result = await db.transaction(async (tx) => {
+        const lockedContacts = await tx.select().from(contactsTable).where(and(
+          eq(contactsTable.clientId, body.clientId),
+          inArray(contactsTable.id, [survivingContactId, mergedContactId]),
+        )).for("update");
+        if (lockedContacts.length !== 2) throw new AssignContactsConflictError("Both contacts must belong to this client workspace.");
+        const plan = await buildContactMergePlan(tx, body.clientId, survivingContactId, mergedContactId);
+        if (plan.kind !== "ready") throw new AssignContactsConflictError("Only two active, unmerged contacts can be merged.");
+        if (!plan.canMerge) throw new AssignContactsConflictError("One or more aliases belong to another contact. Resolve those aliases before confirming the merge.");
+        if (plan.statementLineIds.length) {
+          await tx.update(statementLinesTable).set({ contactId: survivingContactId }).where(and(
+            eq(statementLinesTable.clientId, body.clientId),
+            eq(statementLinesTable.contactId, mergedContactId),
+          ));
+        }
+        if (plan.journalEntryIds.length) {
+          await tx.update(journalEntriesTable).set({ contactId: survivingContactId }).where(and(
+            eq(journalEntriesTable.clientId, body.clientId),
+            eq(journalEntriesTable.contactId, mergedContactId),
+          ));
+        }
+        if (plan.evidenceIds.length) {
+          await tx.execute(sql`select set_config('agaraccounting.allow_contact_merge_reparent', 'true', true)`);
+          await tx.update(contactClassificationEvidenceTable).set({ contactId: survivingContactId }).where(and(
+            eq(contactClassificationEvidenceTable.clientId, body.clientId),
+            eq(contactClassificationEvidenceTable.contactId, mergedContactId),
+          ));
+        }
+        await tx.delete(contactAliasesTable).where(and(
+          eq(contactAliasesTable.clientId, body.clientId),
+          eq(contactAliasesTable.contactId, mergedContactId),
+        ));
+        if (plan.aliasesToReassign.length) {
+          await tx.insert(contactAliasesTable).values(plan.aliasesToReassign.map((alias) => ({
+            clientId: body.clientId,
+            contactId: survivingContactId,
+            alias: alias.alias,
+            normalizedAlias: alias.normalizedAlias,
+          })));
+        }
+        const [removedContact] = await tx.update(contactsTable).set({
+          status: "archived",
+          mergedIntoContactId: survivingContactId,
+          mergedAt,
+          mergedByUserId: actorUserId,
+          updatedAt: mergedAt,
+        }).where(and(
+          eq(contactsTable.id, mergedContactId),
+          eq(contactsTable.clientId, body.clientId),
+          eq(contactsTable.status, "active"),
+          isNull(contactsTable.mergedIntoContactId),
+        )).returning();
+        if (!removedContact) throw new AssignContactsConflictError("Only two active, unmerged contacts can be merged.");
+        await tx.insert(contactMergeAuditsTable).values({
+          clientId: body.clientId,
+          survivingContactId,
+          mergedContactId,
+          actorUserId,
+          survivingContactName: plan.survivingContact.displayName,
+          mergedContactName: plan.mergedContact.displayName,
+          duplicateAliases: plan.duplicateAliases.map((alias) => alias.alias),
+          aliasesReassigned: plan.aliasesToReassign.map((alias) => alias.alias),
+          statementLineIds: plan.statementLineIds,
+          journalEntryIds: plan.journalEntryIds,
+          evidenceIds: plan.evidenceIds,
+          mergedAt,
+        });
+        return { survivingName: plan.survivingContact.displayName };
+      });
+      void result;
+      return res.json(ConfirmAICopilotActionResponse.parse({
+        type: body.type,
+        clientId: body.clientId,
+        survivingContactId,
+        mergedContactId,
+        updatedLineCount: 0,
+        bankAccount: null,
+      }));
+    } catch (error) {
+      if (error instanceof AssignContactsConflictError) {
+        return res.status(409).json({ error: error.message });
+      }
+      if ((error as { code?: string }).code === "23505") {
+        return res.status(409).json({ error: "An alias changed while this merge was being confirmed. Review the merge again." });
+      }
+      throw error;
+    }
+  }
+
+  if (body.type !== "recode_lines") {
+    return res.status(400).json({ error: "Unsupported AI confirmation action." });
+  }
+
   const lineIds = [...new Set(body.lineIds ?? [])];
   const accountSuggestion = body.accountSuggestion?.trim();
   if (!lineIds.length || !accountSuggestion) {
     return res.status(400).json({ error: "Select at least one line and a proposed account before confirming a recode." });
   }
-  const [selectedAccount] = await db.select().from(accountClassificationsTable).where(and(
-    eq(accountClassificationsTable.clientId, client.id),
-    eq(accountClassificationsTable.accountName, accountSuggestion),
-    eq(accountClassificationsTable.isActive, true),
-  )).limit(1);
-  if (!selectedAccount) {
-    return res.status(400).json({ error: "Choose an active account from this client's chart before confirming a classification." });
-  }
-  const [bankAccountClassification] = await db.select().from(accountClassificationsTable).where(and(
-    eq(accountClassificationsTable.clientId, client.id),
-    eq(accountClassificationsTable.accountName, "Bank / cash"),
-  )).limit(1);
-  const confidence = Number.isFinite(Number(body.confidence)) && Number(body.confidence) >= 0 && Number(body.confidence) <= 1
-    ? Number(body.confidence).toFixed(2)
-    : "0.75";
   let selectedLines: Array<typeof statementLinesTable.$inferSelect>;
   try {
-    selectedLines = await db.transaction(async (tx) => {
-      const lockedLines = await tx.select().from(statementLinesTable).where(and(
-        eq(statementLinesTable.clientId, client.id),
-        inArray(statementLinesTable.id, lineIds),
-      )).for("update");
-      if (lockedLines.length !== lineIds.length) {
-        throw new RecodeConflictError("One or more selected statement lines are not available in this client.");
-      }
-      if (lockedLines.some((line) => line.status === "posted")) {
-        throw new RecodeConflictError("Posted statement lines cannot be recoded through the AI assistant.");
-      }
-      if (body.confirmLearnedSuggestion) {
-        const currentPatterns = await tx.select().from(classificationPatternsTable)
-          .where(eq(classificationPatternsTable.userId, currentUserId(req)));
-        for (const line of lockedLines) {
-          const currentLearned = findWorkspaceSuggestion(currentPatterns, line.description);
-          if (!currentLearned || currentLearned.accountSuggestion !== accountSuggestion) {
-            throw new RecodeConflictError("The learned account recommendation changed. Refresh the line and confirm the current recommendation.");
-          }
-        }
-      }
-
-      const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
-        eq(journalEntriesTable.clientId, client.id),
-        inArray(journalEntriesTable.statementLineId, lineIds),
-      )).for("update");
-      const entryLineIds = new Set(lockedEntries.map((entry) => entry.statementLineId));
-      if (
-        lockedEntries.length !== lockedLines.length
-        || entryLineIds.size !== lockedLines.length
-        || lockedEntries.some((entry) => journalLifecycleStatus(entry.status) !== "draft")
-      ) {
-        throw new RecodeConflictError("Only draft journal entries can be recoded. Review posted entries individually.");
-      }
-
-      for (const line of lockedLines) {
-        const [updatedEntry] = await tx.update(journalEntriesTable).set({
-          confidence,
-          ...journalAccountsForSuggestion(line.direction, accountSuggestion),
-          debitAccountClassificationId: line.direction === "inflow" ? bankAccountClassification?.id ?? null : selectedAccount.id,
-          creditAccountClassificationId: line.direction === "inflow" ? selectedAccount.id : bankAccountClassification?.id ?? null,
-        }).where(and(
-          eq(journalEntriesTable.clientId, client.id),
-          eq(journalEntriesTable.statementLineId, line.id),
-          inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
-        )).returning({ id: journalEntriesTable.id });
-        if (!updatedEntry) throw new RecodeConflictError("A selected journal entry changed while its classification was being confirmed.");
-      }
-
-      const updatedLines = await tx.update(statementLinesTable).set({
-        accountSuggestion,
-        accountClassificationId: selectedAccount.id,
-        confidence,
-        contactSuggestionEvidenceCount: null,
-      }).where(and(
-        eq(statementLinesTable.clientId, client.id),
-        inArray(statementLinesTable.id, lineIds),
-        ne(statementLinesTable.status, "posted"),
-      )).returning({ id: statementLinesTable.id });
-      if (updatedLines.length !== lockedLines.length) {
-        throw new RecodeConflictError("A selected statement line changed while its classification was being confirmed.");
-      }
-
-      for (const line of lockedLines) {
-        await recordClassificationPattern(currentUserId(req), line.description, accountSuggestion, confidence, tx);
-      }
-      return lockedLines;
-    }
+    selectedLines = await applyRecodeLinesAction(
+      client.id,
+      currentUserId(req),
+      lineIds,
+      accountSuggestion,
+      body.confidence,
+      body.confirmLearnedSuggestion,
     );
   } catch (error) {
     if (error instanceof RecodeConflictError) {

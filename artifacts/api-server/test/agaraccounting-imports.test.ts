@@ -967,6 +967,8 @@ test("stages deterministic description recodes before directly posting draft ent
     entryIds?: number[];
     statementLineIds?: number[];
     accountSuggestion?: string;
+    applied?: boolean;
+    requiresConfirmation?: boolean;
   };
   type CopilotResponse = { answer: string; recommendations: Recommendation[] };
   const classification = await request<CopilotResponse>("/agaraccounting/ai-chat", {
@@ -981,6 +983,8 @@ test("stages deterministic description recodes before directly posting draft ent
   assert.equal(classification.body.recommendations[0]?.type, "recode_lines");
   assert.deepEqual(classification.body.recommendations[0]?.lineIds, [createdLine.body.id]);
   assert.equal(classification.body.recommendations[0]?.accountSuggestion, "Software & subscriptions");
+  assert.equal(classification.body.recommendations[0]?.applied, true);
+  assert.equal(classification.body.recommendations[0]?.requiresConfirmation, false);
 
   const mixedRequest = await request<CopilotResponse>("/agaraccounting/ai-chat", {
     method: "POST",
@@ -993,19 +997,7 @@ test("stages deterministic description recodes before directly posting draft ent
   assert.equal(mixedRequest.body.recommendations.length, 0);
   assert.match(mixedRequest.body.answer, /separate steps/i);
 
-  const recode = await request<{ updatedLineCount: number }>("/agaraccounting/ai-actions/confirm", {
-    method: "POST",
-    body: JSON.stringify({
-      type: "recode_lines",
-      clientId,
-      lineIds: classification.body.recommendations[0]?.lineIds,
-      accountSuggestion: "Software & subscriptions",
-    }),
-  });
-  assert.equal(recode.response.status, 200);
-  assert.equal(recode.body.updatedLineCount, 1);
-
-  const journalEntries = await request<Array<{ id: number; statementLineId: number; status: string }>>(
+  const journalEntries = await request<Array<{ id: number; statementLineId: number; status: string; lines?: Array<{ account: string }> }>>(
     `/agaraccounting/journal-entries?clientId=${clientId}`,
   );
   assert.equal(journalEntries.response.status, 200);
