@@ -3570,7 +3570,7 @@ components:
           items: { type: string }
     TrialBalanceAccountTransaction:
       type: object
-      required: [entryId, statementLineId, date, description, side, amount, currency, functionalAmount, functionalCurrency]
+      required: [entryId, statementLineId, date, description, side, amount, currency, functionalAmount, functionalCurrency, contactName]
       properties:
         entryId: { type: number }
         statementLineId: { type: number }
@@ -3581,6 +3581,7 @@ components:
         currency: { type: string }
         functionalAmount: { type: ["number", "null"] }
         functionalCurrency: { type: ["string", "null"] }
+        contactName: { type: ["string", "null"] }
         counterAccount: { type: string }
     StatementSection:
       type: object

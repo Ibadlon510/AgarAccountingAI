@@ -9787,6 +9787,11 @@ router.get("/agaraccounting/trial-balance/transactions", async (req, res) => {
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
   const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const contacts = await db.select({
+    id: contactsTable.id,
+    displayName: contactsTable.displayName,
+  }).from(contactsTable).where(eq(contactsTable.clientId, client.id));
+  const contactNames = new Map(contacts.map((contact) => [contact.id, contact.displayName]));
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
   const eligibility = reportingEligibility(entries, functionalCurrency);
   const transactions = eligibility.eligibleEntries
@@ -9803,6 +9808,7 @@ router.get("/agaraccounting/trial-balance/transactions", async (req, res) => {
         currency: entry.currency,
         functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
         functionalCurrency: entry.functionalCurrency,
+        contactName: entry.contactId == null ? null : contactNames.get(entry.contactId) ?? null,
         counterAccount: side === "debit" ? entry.creditAccount : entry.debitAccount,
       };
     })

@@ -2031,6 +2031,8 @@ export interface TrialBalanceAccountTransaction {
   functionalAmount: number | null;
   /** @nullable */
   functionalCurrency: string | null;
+  /** @nullable */
+  contactName: string | null;
   counterAccount?: string;
 }
 

@@ -2646,6 +2646,7 @@ export const GetTrialBalanceAccountTransactionsResponseItem = zod.object({
   "currency": zod.string(),
   "functionalAmount": zod.number().nullable(),
   "functionalCurrency": zod.string().nullable(),
+  "contactName": zod.string().nullable(),
   "counterAccount": zod.string().optional()
 })
 export const GetTrialBalanceAccountTransactionsResponse = zod.array(GetTrialBalanceAccountTransactionsResponseItem)
