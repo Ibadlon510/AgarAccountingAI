@@ -14,7 +14,7 @@ type OutboundEmail = {
   to: string;
   subject: string;
   text: string;
-  replyTo?: string;
+  html?: string;
 };
 
 type ResendResponse = {
@@ -50,15 +50,6 @@ function verifiedFromAddress() {
   return `AgarAccounting AI <${address}>`;
 }
 
-function validReplyTo(replyTo: string | undefined) {
-  if (!replyTo) return undefined;
-  const address = replyTo.trim();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
-    throw new EmailDeliveryError("The reply-to sender is not a valid email address.");
-  }
-  return address;
-}
-
 async function sendEmail(
   email: OutboundEmail,
   proxy?: ConnectorProxy,
@@ -78,7 +69,6 @@ async function sendEmail(
   const connectors = proxy ? undefined : new ReplitConnectors();
   const connectorProxy = proxy ?? connectors!.proxy.bind(connectors);
   const from = verifiedFromAddress();
-  const replyTo = validReplyTo(email.replyTo);
   let response: Response;
   try {
     response = await connectorProxy(RESEND_CONNECTOR, RESEND_EMAILS_PATH, {
@@ -89,7 +79,7 @@ async function sendEmail(
         to: [email.to],
         subject: email.subject,
         text: email.text,
-         ...(replyTo ? { reply_to: replyTo } : {}),
+         ...(email.html ? { html: email.html } : {}),
       }),
     });
   } catch {

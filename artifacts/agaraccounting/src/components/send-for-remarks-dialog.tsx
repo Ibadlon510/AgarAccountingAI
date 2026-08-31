@@ -64,8 +64,7 @@ export function SendForRemarksDialog({
   const invalidEmail = email.trim().length > 0 && !EMAIL_PATTERN.test(email.trim());
   const overCap = selectedLines.length > MAX_REMARK_LINES;
   const subject = `Please add remarks for ${clientName} — ${selectedLines.length} transaction${selectedLines.length === 1 ? '' : 's'}`;
-  const senderEmail = user?.primaryEmailAddress?.emailAddress ?? '';
-  const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || senderEmail || 'Current user';
+  const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'AgarAccounting AI';
   const canSend = EMAIL_PATTERN.test(email.trim()) && selectedLines.length > 0 && !overCap && !send.isPending;
 
   const submit = (event: React.FormEvent) => {
@@ -224,10 +223,6 @@ export function SendForRemarksDialog({
               <span className="min-w-0 truncate font-medium">AgarAccounting AI</span>
             </div>
             <div className="flex min-w-0 gap-2">
-              <span className="w-12 shrink-0 text-muted-foreground">Reply to</span>
-              <span className="min-w-0 truncate font-medium">{senderName}{senderEmail ? ` <${senderEmail}>` : ''}</span>
-            </div>
-            <div className="flex min-w-0 gap-2">
               <span className="w-12 shrink-0 text-muted-foreground">To</span>
               <span className="min-w-0 truncate font-medium">{email.trim() || 'recipient@company.com'}</span>
             </div>
@@ -238,7 +233,6 @@ export function SendForRemarksDialog({
             <div className="border-t border-border pt-3 text-muted-foreground">
               {message.trim() || `Please add remarks for ${selectedLines.length} draft statement line${selectedLines.length === 1 ? '' : 's'} in this client workspace.`}
             </div>
-            <div className="text-muted-foreground">Sent by {senderName} through AgarAccounting AI.</div>
             <div className="border-t border-border pt-3 text-muted-foreground">
               This link stays active for 3 days. The recipient does not need an account.
             </div>
@@ -246,6 +240,16 @@ export function SendForRemarksDialog({
               {selectedLines.length > 0
                 ? `${selectedLines.length} draft statement line${selectedLines.length === 1 ? '' : 's'} included`
                 : 'Select at least one draft statement line'}
+            </div>
+            <div className="border-t border-border pt-3">
+              <div className="text-muted-foreground">Link address</div>
+              <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">Generated securely when the email is sent</div>
+              <button type="button" disabled className="mt-3 inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground opacity-50">
+                Open remarks page
+              </button>
+            </div>
+            <div className="border-t border-border pt-3 text-muted-foreground">
+              Kind regards,<br />{senderName}
             </div>
           </div>
           <p className="mt-3 text-[10px] leading-4 text-muted-foreground">The public link and expiry date will be added automatically when the email is sent.</p>

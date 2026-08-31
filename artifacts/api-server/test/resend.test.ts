@@ -51,7 +51,7 @@ test("sends remarks-request content through the same Resend email endpoint", asy
     to: "owner@client.test",
     subject: "Please add remarks for Remarks client — 2 transactions",
     text: "https://127.0.0.1/detail-request/token",
-    replyTo: "accountant@example.test",
+    html: "<p><a href=\"https://127.0.0.1/detail-request/token\">Open remarks page</a></p>",
   }, async (connector, path, options) => {
     request = { connector, path, body: JSON.parse(options.body) };
     return Response.json({ id: "email-456" });
@@ -64,7 +64,7 @@ test("sends remarks-request content through the same Resend email endpoint", asy
     to: ["owner@client.test"],
     subject: "Please add remarks for Remarks client — 2 transactions",
     text: "https://127.0.0.1/detail-request/token",
-    reply_to: "accountant@example.test",
+    html: "<p><a href=\"https://127.0.0.1/detail-request/token\">Open remarks page</a></p>",
   });
 });
 

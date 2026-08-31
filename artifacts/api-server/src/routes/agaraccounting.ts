@@ -1556,6 +1556,16 @@ function displayName(user: Pick<typeof usersTable.$inferSelect, "email" | "first
   return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "Team member";
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[character] ?? character));
+}
+
 async function getWorkspaceClientIds(userId: string) {
   const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
@@ -9494,10 +9504,7 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
   }
   const client = await requireOwnedClient(req, res, parsed.data.clientId);
   if (!client) return;
-  const senderEmail = req.dbUser?.email?.trim();
-  if (!senderEmail || !req.dbUser) {
-    return res.status(400).json({ error: "Your account needs a verified email address before sending remarks." });
-  }
+  if (!req.dbUser) return res.status(401).json({ error: "Authenticated user is required." });
   const senderName = displayName(req.dbUser);
   const lineIds = [...new Set(parsed.data.statementLineIds)];
   const lines = await db.select().from(statementLinesTable).where(and(
@@ -9541,19 +9548,28 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
   const text = [
     senderMessage,
     senderMessage ? "" : null,
-    `Sent by ${senderName} through AgarAccounting AI.`,
-    "",
     `Please add remarks for ${count} draft statement line${count === 1 ? "" : "s"} in ${client.name}.`,
     `This link stays active for 3 days and expires on ${expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" })} UTC.`,
     "",
     link,
+    "",
+    "Kind regards,",
+    senderName,
   ].filter((part) => part !== null).join("\n");
+  const html = [
+    senderMessage ? `<p>${escapeHtml(senderMessage).replace(/\n/g, "<br>")}</p>` : "",
+    `<p>Please add remarks for ${count} draft statement line${count === 1 ? "" : "s"} in <strong>${escapeHtml(client.name)}</strong>.</p>`,
+    `<p>This link stays active for 3 days and expires on ${escapeHtml(expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" }))} UTC.</p>`,
+    `<p><a href="${escapeHtml(link)}" style="display:inline-block;border-radius:6px;background:#176b4d;color:#ffffff;padding:12px 18px;text-decoration:none;font-weight:600;">Open remarks page</a></p>`,
+    `<p>Link address:<br><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>`,
+    `<p>Kind regards,<br>${escapeHtml(senderName)}</p>`,
+  ].join("");
   try {
     await sendDetailRequestEmail({
       to: parsed.data.recipientEmail.trim(),
       subject,
       text,
-      replyTo: senderEmail,
+      html,
     });
   } catch (error) {
     await db.update(statementLineDetailRequestsTable)
