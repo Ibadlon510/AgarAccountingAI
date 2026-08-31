@@ -2808,8 +2808,14 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     return accounts[0]?.accountName ?? preferred ?? '';
   };
   const [selectedAccount, setSelectedAccount] = useState(() => resolveSelectableAccount(line.accountSuggestion));
+  const accountSelectionEditedRef = useRef(false);
   useEffect(() => {
-    setSelectedAccount(resolveSelectableAccount(line.accountSuggestion));
+    setSelectedAccount((current) => {
+      if (accountSelectionEditedRef.current && accounts.some((account) => account.accountName === current)) {
+        return current;
+      }
+      return resolveSelectableAccount(line.accountSuggestion);
+    });
   }, [accounts, line.accountSuggestion, journalClassifiedAccount]);
   const debitLine = entry?.lines.find((item) => item.debit > 0);
   const creditLine = entry?.lines.find((item) => item.credit > 0);
@@ -2999,7 +3005,10 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                               data-testid={`select-account-suggestion-${line.id}`}
                               aria-label="Classification decision"
                               value={selectedAccount}
-                              onChange={(event) => setSelectedAccount(event.target.value)}
+                              onChange={(event) => {
+                                accountSelectionEditedRef.current = true;
+                                setSelectedAccount(event.target.value);
+                              }}
                               onClick={(event) => event.stopPropagation()}
                               className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary"
                             >

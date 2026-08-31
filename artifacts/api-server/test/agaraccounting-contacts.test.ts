@@ -200,7 +200,7 @@ test("uses client-scoped contact history without bypassing posting or chart safe
       body: JSON.stringify({
         clientId,
         contactId: suggestedOnly.contactId,
-        accountSuggestion: suggestedOnly.accountSuggestion,
+        accountSuggestion: contactAccount.body.accountName,
       }),
     },
   );
@@ -214,6 +214,11 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   );
   assert.equal(postedSuggestedLine?.contactId, inlineMatchContact.body.id);
   assert.equal(postedSuggestedEntry?.contactId, inlineMatchContact.body.id);
+  assert.equal(postedSuggestedLine?.accountSuggestion, contactAccount.body.accountName);
+  assert.equal(postedSuggestedLine?.accountClassificationId, contactAccount.body.id);
+  assert.equal(postedSuggestedLine?.contactSuggestionEvidenceCount, null);
+  assert.equal(postedSuggestedEntry?.debitAccount, contactAccount.body.accountName);
+  assert.equal(postedSuggestedEntry?.debitAccountClassificationId, contactAccount.body.id);
 
   const rejectedUnknownContact = await request<{ error: string }>("/agaraccounting/contacts", {
     method: "POST",

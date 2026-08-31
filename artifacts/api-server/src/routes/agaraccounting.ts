@@ -8534,13 +8534,33 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
           eq(accountClassificationsTable.isActive, true),
         )).limit(1);
         if (!account) throw new JournalPostRollback({ kind: "account_not_found" });
+        const [updatedLine] = await tx.update(statementLinesTable).set({
+          accountSuggestion: body.accountSuggestion,
+          accountClassificationId: account.id,
+          contactSuggestionEvidenceCount: null,
+        }).where(and(
+          eq(statementLinesTable.id, line.id),
+          eq(statementLinesTable.clientId, client.id),
+          inArray(statementLinesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+        )).returning();
+        if (!updatedLine) return { kind: "line_conflict" as const };
+        line = updatedLine;
         const [updatedEntry] = await tx.update(journalEntriesTable).set(
-          line.direction === "inflow" ? { creditAccount: body.accountSuggestion } : { debitAccount: body.accountSuggestion },
+          line.direction === "inflow"
+            ? {
+                creditAccount: body.accountSuggestion,
+                creditAccountClassificationId: account.id,
+              }
+            : {
+                debitAccount: body.accountSuggestion,
+                debitAccountClassificationId: account.id,
+              },
         ).where(and(
           eq(journalEntriesTable.id, workingEntry.id),
           eq(journalEntriesTable.clientId, client.id),
+          inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
         )).returning();
-        if (!updatedEntry) return { kind: "not_found" as const };
+        if (!updatedEntry) return { kind: "not_draft" as const };
         workingEntry = updatedEntry;
       }
 
