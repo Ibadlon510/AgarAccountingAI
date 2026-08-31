@@ -5766,6 +5766,8 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           exchangeRateSourceScope: conversion.exchangeRateSourceScope,
           exchangeRateStatus: conversion.exchangeRateStatus,
           importDedupeKey: null,
+          noteSummary: { ...emptyNoteSummary },
+          pendingClarification: null,
           createdAt: new Date(),
         };
       }));

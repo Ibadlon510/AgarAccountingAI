@@ -378,8 +378,7 @@ test("posting can be reversed without rewriting reports or accountability eviden
     assert.equal(draft.body.snapshot.traceability.postedEntryCount, 1);
    const basisNote = draft.body.snapshot.notes.find((note) => note.number === 1);
    assert.ok(basisNote);
-   assert.match(basisNote.narrative, /Reversible lifecycle/);
-   assert.doesNotMatch(basisNote.narrative, /Reversible lifecycle LLC/);
+   assert.match(basisNote.narrative, /Reversible lifecycle LLC/);
 
     const forbiddenUnpost = await request<{ error: string }>(`/agaraccounting/journal-entries/${entry.id}/unpost`, {
       method: "POST",

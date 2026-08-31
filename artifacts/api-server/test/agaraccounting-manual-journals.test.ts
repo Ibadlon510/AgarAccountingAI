@@ -96,6 +96,11 @@ after(async () => {
         .where(eq(database.clientsTable.id, clientId));
     }
     if (database) {
+      await database.db.delete(database.clientWorkspacesTable)
+        .where(eq(database.clientWorkspacesTable.userId, primaryUserId));
+      await database.db.update(database.clientsTable)
+        .set({ ownerUserId: null })
+        .where(eq(database.clientsTable.ownerUserId, primaryUserId));
       await database.db.delete(database.usersTable)
         .where(eq(database.usersTable.id, primaryUserId));
     }
