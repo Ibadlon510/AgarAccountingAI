@@ -2046,19 +2046,24 @@ function ContactForm({ contact, clientId, onSaved }: { contact?: Contact, client
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    const displayName = form.displayName.trim() || 'Contact';
     if (contact) {
       updateMutation.mutate({ id: contact.id, data: form }, {
-        onSuccess: () => {
+        onSuccess: (saved) => {
           queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId }) });
+          notify.success('Contact updated', { description: `${saved?.displayName ?? displayName} is up to date.` });
           onSaved();
-        }
+        },
+        onError: (error) => notify.error(error, { title: 'Update failed', fallback: `${displayName} could not be updated.` }),
       });
     } else {
       createMutation.mutate({ data: form }, {
-        onSuccess: () => {
+        onSuccess: (created) => {
           queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId }) });
+          notify.success('Contact created', { description: `${created?.displayName ?? displayName} is now in the directory.` });
           onSaved();
-        }
+        },
+        onError: (error) => notify.error(error, { title: 'Create failed', fallback: `${displayName} could not be created.` }),
       });
     }
   };
@@ -2135,7 +2140,10 @@ function ContactMergeDialog({ contacts, clientId, onClose, onMerged }: { contact
 
   const reviewMerge = () => {
     setPreview(null);
-    previewMutation.mutate({ data: input }, { onSuccess: setPreview });
+    previewMutation.mutate({ data: input }, {
+      onSuccess: setPreview,
+      onError: (error) => notify.error(error, { title: 'Merge preview failed', fallback: 'The merge preview could not be generated. Refresh the contacts and try again.' }),
+    });
   };
   const confirmMerge = () => {
     if (!preview?.canMerge) return;
@@ -2145,8 +2153,12 @@ function ContactMergeDialog({ contacts, clientId, onClose, onMerged }: { contact
         queryClient.invalidateQueries({ queryKey: getGetContactHistoryQueryKey(clientId, survivingContactId) });
         queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+        notify.success('Contacts merged', {
+          description: `${mergedContact.displayName} was archived; ${survivingContact.displayName} kept as the active record.`,
+        });
         onMerged(survivingContactId);
       },
+      onError: (error) => notify.error(error, { title: 'Merge failed', fallback: 'The merge could not be completed. Refresh the contacts and review the merge again.' }),
     });
   };
 
@@ -2276,6 +2288,8 @@ function FilterPills<T extends string>({
   testId,
   ariaLabel,
   compact = false,
+  loading = false,
+  loadingLabel,
 }: {
   label: string;
   value: T;
@@ -2284,9 +2298,24 @@ function FilterPills<T extends string>({
   testId?: string;
   ariaLabel?: string;
   compact?: boolean;
+  loading?: boolean;
+  loadingLabel?: string;
 }) {
   const { open, setOpen, openMenu, scheduleClose } = useHoverMenu();
   const selectedOption = options.find((option) => option.value === value) ?? options[0];
+  if (compact && loading) {
+    return (
+      <span
+        data-testid={testId}
+        aria-label={ariaLabel ?? label}
+        aria-busy="true"
+        className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-muted/70 px-2 text-xs font-semibold text-muted-foreground"
+      >
+        <LoaderCircle size={12} className="animate-spin text-primary" />
+        {loadingLabel ?? `Loading ${label.toLowerCase()}…`}
+      </span>
+    );
+  }
   const select = (next: T) => {
     onChange(next);
     setOpen(false);
@@ -2715,7 +2744,13 @@ function StatementLinesPage() {
   const unpost = useUnpostJournalEntry();
   const unpostEntry = (entry: JournalEntry) => {
     if (!window.confirm('Unpost this journal entry? It will leave live reports and return to draft.')) return;
-    unpost.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, { onSuccess: refreshPostedData });
+    unpost.mutate({ id: entry.id, data: { clientId: journalParams.clientId } }, {
+      onSuccess: () => {
+        refreshPostedData();
+        notify.success('Journal entry unposted', { description: `Entry #${entry.id} is back in draft.` });
+      },
+      onError: (error) => notify.error(error, { title: 'Unpost failed', fallback: 'This entry could not be unposted.' }),
+    });
   };
   const openBulkAction = (type: BulkStatementAction['type'], trigger: HTMLButtonElement) => {
     const eligible = allDraft;
@@ -2745,14 +2780,26 @@ function StatementLinesPage() {
       },
     }, {
       onSuccess: () => {
+        const isRecode = bulkAction.type === 'recode_lines';
+        const count = bulkAction.lineIds.length;
         setSelectedLineIds((current) => current.filter((id) => !bulkAction.lineIds.includes(id)));
         setBulkAction(null);
         setBulkError(null);
         refreshPostedData();
+        notify.success(
+          isRecode
+            ? `${count} line${count === 1 ? '' : 's'} recoded`
+            : `${count} entr${count === 1 ? 'y' : 'ies'} posted`,
+          { description: isRecode ? `Applied ${accountSuggestion ?? 'the selected account'} to draft classification.` : 'Now live in reports.' },
+        );
       },
       onError: (error) => {
         setBulkError(error);
         refreshPostedData();
+        notify.error(error, {
+          title: bulkAction.type === 'recode_lines' ? 'Bulk recode failed' : 'Bulk post failed',
+          fallback: 'The bulk action could not be applied. Refresh the queue and try again.',
+        });
       },
     });
   };
@@ -2844,6 +2891,8 @@ function StatementLinesPage() {
           value={currency}
           onChange={setCurrency}
           options={[{ value: 'all', label: 'All currencies' }, ...currencies.map((item) => ({ value: item, label: item }))]}
+          loading={catalogQuery.isLoading}
+          loadingLabel="Detecting currencies…"
         />
         <DateRangeFilter compact from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-statement-lines-date-from" toTestId="input-statement-lines-date-to" clearTestId="button-clear-statement-lines-date-filter" />
     </FilterToolbar>
@@ -3255,6 +3304,8 @@ function JournalEntriesPage() {
         value={currency}
         onChange={setCurrency}
         options={[{ value: 'all', label: 'All currencies' }, ...currencies.map((item) => ({ value: item, label: item }))]}
+        loading={query.isLoading}
+        loadingLabel="Detecting currencies…"
       />
       <DateRangeFilter compact from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-journal-entries-date-from" toTestId="input-journal-entries-date-to" clearTestId="button-clear-journal-entries-date-filter" />
       <FilterPills
