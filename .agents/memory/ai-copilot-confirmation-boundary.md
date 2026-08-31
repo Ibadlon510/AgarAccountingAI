@@ -7,11 +7,11 @@ AI may explain the close, identify similar transactions, prepare batch recodes, 
 
 AI-chat statement uploads are proposals too. Parsing may persist a client-scoped pending import and detected currency, but it must create no statement or journal lines until a user explicitly confirms the source currency from Import history.
 
-Bulk transitions accept only one clear eligible status at a time: approval proposals target explicitly scoped suggested entries, while posting proposals target explicitly scoped approved entries. Broad requests with unsupported qualifiers must be refused rather than widened.
+Bulk posting is the accountant’s explicit confirmation of the persisted draft treatments in the selected scope. Newer learned or contact-history account recommendations are optional and must not force a separate recode step.
 
 **Why:** The product is built around human accountability for IFRS bookkeeping. Unreviewed AI changes must not affect the ledger, and a guessed or mixed-status bulk scope could move the wrong entries into the ledger.
 
-**How to apply:** New AI capabilities should return structured, client-scoped proposals. For statement uploads, retain the private source and pending preview, apply the confirmed statement currency consistently to every row, and load review lines only when that same pending record is confirmed. Confirmed recodes may affect only still-suggested, unposted journal work; reject proposals touching approved or posted entries. For bulk transitions, require journal-entry and statement-line scopes to match exactly and revalidate eligibility inside the confirmation transaction.
+**How to apply:** New AI capabilities should return structured, client-scoped proposals. For statement uploads, retain the private source and pending preview, apply the confirmed statement currency consistently to every row, and load review lines only when that same pending record is confirmed. Explicit recodes may affect only unposted journal work and still revalidate the recommendation when requested. Bulk posting must require journal-entry and statement-line scopes to match exactly and revalidate draft status, active accounts and contacts, exchange rates, and atomic contact creation, but it posts the current draft accounts without blocking on optional newer recommendations.
 
 An accountant’s account selection at posting is the authoritative classification decision. Persist it on the statement line and journal account, update the matching classification references, and clear automated contact-treatment provenance.
 

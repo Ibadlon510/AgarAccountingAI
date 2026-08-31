@@ -1096,3 +1096,64 @@ test("posts through a stale learned-account recommendation, while recode confirm
   assert.ok(largeListing.body.length >= 32);
   assert.ok(listingDurationMs < 5_000, `Expected batched statement review lookup under 5s, took ${listingDurationMs}ms`);
 });
+
+test("bulk posting treats learned account recommendations as optional", async () => {
+  const created = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Optional bulk recommendation ${randomUUID()}`,
+      legalName: "Optional Bulk Recommendation LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "2026",
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  clientId = created.body.id;
+
+  const bank = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Optional Recommendation Bank",
+      legalName: "Optional Recommendation Bank LLC",
+      contactType: "supplier",
+      aliases: ["EMIRATES NBD"],
+    }),
+  });
+  assert.equal(bank.response.status, 201);
+
+  const confirmed = await createLine("BANK CHARGES - EMIRATES NBD; TXN 982731 / REF A91X22");
+  assert.equal((await link(confirmed.id, bank.body.id)).response.status, 200);
+  await recode(confirmed.id, "Bank charges");
+  assert.equal((await post((await entryFor(confirmed.id)).id)).response.status, 200);
+
+  const recurring = await createLine("Payment reference Z81B20: Emirates, NBD bank service fee transaction 883311");
+  const recurringEntry = await entryFor(recurring.id);
+  await database.db.update(database.journalEntriesTable).set({ debitAccount: "General expenses" })
+    .where(eq(database.journalEntriesTable.id, recurringEntry.id));
+  await database.db.update(database.statementLinesTable).set({ contactSuggestionEvidenceCount: null })
+    .where(eq(database.statementLinesTable.id, recurring.id));
+
+  const refreshed = (await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`))
+    .body.find((line) => line.id === recurring.id);
+  assert.equal(refreshed?.accountSuggestion, "Bank charges");
+  assert.equal(refreshed?.journalAccount, "General expenses");
+  assert.equal(refreshed?.accountConfirmationRequired, true);
+
+  const bulkPost = await request<{ entryCount: number }>("/agaraccounting/ai-actions/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      type: "bulk_post_entries",
+      entryIds: [recurringEntry.id],
+      statementLineIds: [recurring.id],
+    }),
+  });
+  assert.equal(bulkPost.response.status, 200);
+  assert.equal(bulkPost.body.entryCount, 1);
+  const [postedEntry] = await database.db.select().from(database.journalEntriesTable)
+    .where(eq(database.journalEntriesTable.id, recurringEntry.id));
+  assert.equal(postedEntry?.debitAccount, "General expenses");
+  assert.equal(postedEntry?.status, "posted");
+});

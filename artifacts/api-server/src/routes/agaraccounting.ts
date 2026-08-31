@@ -2851,45 +2851,6 @@ async function validateCurrentContactTreatment(
   return null;
 }
 
-async function hasUnconfirmedLearnedTreatment(
-  executor: Pick<typeof db, "select">,
-  userId: string,
-  clientId: number,
-  line: typeof statementLinesTable.$inferSelect,
-  entry: typeof journalEntriesTable.$inferSelect,
-) {
-  const patterns = await executor.select().from(classificationPatternsTable)
-    .where(eq(classificationPatternsTable.userId, userId));
-  const activeAccounts = await executor.select({ accountName: accountClassificationsTable.accountName })
-    .from(accountClassificationsTable)
-    .where(and(
-      eq(accountClassificationsTable.clientId, clientId),
-      eq(accountClassificationsTable.isActive, true),
-    ));
-  const activeNames = new Set(activeAccounts.map((account) => account.accountName));
-  const learned = findWorkspaceSuggestion(
-    patterns.filter((pattern) => activeNames.has(pattern.accountSuggestion)),
-    line.description,
-  );
-  if (!learned) return false;
-  const journalAccount = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
-  return learned.accountSuggestion !== journalAccount;
-}
-
-async function hasUnconfirmedAccountRecommendation(
-  executor: Pick<typeof db, "select">,
-  clientId: number,
-  line: typeof statementLinesTable.$inferSelect,
-  entry: typeof journalEntriesTable.$inferSelect,
-) {
-  if (line.contactSuggestionEvidenceCount == null) return false;
-  const contactSuggestion = await resolveContactSuggestion(executor, clientId, line.description, line.direction, line.contactId, line);
-  const recommendedAccount = contactSuggestion.accountSuggestion;
-  if (!recommendedAccount) return false;
-  const journalAccount = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
-  return recommendedAccount !== journalAccount;
-}
-
 type SuggestionSource = "ai" | "heuristic" | "workspace_learning";
 type ClassificationSuggestion = {
   accountSuggestion: string;
@@ -3828,7 +3789,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "unconfirmed_learned_treatment" | "unconfirmed_account_recommendation") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required") {
     super(kind);
   }
 }
@@ -6101,23 +6062,6 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             false,
           );
           if (validation) throw new BulkActionValidationError(validation);
-          if (await hasUnconfirmedLearnedTreatment(
-            tx,
-            currentUserId(req),
-            body.clientId,
-            materialized.line,
-            materialized.entry,
-          )) {
-            throw new BulkActionValidationError("unconfirmed_learned_treatment");
-          }
-          if (await hasUnconfirmedAccountRecommendation(
-            tx,
-            body.clientId,
-            materialized.line,
-            materialized.entry,
-          )) {
-            throw new BulkActionValidationError("unconfirmed_account_recommendation");
-          }
         }
         if (materializedPairs.some(({ entry }) => isMissingExchangeRate(entry, client.functionalCurrency))
           || materializedPairs.some(({ line }) => isMissingExchangeRate(line, client.functionalCurrency))) {
@@ -6200,12 +6144,6 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         }
         if (error.kind === "contact_identification_required") {
           return res.status(409).json({ error: "Identify or explicitly dismiss every unknown customer or supplier before posting the selected entries." });
-        }
-        if (error.kind === "unconfirmed_learned_treatment") {
-          return res.status(409).json({ error: "Confirm each learned account recommendation before posting the selected entries." });
-        }
-        if (error.kind === "unconfirmed_account_recommendation") {
-          return res.status(409).json({ error: "The recommended account changed for at least one selected entry. Confirm the account before posting the selected entries." });
         }
         return res.status(409).json({ error: "Only draft entries can be bulk posted. Posted entries were rejected." });
       }
