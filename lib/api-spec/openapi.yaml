@@ -958,6 +958,48 @@ paths:
           description: Selection is empty, too large, not draft, or not in this client
         "502":
           description: The remarks email was not sent
+  /agaraccounting/statement-lines/detail-requests:
+    get:
+      operationId: listStatementLineDetailRequests
+      tags: [agaraccounting]
+      summary: List remarks links for a client
+      parameters:
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Remarks links for the client
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatementLineDetailRequest"
+        "400":
+          description: clientId is missing or invalid
+    post:
+      operationId: requestStatementLineDetails
+      tags: [agaraccounting]
+      summary: Email a public remarks link for selected draft statement lines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineDetailRequestInput"
+      responses:
+        "201":
+          description: Remarks request created and email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLineDetailRequest"
+        "400":
+          description: Selection is empty, too large, not draft, or not in this client
+        "502":
+          description: The remarks email was not sent
   /agaraccounting/statement-lines/detail-requests/{id}/revoke:
     post:
       operationId: revokeStatementLineDetailRequest
@@ -3162,13 +3204,35 @@ components:
         clientId: { type: number }
     StatementLineDetailRequest:
       type: object
-      required: [id, recipientEmail, expiresAt, sentAt]
+      required: [id, recipientEmail, status, expiresAt, sentAt, publicUrl, lineCount, postedLineCount, remarkCount, lines]
       properties:
         id: { type: number }
         recipientEmail: { type: string }
+        senderMessage: { type: ["string", "null"] }
+        status: { type: string, enum: [active, inactive] }
         expiresAt: { type: string, format: date-time }
         sentAt: { type: string, format: date-time }
         revokedAt: { type: ["string", "null"], format: date-time }
+        publicUrl: { type: string }
+        lineCount: { type: number }
+        postedLineCount: { type: number }
+        remarkCount: { type: number }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementLineDetailRequestLine"
+    StatementLineDetailRequestLine:
+      type: object
+      required: [id, date, description, currency, amount, direction, status, remarkCount]
+      properties:
+        id: { type: number }
+        date: { type: string }
+        description: { type: string }
+        currency: { type: string }
+        amount: { type: number }
+        direction: { type: string }
+        status: { type: string, enum: [open, posted] }
+        remarkCount: { type: number }
     StatementLineNoteAttachment:
       type: object
       required: [id, filename, contentType, size]
@@ -3221,7 +3285,7 @@ components:
         size: { type: number }
     PublicStatementLine:
       type: object
-      required: [id, date, description, currency, amount, direction, posted, note]
+      required: [id, date, description, currency, amount, direction, posted, status, notes]
       properties:
         id: { type: number }
         date: { type: string }
@@ -3230,16 +3294,18 @@ components:
         amount: { type: number }
         direction: { type: string }
         posted: { type: boolean }
-        note:
-          oneOf:
-            - $ref: "#/components/schemas/PublicStatementLineNote"
-            - type: "null"
+        status: { type: string, enum: [open, posted] }
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicStatementLineNote"
     PublicStatementLineNote:
       type: object
-      required: [noteText, updatedAt, attachments]
+      required: [id, noteText, createdAt, attachments]
       properties:
+        id: { type: number }
         noteText: { type: string }
-        updatedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
         attachments:
           type: array
           items:

@@ -1551,10 +1551,32 @@ export const RequestStatementLineDetailsBody = zod.object({
 export const RequestStatementLineDetailsResponse = zod.object({
   "id": zod.number(),
   "recipientEmail": zod.string(),
+  "senderMessage": zod.string().nullish(),
+  "status": zod.enum(['active', 'inactive']),
   "expiresAt": zod.coerce.date(),
   "sentAt": zod.coerce.date(),
-  "revokedAt": zod.coerce.date().nullish()
+  "revokedAt": zod.coerce.date().nullish(),
+  "publicUrl": zod.string(),
+  "lineCount": zod.number(),
+  "postedLineCount": zod.number(),
+  "remarkCount": zod.number(),
+  "lines": zod.array(zod.object({
+    "id": zod.number(),
+    "date": zod.string(),
+    "description": zod.string(),
+    "currency": zod.string(),
+    "amount": zod.number(),
+    "direction": zod.string(),
+    "status": zod.enum(['open', 'posted']),
+    "remarkCount": zod.number()
+  }))
 })
+
+export const GetStatementLineDetailRequestsQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetStatementLineDetailRequestsResponse = zod.array(RequestStatementLineDetailsResponse)
 
 export const RevokeStatementLineDetailRequestParams = zod.object({
   "id": zod.coerce.number()
@@ -1606,8 +1628,9 @@ export const GetPublicStatementLineRequestParams = zod.object({
 export const PublicStatementLineAttachmentSchema = StatementLineNoteAttachmentSchema
 
 export const PublicStatementLineNoteSchema = zod.object({
+  "id": zod.number(),
   "noteText": zod.string(),
-  "updatedAt": zod.coerce.date(),
+  "createdAt": zod.coerce.date(),
   "attachments": zod.array(PublicStatementLineAttachmentSchema)
 })
 
@@ -1619,7 +1642,8 @@ export const PublicStatementLineSchema = zod.object({
   "amount": zod.number(),
   "direction": zod.string(),
   "posted": zod.boolean(),
-  "note": PublicStatementLineNoteSchema.nullable()
+  "status": zod.enum(['open', 'posted']),
+  "notes": zod.array(PublicStatementLineNoteSchema)
 })
 
 export const GetPublicStatementLineRequestResponse = zod.object({

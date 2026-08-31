@@ -770,7 +770,6 @@ export const statementLineNotesTable = pgTable("agaraccounting_statement_line_no
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  uniqueIndex("agaraccounting_statement_line_notes_line_request_idx").on(table.statementLineId, table.requestId),
   index("agaraccounting_statement_line_notes_line_idx").on(table.statementLineId, table.createdAt),
   foreignKey({
     columns: [table.clientId],

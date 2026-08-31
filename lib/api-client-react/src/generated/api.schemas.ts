@@ -1152,10 +1152,45 @@ export interface StatementLineDetailRequestInput {
 export interface StatementLineDetailRequest {
   id: number;
   recipientEmail: string;
+  /** @nullable */
+  senderMessage?: string | null;
+  status: StatementLineDetailRequestStatus;
   expiresAt: string;
   sentAt: string;
   /** @nullable */
   revokedAt?: string | null;
+  publicUrl: string;
+  lineCount: number;
+  postedLineCount: number;
+  remarkCount: number;
+  lines: StatementLineDetailRequestLine[];
+}
+
+export type StatementLineDetailRequestStatus = typeof StatementLineDetailRequestStatus[keyof typeof StatementLineDetailRequestStatus];
+
+
+export const StatementLineDetailRequestStatus = {
+  active: 'active',
+  inactive: 'inactive',
+} as const;
+
+export type StatementLineDetailRequestLineStatus = typeof StatementLineDetailRequestLineStatus[keyof typeof StatementLineDetailRequestLineStatus];
+
+
+export const StatementLineDetailRequestLineStatus = {
+  open: 'open',
+  posted: 'posted',
+} as const;
+
+export interface StatementLineDetailRequestLine {
+  id: number;
+  date: string;
+  description: string;
+  currency: string;
+  amount: number;
+  direction: string;
+  status: StatementLineDetailRequestLineStatus;
+  remarkCount: number;
 }
 
 export interface StatementLineNoteAttachment {

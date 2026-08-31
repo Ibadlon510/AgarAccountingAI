@@ -26,9 +26,15 @@ export function StatementLineRemarkIcons({
       {pending && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span data-testid={`icon-awaiting-remarks-${line.id}`} className="inline-flex text-accent-foreground" aria-label="Awaiting remarks">
+            <button
+              type="button"
+              data-testid={`icon-awaiting-remarks-${line.id}`}
+              aria-label="Awaiting remarks"
+              onClick={() => onOpenNotes(line)}
+              className="inline-flex text-accent-foreground"
+            >
               <Clock size={13} />
-            </span>
+            </button>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs text-left">
             Awaiting remarks from {pending.recipientEmail} — sent {shortDateTime(pending.sentAt)}, expires {shortDateTime(pending.expiresAt)}.

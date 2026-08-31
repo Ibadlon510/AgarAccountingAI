@@ -10,7 +10,7 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
 const brandMarkUrl = `${basePath}/mark.svg`;
 
 type PublicAttachment = { id: number; filename: string; contentType: string; size: number };
-type PublicNote = { noteText: string; updatedAt: string; attachments: PublicAttachment[] };
+type PublicNote = { id: number; noteText: string; createdAt: string; attachments: PublicAttachment[] };
 type PublicLine = {
   id: number;
   date: string;
@@ -19,7 +19,8 @@ type PublicLine = {
   amount: number;
   direction: string;
   posted: boolean;
-  note: PublicNote | null;
+  status: 'open' | 'posted';
+  notes: PublicNote[];
 };
 type PublicRequest = {
   clientDisplayName: string;
@@ -62,13 +63,11 @@ const shortDate = (value: string) => {
 };
 
 function LineCard({ token, line, onUpdated }: { token: string; line: PublicLine; onUpdated: (next: PublicLine) => void }) {
-  const [noteText, setNoteText] = useState(line.note?.noteText ?? '');
+  const [noteText, setNoteText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => {
-    setNoteText(line.note?.noteText ?? '');
-  }, [line.note?.noteText]);
+  const posted = line.posted || line.status === 'posted';
 
   const submit = async () => {
     const trimmed = noteText.trim();
@@ -113,8 +112,29 @@ function LineCard({ token, line, onUpdated }: { token: string; line: PublicLine;
       return;
     }
     setFiles([]);
+    setNoteText('');
     onUpdated(result.body);
   };
+
+  const remarksList = line.notes.length > 0 && (
+    <ul className="space-y-2">
+      {line.notes.map((note) => (
+        <li key={note.id} className="rounded-md border border-border bg-muted/40 px-3 py-2">
+          <p className="whitespace-pre-wrap text-sm">{note.noteText}</p>
+          <p className="mt-1 font-mono text-[10px] text-muted-foreground">{shortDate(note.createdAt)}</p>
+          {note.attachments.map((attachment) => (
+            <a
+              key={attachment.id}
+              href={`/api/public/statement-line-requests/${encodeURIComponent(token)}/attachments/${attachment.id}`}
+              className="mt-1 block text-[11px] font-semibold text-primary"
+            >
+              {attachment.filename}
+            </a>
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <article data-testid={`public-line-${line.id}`} className="rounded-lg border border-card-border bg-card p-5">
@@ -123,28 +143,32 @@ function LineCard({ token, line, onUpdated }: { token: string; line: PublicLine;
           <div className="font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</div>
           <h2 className="mt-1 text-sm font-semibold">{line.description}</h2>
         </div>
-        <div className={`font-mono text-sm font-medium ${line.direction === 'inflow' ? 'text-primary' : 'text-foreground'}`}>
-          {line.direction === 'inflow' ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}
+        <div className="text-right">
+          <div className={`font-mono text-sm font-medium ${line.direction === 'inflow' ? 'text-primary' : 'text-foreground'}`}>
+            {line.direction === 'inflow' ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}
+          </div>
+          <span className="mt-1 inline-flex rounded-full bg-muted px-2 py-0.5 font-mono text-[9px] uppercase tracking-[.08em] text-muted-foreground">
+            {posted ? 'posted' : 'open'}
+          </span>
         </div>
       </div>
-      {line.posted ? (
-        <div className="mt-4 space-y-2">
+      {posted ? (
+        <div className="mt-4 space-y-3">
           <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock size={13} /> This line has been posted and can no longer accept remarks.
           </p>
-          {line.note && (
-            <p className="whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">{line.note.noteText}</p>
-          )}
+          {remarksList}
         </div>
       ) : (
         <div className="mt-4 space-y-3">
+          {remarksList}
           <textarea
             data-testid={`input-public-remark-${line.id}`}
             value={noteText}
             onChange={(event) => setNoteText(event.target.value)}
             maxLength={4000}
             rows={4}
-            placeholder="Add a remark for this transaction"
+            placeholder={line.notes.length ? 'Add another remark for this transaction' : 'Add a remark for this transaction'}
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
           />
           <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-primary">
@@ -170,18 +194,6 @@ function LineCard({ token, line, onUpdated }: { token: string; line: PublicLine;
               ))}
             </ul>
           )}
-          {line.note && (
-            <p className="text-[11px] text-primary">Last submitted {shortDate(line.note.updatedAt)}. You can update it until the link expires.</p>
-          )}
-          {line.note?.attachments.map((attachment) => (
-            <a
-              key={attachment.id}
-              href={`/api/public/statement-line-requests/${encodeURIComponent(token)}/attachments/${attachment.id}`}
-              className="block text-[11px] font-semibold text-primary"
-            >
-              {attachment.filename}
-            </a>
-          ))}
           {error && <p className="text-[11px] text-destructive">{error}</p>}
           <button
             type="button"
@@ -191,7 +203,7 @@ function LineCard({ token, line, onUpdated }: { token: string; line: PublicLine;
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
           >
             <Send size={13} />
-            {busy ? 'Saving…' : line.note ? 'Update remark' : 'Submit remark'}
+            {busy ? 'Saving…' : 'Submit remark'}
           </button>
         </div>
       )}
@@ -202,6 +214,7 @@ function LineCard({ token, line, onUpdated }: { token: string; line: PublicLine;
 function PublicDetailRequestBody() {
   const token = useMemo(() => readToken(), []);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing' | 'gone'>('loading');
+  const [goneMessage, setGoneMessage] = useState('This remarks link is no longer available.');
   const [request, setRequest] = useState<PublicRequest | null>(null);
 
   useEffect(() => {
@@ -211,6 +224,7 @@ function PublicDetailRequestBody() {
     }
     void publicFetch<PublicRequest>(`/api/public/statement-line-requests/${encodeURIComponent(token)}`).then((result) => {
       if (result.status === 410) {
+        setGoneMessage(result.error ?? 'This remarks link is no longer available.');
         setStatus('gone');
         return;
       }
@@ -230,7 +244,7 @@ function PublicDetailRequestBody() {
     return (
       <div className="rounded-lg border border-border bg-card p-6 text-sm">
         <Clock size={16} className="text-muted-foreground" />
-        <p className="mt-3 font-semibold">This remarks link has expired</p>
+        <p className="mt-3 font-semibold">{goneMessage}</p>
         <p className="mt-1 text-muted-foreground">Ask the sender to email a new link if you still need to add remarks.</p>
       </div>
     );

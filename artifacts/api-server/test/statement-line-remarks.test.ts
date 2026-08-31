@@ -42,11 +42,26 @@ type Line = {
   pendingClarification?: { requestId: number; recipientEmail: string } | null;
 };
 
-type DetailRequest = { id: number; recipientEmail: string; expiresAt: string; sentAt: string; revokedAt?: string | null };
+type DetailRequest = {
+  id: number;
+  recipientEmail: string;
+  expiresAt: string;
+  sentAt: string;
+  revokedAt?: string | null;
+  status?: "active" | "inactive";
+  publicUrl?: string;
+  remarkCount?: number;
+  lines?: Array<{ id: number; status: "open" | "posted"; remarkCount: number }>;
+};
 type PublicRequest = {
   clientDisplayName: string;
   senderMessage: string | null;
-  lines: Array<{ id: number; posted: boolean; note: { noteText: string; attachments: Array<{ id: number }> } | null }>;
+  lines: Array<{
+    id: number;
+    posted: boolean;
+    status: "open" | "posted";
+    notes: Array<{ id: number; noteText: string; attachments: Array<{ id: number; filename?: string }> }>;
+  }>;
 };
 
 async function createLine(description: string): Promise<Line> {
@@ -122,6 +137,10 @@ test("emails a public remarks link for selected draft lines", async () => {
   });
   assert.equal(sent.response.status, 201, JSON.stringify(sent.body));
   assert.equal(sent.body?.recipientEmail, "owner@client.test");
+  assert.equal(sent.body?.status, "active");
+  assert.ok(sent.body?.publicUrl?.includes("/detail-request/"));
+  const ttlMs = new Date(sent.body!.expiresAt).getTime() - new Date(sent.body!.sentAt).getTime();
+  assert.ok(ttlMs > 2.5 * 24 * 60 * 60 * 1000 && ttlMs < 3.5 * 24 * 60 * 60 * 1000);
 
   const listed = await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}`);
   const pending = listed.body?.filter((line) => line.id === first.id || line.id === second.id) ?? [];
@@ -131,6 +150,7 @@ test("emails a public remarks link for selected draft lines", async () => {
   const [requestRow] = await database.db.select().from(database.statementLineDetailRequestsTable)
     .where(eq(database.statementLineDetailRequestsTable.id, sent.body!.id));
   assert.ok(requestRow?.token);
+  assert.equal(sent.body?.publicUrl, `http://127.0.0.1:4173/detail-request/${requestRow.token}`);
 
   const publicPage = await request<PublicRequest>(`/public/statement-line-requests/${requestRow.token}`, undefined, null);
   assert.equal(publicPage.response.status, 200, JSON.stringify(publicPage.body));
@@ -160,14 +180,14 @@ test("public submit stores a note without creating workspace membership", async 
   form.set("noteText", "This was office rent for September.");
   const png = new Blob([Buffer.from("89504e470d0a1a0a", "hex")], { type: "image/png" });
   form.append("files", png, "receipt.png");
-  const submitted = await request<{ note: { noteText: string; attachments: Array<{ filename: string }> } }>(
+  const submitted = await request<PublicRequest["lines"][number]>(
     `/public/statement-line-requests/${requestRow.token}/lines/${line.id}`,
     { method: "POST", body: form },
     null,
   );
   assert.equal(submitted.response.status, 200, JSON.stringify(submitted.body));
-  assert.equal(submitted.body?.note?.noteText, "This was office rent for September.");
-  assert.equal(submitted.body?.note?.attachments[0]?.filename, "receipt.png");
+  assert.equal(submitted.body?.notes[0]?.noteText, "This was office rent for September.");
+  assert.equal(submitted.body?.notes[0]?.attachments[0]?.filename, "receipt.png");
 
   const membershipsAfter = await database.db.select({ count: sql<number>`count(*)::int` })
     .from(database.clientWorkspacesTable);
@@ -215,6 +235,7 @@ test("rejects public access to a line outside the batch and expired tokens", asy
     .where(eq(database.statementLineDetailRequestsTable.id, requestRow.id));
   const expired = await request<{ error: string }>(`/public/statement-line-requests/${requestRow.token}`, undefined, null);
   assert.equal(expired.response.status, 410);
+  assert.equal(expired.body?.error, "This remarks link has expired.");
   assert.equal(expired.body && "lines" in expired.body, false);
 });
 
@@ -236,6 +257,7 @@ test("rejects remarks on posted lines and too many attachments", async () => {
     .where(eq(database.statementLineDetailRequestsTable.id, sent.body!.id));
   const publicPage = await request<PublicRequest>(`/public/statement-line-requests/${requestRow.token}`, undefined, null);
   assert.equal(publicPage.body?.lines[0]?.posted, true);
+  assert.equal(publicPage.body?.lines[0]?.status, "posted");
 
   const form = new FormData();
   form.set("noteText", "Too late.");
@@ -280,7 +302,7 @@ test("internal notes require authentication even when a public token is known", 
   assert.equal(unauthenticated.response.status, 401);
 });
 
-test("upserts a public remark, ignores a signed session on the public router, and returns 410 after revoke", async () => {
+test("stores each public remark separately, lists active/inactive links, and returns 410 after revoke", async () => {
   const line = await createLine(`Remarks upsert ${randomUUID()}`);
   const sent = await request<DetailRequest>("/agaraccounting/statement-lines/request-details", {
     method: "POST",
@@ -294,6 +316,12 @@ test("upserts a public remark, ignores a signed session on the public router, an
   const [requestRow] = await database.db.select().from(database.statementLineDetailRequestsTable)
     .where(eq(database.statementLineDetailRequestsTable.id, sent.body!.id));
 
+  const listed = await request<DetailRequest[]>(`/agaraccounting/statement-lines/detail-requests?clientId=${clientId}`);
+  assert.equal(listed.response.status, 200);
+  const listedRow = listed.body?.find((item) => item.id === sent.body!.id);
+  assert.equal(listedRow?.status, "active");
+  assert.equal(listedRow?.lines?.[0]?.status, "open");
+
   const first = new FormData();
   first.set("noteText", "First remark.");
   const created = await request<PublicRequest["lines"][number]>(
@@ -302,22 +330,23 @@ test("upserts a public remark, ignores a signed session on the public router, an
     ownerId,
   );
   assert.equal(created.response.status, 200, JSON.stringify(created.body));
-  assert.equal(created.body?.note?.noteText, "First remark.");
+  assert.equal(created.body?.notes.length, 1);
+  assert.equal(created.body?.notes[0]?.noteText, "First remark.");
 
   const second = new FormData();
-  second.set("noteText", "Updated remark.");
+  second.set("noteText", "Second remark.");
   const updated = await request<PublicRequest["lines"][number]>(
     `/public/statement-line-requests/${requestRow.token}/lines/${line.id}`,
     { method: "POST", body: second },
     ownerId,
   );
   assert.equal(updated.response.status, 200, JSON.stringify(updated.body));
-  assert.equal(updated.body?.note?.noteText, "Updated remark.");
+  assert.equal(updated.body?.notes.length, 2);
+  assert.equal(updated.body?.notes[1]?.noteText, "Second remark.");
 
   const notes = await database.db.select().from(database.statementLineNotesTable)
     .where(eq(database.statementLineNotesTable.statementLineId, line.id));
-  assert.equal(notes.length, 1);
-  assert.equal(notes[0]?.noteText, "Updated remark.");
+  assert.equal(notes.length, 2);
 
   const users = await database.db.select({ id: database.usersTable.id })
     .from(database.usersTable)
@@ -329,10 +358,12 @@ test("upserts a public remark, ignores a signed session on the public router, an
     { method: "POST", body: JSON.stringify({ clientId }) },
   );
   assert.equal(revoked.response.status, 200, JSON.stringify(revoked.body));
+  assert.equal(revoked.body?.status, "inactive");
   assert.ok(revoked.body?.revokedAt);
 
   const gone = await request<{ error: string }>(`/public/statement-line-requests/${requestRow.token}`, undefined, null);
   assert.equal(gone.response.status, 410);
+  assert.equal(gone.body?.error, "This remarks link has been deactivated.");
   assert.equal(gone.body && "lines" in gone.body, false);
 
   const late = new FormData();
@@ -343,4 +374,18 @@ test("upserts a public remark, ignores a signed session on the public router, an
     null,
   );
   assert.equal(rejected.response.status, 410);
+});
+
+test("preserves a configured app base path on remarks links", async () => {
+  const previous = process.env.PUBLIC_APP_URL;
+  process.env.PUBLIC_APP_URL = "https://example.test/agaraccounting/";
+  try {
+    const { publicDetailRequestLink } = await import("../src/lib/statementLineRemarks");
+    assert.equal(
+      publicDetailRequestLink("abcToken"),
+      "https://example.test/agaraccounting/detail-request/abcToken",
+    );
+  } finally {
+    process.env.PUBLIC_APP_URL = previous;
+  }
 });

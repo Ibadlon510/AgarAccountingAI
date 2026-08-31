@@ -75,6 +75,8 @@ import {
   RevokeStatementLineDetailRequestBody,
   RevokeStatementLineDetailRequestParams,
   RevokeStatementLineDetailRequestResponse,
+  GetStatementLineDetailRequestsQueryParams,
+  GetStatementLineDetailRequestsResponse,
   GetStatementLineNotesParams,
   GetStatementLineNotesQueryParams,
   GetStatementLineNotesResponse,
@@ -232,10 +234,12 @@ import { EmailDeliveryError, sendDetailRequestEmail, sendWorkspaceInvitationEmai
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import {
   emptyNoteSummary,
+  listDetailRequests,
   listLineNotes,
   loadRemarkState,
   publicDetailRequestLink,
   remarkObjectStorage,
+  serializeDetailRequest,
   DETAIL_REQUEST_TTL_MS,
   type RemarkState,
 } from "../lib/statementLineRemarks";
@@ -9533,7 +9537,7 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
     senderMessage,
     senderMessage ? "" : null,
     `Please add remarks for ${count} draft statement line${count === 1 ? "" : "s"} in ${client.name}.`,
-    `This link expires on ${expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" })} UTC.`,
+    `This link stays active for 3 days and expires on ${expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" })} UTC.`,
     "",
     link,
   ].filter((part) => part !== null).join("\n");
@@ -9553,13 +9557,27 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
       : "The remarks email was not sent. Try again in a moment.";
     return res.status(502).json({ error: message });
   }
-  return res.status(201).json(RequestStatementLineDetailsResponse.parse({
+  return res.status(201).json(RequestStatementLineDetailsResponse.parse(await serializeDetailRequest({
     id: requestId,
+    clientId: client.id,
+    createdByUserId: currentUserId(req),
     recipientEmail: parsed.data.recipientEmail.trim().toLowerCase(),
+    senderMessage,
+    token,
     expiresAt,
-    sentAt: now,
     revokedAt: null,
-  }));
+    createdAt: now,
+  }, req)));
+});
+
+router.get("/agaraccounting/statement-lines/detail-requests", async (req, res) => {
+  const query = GetStatementLineDetailRequestsQueryParams.safeParse(req.query);
+  if (!query.success) {
+    return res.status(400).json({ error: "Remarks links could not be loaded." });
+  }
+  const client = await requireOwnedClient(req, res, query.data.clientId);
+  if (!client) return;
+  return res.json(GetStatementLineDetailRequestsResponse.parse(await listDetailRequests(client.id, req)));
 });
 
 router.post("/agaraccounting/statement-lines/detail-requests/:id/revoke", async (req, res) => {
@@ -9576,18 +9594,16 @@ router.post("/agaraccounting/statement-lines/detail-requests/:id/revoke", async 
   )).limit(1);
   if (!request) return res.status(404).json({ error: "This remarks request was not found." });
   const revokedAt = request.revokedAt ?? new Date();
-  if (!request.revokedAt) {
-    await db.update(statementLineDetailRequestsTable)
+  const [updated] = request.revokedAt
+    ? [request]
+    : await db.update(statementLineDetailRequestsTable)
       .set({ revokedAt })
-      .where(eq(statementLineDetailRequestsTable.id, request.id));
-  }
-  return res.json(RevokeStatementLineDetailRequestResponse.parse({
-    id: request.id,
-    recipientEmail: request.recipientEmail,
-    expiresAt: request.expiresAt,
-    sentAt: request.createdAt,
-    revokedAt,
-  }));
+      .where(eq(statementLineDetailRequestsTable.id, request.id))
+      .returning();
+  return res.json(RevokeStatementLineDetailRequestResponse.parse(await serializeDetailRequest({
+    ...request,
+    revokedAt: updated?.revokedAt ?? revokedAt,
+  }, req)));
 });
 
 router.get("/agaraccounting/statement-lines/:id/notes", async (req, res) => {

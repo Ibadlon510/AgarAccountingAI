@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { LoaderCircle, Mail } from 'lucide-react';
-import { useGetWorkspaceMembers, useRequestStatementLineDetails, type StatementLine } from '@workspace/api-client-react';
+import {
+  getGetStatementLineDetailRequestsQueryKey,
+  getGetStatementLinesQueryKey,
+  useGetStatementLines,
+  useGetWorkspaceMembers,
+  useRequestStatementLineDetails,
+  type StatementLine,
+} from '@workspace/api-client-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { notify, readErrorMessage } from '@/lib/notify';
 
@@ -13,28 +21,45 @@ const shortDate = (value: string) => {
 };
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const MAX_REMARK_LINES = 50;
 
 export function SendForRemarksDialog({
   clientId,
   lines,
+  allowLinePicker = false,
   onClose,
   onSent,
 }: {
   clientId: number;
   lines: StatementLine[];
+  allowLinePicker?: boolean;
   onClose: () => void;
-  onSent: () => void;
+  onSent: (result?: { publicUrl?: string; recipientEmail: string; expiresAt: string }) => void;
 }) {
   const team = useGetWorkspaceMembers();
+  const queryClient = useQueryClient();
   const send = useRequestStatementLineDetails();
+  const pickerQuery = useGetStatementLines({ clientId }, {
+    query: {
+      queryKey: getGetStatementLinesQueryKey({ clientId }),
+      enabled: allowLinePicker && lines.length === 0 && clientId > 0,
+    },
+  });
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
+  const [pickedIds, setPickedIds] = useState<number[]>([]);
   const memberEmails = useMemo(() => {
     const members = team.data?.members ?? [];
     return [...new Set(members.map((member) => member.email).filter(Boolean))].sort();
   }, [team.data?.members]);
+  const pickerLines = useMemo(
+    () => (pickerQuery.data ?? []).filter((line) => line.status === 'draft'),
+    [pickerQuery.data],
+  );
+  const selectedLines = lines.length ? lines : pickerLines.filter((line) => pickedIds.includes(line.id));
   const invalidEmail = email.trim().length > 0 && !EMAIL_PATTERN.test(email.trim());
-  const canSend = EMAIL_PATTERN.test(email.trim()) && lines.length > 0 && !send.isPending;
+  const overCap = selectedLines.length > MAX_REMARK_LINES;
+  const canSend = EMAIL_PATTERN.test(email.trim()) && selectedLines.length > 0 && !overCap && !send.isPending;
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -42,7 +67,7 @@ export function SendForRemarksDialog({
     send.mutate({
       data: {
         clientId,
-        statementLineIds: lines.map((line) => line.id),
+        statementLineIds: selectedLines.map((line) => line.id),
         recipientEmail: email.trim(),
         senderMessage: message.trim() || null,
       },
@@ -50,9 +75,11 @@ export function SendForRemarksDialog({
       onSuccess: (result) => {
         const expires = new Date(result.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         notify.success('Remarks link sent', {
-          description: `Sent to ${result.recipientEmail}. ${lines.length} line${lines.length === 1 ? '' : 's'} awaiting remarks. Expires ${expires}.`,
+          description: `Sent to ${result.recipientEmail}. Active for 3 days, until ${expires}.`,
         });
-        onSent();
+        void queryClient.invalidateQueries({ queryKey: getGetStatementLineDetailRequestsQueryKey(clientId) });
+        void queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+        onSent({ publicUrl: result.publicUrl, recipientEmail: result.recipientEmail, expiresAt: result.expiresAt });
       },
       onError: (error) => {
         notify.error(error, {
@@ -63,13 +90,21 @@ export function SendForRemarksDialog({
     });
   };
 
+  const togglePicked = (id: number) => {
+    setPickedIds((current) => {
+      if (current.includes(id)) return current.filter((item) => item !== id);
+      if (current.length >= MAX_REMARK_LINES) return current;
+      return [...current, id];
+    });
+  };
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !send.isPending) onClose(); }}>
       <DialogContent className="max-w-lg" data-testid="dialog-send-for-remarks">
         <DialogHeader>
           <DialogTitle>Send for remarks</DialogTitle>
           <DialogDescription>
-            Email a public link covering {lines.length} draft line{lines.length === 1 ? '' : 's'}. The recipient does not need an account.
+            Email a public link that stays active for 3 days. The recipient does not need an account.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
@@ -102,8 +137,49 @@ export function SendForRemarksDialog({
               className="mt-1.5 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
             />
           </label>
+          {allowLinePicker && lines.length === 0 && pickerLines.length > 0 && (
+            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>{pickedIds.length} of {MAX_REMARK_LINES} lines selected</span>
+              <button
+                type="button"
+                data-testid="button-remarks-select-all"
+                onClick={() => setPickedIds(pickerLines.slice(0, MAX_REMARK_LINES).map((line) => line.id))}
+                className="font-semibold text-primary hover:underline"
+              >
+                Select all{pickerLines.length > MAX_REMARK_LINES ? ` (first ${MAX_REMARK_LINES})` : ''}
+              </button>
+            </div>
+          )}
           <div className="max-h-40 overflow-y-auto rounded-md border border-border">
-            {lines.map((line) => (
+            {allowLinePicker && lines.length === 0 ? (
+              pickerQuery.isLoading
+                ? <p className="px-3 py-2 text-[11px] text-muted-foreground">Loading draft lines…</p>
+                : pickerLines.length === 0
+                  ? <p className="px-3 py-2 text-[11px] text-muted-foreground">No draft statement lines are available.</p>
+                  : pickerLines.map((line) => {
+                    const checked = pickedIds.includes(line.id);
+                    const blocked = !checked && pickedIds.length >= MAX_REMARK_LINES;
+                    return (
+                    <label key={line.id} className={`flex items-start gap-2 border-b border-border px-3 py-2 last:border-b-0 ${blocked ? 'opacity-50' : ''}`}>
+                      <input
+                        type="checkbox"
+                        data-testid={`checkbox-remarks-line-${line.id}`}
+                        checked={checked}
+                        disabled={blocked}
+                        onChange={() => togglePicked(line.id)}
+                        className="mt-0.5 size-4 accent-primary"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold">{line.description}</span>
+                        <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">{shortDate(line.date)}</span>
+                      </span>
+                      <span className="shrink-0 font-mono text-[11px]">
+                        {line.direction === 'inflow' ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}
+                      </span>
+                    </label>
+                    );
+                  })
+            ) : selectedLines.map((line) => (
               <div key={line.id} className="flex items-start justify-between gap-3 border-b border-border px-3 py-2 last:border-b-0">
                 <div className="min-w-0">
                   <div className="truncate text-xs font-semibold">{line.description}</div>
@@ -115,6 +191,9 @@ export function SendForRemarksDialog({
               </div>
             ))}
           </div>
+          {overCap && (
+            <p className="text-[11px] text-destructive">Remarks links can include at most {MAX_REMARK_LINES} lines. Deselect some before sending.</p>
+          )}
           <DialogFooter>
             <button type="button" onClick={onClose} disabled={send.isPending} className="rounded-md px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button>
             <button

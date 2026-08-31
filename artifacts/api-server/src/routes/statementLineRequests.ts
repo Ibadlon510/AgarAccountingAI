@@ -32,8 +32,12 @@ export const publicStatementLineRequestsRouter: IRouter = Router();
 
 const MULTIPART_LIMIT = MAX_REMARK_FILES * MAX_REMARK_FILE_BYTES + 64 * 1024;
 
-function gone(res: Response) {
-  return res.status(410).json({ error: "This remarks link has expired or been revoked." });
+function gone(res: Response, reason: "expired" | "revoked") {
+  return res.status(410).json({
+    error: reason === "revoked"
+      ? "This remarks link has been deactivated."
+      : "This remarks link has expired.",
+  });
 }
 
 function missing(res: Response) {
@@ -47,7 +51,7 @@ async function resolvePublicRequest(token: string, res: Response) {
     return null;
   }
   if (loaded.status === "gone") {
-    gone(res);
+    gone(res, loaded.reason);
     return null;
   }
   return loaded.data;
@@ -99,23 +103,13 @@ publicStatementLineRequestsRouter.post("/public/statement-line-requests/:token/l
   const fileError = validateRemarkFiles(files);
   if (fileError) return res.status(400).json({ error: fileError });
 
-  const [existing] = await db.select().from(statementLineNotesTable).where(and(
-    eq(statementLineNotesTable.requestId, loaded.request.id),
-    eq(statementLineNotesTable.statementLineId, line.id),
-  )).limit(1);
-  const note = existing
-    ? (await db.update(statementLineNotesTable).set({
-      noteText,
-      submittedByEmail: loaded.request.recipientEmail,
-      updatedAt: new Date(),
-    }).where(eq(statementLineNotesTable.id, existing.id)).returning())[0]
-    : (await db.insert(statementLineNotesTable).values({
-      clientId: loaded.request.clientId,
-      statementLineId: line.id,
-      requestId: loaded.request.id,
-      submittedByEmail: loaded.request.recipientEmail,
-      noteText,
-    }).returning())[0];
+  const [note] = await db.insert(statementLineNotesTable).values({
+    clientId: loaded.request.clientId,
+    statementLineId: line.id,
+    requestId: loaded.request.id,
+    submittedByEmail: loaded.request.recipientEmail,
+    noteText,
+  }).returning();
   if (!note) throw new Error("The remark could not be saved.");
   await replaceNoteAttachments(note.id, files);
   const payload = await publicLinePayload(loaded.request.id, line);

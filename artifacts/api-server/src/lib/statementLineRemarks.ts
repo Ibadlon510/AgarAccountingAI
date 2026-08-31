@@ -11,7 +11,7 @@ import {
 } from "@workspace/db";
 import { ObjectStorageService } from "./objectStorage";
 
-export const DETAIL_REQUEST_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+export const DETAIL_REQUEST_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 export const MAX_REMARK_FILES = 5;
 export const MAX_REMARK_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_REMARK_NOTE_CHARS = 4000;
@@ -70,7 +70,7 @@ export function publicAppOrigin(req?: Request) {
   }
   url.search = "";
   url.hash = "";
-  return url.origin;
+  return `${url.origin}${url.pathname.replace(/\/$/, "")}`;
 }
 
 export function publicDetailRequestLink(token: string, req?: Request) {
@@ -213,13 +213,14 @@ export type LoadedPublicRequest = {
 export async function loadPublicRequest(token: string): Promise<
   | { status: "ok"; data: LoadedPublicRequest }
   | { status: "missing" }
-  | { status: "gone" }
+  | { status: "gone"; reason: "expired" | "revoked" }
 > {
   const [request] = await db.select().from(statementLineDetailRequestsTable)
     .where(eq(statementLineDetailRequestsTable.token, token))
     .limit(1);
   if (!request) return { status: "missing" };
-  if (request.revokedAt || request.expiresAt.getTime() <= Date.now()) return { status: "gone" };
+  if (request.revokedAt) return { status: "gone", reason: "revoked" };
+  if (request.expiresAt.getTime() <= Date.now()) return { status: "gone", reason: "expired" };
   const items = await db.select().from(statementLineDetailRequestItemsTable)
     .where(eq(statementLineDetailRequestItemsTable.requestId, request.id));
   const lineIds = items.map((item) => item.statementLineId);
@@ -242,19 +243,97 @@ export async function loadPublicRequest(token: string): Promise<
   };
 }
 
+export function detailRequestLifecycleStatus(request: {
+  revokedAt: Date | null;
+  expiresAt: Date;
+}): "active" | "inactive" {
+  if (request.revokedAt || request.expiresAt.getTime() <= Date.now()) return "inactive";
+  return "active";
+}
+
+export function lineRemarkStatus(status: string): "open" | "posted" {
+  return status === "posted" ? "posted" : "open";
+}
+
+export async function serializeDetailRequest(
+  request: typeof statementLineDetailRequestsTable.$inferSelect,
+  req?: Request,
+) {
+  const items = await db.select().from(statementLineDetailRequestItemsTable)
+    .where(eq(statementLineDetailRequestItemsTable.requestId, request.id));
+  const lineIds = items.map((item) => item.statementLineId);
+  const lines = lineIds.length
+    ? await db.select().from(statementLinesTable).where(and(
+      eq(statementLinesTable.clientId, request.clientId),
+      inArray(statementLinesTable.id, lineIds),
+    )).orderBy(asc(statementLinesTable.date), asc(statementLinesTable.id))
+    : [];
+  const notes = lineIds.length
+    ? await db.select({
+      statementLineId: statementLineNotesTable.statementLineId,
+    }).from(statementLineNotesTable).where(and(
+      eq(statementLineNotesTable.requestId, request.id),
+      inArray(statementLineNotesTable.statementLineId, lineIds),
+    ))
+    : [];
+  const remarkCountByLine = new Map<number, number>();
+  for (const note of notes) {
+    remarkCountByLine.set(note.statementLineId, (remarkCountByLine.get(note.statementLineId) ?? 0) + 1);
+  }
+  const lineRows = lines.map((line) => ({
+    id: line.id,
+    date: line.date,
+    description: line.description,
+    currency: line.currency,
+    amount: Number(line.amount),
+    direction: line.direction,
+    status: lineRemarkStatus(line.status),
+    remarkCount: remarkCountByLine.get(line.id) ?? 0,
+  }));
+  return {
+    id: request.id,
+    recipientEmail: request.recipientEmail,
+    senderMessage: request.senderMessage,
+    status: detailRequestLifecycleStatus(request),
+    expiresAt: request.expiresAt,
+    sentAt: request.createdAt,
+    revokedAt: request.revokedAt,
+    publicUrl: publicDetailRequestLink(request.token, req),
+    lineCount: lineRows.length,
+    postedLineCount: lineRows.filter((line) => line.status === "posted").length,
+    remarkCount: notes.length,
+    lines: lineRows,
+  };
+}
+
+export async function listDetailRequests(clientId: number, req?: Request) {
+  const requests = await db.select().from(statementLineDetailRequestsTable)
+    .where(eq(statementLineDetailRequestsTable.clientId, clientId))
+    .orderBy(desc(statementLineDetailRequestsTable.createdAt), desc(statementLineDetailRequestsTable.id));
+  return Promise.all(requests.map((request) => serializeDetailRequest(request, req)));
+}
+
 export async function publicLinePayload(
   requestId: number,
   line: typeof statementLinesTable.$inferSelect,
 ) {
-  const [note] = await db.select().from(statementLineNotesTable).where(and(
+  const notes = await db.select().from(statementLineNotesTable).where(and(
     eq(statementLineNotesTable.requestId, requestId),
     eq(statementLineNotesTable.statementLineId, line.id),
-  )).limit(1);
-  const attachments = note
+  )).orderBy(asc(statementLineNotesTable.createdAt), asc(statementLineNotesTable.id));
+  const noteIds = notes.map((note) => note.id);
+  const attachments = noteIds.length
     ? await db.select().from(statementLineNoteAttachmentsTable)
-      .where(eq(statementLineNoteAttachmentsTable.noteId, note.id))
+      .where(inArray(statementLineNoteAttachmentsTable.noteId, noteIds))
       .orderBy(asc(statementLineNoteAttachmentsTable.id))
     : [];
+  const attachmentsByNote = new Map<number, typeof attachments>();
+  for (const attachment of attachments) {
+    const list = attachmentsByNote.get(attachment.noteId) ?? [];
+    list.push(attachment);
+    attachmentsByNote.set(attachment.noteId, list);
+  }
+  const posted = line.status === "posted";
   return {
     id: line.id,
     date: line.date,
@@ -262,19 +341,19 @@ export async function publicLinePayload(
     currency: line.currency,
     amount: Number(line.amount),
     direction: line.direction,
-    posted: line.status === "posted",
-    note: note
-      ? {
-        noteText: note.noteText,
-        updatedAt: toIso(note.updatedAt),
-        attachments: attachments.map((attachment) => ({
-          id: attachment.id,
-          filename: attachment.filename,
-          contentType: attachment.contentType,
-          size: attachment.size,
-        })),
-      }
-      : null,
+    posted,
+    status: posted ? "posted" as const : "open" as const,
+    notes: notes.map((note) => ({
+      id: note.id,
+      noteText: note.noteText,
+      createdAt: toIso(note.createdAt),
+      attachments: (attachmentsByNote.get(note.id) ?? []).map((attachment) => ({
+        id: attachment.id,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.size,
+      })),
+    })),
   };
 }
 
