@@ -4245,13 +4245,13 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
   return <AlertDialog open onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
     <AlertDialogContent onOpenAutoFocus={(event) => { event.preventDefault(); requestAnimationFrame(() => cancelButtonRef.current?.focus()); }} className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-card-border bg-card">
       <AlertDialogHeader className="flex-row items-start justify-between gap-4 space-y-0">
-        <div className="text-left">
+        <div className="min-w-0 flex-1 text-left">
           <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Confirm bulk action</div>
-          <AlertDialogTitle data-testid="text-bulk-confirm-title" className="mt-2">{isRecode ? 'Recode selected lines' : `${transition.verb[0].toUpperCase()}${transition.verb.slice(1)} selected entries`}</AlertDialogTitle>
+          <AlertDialogTitle data-testid="text-bulk-confirm-title" className="mt-2 break-words">{isRecode ? 'Recode selected lines' : `${transition.verb[0].toUpperCase()}${transition.verb.slice(1)} selected entries`}</AlertDialogTitle>
         </div>
-        <button ref={cancelButtonRef} data-testid="button-cancel-bulk-action" onClick={onCancel} className="rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Cancel bulk action"><X size={17} /></button>
+        <button ref={cancelButtonRef} data-testid="button-cancel-bulk-action" onClick={onCancel} className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted" aria-label="Cancel bulk action"><X size={17} /></button>
       </AlertDialogHeader>
-      <AlertDialogDescription data-testid="text-bulk-confirm-description" className="text-xs leading-5">
+      <AlertDialogDescription data-testid="text-bulk-confirm-description" className="min-w-0 break-words text-xs leading-5">
         {isRecode
           ? `You are about to recode ${lines.length} draft ${lines.length === 1 ? 'line' : 'lines'} to one account. This updates the draft classification but does not post it.`
           : `Confirm ${transition.label} for ${lines.length} ${lines.length === 1 ? 'entry' : 'entries'}: ${transition.from} → ${transition.to}. ${action.type === 'bulk_post_entries' && proposedContactCount ? `${proposedContactCount} temporary contact ${proposedContactCount === 1 ? 'profile will' : 'profiles will'} be created or reused atomically.` : 'This cannot include entries that have changed status.'}`}
@@ -4265,16 +4265,16 @@ function BulkStatementActionDialog({ action, lines, pending, error, onCancel, on
       <div className="mt-4 rounded-md border border-border bg-muted/35 p-3">
         <div className="font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">Selected lines · {lines.length}</div>
         <div className="mt-2 space-y-1.5">
-          {lines.slice(0, 5).map((line) => <div data-testid={`bulk-confirm-line-${line.id}`} key={line.id} className="flex items-center justify-between gap-3 text-xs">
+          {lines.slice(0, 5).map((line) => <div data-testid={`bulk-confirm-line-${line.id}`} key={line.id} className="flex min-w-0 items-center justify-between gap-3 text-xs">
             <span className="truncate">{line.description}</span><span className="shrink-0 font-mono text-muted-foreground">{money(Math.abs(line.amount), line.currency)}</span>
           </div>)}
           {lines.length > 5 && <div className="pt-1 font-mono text-[10px] text-muted-foreground">+ {lines.length - 5} more selected</div>}
         </div>
       </div>
       {error != null && <div data-testid="status-bulk-action-error" className="mt-4 flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-xs text-destructive"><CircleAlert size={15} className="mt-0.5 shrink-0" /><span>{mutationErrorMessage(error)}</span></div>}
-      <AlertDialogFooter className="mt-2 gap-2 sm:space-x-0">
-        <button data-testid="button-cancel-bulk-action-footer" onClick={onCancel} disabled={pending} className="rounded-md border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
-        <button data-testid={`button-confirm-${isRecode ? 'bulk-recode' : 'bulk-posting'}`} onClick={() => onConfirm(isRecode ? accountSuggestion : undefined)} disabled={pending || (isRecode && !accountSuggestion)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
+      <AlertDialogFooter className="mt-2 flex-wrap gap-2 sm:space-x-0">
+        <button data-testid="button-cancel-bulk-action-footer" onClick={onCancel} disabled={pending} className="min-w-0 rounded-md border border-input bg-background px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
+        <button data-testid={`button-confirm-${isRecode ? 'bulk-recode' : 'bulk-posting'}`} onClick={() => onConfirm(isRecode ? accountSuggestion : undefined)} disabled={pending || (isRecode && !accountSuggestion)} className="inline-flex min-w-0 items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
           {pending && <LoaderCircle size={13} className="animate-spin" />}{pending ? 'Applying…' : `Confirm ${transition.verb}`}
         </button>
       </AlertDialogFooter>
