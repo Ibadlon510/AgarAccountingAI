@@ -8482,6 +8482,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
       // selection or proposed identity is currently shown is applied atomically
       // as part of posting. A present-but-empty value means "leave unlinked" —
       // there is deliberately no hard block on posting without a contact.
+      let workingEntry = entry;
       if (
         body.contactId !== undefined
         || body.proposedContactName !== undefined
@@ -8512,12 +8513,20 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         )).returning();
         if (!updatedLine) return { kind: "not_found" as const };
         line = updatedLine;
+        const [updatedEntry] = await tx.update(journalEntriesTable).set({
+          contactId: body.contactId ?? null,
+        }).where(and(
+          eq(journalEntriesTable.id, workingEntry.id),
+          eq(journalEntriesTable.clientId, client.id),
+          inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
+        )).returning();
+        if (!updatedEntry) return { kind: "not_draft" as const };
+        workingEntry = updatedEntry;
       }
 
       // Likewise, whatever account is currently shown as the classification
       // decision is applied at post time rather than requiring a separate
       // "confirm account" step beforehand.
-      let workingEntry = entry;
       if (body.accountSuggestion) {
         const [account] = await tx.select({ id: accountClassificationsTable.id }).from(accountClassificationsTable).where(and(
           eq(accountClassificationsTable.clientId, client.id),

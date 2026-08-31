@@ -169,6 +169,52 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   assert.equal(contact.response.status, 201);
   assert.deepEqual(contact.body.aliases.sort(), ["ACME PAYMENTS", "Acme Supplies", "Acme Supplies FZ-LLC", "Acme Supplier"].sort());
 
+  const inlineMatchContact = await request<Contact>("/agaraccounting/contacts", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      displayName: "Inline Match Vendor",
+      legalName: "Inline Match Vendor LLC",
+      contactType: "supplier",
+      aliases: ["INLINE MATCH VENDOR"],
+    }),
+  });
+  assert.equal(inlineMatchContact.response.status, 201);
+  const suggestedOnly = await createLine("CARD PAYMENT INLINE MATCH VENDOR INVOICE 9917");
+  assert.equal(suggestedOnly.contactId, inlineMatchContact.body.id);
+  const suggestedOnlyEntry = await entryFor(suggestedOnly.id);
+  await database.db.update(database.statementLinesTable).set({ contactId: null }).where(
+    eq(database.statementLinesTable.id, suggestedOnly.id),
+  );
+  await database.db.update(database.journalEntriesTable).set({ contactId: null }).where(
+    eq(database.journalEntriesTable.id, suggestedOnlyEntry.id),
+  );
+  const [storedSuggestedOnly] = await database.db.select().from(database.statementLinesTable).where(
+    eq(database.statementLinesTable.id, suggestedOnly.id),
+  );
+  assert.equal(storedSuggestedOnly?.contactId, null);
+  const suggestedOnlyPost = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${suggestedOnlyEntry.id}/post`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        clientId,
+        contactId: suggestedOnly.contactId,
+        accountSuggestion: suggestedOnly.accountSuggestion,
+      }),
+    },
+  );
+  assert.equal(suggestedOnlyPost.response.status, 200);
+  assert.equal(suggestedOnlyPost.body.status, "posted");
+  const [postedSuggestedLine] = await database.db.select().from(database.statementLinesTable).where(
+    eq(database.statementLinesTable.id, suggestedOnly.id),
+  );
+  const [postedSuggestedEntry] = await database.db.select().from(database.journalEntriesTable).where(
+    eq(database.journalEntriesTable.id, suggestedOnlyEntry.id),
+  );
+  assert.equal(postedSuggestedLine?.contactId, inlineMatchContact.body.id);
+  assert.equal(postedSuggestedEntry?.contactId, inlineMatchContact.body.id);
+
   const rejectedUnknownContact = await request<{ error: string }>("/agaraccounting/contacts", {
     method: "POST",
     body: JSON.stringify({

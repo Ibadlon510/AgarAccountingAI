@@ -38,3 +38,9 @@ Post-and-create is one atomic accounting action: if posting validation fails, co
 **Why:** Committing the contact while leaving the journal draft changed “Post & create” back to “Post”; a second click then encountered mismatched contact state.
 
 **How to apply:** Convert post-validation failures into transaction rollbacks, keep strict draft-to-post transition checks, and regression-test rapid duplicate clicks plus failed validation after contact materialization.
+
+When an API response promotes a safe live contact suggestion into the inline posting decision, posting must persist that contact on both the statement line and linked journal before stale-contact validation.
+
+**Why:** Imported drafts can store both contact references as null while presenting an active suggested match. Updating only the line creates an artificial mismatch that the safety check correctly rejects.
+
+**How to apply:** Treat the submitted contact decision as one transaction-scoped relationship update, then validate and post. Regression-test the suggested-in-response, null-in-storage import state.
