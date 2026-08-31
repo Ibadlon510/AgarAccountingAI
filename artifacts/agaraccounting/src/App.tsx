@@ -1867,26 +1867,22 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
   const accounts = (accountQuery.data ?? []).filter((account) => account.isActive);
   const create = useCreateJournalEntry();
   const update = useUpdateJournalEntry();
-  const debitLine = entry?.lines.find((line) => line.debit > 0);
-  const creditLine = entry?.lines.find((line) => line.credit > 0);
   const [form, setForm] = useState({
     date: entry?.date ?? calendarInputDate(),
     memo: entry?.memo ?? '',
     currency: entry?.currency ?? activeClient?.functionalCurrency ?? 'AED',
-    amount: debitLine?.debit ?? creditLine?.credit ?? 0,
-    debitAccount: debitLine?.account ?? accounts.find((account) => account.accountName === 'Rent expense')?.accountName ?? accounts[0]?.accountName ?? '',
-    creditAccount: creditLine?.account ?? accounts.find((account) => account.accountName === 'Accrued expenses')?.accountName ?? accounts.find((account) => account.accountName === 'Bank / cash')?.accountName ?? accounts[1]?.accountName ?? '',
   });
+  const [lines, setLines] = useState(() => entry?.lines.map((line) => ({ ...line, description: line.description ?? '' })) ?? [
+    { description: '', account: '', debit: 0, credit: 0 },
+    { description: '', account: '', debit: 0, credit: 0 },
+  ]);
   useEffect(() => {
     if (entry || !accounts.length) return;
-    setForm((current) => ({
-      ...current,
-      debitAccount: current.debitAccount && accounts.some((account) => account.accountName === current.debitAccount)
-        ? current.debitAccount
-        : accounts.find((account) => account.accountName === 'Rent expense')?.accountName ?? accounts[0]?.accountName ?? '',
-      creditAccount: current.creditAccount && accounts.some((account) => account.accountName === current.creditAccount)
-        ? current.creditAccount
-        : accounts.find((account) => account.accountName === 'Accrued expenses')?.accountName ?? accounts.find((account) => account.accountName !== current.debitAccount)?.accountName ?? '',
+    setLines((current) => current.map((line, index) => line.account ? line : {
+      ...line,
+      account: index === 0
+        ? accounts.find((account) => account.accountName === 'Rent expense')?.accountName ?? accounts[0]?.accountName ?? ''
+        : accounts.find((account) => account.accountName === 'Accrued expenses')?.accountName ?? accounts[1]?.accountName ?? accounts[0]?.accountName ?? '',
     }));
   }, [accounts, entry]);
   useEffect(() => {
@@ -1901,15 +1897,17 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
   const saving = create.isPending || update.isPending;
   const functionalCurrency = activeClient?.functionalCurrency ?? 'AED';
   const needsRate = form.currency !== functionalCurrency;
-  const unbalanced = accountQuery.isLoading || !form.debitAccount || !form.creditAccount || form.debitAccount === form.creditAccount || !form.amount || !form.memo.trim();
+  const totalDebit = lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+  const totalCredit = lines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+  const balanced = totalDebit > 0 && Math.abs(totalDebit - totalCredit) < 0.005;
+  const invalidLine = lines.some((line) => !line.account || (Number(line.debit) > 0) === (Number(line.credit) > 0));
+  const unbalanced = accountQuery.isLoading || lines.length < 2 || invalidLine || !balanced || !form.memo.trim();
   const payload: JournalEntryInput = {
     clientId,
     date: form.date,
     memo: form.memo.trim(),
     currency: form.currency,
-    amount: form.amount,
-    debitAccount: form.debitAccount,
-    creditAccount: form.creditAccount,
+    lines: lines.map((line) => ({ ...line, description: line.description.trim(), debit: Number(line.debit || 0), credit: Number(line.credit || 0) })),
   };
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -1926,7 +1924,7 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
     create.mutate({ data: payload }, {
       onSuccess: () => {
         onClose();
-        notify.success('Manual journal entry saved', { description: `${payload.memo} · ${payload.amount}` });
+        notify.success('Manual journal entry saved', { description: `${payload.memo} · ${money(totalDebit, form.currency)}` });
       },
     });
   };
@@ -1947,20 +1945,22 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
         <form onSubmit={submit} className="mt-6 space-y-4">
           <label className="block text-xs font-medium">Date<input data-testid="input-journal-date" required type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
           <label className="block text-xs font-medium">Memo<input data-testid="input-journal-memo" required value={form.memo} onChange={(event) => setForm((current) => ({ ...current, memo: event.target.value }))} placeholder="e.g. Accrue August rent" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-xs font-medium">Amount<input data-testid="input-journal-amount" required min="0.01" step=".01" type="number" value={form.amount || ''} onChange={(event) => setForm((current) => ({ ...current, amount: Number(event.target.value) }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:border-primary" /></label>
-            <label className="block text-xs font-medium">Currency<select data-testid="select-journal-currency" value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option></select></label>
+          <label className="block text-xs font-medium">Currency<select data-testid="select-journal-currency" value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option></select></label>
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full min-w-[680px] text-xs">
+              <thead className="bg-muted/60 text-left text-[10px] uppercase tracking-wider text-muted-foreground"><tr><th className="p-2">Account</th><th className="p-2">Description</th><th className="p-2 text-right">Debit</th><th className="p-2 text-right">Credit</th><th className="w-9" /></tr></thead>
+              <tbody>{lines.map((line, index) => <tr key={index} className="border-t border-border">
+                <td className="p-1.5"><select data-testid={`select-journal-account-${index}`} required value={line.account} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, account: event.target.value } : item))} className="h-9 w-full rounded border border-input bg-background px-2"><option value="">Choose account</option>{accountOptions}</select></td>
+                <td className="p-1.5"><input data-testid={`input-journal-line-description-${index}`} value={line.description} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} className="h-9 w-full rounded border border-input bg-background px-2" placeholder="Line description" /></td>
+                <td className="p-1.5"><input data-testid={`input-journal-debit-${index}`} min="0" step=".01" type="number" value={line.debit || ''} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, debit: Number(event.target.value), credit: event.target.value ? 0 : item.credit } : item))} className="h-9 w-full rounded border border-input bg-background px-2 text-right font-mono" /></td>
+                <td className="p-1.5"><input data-testid={`input-journal-credit-${index}`} min="0" step=".01" type="number" value={line.credit || ''} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, credit: Number(event.target.value), debit: event.target.value ? 0 : item.debit } : item))} className="h-9 w-full rounded border border-input bg-background px-2 text-right font-mono" /></td>
+                <td className="p-1"><button type="button" aria-label={`Remove line ${index + 1}`} disabled={lines.length <= 2} onClick={() => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-25"><Trash2 size={14} /></button></td>
+              </tr>)}</tbody>
+              <tfoot className="border-t border-border bg-muted/40 font-semibold"><tr><td colSpan={2} className="p-2">Totals</td><td className="p-2 text-right font-mono">{money(totalDebit, form.currency)}</td><td className="p-2 text-right font-mono">{money(totalCredit, form.currency)}</td><td /></tr></tfoot>
+            </table>
           </div>
-          <label className="block text-xs font-medium">Debit account<select data-testid="select-journal-debit-account" required value={form.debitAccount} onChange={(event) => setForm((current) => ({ ...current, debitAccount: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary">{accountQuery.isLoading ? <option>Loading accounts…</option> : accountOptions}</select></label>
-          <label className="block text-xs font-medium">Credit account<select data-testid="select-journal-credit-account" required value={form.creditAccount} onChange={(event) => setForm((current) => ({ ...current, creditAccount: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary">{accountQuery.isLoading ? <option>Loading accounts…</option> : accountOptions}</select></label>
-          {form.amount > 0 && form.debitAccount && form.creditAccount && form.debitAccount !== form.creditAccount && (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px]">
-              <div className="flex justify-between gap-3"><span>Dr {form.debitAccount}</span><span className="font-mono">{money(form.amount, form.currency)}</span></div>
-              <div className="mt-1 flex justify-between gap-3"><span>Cr {form.creditAccount}</span><span className="font-mono">{money(form.amount, form.currency)}</span></div>
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-3"><button type="button" onClick={() => setLines((current) => [...current, { description: '', account: '', debit: 0, credit: 0 }])} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold hover:bg-muted"><Plus size={13} /> Add line</button><span className={`text-xs font-semibold ${balanced ? 'text-primary' : 'text-destructive'}`}>{balanced ? 'Entry is balanced' : `Out of balance by ${money(Math.abs(totalDebit - totalCredit), form.currency)}`}</span></div>
           {needsRate && <p className="text-[11px] leading-5 text-muted-foreground">This currency is not {functionalCurrency}. Posting needs an exchange rate for {form.date || 'this date'}.</p>}
-          {form.debitAccount && form.creditAccount && form.debitAccount === form.creditAccount && <p className="text-xs text-destructive">Choose two different accounts so the entry stays in balance.</p>}
           {(create.isError || update.isError) && <p className="text-xs text-destructive">{readErrorMessage(create.error ?? update.error, 'This journal entry could not be saved. Check the accounts and try again.')}</p>}
           <button data-testid="button-submit-journal" disabled={saving || unbalanced} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{saving ? 'Saving entry…' : <><Plus size={14} /> {entry ? 'Save changes' : 'Save as draft'}</>}</button>
         </form>

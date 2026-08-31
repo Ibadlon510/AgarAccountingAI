@@ -75,8 +75,8 @@ import {
   RevokeStatementLineDetailRequestBody,
   RevokeStatementLineDetailRequestParams,
   RevokeStatementLineDetailRequestResponse,
-  GetStatementLineDetailRequestsQueryParams,
-  GetStatementLineDetailRequestsResponse,
+  ListStatementLineDetailRequestsQueryParams,
+  ListStatementLineDetailRequestsResponse,
   GetStatementLineNotesParams,
   GetStatementLineNotesQueryParams,
   GetStatementLineNotesResponse,
@@ -288,9 +288,25 @@ const router: IRouter = Router();
 type AccountingTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DRAFT_JOURNAL_STATUSES = ["draft", "suggested", "approved", "needs_review"] as const;
+type JournalLineValue = { description: string; account: string; debit: number; credit: number };
 
 function journalLifecycleStatus(status: string): "draft" | "posted" {
   return status === "posted" ? "posted" : "draft";
+}
+
+function journalLines(entry: typeof journalEntriesTable.$inferSelect): JournalLineValue[] {
+  if (Array.isArray(entry.lines) && entry.lines.length >= 2) {
+    return entry.lines.map((line) => ({
+      description: typeof line.description === "string" ? line.description : "",
+      account: String(line.account),
+      debit: number(String(line.debit)),
+      credit: number(String(line.credit)),
+    }));
+  }
+  return [
+    { description: entry.memo, account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
+    { description: entry.memo, account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
+  ];
 }
 
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, contactName: string | null = null) {
@@ -311,10 +327,7 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
     exchangeRateEffectiveDate: calendarDate(entry.exchangeRateEffectiveDate),
     exchangeRateSourceScope: entry.exchangeRateSourceScope ?? "none",
     exchangeRateStatus: entry.exchangeRateStatus ?? "none",
-    lines: [
-      { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
-      { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
-    ],
+    lines: journalLines(entry),
   };
 }
 
@@ -958,6 +971,58 @@ function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functio
   if (entry.functionalAmount != null && normalizeCurrency(entry.functionalCurrency ?? "") === functionalCurrency) return number(entry.functionalAmount);
   if (normalizeCurrency(entry.currency) === functionalCurrency) return number(entry.amount);
   return null;
+}
+
+function reportingJournalLines(entry: typeof journalEntriesTable.$inferSelect, functionalCurrency: string) {
+  const lines = journalLines(entry);
+  const sourceTotal = lines.reduce((sum, line) => sum + line.debit, 0);
+  const functionalTotal = reportingAmount(entry, functionalCurrency);
+  if (functionalTotal == null || sourceTotal <= 0) return null;
+  const factor = functionalTotal / sourceTotal;
+  return lines.map((line) => ({
+    ...line,
+    debit: line.debit * factor,
+    credit: line.credit * factor,
+  }));
+}
+
+async function normalizeManualJournalLines(clientId: number, input: JournalLineValue[]) {
+  if (input.length < 2 || input.length > 100) {
+    return { error: "A manual journal must contain between 2 and 100 lines." } as const;
+  }
+  const lines = input.map((line) => ({
+    description: line.description.trim().replace(/\s+/g, " ").slice(0, 500),
+    account: line.account.trim(),
+    debit: Math.round(Number(line.debit) * 100) / 100,
+    credit: Math.round(Number(line.credit) * 100) / 100,
+  }));
+  if (lines.some((line) => !line.account || !Number.isFinite(line.debit) || !Number.isFinite(line.credit)
+    || line.debit < 0 || line.credit < 0 || (line.debit > 0) === (line.credit > 0))) {
+    return { error: "Every journal line needs an active account and one positive debit or credit amount." } as const;
+  }
+  const debitCents = lines.reduce((sum, line) => sum + Math.round(line.debit * 100), 0);
+  const creditCents = lines.reduce((sum, line) => sum + Math.round(line.credit * 100), 0);
+  if (debitCents <= 0 || debitCents !== creditCents) {
+    return { error: "Total debits must equal total credits." } as const;
+  }
+  const accountNames = [...new Set(lines.map((line) => line.account))];
+  const accounts = await db.select().from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, clientId),
+    eq(accountClassificationsTable.isActive, true),
+    inArray(accountClassificationsTable.accountName, accountNames),
+  ));
+  if (accounts.length !== accountNames.length) {
+    return { error: "Every journal line must use an active account in this client's chart." } as const;
+  }
+  const byName = new Map(accounts.map((account) => [account.accountName, account]));
+  const debitLine = lines.find((line) => line.debit > 0)!;
+  const creditLine = lines.find((line) => line.credit > 0)!;
+  return {
+    lines,
+    amount: debitCents / 100,
+    debit: byName.get(debitLine.account)!,
+    credit: byName.get(creditLine.account)!,
+  } as const;
 }
 
 type ExchangeRateCoverageRecord = {
@@ -9595,13 +9660,13 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
 });
 
 router.get("/agaraccounting/statement-lines/detail-requests", async (req, res) => {
-  const query = GetStatementLineDetailRequestsQueryParams.safeParse(req.query);
+  const query = ListStatementLineDetailRequestsQueryParams.safeParse(req.query);
   if (!query.success) {
     return res.status(400).json({ error: "Remarks links could not be loaded." });
   }
   const client = await requireOwnedClient(req, res, query.data.clientId);
   if (!client) return;
-  return res.json(GetStatementLineDetailRequestsResponse.parse(await listDetailRequests(client.id, req)));
+  return res.json(ListStatementLineDetailRequestsResponse.parse(await listDetailRequests(client.id, req)));
 });
 
 router.post("/agaraccounting/statement-lines/detail-requests/:id/revoke", async (req, res) => {
@@ -10170,6 +10235,7 @@ router.get("/agaraccounting/journal-entries", async (req, res) => {
 
 router.post("/agaraccounting/journal-entries", async (req, res) => {
   const body = CreateJournalEntryBody.parse(req.body);
+  const journalDate = calendarDate(body.date) ?? "";
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
   if (body.contactId != null) {
@@ -10184,41 +10250,37 @@ router.post("/agaraccounting/journal-entries", async (req, res) => {
   if (!/^[A-Z]{3}$/.test(currency)) {
     return res.status(400).json({ error: "Currency must use a three-letter ISO code." });
   }
-  if (!isIsoDate(body.date)) {
+  if (!isIsoDate(journalDate)) {
     return res.status(400).json({ error: "Journal date must be a calendar date." });
   }
   const memo = body.memo.trim().replace(/\s+/g, " ");
   if (!memo) return res.status(400).json({ error: "A memo is required." });
-  const accounts = await resolveManualJournalAccounts(db, client.id, body.debitAccount, body.creditAccount);
-  if (accounts.kind === "same_account") {
-    return res.status(400).json({ error: "Debit and credit accounts must be different." });
-  }
-  if (accounts.kind !== "ok") {
-    return res.status(400).json({ error: "Both accounts must be active in this client's chart." });
-  }
+  const normalized = await normalizeManualJournalLines(client.id, body.lines);
+  if ("error" in normalized) return res.status(400).json({ error: normalized.error });
   await getRateProfileForClient(client);
   const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
   const conversion = await resolveExchangeRate(
     rateClient ?? client,
     currency,
     normalizeCurrency(client.functionalCurrency),
-    body.date,
-    body.amount,
+    journalDate,
+    normalized.amount,
   );
   const [entry] = await db.insert(journalEntriesTable).values({
     statementLineId: null,
     clientId: client.id,
-    date: body.date,
+    date: journalDate,
     memo,
     currency,
     status: "draft",
     confidence: "1.00",
-    debitAccount: accounts.debitName,
-    creditAccount: accounts.creditName,
-    debitAccountClassificationId: accounts.debit.id,
-    creditAccountClassificationId: accounts.credit.id,
+    debitAccount: normalized.debit.accountName,
+    creditAccount: normalized.credit.accountName,
+    debitAccountClassificationId: normalized.debit.id,
+    creditAccountClassificationId: normalized.credit.id,
     contactId: body.contactId ?? null,
-    amount: body.amount.toFixed(2),
+    amount: normalized.amount.toFixed(2),
+    lines: normalized.lines,
     functionalCurrency: conversion.functionalCurrency,
     functionalAmount: conversion.functionalAmount,
     exchangeRate: conversion.exchangeRate,
@@ -10233,6 +10295,7 @@ router.post("/agaraccounting/journal-entries", async (req, res) => {
 router.patch("/agaraccounting/journal-entries/:id", async (req, res) => {
   const { id } = UpdateJournalEntryParams.parse({ id: Number(req.params.id) });
   const body = UpdateJournalEntryBody.parse(req.body);
+  const journalDate = calendarDate(body.date) ?? "";
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
   if (body.contactId != null) {
@@ -10247,37 +10310,33 @@ router.patch("/agaraccounting/journal-entries/:id", async (req, res) => {
   if (!/^[A-Z]{3}$/.test(currency)) {
     return res.status(400).json({ error: "Currency must use a three-letter ISO code." });
   }
-  if (!isIsoDate(body.date)) {
+  if (!isIsoDate(journalDate)) {
     return res.status(400).json({ error: "Journal date must be a calendar date." });
   }
   const memo = body.memo.trim().replace(/\s+/g, " ");
   if (!memo) return res.status(400).json({ error: "A memo is required." });
-  const accounts = await resolveManualJournalAccounts(db, client.id, body.debitAccount, body.creditAccount);
-  if (accounts.kind === "same_account") {
-    return res.status(400).json({ error: "Debit and credit accounts must be different." });
-  }
-  if (accounts.kind !== "ok") {
-    return res.status(400).json({ error: "Both accounts must be active in this client's chart." });
-  }
+  const normalized = await normalizeManualJournalLines(client.id, body.lines);
+  if ("error" in normalized) return res.status(400).json({ error: normalized.error });
   await getRateProfileForClient(client);
   const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
   const conversion = await resolveExchangeRate(
     rateClient ?? client,
     currency,
     normalizeCurrency(client.functionalCurrency),
-    body.date,
-    body.amount,
+    journalDate,
+    normalized.amount,
   );
   const [entry] = await db.update(journalEntriesTable).set({
-    date: body.date,
+    date: journalDate,
     memo,
     currency,
-    debitAccount: accounts.debitName,
-    creditAccount: accounts.creditName,
-    debitAccountClassificationId: accounts.debit.id,
-    creditAccountClassificationId: accounts.credit.id,
+    debitAccount: normalized.debit.accountName,
+    creditAccount: normalized.credit.accountName,
+    debitAccountClassificationId: normalized.debit.id,
+    creditAccountClassificationId: normalized.credit.id,
     contactId: body.contactId ?? null,
-    amount: body.amount.toFixed(2),
+    amount: normalized.amount.toFixed(2),
+    lines: normalized.lines,
     functionalCurrency: conversion.functionalCurrency,
     functionalAmount: conversion.functionalAmount,
     exchangeRate: conversion.exchangeRate,

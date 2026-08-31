@@ -597,6 +597,7 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   creditAccountClassificationId: integer("credit_account_classification_id"),
   contactId: integer("contact_id"),
   amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  lines: jsonb("lines").$type<Array<{ description: string; account: string; debit: number; credit: number }>>(),
   functionalCurrency: varchar("functional_currency", { length: 3 }),
   functionalAmount: numeric("functional_amount", { precision: 14, scale: 2 }),
   exchangeRate: numeric("exchange_rate", { precision: 20, scale: 10 }),

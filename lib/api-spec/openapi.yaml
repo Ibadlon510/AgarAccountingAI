@@ -979,27 +979,6 @@ paths:
                   $ref: "#/components/schemas/StatementLineDetailRequest"
         "400":
           description: clientId is missing or invalid
-    post:
-      operationId: requestStatementLineDetails
-      tags: [agaraccounting]
-      summary: Email a public remarks link for selected draft statement lines
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/StatementLineDetailRequestInput"
-      responses:
-        "201":
-          description: Remarks request created and email sent
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatementLineDetailRequest"
-        "400":
-          description: Selection is empty, too large, not draft, or not in this client
-        "502":
-          description: The remarks email was not sent
   /agaraccounting/statement-lines/detail-requests/{id}/revoke:
     post:
       operationId: revokeStatementLineDetailRequest
@@ -4030,11 +4009,12 @@ components:
         email: { type: ["string", "null"] }
     JournalLine:
       type: object
-      required: [account, debit, credit]
+      required: [description, account, debit, credit]
       properties:
+        description: { type: string }
         account: { type: string }
-        debit: { type: number }
-        credit: { type: number }
+        debit: { type: number, minimum: 0 }
+        credit: { type: number, minimum: 0 }
     JournalEntry:
       type: object
       required: [id, statementLineId, source, date, memo, currency, status, confidence, lines]
@@ -4062,15 +4042,24 @@ components:
         exchangeRateStatus: { type: string }
     JournalEntryInput:
       type: object
-      required: [clientId, date, memo, currency, amount, debitAccount, creditAccount]
+      required: [clientId, date, memo, currency, lines]
       properties:
         clientId: { type: number }
         date: { type: string, format: date }
         memo: { type: string, minLength: 1, maxLength: 500 }
         currency: { type: string, minLength: 3, maxLength: 3 }
-        amount: { type: number, exclusiveMinimum: 0 }
-        debitAccount: { type: string, minLength: 1, maxLength: 160 }
-        creditAccount: { type: string, minLength: 1, maxLength: 160 }
+        lines:
+          type: array
+          minItems: 2
+          maxItems: 100
+          items:
+            type: object
+            required: [description, account, debit, credit]
+            properties:
+              description: { type: string, maxLength: 500 }
+              account: { type: string, minLength: 1, maxLength: 160 }
+              debit: { type: number, minimum: 0 }
+              credit: { type: number, minimum: 0 }
         contactId: { type: ["number", "null"] }
     DeleteJournalEntryInput:
       type: object
