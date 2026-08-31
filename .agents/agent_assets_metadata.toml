@@ -14,3 +14,17 @@ mtime_ms = 1788164339179
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:e0084adf-47ef-4138-801e-f77f435ad94e/322eaee1-2947-483e-8362-7db9c6ba84e7/94b6d436-ebee-4134-828b-40a6857e881d"
 storage_version_token = "1788164351696941"
 content_type = "text/plain"
+
+[[outputs]]
+id = "2cVotH7T5U5hh3-dB5W5I"
+uri = "file://downloads/agaraccounting.com-godaddy-zone-latest.txt"
+type = "text"
+title = "Latest GoDaddy DNS import for agaraccounting.com"
+description = "Based on the newer GoDaddy export. Keeps the Replit root A, verification TXT, and Let’s Encrypt CAA records plus existing email, Microsoft, Clerk, Resend, and mail records. The old www-to-Render record is omitted."
+logical_id = "8db29372-e98c-4058-8e70-85c6e1d995e9"
+content_hash = "sha256:66cf65fca05a821cbc214e3cc69347972fdac8c66b830489836552443a09a238"
+size = 2238
+mtime_ms = 1788164520947
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:e0084adf-47ef-4138-801e-f77f435ad94e/8db29372-e98c-4058-8e70-85c6e1d995e9/ebe8e215-d0ae-41ca-809c-c9127d47b0f9"
+storage_version_token = "1788164537621928"
+content_type = "text/plain"
