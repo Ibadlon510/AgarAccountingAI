@@ -2972,6 +2972,31 @@ async function recordClassificationPattern(
   });
 }
 
+async function reverseClassificationPattern(
+  userId: string,
+  description: string,
+  accountSuggestion: string,
+  executor: AccountingTransaction,
+) {
+  const normalizedVendor = recurringNarrationIdentity(description);
+  const normalizedAccount = accountSuggestion.trim().slice(0, 160);
+  if (!normalizedVendor || !normalizedAccount) return;
+  const [pattern] = await executor.select().from(classificationPatternsTable).where(and(
+    eq(classificationPatternsTable.userId, userId),
+    eq(classificationPatternsTable.normalizedVendor, normalizedVendor),
+    eq(classificationPatternsTable.accountSuggestion, normalizedAccount),
+  )).for("update");
+  if (!pattern) return;
+  if (pattern.confirmationCount <= 1) {
+    await executor.delete(classificationPatternsTable).where(eq(classificationPatternsTable.id, pattern.id));
+    return;
+  }
+  await executor.update(classificationPatternsTable).set({
+    confirmationCount: pattern.confirmationCount - 1,
+    updatedAt: new Date(),
+  }).where(eq(classificationPatternsTable.id, pattern.id));
+}
+
 function lineSuggestion(
   line: { description: string; direction: string; accountSuggestion?: string | null; confidence?: string | number | null },
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
@@ -4024,6 +4049,30 @@ async function applyRecodeLinesAction(
         if (!currentLearned || currentLearned.accountSuggestion !== accountSuggestion) {
           throw new RecodeConflictError("The learned account recommendation changed. Refresh the line and confirm the current recommendation.");
         }
+      }
+    }
+    const currentPatterns = await tx.select().from(classificationPatternsTable)
+      .where(eq(classificationPatternsTable.userId, userId));
+    for (const line of lockedLines) {
+      const learned = findWorkspaceSuggestion(currentPatterns, line.description);
+      if (!learned || learned.accountSuggestion === accountSuggestion) continue;
+      const [priorUnpost] = await tx.select({ id: bulkTransitionAuditsTable.id })
+        .from(bulkTransitionAuditsTable)
+        .where(and(
+          eq(bulkTransitionAuditsTable.clientId, clientId),
+          eq(bulkTransitionAuditsTable.actorUserId, userId),
+          inArray(bulkTransitionAuditsTable.transition, ["unpost_entry", "bulk_unpost_entries"]),
+          sql`${bulkTransitionAuditsTable.statementLineIds} @> ARRAY[${line.id}]::integer[]`,
+        ))
+        .orderBy(desc(bulkTransitionAuditsTable.confirmedAt))
+        .limit(1);
+      if (priorUnpost) {
+        await reverseClassificationPattern(
+          userId,
+          line.description,
+          learned.accountSuggestion,
+          tx,
+        );
       }
     }
     const lockedEntries = await tx.select().from(journalEntriesTable).where(and(
@@ -7131,6 +7180,17 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           ))
           .returning();
         if (updatedLines.length !== statementLineIds.length) throw new BulkActionValidationError("invalid_scope");
+        for (const line of lines) {
+          const entry = entries.find((candidate) => candidate.statementLineId === line.id);
+          if (entry) {
+            await reverseClassificationPattern(
+              currentUserId(req),
+              line.description,
+              line.direction === "inflow" ? entry.creditAccount : entry.debitAccount,
+              tx,
+            );
+          }
+        }
         await tx.insert(bulkTransitionAuditsTable).values({
           clientId: body.clientId,
           actorUserId: currentUserId(req),
@@ -9712,6 +9772,12 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
       eq(statementLinesTable.status, "posted"),
     )).returning();
     if (!draftLine) throw new Error("The linked statement line could not be returned to draft.");
+    await reverseClassificationPattern(
+      currentUserId(req),
+      line.description,
+      line.direction === "inflow" ? entry.creditAccount : entry.debitAccount,
+      tx,
+    );
     await recordJournalTransitionAudit(tx, req, {
       clientId: client.id,
       transition: "unpost_entry",

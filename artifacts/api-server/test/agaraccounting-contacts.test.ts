@@ -1476,3 +1476,61 @@ test("applies Bank charges contact assignment in one chat turn without guessing"
     .where(eq(database.journalEntriesTable.clientId, scopedClientId));
   assert.ok(stillDraft.some((entry) => entry.status !== "posted"));
 });
+
+test("reverses mistaken account learning when a posted line is reopened and corrected", async () => {
+  const accounts = await request<Array<{ accountName: string }>>(
+    `/agaraccounting/accounts?clientId=${clientId}`,
+  );
+  assert.equal(accounts.response.status, 200);
+  assert.ok(accounts.body.some((account) => account.accountName === "Other income"));
+  assert.ok(accounts.body.some((account) => account.accountName === "Revenue"));
+
+  const description = `RECURRING CUSTOMER RECEIPT ${randomUUID()}`;
+  const mistakenLine = await createLine(description, "AED", 450, "inflow");
+  const mistakenEntry = await entryFor(mistakenLine.id);
+  const mistakenPost = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${mistakenEntry.id}/post`,
+    {
+      method: "POST",
+      body: JSON.stringify({ clientId, accountSuggestion: "Other income", contactId: null }),
+    },
+  );
+  assert.equal(mistakenPost.response.status, 200);
+  const [mistakenPattern] = await database.db.select()
+    .from(database.classificationPatternsTable)
+    .where(and(
+      eq(database.classificationPatternsTable.userId, ownerId),
+      eq(database.classificationPatternsTable.accountSuggestion, "Other income"),
+    ));
+  assert.ok(mistakenPattern);
+
+  const reopened = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${mistakenEntry.id}/unpost`,
+    {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    },
+  );
+  assert.equal(reopened.response.status, 200);
+  assert.equal(reopened.body.status, "draft");
+  await database.db.insert(database.classificationPatternsTable).values({
+    userId: ownerId,
+    normalizedVendor: mistakenPattern.normalizedVendor,
+    accountSuggestion: "Other income",
+    confidence: mistakenPattern.confidence,
+    confirmationCount: 1,
+  });
+
+  await recode(mistakenLine.id, "Revenue");
+  const correctedLines = await request<Line[]>(
+    `/agaraccounting/statement-lines?clientId=${clientId}`,
+  );
+  assert.equal(correctedLines.response.status, 200);
+  const correctedLine = correctedLines.body.find((line) => line.id === mistakenLine.id);
+  assert.equal(correctedLine?.accountSuggestion, "Revenue");
+  assert.equal(correctedLine?.journalAccount, "Revenue");
+
+  const nextLine = await createLine(description, "AED", 500, "inflow");
+  assert.equal(nextLine.accountSuggestion, "Revenue");
+  assert.equal(nextLine.supportingPatternCount, 1);
+});

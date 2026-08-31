@@ -3016,6 +3016,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     return accounts[0]?.accountName ?? preferred ?? '';
   };
   const [selectedAccount, setSelectedAccount] = useState(() => resolveSelectableAccount(line.accountSuggestion));
+  const saveAccount = useConfirmAICopilotAction();
   const accountSelectionEditedRef = useRef(false);
   useEffect(() => {
     setSelectedAccount((current) => {
@@ -3234,12 +3235,35 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                               <select
                                 data-testid={`select-account-suggestion-${line.id}`}
                                 aria-label="Classification decision"
-                                aria-busy={accountQuery.isLoading}
-                                disabled={accountQuery.isLoading}
+                                aria-busy={accountQuery.isLoading || saveAccount.isPending}
+                                disabled={accountQuery.isLoading || saveAccount.isPending}
                                 value={selectedAccount}
                                 onChange={(event) => {
+                                  const accountSuggestion = event.target.value;
+                                  const previousAccount = selectedAccount;
                                   accountSelectionEditedRef.current = true;
-                                  setSelectedAccount(event.target.value);
+                                  setSelectedAccount(accountSuggestion);
+                                  if (!activeClient || !accountSuggestion || accountSuggestion === journalClassifiedAccount) return;
+                                  saveAccount.mutate({
+                                    data: {
+                                      clientId: activeClient.id,
+                                      type: 'recode_lines',
+                                      lineIds: [line.id],
+                                      accountSuggestion,
+                                      confidence: 0.85,
+                                    },
+                                  }, {
+                                    onSuccess: () => {
+                                      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+                                      queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+                                      notify.success('Draft account updated', { description: `${accountSuggestion} will be used when this entry is posted.` });
+                                    },
+                                    onError: (error) => {
+                                      accountSelectionEditedRef.current = false;
+                                      setSelectedAccount(previousAccount);
+                                      notify.error(error, { title: 'Account update failed', fallback: 'The draft account could not be updated. Refresh the queue and try again.' });
+                                    },
+                                  });
                                 }}
                                 onClick={(event) => event.stopPropagation()}
                                 className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary disabled:opacity-50"
@@ -3250,7 +3274,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                                     ? <option value="">No active accounts available</option>
                                     : accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName}</option>)}
                               </select>
-                              {accountQuery.isFetching && !accountQuery.isLoading && <LoaderCircle size={12} className="shrink-0 animate-spin text-primary" aria-label="Refreshing accounts" />}
+                              {(saveAccount.isPending || (accountQuery.isFetching && !accountQuery.isLoading)) && <LoaderCircle size={12} className="shrink-0 animate-spin text-primary" aria-label={saveAccount.isPending ? 'Saving account' : 'Refreshing accounts'} />}
                             </span>
                           ) : <span className="font-semibold">{journalLine.account}</span>}
                         </td>
