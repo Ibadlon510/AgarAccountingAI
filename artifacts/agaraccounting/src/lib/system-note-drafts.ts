@@ -16,6 +16,7 @@ export type DraftChecklistItem = {
 };
 
 type SnapshotLike = {
+  entityName: string;
   legalName: string;
   periodEnd: string;
   comparativePeriodEnd: string;
@@ -89,7 +90,7 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
       number: 1,
       title: "Basis of preparation",
       narrative: [
-        `These financial statements of ${snapshot.legalName} have been prepared for the year ended ${periodLabel} in accordance with ${framework}.`,
+        `These financial statements of ${snapshot.entityName} have been prepared for the year ended ${periodLabel} in accordance with ${framework}.`,
         presentation,
         `They are presented in ${currency}, which is also the entity’s presentation currency for this report pack.`,
         "Management has prepared the statements on a going-concern basis and has applied materiality when deciding which disclosures are necessary for an understanding of the financial position and performance.",

@@ -194,6 +194,8 @@ test("brands generated report PDFs as AgarAccounting AI System", () => {
   assert.match(pdf, /AgarAccounting AI System report snapshot/);
   assert.match(pdf, /evidence linkage in\)/);
   assert.match(pdf, /\(AgarAccounting AI System\.\)/);
+  assert.match(pdf, /\(Profile test entity\)/);
+  assert.doesNotMatch(pdf, /\(Profile test entity LLC\)/);
 });
 
 test("includes only frozen eligible firm attribution in report PDFs", () => {
