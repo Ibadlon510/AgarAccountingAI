@@ -34,4 +34,4 @@
 - [Web React type resolution](web-react-type-resolution.md) — web projects must pin React type subpaths when a React 18 mobile app shares the pnpm workspace.
 - [Fast refresh feedback](fast-refresh-feedback.md) — fast refetches need a minimum local loading cue and persistent completion marker so unchanged data never looks unresponsive.
 - [Single-account import overrides](single-account-import-overrides.md) — grouped extraction must not weaken explicit currency or account choices in the legacy one-account confirmation path.
-- [Financial statement identity](financial-statement-identity.md) — report covers, headers, PDFs, and generated notes use the selected client display name, not a legal-name fallback.
+- [Financial statement identity](financial-statement-identity.md) — report covers, headers, PDFs, and generated notes use the client’s legal name.

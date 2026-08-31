@@ -52,7 +52,7 @@ export function buildReportPdf(snapshot: ReportSnapshot, signatory: ReportSignat
   const currency = snapshot.presentationCurrency;
   const pageLines = [
     [
-      snapshot.entityName,
+      snapshot.legalName,
       ...(snapshot.firmAttribution?.enabled && snapshot.firmAttribution.firmName
         ? [`Prepared by firm: ${snapshot.firmAttribution.firmName}`]
         : []),
@@ -103,7 +103,7 @@ export function buildReportPdf(snapshot: ReportSnapshot, signatory: ReportSignat
   const fontBold = add("<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>");
   const pageObjectIds: number[] = [];
   for (let index = 0; index < pageLines.length; index += 1) {
-    const stream = pageContent(pageLines[index], index + 1, snapshot.entityName);
+    const stream = pageContent(pageLines[index], index + 1, snapshot.legalName);
     const contentId = add(`<< /Length ${Buffer.byteLength(stream, "utf8")} >>\nstream\n${stream}\nendstream`);
     pageObjectIds.push(add(`<< /Type /Page /Parent ${pages} 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >> >> /Contents ${contentId} 0 R >>`));
   }

@@ -3,8 +3,8 @@ name: Financial statement identity
 description: Which client identity generated financial statements must present.
 ---
 
-Generated financial statement covers, page headers, PDFs, and system-generated note narratives must use the selected client’s display/company name. Keep legal-name data separate for legal metadata rather than substituting it into report presentation.
+Generated financial statement covers, page headers, PDFs, and system-generated note narratives must use the client’s legal name. The display/company name remains available for workspace navigation but is not the report identity.
 
-**Why:** A client report displayed a stale legal-name value even though the correct client was selected, making the report appear to belong to another entity.
+**Why:** The client confirmed that the formal legal name is the correct identity for financial statement reports.
 
-**How to apply:** Whenever report presentation is added or regenerated, trace the selected client display name through the frozen snapshot and assert that legal-name values cannot replace it.
+**How to apply:** Whenever report presentation is added or regenerated, trace the client legal name through the frozen snapshot and assert that display-name values cannot replace it.
