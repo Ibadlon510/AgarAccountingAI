@@ -48,7 +48,8 @@ export const GetFirmProfileResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "legalName": zod.string(),
-  "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this firm\'s clients.')
+  "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this firm\'s clients.'),
+  "reportAttributionEnabled": zod.boolean().describe('Whether eligible newly generated reports show the firm\'s name.')
 })
 
 
@@ -62,14 +63,16 @@ export const GetFirmProfileResponse = zod.object({
 export const UpdateFirmProfileBody = zod.object({
   "name": zod.string().min(1),
   "legalName": zod.string().min(1),
-  "systemRatesEnabled": zod.boolean().optional()
+  "systemRatesEnabled": zod.boolean().optional(),
+  "reportAttributionEnabled": zod.boolean().optional()
 })
 
 export const UpdateFirmProfileResponse = zod.object({
   "id": zod.number(),
   "name": zod.string(),
   "legalName": zod.string(),
-  "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this firm\'s clients.')
+  "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this firm\'s clients.'),
+  "reportAttributionEnabled": zod.boolean().describe('Whether eligible newly generated reports show the firm\'s name.')
 })
 
 
@@ -2771,6 +2774,10 @@ export const CreateReportPackResponse = zod.object({
   "presentationCurrency": zod.string(),
   "reportingBasis": zod.string(),
   "presentationProfile": zod.string(),
+  "firmAttribution": zod.object({
+  "enabled": zod.boolean(),
+  "firmName": zod.string().nullable()
+}).optional(),
   "statementOfFinancialPosition": zod.array(zod.object({
   "label": zod.string(),
   "current": zod.number(),
@@ -2921,6 +2928,10 @@ export const GetReportPackResponse = zod.object({
   "presentationCurrency": zod.string(),
   "reportingBasis": zod.string(),
   "presentationProfile": zod.string(),
+  "firmAttribution": zod.object({
+  "enabled": zod.boolean(),
+  "firmName": zod.string().nullable()
+}).optional(),
   "statementOfFinancialPosition": zod.array(zod.object({
   "label": zod.string(),
   "current": zod.number(),
@@ -3099,6 +3110,10 @@ export const UpdateReportPackResponse = zod.object({
   "presentationCurrency": zod.string(),
   "reportingBasis": zod.string(),
   "presentationProfile": zod.string(),
+  "firmAttribution": zod.object({
+  "enabled": zod.boolean(),
+  "firmName": zod.string().nullable()
+}).optional(),
   "statementOfFinancialPosition": zod.array(zod.object({
   "label": zod.string(),
   "current": zod.number(),

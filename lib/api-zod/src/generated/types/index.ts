@@ -172,6 +172,7 @@ export * from './rateScopeFirmIdParameter';
 export * from './reportAmount';
 export * from './reportChecklistItem';
 export * from './reportChecklistItemStatus';
+export * from './reportFirmAttribution';
 export * from './reportNote';
 export * from './reportNoteTablesItem';
 export * from './reportPack';

@@ -1256,7 +1256,26 @@ function firmProfileResponse(firm: typeof firmProfilesTable.$inferSelect) {
     name: firm.name,
     legalName: firm.legalName,
     systemRatesEnabled: firm.systemRatesEnabled,
+    reportAttributionEnabled: firm.reportAttributionEnabled,
   };
+}
+
+async function resolveReportAttribution(req: Request, clientId: number) {
+  const [eligible] = await db.select({ firm: firmProfilesTable })
+    .from(firmMembershipsTable)
+    .innerJoin(firmProfilesTable, eq(firmProfilesTable.id, firmMembershipsTable.firmId))
+    .innerJoin(firmCompanyEngagementsTable, and(
+      eq(firmCompanyEngagementsTable.firmId, firmProfilesTable.id),
+      eq(firmCompanyEngagementsTable.clientId, clientId),
+      eq(firmCompanyEngagementsTable.status, "active"),
+    ))
+    .where(and(
+      eq(firmMembershipsTable.userId, currentUserId(req)),
+      eq(firmMembershipsTable.status, "active"),
+    ))
+    .limit(1);
+  if (!eligible?.firm.reportAttributionEnabled) return { enabled: false, firmName: null };
+  return { enabled: true, firmName: eligible.firm.name };
 }
 
 async function firmMembershipsTableForUser(userId: string) {
@@ -7856,6 +7875,7 @@ router.patch("/workspace/firm-profile", async (req, res) => {
     name: parsed.data.name.trim(),
     legalName: parsed.data.legalName.trim(),
     systemRatesEnabled: parsed.data.systemRatesEnabled,
+    reportAttributionEnabled: parsed.data.reportAttributionEnabled,
   }).where(eq(firmProfilesTable.id, firm.id)).returning();
   await refreshFirmRateConversions(saved.id);
   return res.json(UpdateFirmProfileResponse.parse(firmProfileResponse(saved)));
@@ -9911,6 +9931,7 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
     roundingPolicy: body.roundingPolicy ?? "Nearest whole unit",
     sourceImportCount: sourceImports.length,
     missingRateEntries,
+    firmAttribution: await resolveReportAttribution(req, client.id),
   });
   const [pack] = await db.insert(reportPacksTable).values({
     clientId: client.id,

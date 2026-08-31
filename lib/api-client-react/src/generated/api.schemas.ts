@@ -240,6 +240,8 @@ export interface FirmProfile {
   legalName: string;
   /** Whether the system catalog may supply a fallback rate for this firm's clients. */
   systemRatesEnabled: boolean;
+  /** Whether eligible newly generated reports show the firm's name. */
+  reportAttributionEnabled: boolean;
 }
 
 export interface FirmProfileInput {
@@ -248,6 +250,7 @@ export interface FirmProfileInput {
   /** @minLength 1 */
   legalName: string;
   systemRatesEnabled?: boolean;
+  reportAttributionEnabled?: boolean;
 }
 
 export type OrganizationMode = typeof OrganizationMode[keyof typeof OrganizationMode];
@@ -2191,6 +2194,12 @@ export interface ReportSignatory {
   authorizationDate?: string | null;
 }
 
+export interface ReportFirmAttribution {
+  enabled: boolean;
+  /** @nullable */
+  firmName: string | null;
+}
+
 export type ReportSnapshotTraceability = {
   postedEntryCount: number;
   postedLineCount: number;
@@ -2205,6 +2214,7 @@ export interface ReportSnapshot {
   presentationCurrency: string;
   reportingBasis: string;
   presentationProfile: string;
+  firmAttribution?: ReportFirmAttribution;
   statementOfFinancialPosition: ReportAmount[];
   profitOrLossAndOci: ReportAmount[];
   changesInEquity: ReportAmount[];

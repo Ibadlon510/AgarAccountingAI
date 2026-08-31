@@ -12,4 +12,5 @@ export interface FirmProfileInput {
   /** @minLength 1 */
   legalName: string;
   systemRatesEnabled?: boolean;
+  reportAttributionEnabled?: boolean;
 }

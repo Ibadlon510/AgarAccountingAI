@@ -53,6 +53,9 @@ export function buildReportPdf(snapshot: ReportSnapshot, signatory: ReportSignat
   const pageLines = [
     [
       snapshot.legalName,
+      ...(snapshot.firmAttribution?.enabled && snapshot.firmAttribution.firmName
+        ? [`Prepared by firm: ${snapshot.firmAttribution.firmName}`]
+        : []),
       "",
       "Financial statements",
       `For the year ended ${snapshot.periodEnd}`,

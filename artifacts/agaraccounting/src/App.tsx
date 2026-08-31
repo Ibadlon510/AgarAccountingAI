@@ -714,15 +714,15 @@ function FirmSettingsPage() {
   const importRates = useImportExchangeRates();
   const parseRates = useParseExchangeRates();
   const { user } = useUser();
-  const [form, setForm] = useState({ name: '', legalName: '', systemRatesEnabled: true });
+  const [form, setForm] = useState({ name: '', legalName: '', systemRatesEnabled: true, reportAttributionEnabled: false });
   const [rate, setRate] = useState({ sourceCurrency: 'USD', functionalCurrency: 'AED', effectiveDate: new Date().toISOString().slice(0, 10), rate: '' });
   const [rateImportError, setRateImportError] = useState('');
   const [rateImportNotice, setRateImportNotice] = useState('');
   const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
   const [ratePage, setRatePage] = useState(1);
   useEffect(() => {
-    if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName, systemRatesEnabled: firmQuery.data.systemRatesEnabled });
-  }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName, firmQuery.data?.systemRatesEnabled]);
+    if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName, systemRatesEnabled: firmQuery.data.systemRatesEnabled, reportAttributionEnabled: firmQuery.data.reportAttributionEnabled });
+  }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName, firmQuery.data?.systemRatesEnabled, firmQuery.data?.reportAttributionEnabled]);
   const refreshRates = () => {
     queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey(firmRateScope) });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
@@ -802,6 +802,7 @@ function FirmSettingsPage() {
           <label className="text-xs font-medium">Firm name<input data-testid="input-firm-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
           <label className="text-xs font-medium">Legal firm name<input data-testid="input-firm-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
           <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-system-rates" type="checkbox" checked={form.systemRatesEnabled} onChange={(event) => setForm({ ...form, systemRatesEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Allow system exchange-rate fallback</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Firm and client schedules remain authoritative. Disable this to keep every client on firm-controlled rates only.</span></span></label>
+          <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-report-attribution" type="checkbox" checked={form.reportAttributionEnabled} onChange={(event) => setForm({ ...form, reportAttributionEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Show firm name on generated reports</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">New report packs for active firm engagements will show the firm name on the browser cover and final PDF. Existing snapshots never change.</span></span></label>
           <div className="rounded-md bg-muted px-3 py-2 text-xs sm:col-span-2">Account owner: <strong>{user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Loading profile…'}</strong></div>
           <div className="flex justify-end sm:col-span-2"><button data-testid="button-save-firm-settings" disabled={saveFirm.isPending || firmQuery.isLoading} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">{saveFirm.isPending ? 'Saving…' : 'Save firm settings'}</button></div>
         </form>
@@ -3780,6 +3781,21 @@ function FinancialStatementsPage() {
     }
     focusReportSection(target.sectionId);
   };
+  useEffect(() => {
+    const previous = document.querySelector('[data-report-firm-attribution="true"]');
+    previous?.remove();
+    const attribution = pack?.snapshot.firmAttribution;
+    if (!attribution?.enabled || !attribution.firmName) return;
+    const title = document.querySelector('#report-comparative-statements .report-cover h2');
+    if (!title) return;
+    const label = document.createElement('p');
+    label.dataset.reportFirmAttribution = 'true';
+    label.dataset.testid = 'report-firm-attribution';
+    label.className = 'mt-3 text-[12px] font-semibold';
+    label.textContent = `Prepared by firm: ${attribution.firmName}`;
+    title.insertAdjacentElement('afterend', label);
+    return () => label.remove();
+  }, [pack?.id, pack?.snapshot.firmAttribution?.enabled, pack?.snapshot.firmAttribution?.firmName, showComparatives]);
   const blocked = pack?.validation.status !== 'pass';
   const errorText = generate.error || update.error
     ? 'The report pack could not be saved. Review the visible requirements and try again.'

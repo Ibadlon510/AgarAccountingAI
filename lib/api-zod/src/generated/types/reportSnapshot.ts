@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ReportAmount } from './reportAmount';
+import type { ReportFirmAttribution } from './reportFirmAttribution';
 import type { ReportNote } from './reportNote';
 import type { ReportSnapshotTraceability } from './reportSnapshotTraceability';
 import type { UaeCorporateTaxSummary } from './uaeCorporateTaxSummary';
@@ -18,6 +19,7 @@ export interface ReportSnapshot {
   presentationCurrency: string;
   reportingBasis: string;
   presentationProfile: string;
+  firmAttribution?: ReportFirmAttribution;
   statementOfFinancialPosition: ReportAmount[];
   profitOrLossAndOci: ReportAmount[];
   changesInEquity: ReportAmount[];

@@ -189,6 +189,24 @@ test("brands generated report PDFs as AgarAccounting AI System", () => {
   assert.match(pdf, /\(AgarAccounting AI System\.\)/);
 });
 
+test("includes only frozen eligible firm attribution in report PDFs", () => {
+  const { snapshot } = buildProfilePack("IFRS", "IAS 1");
+  const signatory = {
+    preparedBy: "Report Preparer",
+    reviewedBy: "Report Reviewer",
+    authorizedBy: "Report Authorizer",
+    authorizationDate: "2027-12-31",
+  };
+  const unattributedPdf = buildReportPdf(snapshot, signatory).toString("utf8");
+  assert.doesNotMatch(unattributedPdf, /Prepared by firm:/);
+
+  const attributedPdf = buildReportPdf({
+    ...snapshot,
+    firmAttribution: { enabled: true, firmName: "Snapshot Accounting Firm" },
+  }, signatory).toString("utf8");
+  assert.match(attributedPdf, /\(Prepared by firm: Snapshot Accounting Firm\)/);
+});
+
 test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct from IAS 1", () => {
   const ias1 = buildProfilePack("IFRS", "IAS 1");
   const sme = buildProfilePack("IFRS for SMEs", "IFRS for SMEs");
@@ -239,6 +257,148 @@ test("rejects ineligible report-pack basis, profile, and period combinations", a
     });
     assert.equal(result.response.status, 422);
     assert.match(result.body.error, /eligible|annual reporting period/i);
+  }
+});
+
+test("freezes firm attribution only for active firm relationships and members", async () => {
+  assert.ok(database);
+  assert.ok(testClientId);
+  const staffUserId = `report-pack-staff-${randomUUID()}`;
+  let firmId: number | undefined;
+  let engagementId: number | undefined;
+  try {
+    await database.db.insert(database.usersTable).values({
+      id: staffUserId,
+      email: `${staffUserId}@example.test`,
+      firstName: "Firm",
+      lastName: "Staff",
+    });
+    const [firm] = await database.db.insert(database.firmProfilesTable).values({
+      ownerUserId: testUserId,
+      name: "Original Accounting Firm",
+      legalName: "Original Accounting Firm LLC",
+      profileKind: "accounting_firm",
+    }).returning();
+    firmId = firm.id;
+    await database.db.insert(database.firmMembershipsTable).values([
+      { firmId: firm.id, userId: testUserId, role: "owner", status: "active" },
+      { firmId: firm.id, userId: staffUserId, role: "accountant", status: "active" },
+    ]);
+    const [engagement] = await database.db.insert(database.firmCompanyEngagementsTable).values({
+      firmId: firm.id,
+      clientId: testClientId,
+      status: "active",
+      invitedByUserId: testUserId,
+      acceptedByUserId: testUserId,
+      acceptedAt: new Date(),
+    }).returning();
+    engagementId = engagement.id;
+
+    const defaultProfile = await request<{ reportAttributionEnabled: boolean }>("/workspace/firm-profile");
+    assert.equal(defaultProfile.response.status, 200);
+    assert.equal(defaultProfile.body.reportAttributionEnabled, false);
+
+    const enabledProfile = await request<{ name: string; reportAttributionEnabled: boolean }>("/workspace/firm-profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "Original Accounting Firm",
+        legalName: "Original Accounting Firm LLC",
+        reportAttributionEnabled: true,
+      }),
+    });
+    assert.equal(enabledProfile.response.status, 200);
+    assert.equal(enabledProfile.body.reportAttributionEnabled, true);
+
+    const deniedStaffUpdate = await request<{ error: string }>("/workspace/firm-profile", {
+      method: "PATCH",
+      headers: { "x-test-user-id": staffUserId },
+      body: JSON.stringify({
+        name: "Unauthorized Rename",
+        legalName: "Unauthorized Rename LLC",
+        reportAttributionEnabled: false,
+      }),
+    });
+    assert.equal(deniedStaffUpdate.response.status, 403);
+    assert.match(deniedStaffUpdate.body.error, /owners or admins/i);
+
+    const attributed = await request<{ id: number; snapshot: ReportSnapshot }>("/agaraccounting/report-packs", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: testClientId,
+        periodEnd: "2026-12-31",
+        reportingBasis: "IFRS",
+        presentationProfile: "IAS 1",
+        presentationCurrency: "AED",
+      }),
+    });
+    assert.equal(attributed.response.status, 201);
+    assert.deepEqual(attributed.body.snapshot.firmAttribution, {
+      enabled: true,
+      firmName: "Original Accounting Firm",
+    });
+
+    const disabledProfile = await request<{ reportAttributionEnabled: boolean }>("/workspace/firm-profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "Renamed Accounting Firm",
+        legalName: "Renamed Accounting Firm LLC",
+        reportAttributionEnabled: false,
+      }),
+    });
+    assert.equal(disabledProfile.response.status, 200);
+    assert.equal(disabledProfile.body.reportAttributionEnabled, false);
+    const historical = await request<{ snapshot: ReportSnapshot }>(`/agaraccounting/report-packs/${attributed.body.id}`);
+    assert.deepEqual(historical.body.snapshot.firmAttribution, {
+      enabled: true,
+      firmName: "Original Accounting Firm",
+    });
+
+    const disabled = await request<{ snapshot: ReportSnapshot }>("/agaraccounting/report-packs", {
+      method: "POST",
+      body: JSON.stringify({ clientId: testClientId, periodEnd: "2026-12-31" }),
+    });
+    assert.equal(disabled.response.status, 201);
+    assert.deepEqual(disabled.body.snapshot.firmAttribution, { enabled: false, firmName: null });
+
+    await request("/workspace/firm-profile", {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "Renamed Accounting Firm",
+        legalName: "Renamed Accounting Firm LLC",
+        reportAttributionEnabled: true,
+      }),
+    });
+    await database.db.update(database.firmCompanyEngagementsTable)
+      .set({ status: "revoked", revokedAt: new Date() })
+      .where(eq(database.firmCompanyEngagementsTable.id, engagement.id));
+    const revokedRelationship = await request<{ snapshot: ReportSnapshot }>("/agaraccounting/report-packs", {
+      method: "POST",
+      body: JSON.stringify({ clientId: testClientId, periodEnd: "2026-12-31" }),
+    });
+    assert.deepEqual(revokedRelationship.body.snapshot.firmAttribution, { enabled: false, firmName: null });
+
+    await database.db.update(database.firmCompanyEngagementsTable)
+      .set({ status: "active", revokedAt: null })
+      .where(eq(database.firmCompanyEngagementsTable.id, engagement.id));
+    await database.db.update(database.firmMembershipsTable)
+      .set({ status: "revoked" })
+      .where(eq(database.firmMembershipsTable.userId, testUserId));
+    const revokedMember = await request<{ snapshot: ReportSnapshot }>("/agaraccounting/report-packs", {
+      method: "POST",
+      body: JSON.stringify({ clientId: testClientId, periodEnd: "2026-12-31" }),
+    });
+    assert.deepEqual(revokedMember.body.snapshot.firmAttribution, { enabled: false, firmName: null });
+  } finally {
+    if (engagementId) {
+      await database.db.delete(database.firmCompanyEngagementsTable)
+        .where(eq(database.firmCompanyEngagementsTable.id, engagementId));
+    }
+    if (firmId) {
+      await database.db.delete(database.firmMembershipsTable)
+        .where(eq(database.firmMembershipsTable.firmId, firmId));
+      await database.db.delete(database.firmProfilesTable)
+        .where(eq(database.firmProfilesTable.id, firmId));
+    }
   }
 });
 

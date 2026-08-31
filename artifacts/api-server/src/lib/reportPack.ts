@@ -33,6 +33,11 @@ export type ReportSignatory = {
   authorizationDate: string | null;
 };
 
+export type ReportFirmAttribution = {
+  enabled: boolean;
+  firmName: string | null;
+};
+
 export type ReportValidation = {
   status: "pass" | "blocked";
   errorCount: number;
@@ -53,6 +58,7 @@ export type ReportSnapshot = {
   presentationCurrency: string;
   reportingBasis: string;
   presentationProfile: string;
+  firmAttribution?: ReportFirmAttribution;
   statementOfFinancialPosition: ReportAmount[];
   profitOrLossAndOci: ReportAmount[];
   changesInEquity: ReportAmount[];
@@ -437,6 +443,7 @@ export function buildReportPack(input: {
   roundingPolicy: string;
   sourceImportCount: number;
   missingRateEntries: Entry[];
+  firmAttribution?: ReportFirmAttribution;
 }) {
   const periods = resolveReportPeriod(input.periodEnd);
   const metaByAccount = new Map(input.classifications.map((classification) => [classification.accountName, customAccountMeta(classification)]));
@@ -672,6 +679,7 @@ export function buildReportPack(input: {
     presentationCurrency: input.presentationCurrency,
     reportingBasis: input.reportingBasis,
     presentationProfile: input.presentationProfile,
+    firmAttribution: input.firmAttribution ?? { enabled: false, firmName: null },
     statementOfFinancialPosition: profileStatementOfFinancialPosition,
     profitOrLossAndOci: profileProfitOrLossAndOci,
     changesInEquity: profileChangesInEquity,

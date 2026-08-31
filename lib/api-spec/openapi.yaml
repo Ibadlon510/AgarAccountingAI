@@ -2211,7 +2211,7 @@ components:
             $ref: "#/components/schemas/UaeCorporateTaxAdjustment"
     FirmProfile:
       type: object
-      required: [id, name, legalName, systemRatesEnabled]
+      required: [id, name, legalName, systemRatesEnabled, reportAttributionEnabled]
       properties:
         id: { type: number }
         name: { type: string }
@@ -2219,6 +2219,9 @@ components:
         systemRatesEnabled:
           type: boolean
           description: Whether the system catalog may supply a fallback rate for this firm's clients.
+        reportAttributionEnabled:
+          type: boolean
+          description: Whether eligible newly generated reports show the firm's name.
     FirmProfileInput:
       type: object
       required: [name, legalName]
@@ -2226,6 +2229,7 @@ components:
         name: { type: string, minLength: 1 }
         legalName: { type: string, minLength: 1 }
         systemRatesEnabled: { type: boolean }
+        reportAttributionEnabled: { type: boolean }
     OrganizationMode:
       type: string
       enum: [company, firm, both]
@@ -3702,6 +3706,12 @@ components:
         reviewedBy: { type: string }
         authorizedBy: { type: string }
         authorizationDate: { type: ["string", "null"], format: date }
+    ReportFirmAttribution:
+      type: object
+      required: [enabled, firmName]
+      properties:
+        enabled: { type: boolean }
+        firmName: { type: ["string", "null"] }
     ReportSnapshot:
       type: object
       required: [entityName, legalName, periodEnd, comparativePeriodEnd, presentationCurrency, reportingBasis, presentationProfile, statementOfFinancialPosition, profitOrLossAndOci, changesInEquity, cashFlows, notes, traceability, taxSummary]
@@ -3713,6 +3723,8 @@ components:
         presentationCurrency: { type: string }
         reportingBasis: { type: string }
         presentationProfile: { type: string }
+        firmAttribution:
+          $ref: "#/components/schemas/ReportFirmAttribution"
         statementOfFinancialPosition:
           type: array
           items: { $ref: "#/components/schemas/ReportAmount" }
