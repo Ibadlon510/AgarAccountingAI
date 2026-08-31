@@ -220,6 +220,30 @@ test("uses client-scoped contact history without bypassing posting or chart safe
   assert.equal(postedSuggestedEntry?.debitAccount, contactAccount.body.accountName);
   assert.equal(postedSuggestedEntry?.debitAccountClassificationId, contactAccount.body.id);
 
+  const manuallySelected = await createLine("CARD PAYMENT MANUAL CONTACT SELECTION 9918");
+  assert.equal(manuallySelected.contactId, null);
+  const manuallySelectedEntry = await entryFor(manuallySelected.id);
+  const manualContactPost = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${manuallySelectedEntry.id}/post`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        clientId,
+        contactId: inlineMatchContact.body.id,
+        accountSuggestion: manuallySelected.accountSuggestion,
+      }),
+    },
+  );
+  assert.equal(manualContactPost.response.status, 200);
+  const [postedManualLine] = await database.db.select().from(database.statementLinesTable).where(
+    eq(database.statementLinesTable.id, manuallySelected.id),
+  );
+  const [postedManualEntry] = await database.db.select().from(database.journalEntriesTable).where(
+    eq(database.journalEntriesTable.id, manuallySelectedEntry.id),
+  );
+  assert.equal(postedManualLine?.contactId, inlineMatchContact.body.id);
+  assert.equal(postedManualEntry?.contactId, inlineMatchContact.body.id);
+
   const rejectedUnknownContact = await request<{ error: string }>("/agaraccounting/contacts", {
     method: "POST",
     body: JSON.stringify({

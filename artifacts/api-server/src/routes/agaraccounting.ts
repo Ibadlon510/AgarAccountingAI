@@ -8506,6 +8506,8 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
           proposedContactName: hasCompleteProposal ? proposedContactName : null,
           proposedContactAlias: hasCompleteProposal ? proposedContactAlias : null,
           proposedContactType: hasCompleteProposal ? proposedContactType : null,
+          proposedContactConfidence: body.contactId != null ? null : hasCompleteProposal ? line.proposedContactConfidence : null,
+          proposedContactSource: body.contactId != null ? null : hasCompleteProposal ? line.proposedContactSource : null,
           contactReviewDisposition: body.contactId != null ? "replaced" : hasCompleteProposal ? "accepted" : "dismissed",
         }).where(and(
           eq(statementLinesTable.id, line.id),

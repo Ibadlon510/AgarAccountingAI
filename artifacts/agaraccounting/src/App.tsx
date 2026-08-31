@@ -2843,6 +2843,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const canEditContact = entry?.status.toLowerCase() === 'draft';
   const selectableContacts = contacts.filter((contact) => contact.status === 'active' || contact.id === line.contactId);
   const [selectedContactId, setSelectedContactId] = useState<string>(line.contactId ? String(line.contactId) : '');
+  const contactSelectionEditedRef = useRef(false);
   const [proposedContactName, setProposedContactName] = useState(line.proposedContactName ?? '');
   const [proposedContactType, setProposedContactType] = useState<'customer' | 'supplier' | 'both'>(
     line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'),
@@ -2861,10 +2862,15 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const showContactProposalEditor = selectedContactId === '';
   const willCreateContact = selectedContactId === '' && proposedContactName.trim() !== '';
   useEffect(() => {
-    setSelectedContactId(line.contactId ? String(line.contactId) : '');
+    setSelectedContactId((current) => {
+      if (contactSelectionEditedRef.current && contacts.some((contact) => contact.id === Number(current) && contact.status === 'active')) {
+        return current;
+      }
+      return line.contactId ? String(line.contactId) : '';
+    });
     setProposedContactName(line.proposedContactName ?? '');
     setProposedContactType(line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'));
-  }, [line.contactId, line.proposedContactName, line.proposedContactType, line.direction]);
+  }, [contacts, line.contactId, line.proposedContactName, line.proposedContactType, line.direction]);
 
   const toggleFromRow = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
     if (event.target !== event.currentTarget) return;
@@ -2955,7 +2961,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="w-14 shrink-0 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">Contact</span>
-                <select data-testid={`select-contact-${line.id}`} aria-label="Contact" disabled={!canEditContact} value={selectedContactId} onChange={(event) => setSelectedContactId(event.target.value)} className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
+                <select data-testid={`select-contact-${line.id}`} aria-label="Contact" disabled={!canEditContact} value={selectedContactId} onChange={(event) => { contactSelectionEditedRef.current = true; setSelectedContactId(event.target.value); }} className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50">
                   <option value="">{needsIdentification ? `Identify ${likelyContactType}` : 'No contact'}</option>
                   {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
                 </select>

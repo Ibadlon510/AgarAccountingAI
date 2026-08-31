@@ -44,3 +44,9 @@ When an API response promotes a safe live contact suggestion into the inline pos
 **Why:** Imported drafts can store both contact references as null while presenting an active suggested match. Updating only the line creates an artificial mismatch that the safety check correctly rejects.
 
 **How to apply:** Treat the submitted contact decision as one transaction-scoped relationship update, then validate and post. Regression-test the suggested-in-response, null-in-storage import state.
+
+Selecting an existing contact replaces the entire temporary-contact proposal. Clear proposal name, alias, type, confidence, and source together before linking the contact.
+
+**Why:** Leaving AI confidence or source metadata behind with a real contact reference violates the linked-contact shape constraint and rolls back posting.
+
+**How to apply:** Keep manual contact dropdown state stable through background refreshes, then atomically replace proposal metadata and synchronize the chosen contact on the statement line and journal.
