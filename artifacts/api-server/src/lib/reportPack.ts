@@ -1,5 +1,12 @@
 import type { accountClassificationsTable, clientsTable, journalEntriesTable } from "@workspace/db";
 import { calculateUaeCorporateTaxSummary } from "./clientChart";
+import {
+  buildShareholdingSnapshot,
+  formatShareParValue,
+  SHARE_CAPITAL_NOTE_NUMBER,
+  type ReportShareholding,
+  type ShareholdingRowInput,
+} from "./shareCapital";
 
 export type ReportAmount = {
   label: string;
@@ -17,6 +24,7 @@ export type ReportNote = {
   narrative: string;
   requiresInput: boolean;
   tables: Array<{ label: string; current: number; comparative: number }>;
+  shareholding?: ReportShareholding;
 };
 
 export type ReportChecklistItem = {
@@ -118,6 +126,31 @@ function joinLabels(labels: string[]) {
   return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
+function shareCapitalNote(input: {
+  shareCapitalAuthorisedShares: number | null;
+  shareCapitalParValue: number | null;
+  shareholders: ShareholdingRowInput[];
+}, periodLabel: string, currency: string): ReportNote {
+  const shareholding = buildShareholdingSnapshot({
+    authorisedShares: input.shareCapitalAuthorisedShares,
+    parValue: input.shareCapitalParValue,
+    shareholders: input.shareholders,
+  });
+  const authorised = input.shareCapitalAuthorisedShares;
+  const parValue = input.shareCapitalParValue;
+  const hasCapital = authorised != null && authorised > 0 && parValue != null && parValue > 0;
+  return {
+    number: SHARE_CAPITAL_NOTE_NUMBER,
+    title: "Share capital",
+    narrative: hasCapital
+      ? `The company's share capital comprises ${authorised} shares of ${currency} ${formatShareParValue(parValue)} each. Shareholding at ${periodLabel} is as under:`
+      : `The company's share capital and shareholding at ${periodLabel} still need to be confirmed on the client share register.`,
+    requiresInput: !shareholding,
+    tables: [],
+    ...(shareholding ? { shareholding } : {}),
+  };
+}
+
 function buildDefaultReportNotes(input: {
   legalName: string;
   periodEnd: string;
@@ -135,6 +168,9 @@ function buildDefaultReportNotes(input: {
   taxExpenses: Array<{ label: string; current: number; comparative: number }>;
   relatedPartyBalances: Array<{ label: string; current: number; comparative: number }>;
   hasForeignCurrency: boolean;
+  shareCapitalAuthorisedShares: number | null;
+  shareCapitalParValue: number | null;
+  shareholders: ShareholdingRowInput[];
 }): ReportNote[] {
   const currency = input.presentationCurrency;
   const periodLabel = reportDateLabel(input.periodEnd);
@@ -254,8 +290,9 @@ function buildDefaultReportNotes(input: {
       requiresInput: false,
       tables: input.taxExpenses,
     },
+    shareCapitalNote(input, periodLabel, currency),
     {
-      number: 8,
+      number: 9,
       title: "Financial risk, foreign currency and other disclosures",
       narrative: [
         input.hasForeignCurrency
@@ -271,7 +308,7 @@ function buildDefaultReportNotes(input: {
       tables: [],
     },
     {
-      number: 9,
+      number: 10,
       title: "Subsequent events",
       narrative: [
         `Management is not aware of material non-adjusting events after ${periodLabel} through the authorization date recorded with this pack.`,
@@ -336,10 +373,12 @@ const standardAccountMeta = (account: string): AccountMeta => {
   const normalized = account.toLowerCase();
   if (/inter[\s-]?account transfer/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "non_cash", noteNumber: 3, relatedParty: false, tax: false };
   if (/bank|cash/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 3, relatedParty: false, tax: false };
-  if (/receivable|inventory|prepayment|deposit|due from/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 8, relatedParty: /due from/.test(normalized), tax: false };
-  if (/property|plant|equipment|intangible|capital asset/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "non_current", cashFlowCategory: "investing", noteNumber: 8, relatedParty: false, tax: false };
+  if (/share capital|issued capital|paid[ -]?up capital/.test(normalized)) return { kind: "equity", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "financing", noteNumber: SHARE_CAPITAL_NOTE_NUMBER, relatedParty: false, tax: false };
+  if (/due from shareholders/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "non_cash", noteNumber: 6, relatedParty: true, tax: false };
+  if (/receivable|inventory|prepayment|deposit|due from/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "current", cashFlowCategory: "operating", noteNumber: 9, relatedParty: /due from/.test(normalized), tax: false };
+  if (/property|plant|equipment|intangible|capital asset/.test(normalized)) return { kind: "asset", displayName: account, currentNonCurrent: "non_current", cashFlowCategory: "investing", noteNumber: 9, relatedParty: false, tax: false };
   if (/payable|accrual|due to|loan|borrow|liabilit/.test(normalized)) return { kind: "liability", displayName: account, currentNonCurrent: /loan|borrow/.test(normalized) ? "non_current" : "current", cashFlowCategory: /loan|borrow/.test(normalized) ? "financing" : "operating", noteNumber: 6, relatedParty: /due to/.test(normalized), tax: /tax/.test(normalized) };
-  if (/equity|share capital|retained earnings|reserve/.test(normalized)) return { kind: "equity", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "financing", noteNumber: 1, relatedParty: false, tax: false };
+  if (/equity|retained earnings|reserve/.test(normalized)) return { kind: "equity", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "financing", noteNumber: 1, relatedParty: false, tax: false };
   if (/oci|other comprehensive/.test(normalized)) return { kind: "oci", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "operating", noteNumber: 1, relatedParty: false, tax: false };
   if (/revenue|sales|income|retainer/.test(normalized)) return { kind: "revenue", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "operating", noteNumber: 4, relatedParty: false, tax: false };
   return { kind: "expense", displayName: account, currentNonCurrent: "not_applicable", cashFlowCategory: "operating", noteNumber: /tax/.test(normalized) ? 7 : 5, relatedParty: false, tax: /tax/.test(normalized) };
@@ -355,7 +394,9 @@ function customAccountMeta(classification: Classification): AccountMeta {
     currentNonCurrent: classification.currentNonCurrent === "current" || classification.currentNonCurrent === "non_current"
       ? classification.currentNonCurrent
       : "not_applicable",
-    cashFlowCategory: classification.cashFlowCategory === "investing" || classification.cashFlowCategory === "financing"
+    cashFlowCategory: classification.cashFlowCategory === "investing"
+      || classification.cashFlowCategory === "financing"
+      || classification.cashFlowCategory === "non_cash"
       ? classification.cashFlowCategory
       : "operating",
     noteNumber: classification.noteNumber ?? fallback.noteNumber,
@@ -444,6 +485,7 @@ export function buildReportPack(input: {
   sourceImportCount: number;
   missingRateEntries: Entry[];
   firmAttribution?: ReportFirmAttribution;
+  shareholders?: ShareholdingRowInput[];
 }) {
   const periods = resolveReportPeriod(input.periodEnd);
   const metaByAccount = new Map(input.classifications.map((classification) => [classification.accountName, customAccountMeta(classification)]));
@@ -545,7 +587,7 @@ export function buildReportPack(input: {
 
   const statementOfFinancialPosition = [
     reportAmount("Current assets", sums(assets, "current", (item) => item.meta.currentNonCurrent === "current"), sums(assets, "comparative", (item) => item.meta.currentNonCurrent === "current"), 3, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines, assets.filter((item) => item.meta.currentNonCurrent === "current").map(accountLine)),
-    reportAmount("Non-current assets", sums(assets, "current", (item) => item.meta.currentNonCurrent === "non_current"), sums(assets, "comparative", (item) => item.meta.currentNonCurrent === "non_current"), 8, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines, assets.filter((item) => item.meta.currentNonCurrent === "non_current").map(accountLine)),
+    reportAmount("Non-current assets", sums(assets, "current", (item) => item.meta.currentNonCurrent === "non_current"), sums(assets, "comparative", (item) => item.meta.currentNonCurrent === "non_current"), 9, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines, assets.filter((item) => item.meta.currentNonCurrent === "non_current").map(accountLine)),
     reportAmount("Total assets", currentAssets, comparativeAssets, 3, assetsSets.entries, comparativeAssetSets.entries, assetsSets.lines, comparativeAssetSets.lines),
     reportAmount("Current liabilities", sums(liabilities, "current", (item) => item.meta.currentNonCurrent === "current"), sums(liabilities, "comparative", (item) => item.meta.currentNonCurrent === "current"), 6, liabilitySets.entries, comparativeLiabilitySets.entries, liabilitySets.lines, comparativeLiabilitySets.lines, liabilities.filter((item) => item.meta.currentNonCurrent === "current").map(accountLine)),
     reportAmount("Non-current liabilities", sums(liabilities, "current", (item) => item.meta.currentNonCurrent === "non_current"), sums(liabilities, "comparative", (item) => item.meta.currentNonCurrent === "non_current"), 6, liabilitySets.entries, comparativeLiabilitySets.entries, liabilitySets.lines, comparativeLiabilitySets.lines, liabilities.filter((item) => item.meta.currentNonCurrent === "non_current").map(accountLine)),
@@ -575,9 +617,9 @@ export function buildReportPack(input: {
 
   const cashFlows = [
     reportAmount("Profit for the year", currentNetIncome, comparativeNetIncome, 1, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines),
-    reportAmount("Changes in working capital", workingCapitalMovement, 0, 8, new Set(), new Set(), new Set(), new Set()),
+    reportAmount("Changes in working capital", workingCapitalMovement, 0, 9, new Set(), new Set(), new Set(), new Set()),
     reportAmount("Net cash from operating activities", operatingCash, 0, 3, cashSets.entries, comparativeCashSets.entries, cashSets.lines, comparativeCashSets.lines),
-    reportAmount("Net cash from investing activities", investingCash, 0, 8, new Set(), new Set(), new Set(), new Set()),
+    reportAmount("Net cash from investing activities", investingCash, 0, 9, new Set(), new Set(), new Set(), new Set()),
     reportAmount("Net cash from financing activities", financingCash, 0, 1, new Set(), new Set(), new Set(), new Set()),
     reportAmount("Net increase in cash", cashMovement, 0, 3, cashSets.entries, comparativeCashSets.entries, cashSets.lines, comparativeCashSets.lines),
     reportAmount("Cash at beginning of year", openingCash, 0, 3, comparativeCashSets.entries, new Set(), comparativeCashSets.lines, new Set()),
@@ -622,6 +664,9 @@ export function buildReportPack(input: {
     taxExpenses: taxNoteRows,
     relatedPartyBalances: relatedPartyNoteRows,
     hasForeignCurrency,
+    shareCapitalAuthorisedShares: input.client.shareCapitalAuthorisedShares ?? null,
+    shareCapitalParValue: input.client.shareCapitalParValue == null ? null : Number(input.client.shareCapitalParValue),
+    shareholders: input.shareholders ?? [],
   });
   const checklistEvidence = {
     hasRevenue: revenueNoteRows.some((row) => Math.abs(row.current) > 0.009 || Math.abs(row.comparative) > 0.009),

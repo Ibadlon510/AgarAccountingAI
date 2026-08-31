@@ -178,6 +178,80 @@
 .report-row-group > .report-amount { font-weight: 600; }
 .report-row-total { border-top: 1px solid hsl(var(--foreground) / .25); }
 .report-body .report-row:last-child { border-bottom-color: hsl(var(--foreground) / .35); }
+.report-shareholding {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.report-shareholding th,
+.report-shareholding td {
+  border: 0;
+  padding: 0.2rem 0.55rem 0.2rem 0;
+  vertical-align: baseline;
+}
+.report-shareholding th {
+  font-weight: 700;
+  padding-bottom: 0.45rem;
+}
+.report-shareholding .text-left { text-align: left; }
+.report-shareholding .text-center { text-align: center; }
+.report-shareholding .text-right { text-align: right; font-variant-numeric: tabular-nums; }
+.report-shareholding-total td {
+  border-top: 1px solid hsl(var(--foreground) / .45);
+  font-weight: 700;
+  padding-top: 0.4rem;
+}
+.report-shareholding-total td:nth-child(2),
+.report-shareholding-total td:nth-child(4),
+.report-shareholding-total td:nth-child(5) {
+  border-bottom: 3px double hsl(var(--foreground) / .75);
+}
+.bank-statement-sheet {
+  width: min(100%, 794px);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid hsl(var(--card-border));
+  background: hsl(var(--card));
+  box-shadow: var(--shadow-md);
+}
+.bank-statement-cover {
+  padding: 48px 42px 20px;
+  border-top: 8px solid hsl(var(--primary));
+}
+.bank-statement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.bank-statement-table th,
+.bank-statement-table td {
+  padding: 0.45rem 0.85rem;
+  vertical-align: baseline;
+  border-bottom: 1px solid hsl(var(--border) / .55);
+}
+.bank-statement-table th {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 2px solid hsl(var(--foreground) / .35);
+}
+.bank-statement-table .text-right { text-align: right; }
+.bank-statement-table tr[data-kind="opening"] td,
+.bank-statement-table tr[data-kind="closing"] td {
+  font-weight: 700;
+}
+.bank-statement-table tr[data-kind="closing"] td {
+  border-top: 1px solid hsl(var(--foreground) / .35);
+  border-bottom: 3px double hsl(var(--foreground) / .75);
+}
+@media (max-width: 640px) {
+  .bank-statement-cover { padding: 32px 18px 16px; }
+  .bank-statement-table th,
+  .bank-statement-table td { padding: 0.4rem 0.5rem; }
+}
 @media (max-width: 640px) {
   .report-cover,
   .report-statement { min-height: auto; padding: 40px 20px; }
@@ -189,7 +263,8 @@
 }
 @media print {
   body { background: #fff; }
-  aside, header, .report-sheet ~ *, .report-sheet + * { display: none !important; }
-  .report-sheet { width: 100%; border: 0; box-shadow: none; }
+  aside, header, .report-sheet ~ *, .report-sheet + *, .bank-statement-toolbar { display: none !important; }
+  .report-sheet, .bank-statement-sheet { width: 100%; border: 0; box-shadow: none; }
   .report-cover, .report-statement { min-height: 0; break-after: page; page-break-after: always; }
+  .bank-statement-sheet { break-after: page; page-break-after: always; }
 }

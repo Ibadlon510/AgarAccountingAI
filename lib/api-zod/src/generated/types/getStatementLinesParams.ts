@@ -12,4 +12,5 @@ clientId?: number;
 currency?: string;
 status?: string;
 direction?: GetStatementLinesDirection;
+statementImportId?: number;
 };

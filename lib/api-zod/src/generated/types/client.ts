@@ -7,6 +7,7 @@
  */
 import type { ClientWorkspaceState } from './clientWorkspaceState';
 import type { OwnershipStatus } from './ownershipStatus';
+import type { Shareholder } from './shareholder';
 import type { SubscriptionLiableParty } from './subscriptionLiableParty';
 
 export interface Client {
@@ -24,6 +25,15 @@ export interface Client {
   subscriptionLiableParty: SubscriptionLiableParty;
   /** Whether the system catalog may supply a fallback rate for this company. */
   systemRatesEnabled: boolean;
+  /** @nullable */
+  shareCapitalAuthorisedShares?: number | null;
+  /** @nullable */
+  shareCapitalParValue?: number | null;
+  shareholders: Shareholder[];
+  /** @nullable */
+  shareCapitalJournalId?: number | null;
+  /** @nullable */
+  shareCapitalDuplicateWarning?: string | null;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
   /** Configuration state for this workspace. Missing memberships are represented by an empty response. */

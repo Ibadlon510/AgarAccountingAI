@@ -249,9 +249,9 @@ import {
   hasDelimitedBankStatementStructure,
   hasPdfBankStatementTable,
   MAX_STATEMENT_FILE_SIZE,
-  parseDelimitedBankStatementRows,
+  parseDelimitedBankStatementDocument,
   parseDelimitedBankStatementSections,
-  parsePdfBankStatementRows,
+  parsePdfBankStatementDocument,
   parsePdfBankStatementSections,
   type ParsedStatementAccountGroup,
   scopedStatementObjectPath,
@@ -276,6 +276,14 @@ import {
 } from "../lib/reportPack";
 import { calculateUaeCorporateTaxSummary, ensureClientChart } from "../lib/clientChart";
 import { buildReportPdf } from "../lib/reportPdf";
+import {
+  clientShareCapitalFields,
+  loadShareCapitalClientExtras,
+  replaceClientShareholders,
+  syncShareCapitalJournal,
+  type ShareCapitalClientExtras,
+  type ShareCapitalExecutor,
+} from "../lib/shareCapital";
 import {
   STATEMENT_LINE_EXPORT_MAX_IDS,
   sanitizeExportFilename,
@@ -384,7 +392,9 @@ function clientResponse(
   client: typeof clientsTable.$inferSelect,
   legacyDemo = false,
   workspaceState?: WorkspaceState,
+  shareCapital?: ShareCapitalClientExtras,
 ) {
+  const capital = clientShareCapitalFields(client);
   return {
     id: client.id,
     name: client.name,
@@ -397,6 +407,11 @@ function clientResponse(
     ownershipStatus: client.ownershipStatus as "company_owned" | "firm_provisional",
     subscriptionLiableParty: client.subscriptionLiableParty as "company" | "firm",
     systemRatesEnabled: client.systemRatesEnabled,
+    shareCapitalAuthorisedShares: capital.shareCapitalAuthorisedShares,
+    shareCapitalParValue: capital.shareCapitalParValue,
+    shareholders: shareCapital?.shareholders ?? [],
+    shareCapitalJournalId: shareCapital?.shareCapitalJournalId ?? null,
+    shareCapitalDuplicateWarning: shareCapital?.shareCapitalDuplicateWarning ?? null,
     legacyDemo,
     workspaceState: workspaceState ?? (legacyDemo ? "legacy_demo" : isPlaceholderStarterWorkspace(client) ? "starter" : "configured"),
   };
@@ -1084,7 +1099,10 @@ function reportPackSummary(pack: typeof reportPacksTable.$inferSelect) {
   };
 }
 
-function mergeReportNotes(existing: ReportNote[], updates: ReportNote[] | undefined) {
+function mergeReportNotes(
+  existing: ReportNote[],
+  updates: Array<{ number: number; narrative: string; requiresInput: boolean }> | undefined,
+) {
   if (!updates) return existing;
   const supplied = new Map(updates.map((note) => [note.number, note]));
   return existing.map((note) => {
@@ -3394,6 +3412,8 @@ type ExtractedAccountGroup = {
   currency?: string | null;
   lines?: ParsedBankLine[];
   evidenceStatus?: "identified" | "ambiguous";
+  openingBalance?: number | null;
+  closingBalance?: number | null;
 };
 
 type AICopilotRecommendation = {
@@ -4605,6 +4625,8 @@ function statementGroupFromParsedSection(group: ParsedStatementAccountGroup): Ex
     currency: group.identity.currency,
     evidenceStatus: group.evidenceStatus,
     lines: group.lines.map((line) => ({ ...line, accountGroupId: group.id })),
+    openingBalance: group.openingBalance,
+    closingBalance: group.closingBalance,
   };
 }
 
@@ -4623,6 +4645,8 @@ function normalizedExtractedGroups(
       currency: normalizeCurrency(group.currency ?? bankAccount?.currency ?? fallbackCurrency),
       evidenceStatus: group.evidenceStatus === "ambiguous" || !bankAccount ? "ambiguous" as const : "identified" as const,
       lines,
+      openingBalance: group.openingBalance ?? null,
+      closingBalance: group.closingBalance ?? null,
     };
   }).filter((group) => group.lines.length > 0);
   if (candidateGroups.length) {
@@ -4642,6 +4666,8 @@ function normalizedExtractedGroups(
         continue;
       }
       current.lines.push(...group.lines.map((line) => ({ ...line, accountGroupId: current.id })));
+      if (current.openingBalance == null) current.openingBalance = group.openingBalance ?? null;
+      current.closingBalance = group.closingBalance ?? current.closingBalance ?? null;
     }
     return [...merged.values()];
   }
@@ -4655,6 +4681,8 @@ function normalizedExtractedGroups(
       currency: normalizeCurrency(lines.find((line) => line.accountGroupId === id)?.currency ?? fallbackCurrency),
       evidenceStatus: "ambiguous" as const,
       lines: lines.filter((line) => line.accountGroupId === id),
+      openingBalance: null,
+      closingBalance: null,
     }));
   }
   const bankAccount = cleanBankAccountDraft(candidate.bankAccount, fallbackCurrency);
@@ -4664,6 +4692,8 @@ function normalizedExtractedGroups(
     currency: normalizeCurrency(bankAccount?.currency ?? lines[0]?.currency ?? fallbackCurrency),
     evidenceStatus: bankAccount ? "identified" as const : "ambiguous" as const,
     lines: lines.map((line) => ({ ...line, accountGroupId: "account-1" })),
+    openingBalance: null,
+    closingBalance: null,
   }];
 }
 
@@ -5260,18 +5290,20 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       ? parsePdfBankStatementSections(extractedText, fallbackCurrency)
       : parseDelimitedBankStatementSections(extractedText, fallbackCurrency))
       .map(statementGroupFromParsedSection);
-    const delimitedFallback: ParsedBankLine[] = parseDelimitedBankStatementRows(extractedText, fallbackCurrency).map((line): ParsedBankLine => ({
+    const delimitedDocument = parseDelimitedBankStatementDocument(extractedText, fallbackCurrency);
+    const pdfDocument = isPdfStatement
+      ? parsePdfBankStatementDocument(extractedText, fallbackCurrency)
+      : { lines: [] as typeof delimitedDocument.lines, openingBalance: null as number | null, closingBalance: null as number | null };
+    const delimitedFallback: ParsedBankLine[] = delimitedDocument.lines.map((line): ParsedBankLine => ({
       ...line,
       accountSuggestion: suggestAccount(line.description, line.direction),
       confidence: 0.75,
     }));
-    const pdfFallback: ParsedBankLine[] = isPdfStatement
-      ? parsePdfBankStatementRows(extractedText, fallbackCurrency).map((line) => ({
-        ...line,
-        accountSuggestion: suggestAccount(line.description, line.direction),
-        confidence: 0.75,
-      }))
-      : [];
+    const pdfFallback: ParsedBankLine[] = pdfDocument.lines.map((line) => ({
+      ...line,
+      accountSuggestion: suggestAccount(line.description, line.direction),
+      confidence: 0.75,
+    }));
     const fallback = deterministicSections.length > 1
       ? deterministicSections.flatMap((group) => group.lines ?? [])
       : delimitedFallback.length ? delimitedFallback : pdfFallback;
@@ -5481,6 +5513,11 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       ? { accountGroups: deterministicSections, lines: fallback }
       : candidate;
     const extractedGroups = normalizedExtractedGroups(extractionCandidate, fallbackCurrency);
+    const fallbackDocument = delimitedDocument.lines.length ? delimitedDocument : pdfDocument;
+    if (extractedGroups.length === 1 && extractedGroups[0].openingBalance == null) {
+      extractedGroups[0].openingBalance = fallbackDocument.openingBalance;
+      extractedGroups[0].closingBalance = fallbackDocument.closingBalance;
+    }
     if (extractedGroups.length === 1 && textCurrency) {
       const [singleGroup] = extractedGroups;
       singleGroup.currency = normalizeCurrency(textCurrency);
@@ -5709,6 +5746,8 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           lineIds: groupLines.map((line) => line.id),
           lines: groupLines,
           bankAccount: group.bankAccount ? bankAccountResponse(group.bankAccount) : null,
+          openingBalance: group.openingBalance ?? null,
+          closingBalance: group.closingBalance ?? null,
         };
       });
       const previewResponse = ImportStatementResponse.parse({
@@ -5725,6 +5764,8 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         lines: previewLines,
         bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
         accountGroups: previewAccountGroups,
+        openingBalance: extractedGroups.length === 1 ? extractedGroups[0].openingBalance ?? null : null,
+        closingBalance: extractedGroups.length === 1 ? extractedGroups[0].closingBalance ?? null : null,
       });
       if (activeAnalysisImportId == null) throw new Error("The statement analysis record is missing.");
       const [storedPendingImport] = await db.update(statementImportsTable).set({
@@ -7842,9 +7883,10 @@ router.get("/clients", async (req, res) => {
     user?.remediatedLegacyClientId != null ? [user.remediatedLegacyClientId] : [],
   );
   await Promise.all(clients.map((client) => ensureClientChart(client.id)));
+  const shareCapitalByClient = await loadShareCapitalClientExtras(clients.map((client) => client.id));
   res.json(clients.map((client) => {
     const legacyDemo = legacyDemoClientIds.has(client.id);
-    return clientResponse(client, legacyDemo, legacyDemo ? "legacy_demo" : undefined);
+    return clientResponse(client, legacyDemo, legacyDemo ? "legacy_demo" : undefined, shareCapitalByClient.get(client.id));
   }));
 });
 
@@ -8374,15 +8416,63 @@ router.patch("/clients/:id", async (req, res) => {
   if ([body.name, body.legalName, body.functionalCurrency, body.basis, body.period].some((value) => !value)) {
     return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
   }
-  const [client] = await db.update(clientsTable)
-    .set(body)
-    .where(eq(clientsTable.id, id))
-    .returning();
+  const shareCapitalTouched = "shareCapitalAuthorisedShares" in parsed.data
+    || "shareCapitalParValue" in parsed.data
+    || parsed.data.shareholders !== undefined;
+  const authorisedShares = "shareCapitalAuthorisedShares" in parsed.data
+    ? parsed.data.shareCapitalAuthorisedShares ?? null
+    : undefined;
+  const parValue = "shareCapitalParValue" in parsed.data
+    ? parsed.data.shareCapitalParValue ?? null
+    : undefined;
+  let shareholders: Array<{ name: string; nationality: string | null; numberOfShares: number }> | undefined;
+  if (parsed.data.shareholders !== undefined) {
+    shareholders = [];
+    for (const [index, row] of parsed.data.shareholders.entries()) {
+      const name = row.name.trim();
+      const nationality = row.nationality?.trim() ? row.nationality.trim() : null;
+      const numberOfShares = Number(row.numberOfShares);
+      if (!name || !Number.isInteger(numberOfShares) || numberOfShares < 1) {
+        return res.status(400).json({ error: `Shareholder ${index + 1} needs a name and a whole number of shares.` });
+      }
+      shareholders.push({ name, nationality, numberOfShares });
+    }
+  }
+  if (authorisedShares != null && (!Number.isInteger(authorisedShares) || authorisedShares < 1)) {
+    return res.status(400).json({ error: "Authorised shares must be a whole number greater than zero." });
+  }
+  if (parValue != null && !(parValue > 0)) {
+    return res.status(400).json({ error: "Par value must be greater than zero." });
+  }
+  if (shareCapitalTouched) await ensureClientChart(id);
+  const client = await db.transaction(async (tx) => {
+    const [updated] = await tx.update(clientsTable)
+      .set({
+        ...body,
+        ...(authorisedShares !== undefined ? { shareCapitalAuthorisedShares: authorisedShares } : {}),
+        ...(parValue !== undefined ? { shareCapitalParValue: parValue == null ? null : parValue.toFixed(2) } : {}),
+      })
+      .where(eq(clientsTable.id, id))
+      .returning();
+    if (!updated) return null;
+    if (shareholders) await replaceClientShareholders(tx as ShareCapitalExecutor, id, shareholders);
+    if (shareCapitalTouched) {
+      const capital = clientShareCapitalFields(updated);
+      await syncShareCapitalJournal({
+        executor: tx as ShareCapitalExecutor,
+        client: updated,
+        authorisedShares: capital.shareCapitalAuthorisedShares,
+        parValue: capital.shareCapitalParValue,
+      });
+    }
+    return updated;
+  });
   if (!client) {
     return res.status(404).json({ error: "Client workspace not found" });
   }
   await refreshClientRateConversions([client]);
-  return res.json(UpdateClientResponse.parse(clientResponse(client)));
+  const extras = (await loadShareCapitalClientExtras([client.id])).get(client.id);
+  return res.json(UpdateClientResponse.parse(clientResponse(client, false, undefined, extras)));
 });
 
 router.get("/workspace/members", async (req, res) => {
@@ -9326,6 +9416,7 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
       ? inArray(statementLinesTable.status, [...DRAFT_JOURNAL_STATUSES])
       : parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
     parsed.direction ? eq(statementLinesTable.direction, parsed.direction) : undefined,
+    parsed.statementImportId != null ? eq(statementLinesTable.statementImportId, parsed.statementImportId) : undefined,
   )).orderBy(asc(statementLinesTable.date));
   const contactLookup = loadContactSuggestionLookup(db, client.id);
   const entries = lines.length ? await db.select({
@@ -10839,6 +10930,7 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
     : classifications;
   const sourceImports = await db.select({ id: statementImportsTable.id }).from(statementImportsTable)
     .where(and(eq(statementImportsTable.clientId, client.id), eq(statementImportsTable.outcome, "completed")));
+  const shareCapitalExtras = (await loadShareCapitalClientExtras([client.id])).get(client.id);
   const generated = buildReportPack({
     client,
     entries: convertedEntries,
@@ -10851,6 +10943,11 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
     sourceImportCount: sourceImports.length,
     missingRateEntries,
     firmAttribution: await resolveReportAttribution(req, client.id),
+    shareholders: shareCapitalExtras?.shareholders.map((row) => ({
+      name: row.name,
+      nationality: row.nationality,
+      numberOfShares: row.numberOfShares,
+    })) ?? [],
   });
   const [pack] = await db.insert(reportPacksTable).values({
     clientId: client.id,

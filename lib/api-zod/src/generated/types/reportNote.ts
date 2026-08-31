@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ReportNoteTablesItem } from './reportNoteTablesItem';
+import type { ReportShareholding } from './reportShareholding';
 
 export interface ReportNote {
   number: number;
@@ -13,4 +14,5 @@ export interface ReportNote {
   narrative: string;
   requiresInput: boolean;
   tables: ReportNoteTablesItem[];
+  shareholding?: ReportShareholding;
 }

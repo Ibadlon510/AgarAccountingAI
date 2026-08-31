@@ -17,4 +17,8 @@ export interface StatementImportAccountGroup {
   lineIds: number[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
+  /** @nullable */
+  openingBalance?: number | null;
+  /** @nullable */
+  closingBalance?: number | null;
 }

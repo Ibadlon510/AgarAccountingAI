@@ -472,6 +472,15 @@ export interface Client {
   subscriptionLiableParty: SubscriptionLiableParty;
   /** Whether the system catalog may supply a fallback rate for this company. */
   systemRatesEnabled: boolean;
+  /** @nullable */
+  shareCapitalAuthorisedShares?: number | null;
+  /** @nullable */
+  shareCapitalParValue?: number | null;
+  shareholders: Shareholder[];
+  /** @nullable */
+  shareCapitalJournalId?: number | null;
+  /** @nullable */
+  shareCapitalDuplicateWarning?: string | null;
   /** True only for an untouched legacy demo workspace retained for reference. */
   legacyDemo: boolean;
   /** Configuration state for this workspace. Missing memberships are represented by an empty response. */
@@ -540,6 +549,30 @@ export interface ClientUpdateInput {
   basis: string;
   period: string;
   systemRatesEnabled?: boolean;
+  /** @nullable */
+  shareCapitalAuthorisedShares?: number | null;
+  /** @nullable */
+  shareCapitalParValue?: number | null;
+  shareholders?: ShareholderInput[];
+}
+
+export interface Shareholder {
+  id: number;
+  clientId: number;
+  name: string;
+  /** @nullable */
+  nationality?: string | null;
+  numberOfShares: number;
+  sortOrder: number;
+}
+
+export interface ShareholderInput {
+  /** @minLength 1 */
+  name: string;
+  /** @nullable */
+  nationality?: string | null;
+  /** @minimum 1 */
+  numberOfShares: number;
 }
 
 export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
@@ -1566,6 +1599,10 @@ export interface StatementImportResult {
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
   accountGroups?: StatementImportAccountGroup[];
+  /** @nullable */
+  openingBalance?: number | null;
+  /** @nullable */
+  closingBalance?: number | null;
 }
 
 export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof StatementImportOutcome];
@@ -2322,6 +2359,22 @@ export interface ReportNote {
   narrative: string;
   requiresInput: boolean;
   tables: ReportNoteTablesItem[];
+  shareholding?: ReportShareholding;
+}
+
+export interface ReportShareholdingRow {
+  name: string;
+  percentage: number;
+  /** @nullable */
+  nationality?: string | null;
+  numberOfShares: number;
+  value: number;
+}
+
+export interface ReportShareholding {
+  authorisedShares: number;
+  parValue: number;
+  rows: ReportShareholdingRow[];
 }
 
 export type ReportValidationStatus = typeof ReportValidationStatus[keyof typeof ReportValidationStatus];
@@ -2610,6 +2663,7 @@ clientId?: number;
 currency?: string;
 status?: string;
 direction?: GetStatementLinesDirection;
+statementImportId?: number;
 };
 
 export type GetStatementLinesDirection = typeof GetStatementLinesDirection[keyof typeof GetStatementLinesDirection];
@@ -2693,6 +2747,10 @@ export interface StatementImportAccountGroup {
   lineIds: number[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
+  /** @nullable */
+  openingBalance?: number | null;
+  /** @nullable */
+  closingBalance?: number | null;
 }
 
 export const StatementLineAccountAssignmentStatus = {

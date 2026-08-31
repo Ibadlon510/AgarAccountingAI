@@ -80,6 +80,8 @@ export const clientsTable = pgTable("agaraccounting_clients", {
   basis: text("basis").notNull().default("IFRS"),
   period: text("period").notNull().default("August 2026"),
   systemRatesEnabled: boolean("system_rates_enabled").notNull().default(true),
+  shareCapitalAuthorisedShares: integer("share_capital_authorised_shares"),
+  shareCapitalParValue: numeric("share_capital_par_value", { precision: 14, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   transferredAt: timestamp("transferred_at", { withTimezone: true }),
 }, (table) => [
@@ -103,6 +105,23 @@ export const clientsTable = pgTable("agaraccounting_clients", {
     foreignColumns: [usersTable.id],
     name: "agaraccounting_clients_owner_user_fk",
   }),
+]);
+
+export const shareholdersTable = pgTable("agaraccounting_shareholders", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  clientId: integer("client_id").notNull(),
+  name: text("name").notNull(),
+  nationality: text("nationality"),
+  numberOfShares: integer("number_of_shares").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  index("agaraccounting_shareholders_client_idx").on(table.clientId, table.sortOrder, table.id),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "agaraccounting_shareholders_client_fk",
+  }).onDelete("cascade"),
 ]);
 
 export const clientWorkspacesTable = pgTable(
@@ -603,10 +622,15 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
   exchangeRateEffectiveDate: date("exchange_rate_effective_date", { mode: "string" }),
   exchangeRateSourceScope: text("exchange_rate_source_scope").notNull().default("none"),
   exchangeRateStatus: text("exchange_rate_status").notNull().default("not_required"),
+  systemSource: text("system_source"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   statementLineUnique: uniqueIndex("agaraccounting_journal_entries_statement_line_id_idx").on(table.statementLineId),
   idClientUnique: uniqueIndex("agaraccounting_journal_entries_id_client_idx").on(table.id, table.clientId),
+  shareCapitalRegisterUnique: uniqueIndex("agaraccounting_journal_entries_share_capital_register_idx")
+    .on(table.clientId)
+    .where(sql`${table.systemSource} = 'share_capital_register'`),
+  systemSourceIdx: index("agaraccounting_journal_entries_system_source_idx").on(table.clientId, table.systemSource),
   statusCheck: check(
     "agaraccounting_journal_entries_lifecycle_compat_check",
     // Keep production rows from the former review lifecycle valid while the
@@ -806,9 +830,11 @@ export const statementLineNoteAttachmentsTable = pgTable("agaraccounting_stateme
 
 export type InsertStatementLine = typeof statementLinesTable.$inferInsert;
 export type StatementLine = typeof statementLinesTable.$inferSelect;
+export type Client = typeof clientsTable.$inferSelect;
 export type StatementLineDetailRequest = typeof statementLineDetailRequestsTable.$inferSelect;
 export type StatementLineNote = typeof statementLineNotesTable.$inferSelect;
 export type StatementLineNoteAttachment = typeof statementLineNoteAttachmentsTable.$inferSelect;
+export type Shareholder = typeof shareholdersTable.$inferSelect;
 export type JournalEntry = typeof journalEntriesTable.$inferSelect;
 export type AccountClassification = typeof accountClassificationsTable.$inferSelect;
 export type ReportPack = typeof reportPacksTable.$inferSelect;

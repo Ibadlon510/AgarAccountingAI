@@ -17,13 +17,50 @@ function rowLines(rows: ReportAmount[], currency: string, indent = ""): string[]
   ]);
 }
 
+function shareholdingLines(note: ReportNote) {
+  if (!note.shareholding?.rows.length) return [];
+  const header = "  Name  % age  Nationality  Number of Shares  Value";
+  const rows = note.shareholding.rows.map((row) => {
+    const percentage = `${Math.round(row.percentage)}%`;
+    const value = Math.round(row.value).toLocaleString("en-US");
+    return `  ${row.name}  ${percentage}  ${row.nationality ?? ""}  ${Math.round(row.numberOfShares).toLocaleString("en-US")}  ${value}`;
+  });
+  const totalShares = note.shareholding.rows.reduce((total, row) => total + row.numberOfShares, 0);
+  const totalValue = note.shareholding.rows.reduce((total, row) => total + row.value, 0);
+  const totalPercentage = note.shareholding.rows.reduce((total, row) => total + row.percentage, 0);
+  return [
+    header,
+    ...rows,
+    `  Total  ${Math.round(totalPercentage)}%    ${Math.round(totalShares).toLocaleString("en-US")}  ${Math.round(totalValue).toLocaleString("en-US")}`,
+  ];
+}
+
 function noteLines(notes: ReportNote[], currency: string) {
   return notes.flatMap((note) => [
     `Note ${note.number}: ${note.title}`,
     note.narrative,
     ...note.tables.flatMap((row) => [`  ${row.label}: ${money(row.current, currency)} | ${money(row.comparative, currency)}`]),
+    ...shareholdingLines(note),
     "",
   ]);
+}
+
+const PDF_BODY_LINES_PER_PAGE = 58;
+
+function wrapPdfLines(lines: string[]) {
+  return lines.flatMap((line) => {
+    if (!line) return [""];
+    return (line.match(/.{1,92}(?:\s|$)|.{1,92}/g) ?? [line]).map((part) => part.trim());
+  });
+}
+
+function paginatePdfLines(lines: string[]) {
+  const wrapped = wrapPdfLines(lines);
+  const pages: string[][] = [];
+  for (let index = 0; index < wrapped.length; index += PDF_BODY_LINES_PER_PAGE) {
+    pages.push(wrapped.slice(index, index + PDF_BODY_LINES_PER_PAGE));
+  }
+  return pages.length ? pages : [[]];
 }
 
 function pageContent(lines: string[], page: number, title: string) {
@@ -36,13 +73,10 @@ function pageContent(lines: string[], page: number, title: string) {
     "0 -18 Td",
   ];
   let remaining = 720;
-  for (const line of lines) {
-    const wrapped = line.match(/.{1,92}(?:\s|$)|.{1,92}/g) ?? [line];
-    for (const part of wrapped) {
-      if (remaining < 22) break;
-      content.push(`(${pdfText(part.trim())}) Tj`, "0 -12 Td");
-      remaining -= 12;
-    }
+  for (const line of wrapPdfLines(lines)) {
+    if (remaining < 22) break;
+    content.push(`(${pdfText(line)}) Tj`, "0 -12 Td");
+    remaining -= 12;
   }
   content.push("0 -8 Td", `/F1 7 Tf`, `(AgarAccounting AI System report snapshot · page ${page}) Tj`, "ET");
   return content.join("\n");
@@ -75,7 +109,7 @@ export function buildReportPdf(snapshot: ReportSnapshot, signatory: ReportSignat
     ["Statement of profit or loss and other comprehensive income", "Current period | Comparative period", "", ...rowLines(snapshot.profitOrLossAndOci, currency)],
     ["Statement of changes in equity", "Current period | Comparative period", "", ...rowLines(snapshot.changesInEquity, currency)],
     ["Statement of cash flows — indirect method", "Current period | Comparative period", "", ...rowLines(snapshot.cashFlows, currency)],
-    ["Notes to the financial statements", "Current period | Comparative period", "", ...noteLines(snapshot.notes, currency)],
+    ...paginatePdfLines(["Notes to the financial statements", "Current period | Comparative period", "", ...noteLines(snapshot.notes, currency)]),
     [
       "Authorization and source traceability",
       "",

@@ -793,6 +793,11 @@ test("does not remediate an exact demo-shaped workspace that is intentionally sh
     ownershipStatus: "company_owned",
     subscriptionLiableParty: "company",
     systemRatesEnabled: true,
+    shareCapitalAuthorisedShares: null,
+    shareCapitalParValue: null,
+    shareholders: [],
+    shareCapitalJournalId: null,
+    shareCapitalDuplicateWarning: null,
     legacyDemo: false,
     workspaceState: "configured",
   }]);

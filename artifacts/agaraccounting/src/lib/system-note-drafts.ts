@@ -6,6 +6,17 @@ export type DraftNote = {
   narrative: string;
   requiresInput: boolean;
   tables: Array<{ label: string; current: number; comparative: number }>;
+  shareholding?: {
+    authorisedShares: number;
+    parValue: number;
+    rows: Array<{
+      name: string;
+      percentage: number;
+      nationality?: string | null;
+      numberOfShares: number;
+      value: number;
+    }>;
+  };
 };
 
 export type DraftChecklistItem = {
@@ -179,6 +190,14 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
     },
     {
       number: 8,
+      title: "Share capital",
+      narrative: `The company's share capital and shareholding at ${periodLabel} still need to be confirmed on the client share register.`,
+      requiresInput: true,
+      tables: [],
+      shareholding: existingNotes.find((note) => note.title === "Share capital")?.shareholding,
+    },
+    {
+      number: 9,
       title: "Financial risk, foreign currency and other disclosures",
       narrative: [
         `Posted activity included in this pack is presented in ${currency}. No material foreign-currency exposure was identified from the converted ledger set unless foreign-currency entries appear in the books.`,
@@ -192,7 +211,7 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
       tables: [],
     },
     {
-      number: 9,
+      number: 10,
       title: "Subsequent events",
       narrative: [
         `Management is not aware of material non-adjusting events after ${periodLabel} through the authorization date recorded with this pack.`,
@@ -204,7 +223,8 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
   ];
 
   return existingNotes.map((note) => {
-    const draft = drafts.find((item) => item.number === note.number);
+    const draft = drafts.find((item) => item.title === note.title)
+      ?? drafts.find((item) => item.number === note.number && item.title === note.title);
     if (!draft) return { ...note, requiresInput: note.narrative.trim() ? note.requiresInput : true };
     if (!isStubNarrative(note.narrative) && note.narrative.trim()) {
       return { ...note, requiresInput: note.requiresInput && !note.narrative.trim() ? true : note.requiresInput };
@@ -212,8 +232,9 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
     return {
       ...note,
       narrative: draft.narrative,
-      requiresInput: false,
+      requiresInput: draft.requiresInput,
       tables: note.tables.length ? note.tables : draft.tables,
+      shareholding: note.shareholding ?? draft.shareholding,
     };
   });
 }

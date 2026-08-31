@@ -885,6 +885,10 @@ paths:
           schema:
             type: string
             enum: [inflow, outflow]
+        - name: statementImportId
+          in: query
+          required: false
+          schema: { type: number }
       responses:
         "200":
           description: Bank statement lines
@@ -2683,7 +2687,7 @@ components:
         - status
     Client:
       type: object
-      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty, systemRatesEnabled]
+      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty, systemRatesEnabled, shareholders]
       properties:
         id: { type: number }
         name: { type: string }
@@ -2698,6 +2702,14 @@ components:
         systemRatesEnabled:
           type: boolean
           description: Whether the system catalog may supply a fallback rate for this company.
+        shareCapitalAuthorisedShares: { type: ["integer", "null"] }
+        shareCapitalParValue: { type: ["number", "null"] }
+        shareholders:
+          type: array
+          items:
+            $ref: "#/components/schemas/Shareholder"
+        shareCapitalJournalId: { type: ["integer", "null"] }
+        shareCapitalDuplicateWarning: { type: ["string", "null"] }
         legacyDemo:
           type: boolean
           description: True only for an untouched legacy demo workspace retained for reference.
@@ -2728,6 +2740,29 @@ components:
         basis: { type: string }
         period: { type: string }
         systemRatesEnabled: { type: boolean }
+        shareCapitalAuthorisedShares: { type: ["integer", "null"] }
+        shareCapitalParValue: { type: ["number", "null"] }
+        shareholders:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShareholderInput"
+    Shareholder:
+      type: object
+      required: [id, clientId, name, numberOfShares, sortOrder]
+      properties:
+        id: { type: number }
+        clientId: { type: number }
+        name: { type: string }
+        nationality: { type: ["string", "null"] }
+        numberOfShares: { type: integer }
+        sortOrder: { type: integer }
+    ShareholderInput:
+      type: object
+      required: [name, numberOfShares]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        nationality: { type: ["string", "null"] }
+        numberOfShares: { type: integer, minimum: 1 }
     WorkspaceRole:
       type: string
       enum: [owner, admin, accountant, bookkeeper]
@@ -3556,6 +3591,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StatementImportAccountGroup"
+        openingBalance: { type: ["number", "null"] }
+        closingBalance: { type: ["number", "null"] }
     StatementImport:
       type: object
       required: [id, fileName, mimeType, objectPath, outcome, importedLineCount, createdAt, updatedAt, preview]
@@ -3676,6 +3713,8 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
             - type: "null"
+        openingBalance: { type: ["number", "null"] }
+        closingBalance: { type: ["number", "null"] }
     BankAccount:
       type: object
       required: [id, clientId, name, currency]
@@ -4197,6 +4236,27 @@ components:
               label: { type: string }
               current: { type: number }
               comparative: { type: number }
+        shareholding:
+          $ref: "#/components/schemas/ReportShareholding"
+    ReportShareholding:
+      type: object
+      required: [authorisedShares, parValue, rows]
+      properties:
+        authorisedShares: { type: number }
+        parValue: { type: number }
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportShareholdingRow"
+    ReportShareholdingRow:
+      type: object
+      required: [name, percentage, numberOfShares, value]
+      properties:
+        name: { type: string }
+        percentage: { type: number }
+        nationality: { type: ["string", "null"] }
+        numberOfShares: { type: number }
+        value: { type: number }
     ReportValidation:
       type: object
       required: [status, errorCount, checks]

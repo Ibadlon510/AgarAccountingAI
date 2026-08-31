@@ -106,6 +106,18 @@ export const GetOrganizationContextResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "shareCapitalJournalId": zod.number().nullish(),
+  "shareCapitalDuplicateWarning": zod.string().nullish(),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })),
@@ -191,6 +203,18 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "shareCapitalJournalId": zod.number().nullish(),
+  "shareCapitalDuplicateWarning": zod.string().nullish(),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })),
@@ -362,6 +386,18 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "shareCapitalJournalId": zod.number().nullish(),
+  "shareCapitalDuplicateWarning": zod.string().nullish(),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })),
@@ -552,6 +588,18 @@ export const GetClientsResponseItem = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "shareCapitalJournalId": zod.number().nullish(),
+  "shareCapitalDuplicateWarning": zod.string().nullish(),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
@@ -583,6 +631,18 @@ export const CreateClientResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "shareCapitalJournalId": zod.number().nullish(),
+  "shareCapitalDuplicateWarning": zod.string().nullish(),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
@@ -601,7 +661,14 @@ export const UpdateClientBody = zod.object({
   "functionalCurrency": zod.string(),
   "basis": zod.string(),
   "period": zod.string(),
-  "systemRatesEnabled": zod.boolean().optional()
+  "systemRatesEnabled": zod.boolean().optional(),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "name": zod.string().min(1).max(200),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number().min(1)
+})).optional()
 })
 
 export const UpdateClientResponse = zod.object({
@@ -616,6 +683,18 @@ export const UpdateClientResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "shareCapitalAuthorisedShares": zod.number().nullish(),
+  "shareCapitalParValue": zod.number().nullish(),
+  "shareholders": zod.array(zod.object({
+  "id": zod.number(),
+  "clientId": zod.number(),
+  "name": zod.string(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "sortOrder": zod.number()
+})),
+  "shareCapitalJournalId": zod.number().nullish(),
+  "shareCapitalDuplicateWarning": zod.string().nullish(),
   "legacyDemo": zod.boolean().describe('True only for an untouched legacy demo workspace retained for reference.'),
   "workspaceState": zod.enum(['starter', 'configured', 'legacy_demo']).describe('Configuration state for this workspace. Missing memberships are represented by an empty response.')
 })
@@ -1402,7 +1481,8 @@ export const GetStatementLinesQueryParams = zod.object({
   "clientId": zod.coerce.number().optional(),
   "currency": zod.coerce.string().optional(),
   "status": zod.coerce.string().optional(),
-  "direction": zod.enum(['inflow', 'outflow']).optional()
+  "direction": zod.enum(['inflow', 'outflow']).optional(),
+  "statementImportId": zod.coerce.number().optional()
 })
 
 export const GetStatementLinesResponseItem = zod.object({
@@ -2167,8 +2247,12 @@ export const ImportStatementResponse = zod.object({
   "bankName": zod.string().nullish(),
   "accountNumberLast4": zod.string().nullish(),
   "currency": zod.string()
-}),zod.null()]).optional()
-})).optional()
+}),zod.null()]).optional(),
+  "openingBalance": zod.number().nullish(),
+  "closingBalance": zod.number().nullish()
+})).optional(),
+  "openingBalance": zod.number().nullish(),
+  "closingBalance": zod.number().nullish()
 })
 
 
@@ -2340,8 +2424,12 @@ export const GetStatementImportsResponseItem = zod.object({
   "bankName": zod.string().nullish(),
   "accountNumberLast4": zod.string().nullish(),
   "currency": zod.string()
-}),zod.null()]).optional()
-})).optional()
+}),zod.null()]).optional(),
+  "openingBalance": zod.number().nullish(),
+  "closingBalance": zod.number().nullish()
+})).optional(),
+  "openingBalance": zod.number().nullish(),
+  "closingBalance": zod.number().nullish()
 }),zod.null()])
 })
 export const GetStatementImportsResponse = zod.array(GetStatementImportsResponseItem)
@@ -3244,7 +3332,18 @@ export const CreateReportPackResponse = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })),
   "traceability": zod.object({
   "postedEntryCount": zod.number(),
@@ -3302,7 +3401,18 @@ export const CreateReportPackResponse = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })),
   "checklist": zod.array(zod.object({
   "standard": zod.string(),
@@ -3398,7 +3508,18 @@ export const GetReportPackResponse = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })),
   "traceability": zod.object({
   "postedEntryCount": zod.number(),
@@ -3456,7 +3577,18 @@ export const GetReportPackResponse = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })),
   "checklist": zod.array(zod.object({
   "standard": zod.string(),
@@ -3495,7 +3627,18 @@ export const UpdateReportPackBody = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })).optional(),
   "checklist": zod.array(zod.object({
   "standard": zod.string(),
@@ -3580,7 +3723,18 @@ export const UpdateReportPackResponse = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })),
   "traceability": zod.object({
   "postedEntryCount": zod.number(),
@@ -3638,7 +3792,18 @@ export const UpdateReportPackResponse = zod.object({
   "label": zod.string(),
   "current": zod.number(),
   "comparative": zod.number()
+})),
+  "shareholding": zod.object({
+  "authorisedShares": zod.number(),
+  "parValue": zod.number(),
+  "rows": zod.array(zod.object({
+  "name": zod.string(),
+  "percentage": zod.number(),
+  "nationality": zod.string().nullish(),
+  "numberOfShares": zod.number(),
+  "value": zod.number()
 }))
+}).optional()
 })),
   "checklist": zod.array(zod.object({
   "standard": zod.string(),

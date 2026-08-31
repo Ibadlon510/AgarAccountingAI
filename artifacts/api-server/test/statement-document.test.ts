@@ -4,8 +4,10 @@ import {
   hasDelimitedBankStatementStructure,
   hasPdfBankStatementTable,
   normalizeStatementDate,
+  parseDelimitedBankStatementDocument,
   parseDelimitedBankStatementRows,
   parseDelimitedBankStatementSections,
+  parsePdfBankStatementDocument,
   parsePdfBankStatementRows,
   parsePdfBankStatementSections,
 } from "../src/lib/statementDocument";
@@ -72,6 +74,9 @@ test("parses a bank PDF whose extracted columns are emitted on separate lines", 
       currency: "EUR",
     },
   ]);
+  const document = parsePdfBankStatementDocument(mashreqMultiLinePdfText, "EUR");
+  assert.equal(document.openingBalance, 537091.14);
+  assert.equal(document.closingBalance, 586788.69);
 });
 
 test("parses the inline transaction rows emitted by pdf-parse for Mashreq statements", () => {
@@ -106,6 +111,9 @@ Opening Balance 537,091.14
       currency: "EUR",
     },
   ]);
+  const document = parsePdfBankStatementDocument(pdfParseText, "EUR");
+  assert.equal(document.openingBalance, 537091.14);
+  assert.equal(document.closingBalance, 590396.93);
 });
 
 test("does not recognize a financial report as a bank transaction PDF", () => {
@@ -151,6 +159,9 @@ TRIWILL INDUSTRIAL PRODUCTS TRADING SRN: M170126273128WYM","+20,000.00",,"20,683
       currency: "AED",
     },
   ]);
+  const document = parseDelimitedBankStatementDocument(extractedWorkbookCsv, "AED");
+  assert.equal(document.openingBalance, 683.95);
+  assert.equal(document.closingBalance, 7833.95);
 });
 
 test("normalizes unambiguous bank-export dates without guessing ambiguous numeric dates", () => {
@@ -255,4 +266,9 @@ Date Ref. Number Description Amount (Incl. VAT) Balance
   assert.equal(group.identity.name, "USD account");
   assert.equal(group.identity.accountNumberLast4, "8306");
   assert.equal(group.identity.currency, "USD");
+  const document = parsePdfBankStatementDocument(statement, "USD");
+  assert.equal(document.openingBalance, 5026.8);
+  assert.equal(document.closingBalance, 6078.23);
+  assert.equal(group.openingBalance, 5026.8);
+  assert.equal(group.closingBalance, 6078.23);
 });

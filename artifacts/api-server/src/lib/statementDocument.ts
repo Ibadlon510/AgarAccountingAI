@@ -31,6 +31,12 @@ export type ParsedPdfStatementLine = {
   currency: string;
 };
 
+export type ParsedStatementDocument = {
+  lines: ParsedPdfStatementLine[];
+  openingBalance: number | null;
+  closingBalance: number | null;
+};
+
 export type ParsedStatementAccountIdentity = {
   name: string | null;
   bankName: string | null;
@@ -43,6 +49,8 @@ export type ParsedStatementAccountGroup = {
   identity: ParsedStatementAccountIdentity;
   evidenceStatus: "identified" | "ambiguous";
   lines: ParsedPdfStatementLine[];
+  openingBalance: number | null;
+  closingBalance: number | null;
 };
 
 type DelimitedStatementColumns = {
@@ -77,6 +85,19 @@ function isLikelyReference(value: string) {
   return /^[A-Z0-9]{10,}$/i.test(value.trim());
 }
 
+function roundMoney(value: number | null | undefined): number | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return Math.round(value * 100) / 100;
+}
+
+function signedLineAmount(direction: "inflow" | "outflow", amount: number) {
+  return direction === "inflow" ? amount : -amount;
+}
+
+function isOpeningBalanceDescription(value: string) {
+  return /\bopening\s+balance\b/i.test(value);
+}
+
 function pdfStatementLines(text: string) {
   return text
     .split(/\r?\n/)
@@ -103,24 +124,34 @@ export function hasPdfBankStatementTable(text: string) {
     || hasSignedAmountTable && hasAccountProvenance && hasNamedBankStatement;
 }
 
-export function parsePdfBankStatementRows(text: string, currency: string): ParsedPdfStatementLine[] {
-  if (!hasPdfBankStatementTable(text)) return [];
+export function parsePdfBankStatementDocument(text: string, currency: string): ParsedStatementDocument {
+  const empty: ParsedStatementDocument = { lines: [], openingBalance: null, closingBalance: null };
+  if (!hasPdfBankStatementTable(text)) return empty;
   const lines = pdfStatementLines(text);
-  const signedAmountRows = lines.flatMap((line): ParsedPdfStatementLine[] => {
+  const signedAmountRows = lines.flatMap((line): Array<ParsedPdfStatementLine & { balance: number }> => {
     const match = line.match(wioRecord);
     if (!match) return [];
     const date = normalizeStatementDate(match[1], "day-first");
     const amount = monetaryValue(match[4]);
-    if (!date || amount == null || amount === 0) return [];
+    const balance = monetaryValue(match[5]);
+    if (!date || amount == null || amount === 0 || balance == null) return [];
     return [{
       date,
       description: match[3].replace(/\s+/g, " ").trim(),
       amount: Math.abs(amount),
       direction: amount < 0 ? "outflow" : "inflow",
       currency,
+      balance,
     }];
   });
-  if (signedAmountRows.length) return signedAmountRows;
+  if (signedAmountRows.length) {
+    const first = signedAmountRows[0];
+    return {
+      lines: signedAmountRows.map(({ balance: _balance, ...line }) => line),
+      openingBalance: roundMoney(first.balance - signedLineAmount(first.direction, first.amount)),
+      closingBalance: roundMoney(signedAmountRows.at(-1)?.balance),
+    };
+  }
   const dateIndexes = lines
     .map((line, index) => (pdfRecordStart.test(line) ? index : -1))
     .filter((index) => index >= 0);
@@ -131,6 +162,7 @@ export function parsePdfBankStatementRows(text: string, currency: string): Parse
       ?? lines.slice(openingBalanceIndex + 1).flatMap(monetaryValuesInLine).at(0)
       ?? null;
   }
+  const openingBalance = roundMoney(previousBalance);
 
   const rows: ParsedPdfStatementLine[] = [];
   for (let index = 0; index < dateIndexes.length; index += 1) {
@@ -160,7 +192,7 @@ export function parsePdfBankStatementRows(text: string, currency: string): Parse
       .join(" ")
       .replace(/\s+/g, " ")
       .trim();
-    if (!description) continue;
+    if (!description || isOpeningBalanceDescription(description)) continue;
 
     const balanceChange = previousBalance == null ? null : balanceCell.value - previousBalance;
     const amount = Math.abs(amountCell.value);
@@ -176,7 +208,15 @@ export function parsePdfBankStatementRows(text: string, currency: string): Parse
     });
     previousBalance = balanceCell.value;
   }
-  return rows;
+  return {
+    lines: rows,
+    openingBalance,
+    closingBalance: rows.length ? roundMoney(previousBalance) : openingBalance,
+  };
+}
+
+export function parsePdfBankStatementRows(text: string, currency: string): ParsedPdfStatementLine[] {
+  return parsePdfBankStatementDocument(text, currency).lines;
 }
 
 export function delimitedRows(text: string, sampleLines = 20) {
@@ -262,16 +302,28 @@ function statementCurrencyFromSectionText(text: string, fallbackCurrency: string
   return new Set(explicit).size === 1 ? explicit[0] : fallbackCurrency;
 }
 
-function parsedDelimitedRows(rows: string[][], currency: string): ParsedPdfStatementLine[] {
+function parsedDelimitedDocument(rows: string[][], currency: string): ParsedStatementDocument {
+  const empty: ParsedStatementDocument = { lines: [], openingBalance: null, closingBalance: null };
   const columns = delimitedStatementColumns(rows);
-  if (!columns) return [];
+  if (!columns) return empty;
   const bodyRows = rows.slice(columns.headerRowIndex + 1);
   const numericDateOrder = inferNumericDateOrder(bodyRows.map((row) => row[columns.date] ?? ""));
+  let labeledOpening: number | null = null;
+  let firstBalance: number | null = null;
+  let firstSignedAmount: number | null = null;
+  let lastBalance: number | null = null;
 
-  return bodyRows.flatMap((cells): ParsedPdfStatementLine[] => {
+  const lines = bodyRows.flatMap((cells): ParsedPdfStatementLine[] => {
+    const description = (cells[columns.description] ?? "").replace(/\s+/g, " ").trim() || "Imported bank activity";
+    const rowBalanceCell = columns.balance >= 0 ? (cells[columns.balance] ?? "").trim() : "";
+    const rowBalance = rowBalanceCell ? numericCell(rowBalanceCell) : null;
+    if (isOpeningBalanceDescription(description) || isOpeningBalanceDescription(cells.join(" "))) {
+      const opening = rowBalance ?? numericCell(cells.at(-1) ?? "");
+      if (opening) labeledOpening = opening;
+      return [];
+    }
     const date = normalizeStatementDate(cells[columns.date] ?? "", numericDateOrder);
     if (!date) return [];
-    const description = (cells[columns.description] ?? "").replace(/\s+/g, " ").trim() || "Imported bank activity";
     const debit = columns.debit >= 0 ? Math.abs(numericCell(cells[columns.debit] ?? "")) : 0;
     const credit = columns.credit >= 0 ? Math.abs(numericCell(cells[columns.credit] ?? "")) : 0;
     const amountValue = columns.amount >= 0 ? numericCell(cells[columns.amount] ?? "") : 0;
@@ -282,8 +334,24 @@ function parsedDelimitedRows(rows: string[][], currency: string): ParsedPdfState
     const direction = hasDebitCreditColumns
       ? (debit > 0 ? "outflow" : "inflow")
       : (amountValue < 0 ? "outflow" : "inflow");
+    if (rowBalance != null) {
+      lastBalance = rowBalance;
+      if (firstBalance == null) {
+        firstBalance = rowBalance;
+        firstSignedAmount = signedLineAmount(direction, amount);
+      }
+    }
     return [{ date, description, amount, direction, currency }];
   });
+
+  const inferredOpening = firstBalance != null && firstSignedAmount != null
+    ? firstBalance - firstSignedAmount
+    : null;
+  return {
+    lines,
+    openingBalance: roundMoney(labeledOpening ?? inferredOpening),
+    closingBalance: roundMoney(lastBalance ?? labeledOpening),
+  };
 }
 
 const statementMonths = new Map([
@@ -371,7 +439,11 @@ function numericCell(value: string) {
 }
 
 export function parseDelimitedBankStatementRows(text: string, currency: string): ParsedPdfStatementLine[] {
-  return parsedDelimitedRows(delimitedRows(text), currency);
+  return parseDelimitedBankStatementDocument(text, currency).lines;
+}
+
+export function parseDelimitedBankStatementDocument(text: string, currency: string): ParsedStatementDocument {
+  return parsedDelimitedDocument(delimitedRows(text), currency);
 }
 
 export function parseDelimitedBankStatementSections(
@@ -394,13 +466,15 @@ export function parseDelimitedBankStatementSections(
     const currency = labeledValue(metadataRows, /account\s+currency|currency\s+code|^currency$|^ccy$/i)?.toUpperCase()
       ?? statementCurrencyFromSectionText(metadata, fallbackCurrency);
     const name = holder || (accountNumberLast4 ? `Account ending ${accountNumberLast4}` : null);
-    const lines = parsedDelimitedRows(sectionRows, currency);
-    if (!lines.length) return [];
+    const document = parsedDelimitedDocument(sectionRows, currency);
+    if (!document.lines.length) return [];
     return [{
       id: `section-${sectionIndex + 1}`,
       identity: { name, bankName, accountNumberLast4, currency },
       evidenceStatus: name || bankName || accountNumberLast4 ? "identified" : "ambiguous",
-      lines,
+      lines: document.lines,
+      openingBalance: document.openingBalance,
+      closingBalance: document.closingBalance,
     }];
   });
 }
@@ -440,14 +514,16 @@ export function parsePdfBankStatementSections(
     const currency = valueAfter(/^currency$/i)?.toUpperCase()
       ?? valueAfter(/^account\s+currency$/i)?.toUpperCase()
       ?? statementCurrencyFromSectionText(sectionText, fallbackCurrency);
-    const parsedLines = parsePdfBankStatementRows(sectionText, currency);
-    if (!parsedLines.length) return [];
+    const parsed = parsePdfBankStatementDocument(sectionText, currency);
+    if (!parsed.lines.length) return [];
     const name = holder || (accountNumberLast4 ? `Account ending ${accountNumberLast4}` : null);
     return [{
       id: `section-${sectionIndex + 1}`,
       identity: { name, bankName, accountNumberLast4, currency },
       evidenceStatus: name || bankName || accountNumberLast4 ? "identified" : "ambiguous",
-      lines: parsedLines,
+      lines: parsed.lines,
+      openingBalance: parsed.openingBalance,
+      closingBalance: parsed.closingBalance,
     }];
   });
 }

@@ -11,6 +11,7 @@ import {
   type ReportSnapshot,
 } from "../src/lib/reportPack";
 import { buildReportPdf } from "../src/lib/reportPdf";
+import { buildShareholdingSnapshot, closePeriodStartDate, formatShareParValue } from "../src/lib/shareCapital";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -219,8 +220,12 @@ test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct fr
   const sme = buildProfilePack("IFRS for SMEs", "IFRS for SMEs");
   const ifrs18 = buildProfilePack("IFRS", "IFRS 18");
 
-  assert.ok(ias1.notes.every((note) => !note.requiresInput && note.narrative.trim().length > 40));
+  assert.ok(ias1.notes.filter((note) => note.title !== "Share capital").every((note) => !note.requiresInput && note.narrative.trim().length > 40));
   assert.ok(ias1.notes.every((note) => !/Accountant input required/i.test(note.narrative)));
+  assert.equal(ias1.notes.find((note) => note.number === 8)?.title, "Share capital");
+  assert.equal(ias1.notes.find((note) => note.number === 8)?.requiresInput, true);
+  assert.equal(ias1.notes.find((note) => note.number === 9)?.title, "Financial risk, foreign currency and other disclosures");
+  assert.equal(ias1.notes.find((note) => note.number === 10)?.title, "Subsequent events");
   assert.ok(ias1.checklist.every((item) => !["applicable", "requires_accountant_input"].includes(item.status)));
   assert.match(ias1.notes.find((note) => note.number === 1)?.narrative ?? "", /International Financial Reporting Standards/);
   assert.match(sme.notes.find((note) => note.number === 1)?.narrative ?? "", /IFRS for SMEs/);
@@ -469,4 +474,86 @@ test("finalized snapshots retain their original profile and cannot be mutated", 
   assert.equal(reloaded.response.status, 200);
   assert.equal(reloaded.body.status, "finalized");
   assert.deepEqual(reloaded.body.snapshot, finalizedSnapshot);
+});
+
+test("builds a Share capital note from the client register", () => {
+  assert.equal(closePeriodStartDate("August 2026"), "2026-08-01");
+  assert.equal(formatShareParValue(2000), "2000");
+  const snapshot = buildShareholdingSnapshot({
+    authorisedShares: 100,
+    parValue: 2000,
+    shareholders: [
+      { name: "Mona Wagdy Ayad Helmy", nationality: "Indian", numberOfShares: 40 },
+      { name: "Emad Helmy Saad Tadros", nationality: null, numberOfShares: 60 },
+    ],
+  });
+  assert.deepEqual(snapshot, {
+    authorisedShares: 100,
+    parValue: 2000,
+    rows: [
+      { name: "Mona Wagdy Ayad Helmy", nationality: "Indian", numberOfShares: 40, percentage: 40, value: 80000 },
+      { name: "Emad Helmy Saad Tadros", nationality: null, numberOfShares: 60, percentage: 60, value: 120000 },
+    ],
+  });
+
+  assert.equal(buildShareholdingSnapshot({
+    authorisedShares: 100,
+    parValue: 2000,
+    shareholders: [],
+  }), undefined);
+
+  const pack = buildReportPack({
+    client: {
+      id: 1,
+      name: "Share capital entity",
+      legalName: "Share Capital Test LLC",
+      functionalCurrency: "AED",
+      shareCapitalAuthorisedShares: 100,
+      shareCapitalParValue: "2000.00",
+    } as never,
+    entries: [{
+      id: 11,
+      clientId: 1,
+      statementLineId: null,
+      date: "2026-08-01",
+      status: "posted",
+      debitAccount: "Due from shareholders",
+      creditAccount: "Share capital",
+      amount: "200000",
+      functionalAmount: "200000",
+      functionalCurrency: "AED",
+    }] as never,
+    classifications: [],
+    periodEnd: "2026-12-31",
+    presentationCurrency: "AED",
+    reportingBasis: "IFRS",
+    presentationProfile: "IAS 1",
+    roundingPolicy: "Nearest whole unit",
+    sourceImportCount: 0,
+    missingRateEntries: [],
+    shareholders: [
+      { name: "Mona Wagdy Ayad Helmy", nationality: "Indian", numberOfShares: 40 },
+      { name: "Emad Helmy Saad Tadros", nationality: null, numberOfShares: 60 },
+    ],
+  });
+
+  const note = pack.notes.find((item) => item.number === 8);
+  assert.equal(note?.title, "Share capital");
+  assert.equal(note?.requiresInput, false);
+  assert.match(note?.narrative ?? "", /comprises 100 shares of AED 2000 each/);
+  assert.match(note?.narrative ?? "", /Shareholding at 31 December 2026 is as under/);
+  assert.equal(note?.shareholding?.rows[0]?.value, 80000);
+  assert.equal(note?.shareholding?.rows[1]?.value, 120000);
+  const equity = pack.snapshot.statementOfFinancialPosition.find((row) => row.label === "Equity");
+  const shareCapital = equity?.children?.find((row) => row.label === "Share capital");
+  assert.equal(shareCapital?.current, 200000);
+  assert.equal(shareCapital?.noteRef, "8");
+  const pdf = buildReportPdf(pack.snapshot, {
+    preparedBy: "Preparer",
+    reviewedBy: "Reviewer",
+    authorizedBy: "Authorizer",
+    authorizationDate: "2026-12-31",
+  }).toString("utf8");
+  assert.match(pdf, /Mona Wagdy Ayad Helmy/);
+  assert.match(pdf, /80,000/);
 });

@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ShareholderInput } from './shareholderInput';
 
 export interface ClientUpdateInput {
   name: string;
@@ -13,4 +14,9 @@ export interface ClientUpdateInput {
   basis: string;
   period: string;
   systemRatesEnabled?: boolean;
+  /** @nullable */
+  shareCapitalAuthorisedShares?: number | null;
+  /** @nullable */
+  shareCapitalParValue?: number | null;
+  shareholders?: ShareholderInput[];
 }
