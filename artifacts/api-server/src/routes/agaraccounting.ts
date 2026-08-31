@@ -2892,6 +2892,7 @@ type ClassificationSuggestion = {
 };
 
 class RecodeConflictError extends Error {}
+class RecodeValidationError extends Error {}
 
 async function getWorkspacePatterns(userId: string) {
   return db.select().from(classificationPatternsTable).where(eq(classificationPatternsTable.userId, userId));
@@ -3543,6 +3544,7 @@ function asksForContactAssignment(message: string) {
   }
   return (
     /\bproposed\s+contact\b/i.test(message)
+    || /\bassign\s+all\b.+\bto\b/i.test(message)
     || /\b(?:assign|link|set|update|change|replace)\b.+\b(?:contact|supplier|customer|vendor)\b/i.test(message)
     || (/\b(?:contact|supplier|customer|vendor)\b/i.test(message) && /\b(?:statement\s+lines?|draft\s+lines?|these|selected|visible)\b/i.test(message))
   ) && /\b(?:assign|set|update|change|link|replace|proposed)\b/i.test(message);
@@ -3994,7 +3996,7 @@ async function applyRecodeLinesAction(
     eq(accountClassificationsTable.isActive, true),
   )).limit(1);
   if (!selectedAccount) {
-    throw new RecodeConflictError("Choose an active account from this client's chart before confirming a classification.");
+    throw new RecodeValidationError("Choose an active account from this client's chart before confirming a classification.");
   }
   const [bankAccountClassification] = await db.select().from(accountClassificationsTable).where(and(
     eq(accountClassificationsTable.clientId, clientId),
@@ -7289,6 +7291,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
       body.confirmLearnedSuggestion,
     );
   } catch (error) {
+    if (error instanceof RecodeValidationError) {
+      return res.status(400).json({ error: error.message });
+    }
     if (error instanceof RecodeConflictError) {
       return res.status(409).json({ error: error.message });
     }

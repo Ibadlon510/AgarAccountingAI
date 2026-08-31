@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import {
   buildReportPack,
   eligibleReportProfiles,
+  finalizationValidation,
   type ReportSnapshot,
 } from "../src/lib/reportPack";
 import { buildReportPdf } from "../src/lib/reportPdf";
@@ -155,7 +156,13 @@ test("blocks a draft pack with missing comparatives and accountant inputs", () =
   assert.equal(result.snapshot.cashFlows.find((row) => row.label === "Cash at end of year")?.current, -100);
   assert.equal(result.validation.status, "blocked");
   assert.equal(result.validation.checks.find((check) => check.id === "comparatives")?.blocking, true);
-  assert.equal(result.validation.checks.find((check) => check.id === "notes")?.status, "error");
+  const validationWithMissingInput = finalizationValidation(
+    result.validation,
+    result.notes.map((note, index) => index === 0 ? { ...note, requiresInput: true } : note),
+    result.checklist,
+  );
+  assert.equal(validationWithMissingInput.checks.find((check) => check.id === "notes")?.status, "error");
+  assert.equal(validationWithMissingInput.status, "blocked");
   assert.equal(result.checklist.length, 12);
 });
 

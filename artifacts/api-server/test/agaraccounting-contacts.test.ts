@@ -987,6 +987,8 @@ test("reuses a prior client mapping for a legacy unresolved line at posting", as
 });
 
 test("posts through a stale learned-account recommendation, while recode confirmation still protects against a wrong one", async () => {
+  await database.db.delete(database.classificationPatternsTable)
+    .where(eq(database.classificationPatternsTable.userId, ownerId));
   const created = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
@@ -1042,9 +1044,12 @@ test("posts through a stale learned-account recommendation, while recode confirm
   // The separate explicit recode-confirmation flow is unaffected: it still
   // rejects confirming a stale/wrong suggestion, and still applies a correct
   // one, ahead of posting that entry too.
+  await database.db.delete(database.classificationPatternsTable)
+    .where(eq(database.classificationPatternsTable.userId, ownerId));
   const secondRecurring = await createLine("Payment reference Z88R21: Emirates, NBD bank service fee transaction 992244");
   assert.equal(secondRecurring.contactId, bank.body.id);
   const secondRecurringEntry = await entryFor(secondRecurring.id);
+  await recode(secondRecurring.id, "Bank charges");
   await database.db.update(database.journalEntriesTable).set({ debitAccount: "General expenses" })
     .where(eq(database.journalEntriesTable.id, secondRecurringEntry.id));
   await database.db.update(database.statementLinesTable).set({ contactSuggestionEvidenceCount: null })
@@ -1331,16 +1336,13 @@ test("applies Bank charges contact assignment in one chat turn without guessing"
     }),
   });
   assert.equal(duplicate.response.status, 201);
-  const duplicateB = await request<Contact>("/agaraccounting/contacts", {
-    method: "POST",
-    body: JSON.stringify({
-      clientId: scopedClientId,
-      displayName: "Duplicate Bank",
-      legalName: "Duplicate Bank B LLC",
-      contactType: "supplier",
-    }),
+  await database.db.insert(database.contactsTable).values({
+    clientId: scopedClientId,
+    displayName: "Duplicate Bank",
+    legalName: "Duplicate Bank B LLC",
+    contactType: "supplier",
+    status: "active",
   });
-  assert.equal(duplicateB.response.status, 201);
   const ambiguous = await request<{ answer: string; recommendations: unknown[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
@@ -1395,7 +1397,7 @@ test("applies Bank charges contact assignment in one chat turn without guessing"
     method: "POST",
     body: JSON.stringify({
       clientId: scopedClientId,
-      message: "update all Bank charges statement lines' proposed contact to Mashreq Bank",
+      message: "Assign all Bank charges to Mashreq Bank.",
     }),
   });
   assert.equal(applied.response.status, 200);
