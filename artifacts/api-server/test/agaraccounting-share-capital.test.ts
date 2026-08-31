@@ -173,8 +173,18 @@ test("saves the share register, posts a replaceable system journal, and warns ab
   assert.equal(systemJournal.status, "posted");
   assert.equal(systemJournal.date, "2026-08-01");
   assert.deepEqual(systemJournal.lines, [
-    { account: "Due from shareholders", debit: 200000, credit: 0 },
-    { account: SHARE_CAPITAL_ACCOUNT_NAME, debit: 0, credit: 200000 },
+    {
+      description: "Share capital per client register",
+      account: "Due from shareholders",
+      debit: 200000,
+      credit: 0,
+    },
+    {
+      description: "Share capital per client register",
+      account: SHARE_CAPITAL_ACCOUNT_NAME,
+      debit: 0,
+      credit: 200000,
+    },
   ]);
 
   const second = await request<ClientBody>(`/clients/${clientId}`, {
