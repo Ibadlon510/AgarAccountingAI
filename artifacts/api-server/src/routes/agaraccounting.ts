@@ -1707,15 +1707,14 @@ async function chartAccountResponses(
     db.select({ accountSuggestion: statementLinesTable.accountSuggestion })
       .from(statementLinesTable)
       .where(and(eq(statementLinesTable.clientId, clientId), isNotNull(statementLinesTable.accountSuggestion))),
-    db.select({ debitAccount: journalEntriesTable.debitAccount, creditAccount: journalEntriesTable.creditAccount })
+    db.select({ debitAccount: journalEntriesTable.debitAccount, creditAccount: journalEntriesTable.creditAccount, lines: journalEntriesTable.lines })
       .from(journalEntriesTable)
       .where(eq(journalEntriesTable.clientId, clientId)),
   ]);
   const referencedNames = new Set<string>();
   for (const line of lines) if (line.accountSuggestion) referencedNames.add(line.accountSuggestion);
   for (const entry of entries) {
-    referencedNames.add(entry.debitAccount);
-    referencedNames.add(entry.creditAccount);
+    for (const line of journalLines(entry as typeof journalEntriesTable.$inferSelect)) referencedNames.add(line.account);
   }
   return accounts.map((account) => ({
     ...account,
@@ -6622,7 +6621,7 @@ function accountingResultForEntries(
   const selected = entries.filter((entry) => {
     if (entry.statementLineId == null) {
       const amount = number(entry.amount);
-      const account = `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase();
+      const account = journalLines(entry).map((line) => line.account).join(" ").toLowerCase();
       const periodMatch = !filters.period
         || (filters.period.length === 4 && entry.date.startsWith(filters.period))
         || (filters.period.length === 7 && entry.date.startsWith(filters.period))
@@ -6725,18 +6724,17 @@ function accountingResultForTrialBalance(
     && (!filters.dateTo || entry.date <= filters.dateTo)
     && (!filters.status || entry.status === filters.status)
     && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
-    && (!filters.account || `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase().includes(filters.account.toLowerCase())),
+    && (!filters.account || journalLines(entry).some((line) => line.account.toLowerCase().includes(filters.account!.toLowerCase()))),
   );
   const eligibility = reportingEligibility(filteredEntries, functionalCurrency, assistantPeriodEnd(filters.period));
   const accounts = new Map<string, { debit: number; credit: number }>();
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0 };
-    debit.debit += amount;
-    accounts.set(entry.debitAccount, debit);
-    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0 };
-    credit.credit += amount;
-    accounts.set(entry.creditAccount, credit);
+    for (const line of reportingJournalLines(entry, functionalCurrency) ?? []) {
+      const values = accounts.get(line.account) ?? { debit: 0, credit: 0 };
+      values.debit += line.debit;
+      values.credit += line.credit;
+      accounts.set(line.account, values);
+    }
   }
   const rows = [...accounts.entries()].map(([account, value]) => ({
     account,
@@ -6794,7 +6792,7 @@ function accountingResultForFinancialStatements(
     && (!filters.dateTo || entry.date <= filters.dateTo)
     && (!filters.status || entry.status === filters.status)
     && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
-    && (!filters.account || `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase().includes(filters.account.toLowerCase())),
+    && (!filters.account || journalLines(entry).some((line) => line.account.toLowerCase().includes(filters.account!.toLowerCase()))),
   );
   const eligibility = reportingEligibility(selectedEntries, functionalCurrency, periodEnd);
   const expenseAccounts = new Map<string, number>();
@@ -6803,16 +6801,20 @@ function accountingResultForFinancialStatements(
   let transferClearing = 0;
   let operatingCash = 0;
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    if (entry.debitAccount === "Bank / cash") cash += amount;
-    if (entry.creditAccount === "Bank / cash") cash -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
-    if (isInterAccountTransferAccount(entry.creditAccount)) transferClearing -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
-    if (entry.debitAccount === "Bank / cash") operatingCash += amount;
-    if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
-    if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
-    if (entry.creditAccount !== "Bank / cash") revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
+    const lines = reportingJournalLines(entry, functionalCurrency) ?? [];
+    const transferEntry = lines.some((line) => isInterAccountTransferAccount(line.account));
+    for (const line of lines) {
+      const movement = line.debit - line.credit;
+      if (line.account === "Bank / cash") {
+        cash += movement;
+        if (!transferEntry) operatingCash += movement;
+      }
+      if (isInterAccountTransferAccount(line.account)) transferClearing += movement;
+      if (line.account !== "Bank / cash") {
+        if (movement >= 0) expenseAccounts.set(line.account, (expenseAccounts.get(line.account) ?? 0) + movement);
+        else revenueAccounts.set(line.account, (revenueAccounts.get(line.account) ?? 0) - movement);
+      }
+    }
   }
   const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
   const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);
@@ -10410,8 +10412,15 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
       if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
 
       if (entry.statementLineId == null) {
-        const accounts = await resolveManualJournalAccounts(tx, client.id, entry.debitAccount, entry.creditAccount);
-        if (accounts.kind !== "ok") throw new JournalPostRollback({ kind: "stale_treatment" });
+        const accountNames = [...new Set(journalLines(entry).map((line) => line.account))];
+        const activeAccounts = await tx.select({ accountName: accountClassificationsTable.accountName })
+          .from(accountClassificationsTable)
+          .where(and(
+            eq(accountClassificationsTable.clientId, client.id),
+            eq(accountClassificationsTable.isActive, true),
+            inArray(accountClassificationsTable.accountName, accountNames),
+          ));
+        if (activeAccounts.length !== accountNames.length) throw new JournalPostRollback({ kind: "stale_treatment" });
         if (isMissingExchangeRate(entry, client.functionalCurrency)) {
           throw new JournalPostRollback({ kind: "missing_exchange_rate", entry });
         }
@@ -10741,15 +10750,14 @@ router.get("/agaraccounting/trial-balance", async (req, res) => {
   const eligibility = reportingEligibility(entries, functionalCurrency);
   const missingRateCurrencies = [...new Set(eligibility.missingRateEntries.map((entry) => entry.currency))];
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    const debitMeta = accountMetadata.get(entry.debitAccount);
-    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: debitMeta ? chartAccountCategory(debitMeta.statementSection) : ledgerAccountCategory(entry.debitAccount, "debit") };
-    debit.debit += amount;
-    accounts.set(entry.debitAccount, debit);
-    const creditMeta = accountMetadata.get(entry.creditAccount);
-    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: creditMeta ? chartAccountCategory(creditMeta.statementSection) : ledgerAccountCategory(entry.creditAccount, "credit") };
-    credit.credit += amount;
-    accounts.set(entry.creditAccount, credit);
+    for (const line of reportingJournalLines(entry, functionalCurrency) ?? []) {
+      const meta = accountMetadata.get(line.account);
+      const side = line.debit > 0 ? "debit" : "credit";
+      const values = accounts.get(line.account) ?? { debit: 0, credit: 0, category: meta ? chartAccountCategory(meta.statementSection) : ledgerAccountCategory(line.account, side) };
+      values.debit += line.debit;
+      values.credit += line.credit;
+      accounts.set(line.account, values);
+    }
   }
   const rows = [...accounts.entries()].map(([account, values]) => ({
     account, category: values.category, debit: values.debit, credit: values.credit, balance: values.debit - values.credit,
@@ -10786,23 +10794,25 @@ router.get("/agaraccounting/trial-balance/transactions", async (req, res) => {
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
   const eligibility = reportingEligibility(entries, functionalCurrency);
   const transactions = eligibility.eligibleEntries
-    .filter((entry) => entry.debitAccount === account || entry.creditAccount === account)
-    .map((entry) => {
-      const side = entry.debitAccount === account ? "debit" as const : "credit" as const;
+    .flatMap((entry) => (reportingJournalLines(entry, functionalCurrency) ?? [])
+      .filter((line) => line.account === account)
+      .map((line) => {
+      const side = line.debit > 0 ? "debit" as const : "credit" as const;
+      const sourceLine = journalLines(entry).find((candidate) => candidate.account === account && (side === "debit" ? candidate.debit > 0 : candidate.credit > 0));
       return {
         entryId: entry.id,
         statementLineId: entry.statementLineId,
         date: entry.date,
-        description: entry.memo,
+        description: sourceLine?.description || entry.memo,
         side,
-        amount: number(entry.amount),
+        amount: side === "debit" ? sourceLine?.debit ?? 0 : sourceLine?.credit ?? 0,
         currency: entry.currency,
-        functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
+        functionalAmount: side === "debit" ? line.debit : line.credit,
         functionalCurrency: entry.functionalCurrency,
         contactName: entry.contactId == null ? null : contactNames.get(entry.contactId) ?? null,
-        counterAccount: side === "debit" ? entry.creditAccount : entry.debitAccount,
+        counterAccount: journalLines(entry).filter((candidate) => candidate.account !== account).map((candidate) => candidate.account).join(", "),
       };
-    })
+    }))
     .sort((left, right) => left.date.localeCompare(right.date) || left.entryId - right.entryId);
   res.json(GetTrialBalanceAccountTransactionsResponse.parse(transactions));
 });
@@ -10824,20 +10834,23 @@ router.get("/agaraccounting/financial-statements", async (req, res) => {
   let transferClearing = 0;
   let operatingCash = 0;
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    if (entry.debitAccount === "Bank / cash") cash += amount;
-    if (entry.creditAccount === "Bank / cash") cash -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
-    if (isInterAccountTransferAccount(entry.creditAccount)) transferClearing -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
-    if (entry.debitAccount === "Bank / cash") operatingCash += amount;
-    if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
-    const debitMeta = accountMetadata.get(entry.debitAccount);
-    const creditMeta = accountMetadata.get(entry.creditAccount);
-    if (debitMeta?.statementSection === "expense" || (!debitMeta && entry.debitAccount !== "Bank / cash")) expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
-    if (debitMeta?.statementSection === "revenue") revenueAccounts.set(entry.debitAccount, (revenueAccounts.get(entry.debitAccount) ?? 0) - amount);
-    if (creditMeta?.statementSection === "revenue" || (!creditMeta && entry.creditAccount !== "Bank / cash")) revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
-    if (creditMeta?.statementSection === "expense") expenseAccounts.set(entry.creditAccount, (expenseAccounts.get(entry.creditAccount) ?? 0) - amount);
+    const lines = reportingJournalLines(entry, functionalCurrency) ?? [];
+    const transferEntry = lines.some((line) => isInterAccountTransferAccount(line.account));
+    for (const line of lines) {
+      const movement = line.debit - line.credit;
+      if (line.account === "Bank / cash") {
+        cash += movement;
+        if (!transferEntry) operatingCash += movement;
+      }
+      if (isInterAccountTransferAccount(line.account)) transferClearing += movement;
+      const meta = accountMetadata.get(line.account);
+      if (meta?.statementSection === "expense" || (!meta && line.account !== "Bank / cash")) {
+        expenseAccounts.set(line.account, (expenseAccounts.get(line.account) ?? 0) + movement);
+      }
+      if (meta?.statementSection === "revenue") {
+        revenueAccounts.set(line.account, (revenueAccounts.get(line.account) ?? 0) - movement);
+      }
+    }
   }
   const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
   const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);

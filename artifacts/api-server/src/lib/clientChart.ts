@@ -112,6 +112,7 @@ export async function ensureClientChart(clientId: number) {
     db.select({
       debitAccount: journalEntriesTable.debitAccount,
       creditAccount: journalEntriesTable.creditAccount,
+      lines: journalEntriesTable.lines,
     }).from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId)),
     db.select({ accountName: accountClassificationsTable.accountName }).from(accountClassificationsTable)
       .where(eq(accountClassificationsTable.clientId, clientId)),
@@ -123,6 +124,7 @@ export async function ensureClientChart(clientId: number) {
     ...historicalLines.map((line) => line.accountName).filter((name): name is string => Boolean(name)),
     ...debitNames,
     ...creditNames,
+    ...historicalEntries.flatMap((entry) => entry.lines?.map((line) => line.account) ?? []),
   ]);
   const missingHistoricalNames = [...historicalNames].filter((name) => !existingNames.has(name));
   if (missingHistoricalNames.length) {
@@ -203,7 +205,7 @@ export function calculateUaeCorporateTaxSummary(
   let unmappedAmount = 0;
   for (const entry of included) {
     const amount = Number(entry.functionalAmount ?? entry.amount);
-    const rawLines = Array.isArray(entry.lines) && entry.lines.length >= 2 ? entry.lines : [
+    const rawLines: Array<{ account: string; debit: number; credit: number }> = Array.isArray(entry.lines) && entry.lines.length >= 2 ? entry.lines : [
       { account: entry.debitAccount, debit: Number(entry.amount), credit: 0 },
       { account: entry.creditAccount, debit: 0, credit: Number(entry.amount) },
     ];

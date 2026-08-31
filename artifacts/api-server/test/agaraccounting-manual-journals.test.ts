@@ -124,9 +124,10 @@ test("manual journal entries post adjustments without a statement line", async (
       date: "2026-08-31",
       memo: "Invalid same-account entry",
       currency: "AED",
-      amount: 100,
-      debitAccount: "Rent expense",
-      creditAccount: "Rent expense",
+      lines: [
+        { description: "Invalid debit", account: "Rent expense", debit: 100, credit: 0 },
+        { description: "Unbalanced credit", account: "Accrued expenses", debit: 0, credit: 90 },
+      ],
     }),
   });
   assert.equal(rejectedSame.response.status, 400);
@@ -138,9 +139,11 @@ test("manual journal entries post adjustments without a statement line", async (
       date: "2026-08-31",
       memo: "Accrue August rent",
       currency: "AED",
-      amount: 4500,
-      debitAccount: "Rent expense",
-      creditAccount: "Accrued expenses",
+      lines: [
+        { description: "Office rent", account: "Rent expense", debit: 3000, credit: 0 },
+        { description: "Shared office costs", account: "Office expenses", debit: 1500, credit: 0 },
+        { description: "August accrual", account: "Accrued expenses", debit: 0, credit: 4500 },
+      ],
     }),
   });
   assert.equal(created.response.status, 201);
@@ -148,8 +151,9 @@ test("manual journal entries post adjustments without a statement line", async (
   assert.equal(created.body.statementLineId, null);
   assert.equal(created.body.status, "draft");
   assert.deepEqual(created.body.lines, [
-    { account: "Rent expense", debit: 4500, credit: 0 },
-    { account: "Accrued expenses", debit: 0, credit: 4500 },
+    { description: "Office rent", account: "Rent expense", debit: 3000, credit: 0 },
+    { description: "Shared office costs", account: "Office expenses", debit: 1500, credit: 0 },
+    { description: "August accrual", account: "Accrued expenses", debit: 0, credit: 4500 },
   ]);
 
   const listed = await request<JournalEntry[]>(`/agaraccounting/journal-entries?clientId=${clientId}`);
@@ -172,7 +176,8 @@ test("manual journal entries post adjustments without a statement line", async (
   assert.equal(posted.body.source, "manual");
 
   const afterPost = await request<TrialBalanceRow[]>(`/agaraccounting/trial-balance?clientId=${clientId}`);
-  assert.equal(afterPost.body.find((row) => row.account === "Rent expense")?.debit ?? 0, 4500);
+  assert.equal(afterPost.body.find((row) => row.account === "Rent expense")?.debit ?? 0, 3000);
+  assert.equal(afterPost.body.find((row) => row.account === "Office expenses")?.debit ?? 0, 1500);
   assert.equal(afterPost.body.find((row) => row.account === "Accrued expenses")?.credit ?? 0, 4500);
   assert.equal(afterPost.body.find((row) => row.account === "Bank / cash")?.debit ?? 0, 0);
 
@@ -180,7 +185,7 @@ test("manual journal entries post adjustments without a statement line", async (
     `/agaraccounting/trial-balance/transactions?clientId=${clientId}&account=${encodeURIComponent("Rent expense")}`,
   );
   assert.equal(transactions.response.status, 200);
-  assert.ok(transactions.body.some((row) => row.entryId === created.body.id && row.statementLineId == null && row.description === "Accrue August rent"));
+  assert.ok(transactions.body.some((row) => row.entryId === created.body.id && row.statementLineId == null && row.description === "Office rent"));
 
   const blockedEdit = await request<{ error: string }>(`/agaraccounting/journal-entries/${created.body.id}`, {
     method: "PATCH",
@@ -189,9 +194,10 @@ test("manual journal entries post adjustments without a statement line", async (
       date: "2026-08-31",
       memo: "Should not edit posted",
       currency: "AED",
-      amount: 1,
-      debitAccount: "Rent expense",
-      creditAccount: "Accrued expenses",
+      lines: [
+        { description: "", account: "Rent expense", debit: 1, credit: 0 },
+        { description: "", account: "Accrued expenses", debit: 0, credit: 1 },
+      ],
     }),
   });
   assert.equal(blockedEdit.response.status, 409);
@@ -214,17 +220,18 @@ test("manual journal entries post adjustments without a statement line", async (
       date: "2026-08-30",
       memo: "Accrue August office rent",
       currency: "AED",
-      amount: 4800,
-      debitAccount: "Office expenses",
-      creditAccount: "Accrued expenses",
+      lines: [
+        { description: "Office costs", account: "Office expenses", debit: 4800, credit: 0 },
+        { description: "Updated accrual", account: "Accrued expenses", debit: 0, credit: 4800 },
+      ],
     }),
   });
   assert.equal(updated.response.status, 200);
   assert.equal(updated.body.memo, "Accrue August office rent");
   assert.equal(updated.body.date, "2026-08-30");
   assert.deepEqual(updated.body.lines, [
-    { account: "Office expenses", debit: 4800, credit: 0 },
-    { account: "Accrued expenses", debit: 0, credit: 4800 },
+    { description: "Office costs", account: "Office expenses", debit: 4800, credit: 0 },
+    { description: "Updated accrual", account: "Accrued expenses", debit: 0, credit: 4800 },
   ]);
 
   const deleted = await request<null>(`/agaraccounting/journal-entries/${created.body.id}`, {
