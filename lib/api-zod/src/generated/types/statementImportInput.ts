@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementImportAccountGroupInput } from './statementImportAccountGroupInput';
 
 export interface StatementImportInput {
   /** Existing pending import to confirm after the user reviews its detected currency. */
@@ -20,4 +21,6 @@ export interface StatementImportInput {
   confirmed: boolean;
   /** Return after the durable analysis record is created while extraction continues server-side. */
   background?: boolean;
+  /** Reviewed account assignments for a grouped statement preview. */
+  accountGroups?: StatementImportAccountGroupInput[];
 }

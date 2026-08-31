@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { StatementLineAccountAssignmentStatus } from './statementLineAccountAssignmentStatus';
 import type { StatementLineAccountRecommendationState } from './statementLineAccountRecommendationState';
 import type { StatementLineContactDecisionState } from './statementLineContactDecisionState';
 import type { StatementLineContactReviewDisposition } from './statementLineContactReviewDisposition';
@@ -18,6 +19,10 @@ export interface StatementLine {
   id: number;
   /** @nullable */
   bankAccountId?: number | null;
+  /** @nullable */
+  accountGroupId?: string | null;
+  /** @nullable */
+  accountAssignmentStatus?: StatementLineAccountAssignmentStatus;
   date: string;
   description: string;
   currency: string;

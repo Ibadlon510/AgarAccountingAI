@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { BankAccount } from './bankAccount';
+import type { StatementImportAccountGroup } from './statementImportAccountGroup';
 import type { StatementImportDuplicate } from './statementImportDuplicate';
 import type { StatementImportResultImportStatus } from './statementImportResultImportStatus';
 import type { StatementLine } from './statementLine';
@@ -24,4 +25,5 @@ export interface StatementImportResult {
   duplicateLines: StatementImportDuplicate[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
+  accountGroups?: StatementImportAccountGroup[];
 }

@@ -18,7 +18,7 @@ import {
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement,
+  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementImportAccountGroupInput, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement,
   Contact, ContactHistory, ContactInput, ContactMergePreview
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -1337,10 +1337,22 @@ function ImportActivity({
   </div>;
 }
 
+function reviewedStatementGroups(result: StatementImportResult): Record<string, StatementImportAccountGroupInput> {
+  return Object.fromEntries((result.accountGroups ?? []).map((group) => [group.id, {
+    id: group.id,
+    bankAccountId: group.bankAccount?.id ?? null,
+    name: group.identity.name,
+    bankName: group.identity.bankName,
+    accountNumberLast4: group.identity.accountNumberLast4,
+    currency: group.identity.currency,
+    lineIds: group.lineIds,
+  }]));
+}
 function ImportStatementPage() {
   const { activeClient } = useClientWorkspace();
   const clientId = activeClient?.id ?? 0;
   const importMutation = useImportStatement();
+  const bankAccountsQuery = useGetBankAccounts({ clientId });
   const { uploadFile, isUploading } = useUpload();
   const importsQuery = useGetStatementImports({ clientId }, {
     query: {
@@ -1356,6 +1368,7 @@ function ImportStatementPage() {
   const [preview, setPreview] = useState<{ clientId: number; clientName: string; fileName: string; mimeType: string; objectPath: string; result: StatementImportResult } | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [selectedCurrency, setSelectedCurrency] = useState('');
+  const [groupAssignments, setGroupAssignments] = useState<Record<string, StatementImportAccountGroupInput>>({});
   const [message, setMessage] = useState('');
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
   const [activityStage, setActivityStage] = useState<ImportActivityStage | null>(null);
@@ -1388,6 +1401,7 @@ function ImportStatementPage() {
       && !dismissedPreviewIds.has(statementImport.id));
     if (!pending || !activeClient || preview) return;
     setSelectedCurrency(pending.preview?.detectedCurrency ?? activeClient.functionalCurrency);
+    setGroupAssignments(reviewedStatementGroups(pending.preview as StatementImportResult));
     setPreview({
       clientId: activeClient.id,
       clientName: activeClient.name,
@@ -1483,6 +1497,7 @@ function ImportStatementPage() {
         return;
       }
       setSelectedCurrency(result.detectedCurrency ?? item.functionalCurrency);
+      setGroupAssignments(reviewedStatementGroups(result));
       setPreview({ clientId: item.clientId, clientName: item.clientName, fileName: file.name, mimeType: file.type || 'application/octet-stream', objectPath: uploaded.objectPath, result });
       setPreviewIndex(index);
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
@@ -1515,7 +1530,7 @@ function ImportStatementPage() {
   };
 
   const confirmImport = async () => {
-    if (!preview || !activeClient || !selectedCurrency) return;
+    if (!preview || !activeClient || (!selectedCurrency && !(preview.result.accountGroups?.length))) return;
     if (activeClient.id !== preview.clientId) {
       setMessage(`This preview belongs to ${preview.clientName}. Switch back to that client before loading any transactions.`);
       return;
@@ -1533,6 +1548,7 @@ function ImportStatementPage() {
           mimeType: preview.mimeType,
           objectPath: preview.objectPath,
           currency: selectedCurrency,
+          accountGroups: (preview.result.accountGroups?.length ?? 0) > 1 ? Object.values(groupAssignments) : undefined,
           confirmed: true,
         },
       });
@@ -1563,6 +1579,7 @@ function ImportStatementPage() {
     const currentIndex = previewIndex;
     setDismissedPreviewIds((current) => new Set(current).add(preview.result.importId));
     setPreview(null);
+    setGroupAssignments({});
     setPreviewIndex(null);
     if (currentIndex != null) {
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === currentIndex
@@ -1574,8 +1591,13 @@ function ImportStatementPage() {
   };
 
   if (preview) {
-    const isCurrencyUncertain = !preview.result.detectedCurrency;
+    const hasGroupedAccounts = (preview.result.accountGroups?.length ?? 0) > 1;
+    const isCurrencyUncertain = !preview.result.detectedCurrency && !hasGroupedAccounts;
     const isWrongClient = activeClient?.id !== preview.clientId;
+    const hasUnassignedGroup = hasGroupedAccounts && (preview.result.accountGroups ?? []).some((group) => {
+      const assignment = groupAssignments[group.id];
+      return !assignment?.bankAccountId && !assignment?.name?.trim();
+    });
     const queuePosition = previewIndex == null ? null : previewIndex + 1;
     return <div>
       <PageHeading eyebrow={queuePosition == null ? 'Saved analysis · review before load' : `Document ${queuePosition} of ${queue.length} · review before load`} title="Review parsed statement" description={`AgarAccounting AI has not loaded any rows for ${preview.clientName} yet. Confirm the interpreted currency and transactions before they enter that client’s review queue.`} />
@@ -1586,15 +1608,26 @@ function ImportStatementPage() {
           <button type="button" onClick={skipPreview} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button>
         </div>
         {isWrongClient && <div data-testid="statement-preview-client-mismatch" className="mt-5 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs leading-5 text-destructive">This preview is permanently assigned to <strong>{preview.clientName}</strong>. Switch back to that client before loading transactions. AgarAccounting AI will not move this file to the currently selected workspace.</div>}
-        <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
+        {!hasGroupedAccounts && <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
           <div className="text-xs font-semibold">{isCurrencyUncertain ? 'Currency needs your confirmation' : `AI understood the statement currency as ${preview.result.detectedCurrency}`}</div>
           <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{isCurrencyUncertain ? 'The source did not state one clear currency. Select the currency that applies to every row before loading.' : 'Check this against the original statement. You can correct it before the rows are loaded.'}</p>
           <label className="mt-3 block max-w-xs text-xs font-medium">Currency to load<select data-testid="select-confirm-statement-currency" value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option><option value="SAR">SAR — Saudi riyal</option><option value="QAR">QAR — Qatari riyal</option></select></label>
-        </div>
-        <div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[660px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Suggested account</th></tr></thead><tbody className="divide-y divide-border">{preview.result.lines.slice(0, 25).map((line) => <tr key={line.id}><td className="px-3 py-2.5 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2.5 font-medium">{line.description}</td><td className="px-3 py-2.5 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2.5 text-right font-mono">{money(line.amount, selectedCurrency || line.currency)}</td><td className="px-3 py-2.5 text-muted-foreground">{line.accountSuggestion ?? 'Review needed'}</td></tr>)}</tbody></table></div>
-        {preview.result.lines.length > 25 && <p className="mt-3 text-[11px] text-muted-foreground">Showing the first 25 of {preview.result.lines.length} parsed transactions. All rows will be loaded only after you confirm.</p>}
+        </div>}
+        {hasGroupedAccounts ? <div className="mt-5 space-y-4" data-testid="statement-account-groups">{preview.result.accountGroups?.map((group) => {
+          const assignment = groupAssignments[group.id];
+          return <section key={group.id} data-testid={`statement-account-group-${group.id}`} className={`rounded-md border p-4 ${group.status === 'ambiguous' ? 'border-accent/40 bg-accent/5' : 'border-border'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-semibold">{assignment?.name || group.identity.accountNumberLast4 && `Account ending ${group.identity.accountNumberLast4}` || 'Account assignment needed'}</h3><p className="mt-1 text-[11px] text-muted-foreground">{assignment?.bankName || 'Bank not identified'} · {assignment?.currency} · {group.lines.length} transaction{group.lines.length === 1 ? '' : 's'}</p></div>{group.status === 'ambiguous' ? <span className="rounded-full bg-accent/15 px-2 py-1 text-[10px] font-semibold text-accent-foreground">Needs assignment</span> : null}</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-[11px] font-medium">Existing client account<select aria-label={`Existing account for ${group.id}`} value={assignment?.bankAccountId ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], bankAccountId: event.target.value ? Number(event.target.value) : null } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="">Create or match from identity</option>{bankAccountsQuery.data?.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}{account.accountNumberLast4 ? ` · ••••${account.accountNumberLast4}` : ''}</option>)}</select></label>
+              <label className="text-[11px] font-medium">Account name or identifier<input value={assignment?.name ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], name: event.target.value } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs" /></label>
+              <label className="text-[11px] font-medium">Bank<input value={assignment?.bankName ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], bankName: event.target.value } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs" /></label>
+              <label className="text-[11px] font-medium">Currency<select value={assignment?.currency ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], currency: event.target.value } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select></label>
+            </div>
+            <div className="mt-3 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[560px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th></tr></thead><tbody className="divide-y divide-border">{group.lines.map((line) => <tr key={line.id}><td className="px-3 py-2 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2 font-medium">{line.description}</td><td className="px-3 py-2 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2 text-right font-mono">{money(line.amount, assignment?.currency || line.currency)}</td></tr>)}</tbody></table></div>
+          </section>;
+        })}</div> : <><div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[660px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Suggested account</th></tr></thead><tbody className="divide-y divide-border">{preview.result.lines.slice(0, 25).map((line) => <tr key={line.id}><td className="px-3 py-2.5 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2.5 font-medium">{line.description}</td><td className="px-3 py-2.5 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2.5 text-right font-mono">{money(line.amount, selectedCurrency || line.currency)}</td><td className="px-3 py-2.5 text-muted-foreground">{line.accountSuggestion ?? 'Review needed'}</td></tr>)}</tbody></table></div>{preview.result.lines.length > 25 && <p className="mt-3 text-[11px] text-muted-foreground">Showing the first 25 of {preview.result.lines.length} parsed transactions. All rows will be loaded only after you confirm.</p>}</>}
         {message && <p className="mt-4 text-xs text-destructive">{message}</p>}
-         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={skipPreview} className="h-10 rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={isWrongClient || !selectedCurrency || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to {preview.clientName}</>}</button></div>
+         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={skipPreview} className="h-10 rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={isWrongClient || (!hasGroupedAccounts && !selectedCurrency) || hasUnassignedGroup || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to {preview.clientName}</>}</button></div>
       </section>
     </div>;
   }

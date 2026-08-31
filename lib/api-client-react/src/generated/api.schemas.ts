@@ -966,6 +966,10 @@ export interface LedgerOverview {
   missingRateCurrencies: string[];
 }
 
+/**
+ * @nullable
+ */
+export type StatementLineAccountAssignmentStatus = typeof StatementLineAccountAssignmentStatus[keyof typeof StatementLineAccountAssignmentStatus] | null;
 export type StatementLineStatus = typeof StatementLineStatus[keyof typeof StatementLineStatus];
 
 
@@ -1058,6 +1062,10 @@ export interface StatementLine {
   id: number;
   /** @nullable */
   bankAccountId?: number | null;
+  /** @nullable */
+  accountGroupId?: string | null;
+  /** @nullable */
+  accountAssignmentStatus?: StatementLineAccountAssignmentStatus;
   date: string;
   description: string;
   currency: string;
@@ -1355,6 +1363,19 @@ export interface ContactHistory {
   treatmentSummary: ContactHistoryTreatmentSummaryItem[];
 }
 
+export interface StatementImportAccountGroupInput {
+  id: string;
+  /** @nullable */
+  bankAccountId?: number | null;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  bankName?: string | null;
+  /** @nullable */
+  accountNumberLast4?: string | null;
+  currency: string;
+  lineIds: number[];
+}
 export interface StatementImportInput {
   /** Existing pending import to confirm after the user reviews its detected currency. */
   importId?: number;
@@ -1369,6 +1390,8 @@ export interface StatementImportInput {
   confirmed: boolean;
   /** Return after the durable analysis record is created while extraction continues server-side. */
   background?: boolean;
+  /** Reviewed account assignments for a grouped statement preview. */
+  accountGroups?: StatementImportAccountGroupInput[];
 }
 
 export type StatementImportResultImportStatus = typeof StatementImportResultImportStatus[keyof typeof StatementImportResultImportStatus];
@@ -1413,6 +1436,15 @@ export interface BankAccount {
   currency: string;
 }
 
+export interface StatementImportAccountIdentity {
+  /** @nullable */
+  name: string | null;
+  /** @nullable */
+  bankName: string | null;
+  /** @nullable */
+  accountNumberLast4: string | null;
+  currency: string;
+}
 export interface StatementImportResult {
   fileName: string;
   importId: number;
@@ -1427,6 +1459,7 @@ export interface StatementImportResult {
   duplicateLines: StatementImportDuplicate[];
   lines: StatementLine[];
   bankAccount?: BankAccount | null;
+  accountGroups?: StatementImportAccountGroup[];
 }
 
 export type StatementImportOutcome = typeof StatementImportOutcome[keyof typeof StatementImportOutcome];
@@ -2500,3 +2533,25 @@ clientId: number;
 period?: string;
 };
 
+
+export interface StatementImportAccountGroup {
+  id: string;
+  identity: StatementImportAccountIdentity;
+  status: StatementImportAccountGroupStatus;
+  lineIds: number[];
+  lines: StatementLine[];
+  bankAccount?: BankAccount | null;
+}
+
+export const StatementLineAccountAssignmentStatus = {
+  assigned: 'assigned',
+  ambiguous: 'ambiguous',
+  unassigned: 'unassigned',
+} as const;
+
+export type StatementImportAccountGroupStatus = typeof StatementImportAccountGroupStatus[keyof typeof StatementImportAccountGroupStatus];
+
+export const StatementImportAccountGroupStatus = {
+  identified: 'identified',
+  ambiguous: 'ambiguous',
+} as const;

@@ -50,6 +50,19 @@ type ImportResult = {
     accountNumberLast4: string | null;
     currency: string;
   } | null;
+  accountGroups?: Array<{
+    id: string;
+    identity: {
+      name: string | null;
+      bankName: string | null;
+      accountNumberLast4: string | null;
+      currency: string;
+    };
+    status: "identified" | "ambiguous";
+    lineIds: number[];
+    lines: ImportResult["lines"];
+    bankAccount?: ImportResult["bankAccount"];
+  }>;
 };
 
 type StatementLine = {
@@ -773,6 +786,84 @@ test("does not merge bank accounts that share last four digits", async () => {
   assert.equal(accounts.response.status, 200);
   const importedAccounts = accounts.body.filter((account) => account.bankName === "Alpha Bank" || account.bankName === "Beta Bank");
   assert.equal(importedAccounts.length, 2);
+});
+
+test("previews and atomically confirms distinct account sections from one statement source", async () => {
+  const clientId = await createClient(`Grouped statement ${randomUUID()}`);
+  const csv = [
+    "Bank Statement",
+    "Bank Name,Mashreq",
+    "Account Holder Name,Trading AED",
+    "Account Number,0011223344",
+    "Account Currency,AED",
+    "Date,Description,Credit,Debit",
+    "17 Jan 2026,AED receipt,100,",
+    "Bank Name,Mashreq",
+    "Account Holder Name,Trading EUR",
+    "Account Number,9911223344",
+    "Account Currency,EUR",
+    "Date,Description,Credit,Debit",
+    "18 Jan 2026,EUR fee,,25",
+    "Bank Name,Mashreq",
+    "Account Holder Name,Trading USD",
+    "Account Number,7711223344",
+    "Account Currency,USD",
+    "Date,Description,Credit,Debit",
+    "19 Jan 2026,USD receipt,300,",
+  ].join("\n");
+  const objectPath = `/objects/uploads/${encodeURIComponent(primaryUserId)}/${clientId}/${randomUUID()}`;
+  statementFiles.set(objectPath, Buffer.from(csv));
+  const preview = await request<ImportResult>("/agaraccounting/import-statement", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      fileName: "grouped-accounts.csv",
+      mimeType: "text/csv",
+      objectPath,
+      confirmed: false,
+    }),
+  });
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.body.importStatus, "preview");
+  assert.deepEqual(preview.body.accountGroups?.map((group) => group.identity.currency), ["AED", "EUR", "USD"]);
+  assert.deepEqual(preview.body.accountGroups?.map((group) => group.identity.accountNumberLast4), ["3344", "3344", "3344"]);
+  assert.deepEqual(preview.body.accountGroups?.map((group) => group.lines.length), [1, 1, 1]);
+
+  const confirmationBody = {
+    importId: preview.body.importId,
+    clientId,
+    fileName: "grouped-accounts.csv",
+    mimeType: "text/csv",
+    objectPath,
+    confirmed: true,
+    accountGroups: preview.body.accountGroups?.map((group) => ({
+      id: group.id,
+      bankAccountId: group.bankAccount?.id ?? null,
+      ...group.identity,
+      lineIds: group.lineIds,
+    })),
+  };
+  const confirmations = await Promise.all([
+    request<ImportResult | { error: string }>("/agaraccounting/import-statement", {
+      method: "POST",
+      body: JSON.stringify(confirmationBody),
+    }),
+    request<ImportResult | { error: string }>("/agaraccounting/import-statement", {
+      method: "POST",
+      body: JSON.stringify(confirmationBody),
+    }),
+  ]);
+  assert.deepEqual(confirmations.map((result) => result.response.status).sort(), [201, 409]);
+  const loaded = await statementLines(clientId);
+  assert.equal(loaded.length, 3);
+  assert.equal(new Set(loaded.map((line) => line.bankAccountId)).size, 3);
+  assert.deepEqual(loaded.map((line) => line.currency).sort(), ["AED", "EUR", "USD"]);
+
+  const accounts = await request<Array<{ name: string; currency: string; accountNumberLast4: string | null }>>(
+    `/agaraccounting/bank-accounts?clientId=${clientId}`,
+  );
+  const groupedAccounts = accounts.body.filter((account) => account.name.startsWith("Trading "));
+  assert.equal(groupedAccounts.length, 3);
 });
 
 test("scopes duplicate detection to the importing client", async () => {

@@ -33,3 +33,4 @@
 - [Drizzle check expression changes](drizzle-check-expression-changes.md) — rename a check constraint when changing its expression so Drizzle push materializes the change.
 - [Web React type resolution](web-react-type-resolution.md) — web projects must pin React type subpaths when a React 18 mobile app shares the pnpm workspace.
 - [Fast refresh feedback](fast-refresh-feedback.md) — fast refetches need a minimum local loading cue and persistent completion marker so unchanged data never looks unresponsive.
+- [Single-account import overrides](single-account-import-overrides.md) — grouped extraction must not weaken explicit currency or account choices in the legacy one-account confirmation path.

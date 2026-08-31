@@ -217,7 +217,10 @@ import {
   hasPdfBankStatementTable,
   MAX_STATEMENT_FILE_SIZE,
   parseDelimitedBankStatementRows,
+  parseDelimitedBankStatementSections,
   parsePdfBankStatementRows,
+  parsePdfBankStatementSections,
+  type ParsedStatementAccountGroup,
   scopedStatementObjectPath,
   safeStatementFileName,
   statementObjectPathForClient,
@@ -3259,6 +3262,7 @@ type ParsedBankLine = {
   counterpartyName?: string | null;
   counterpartyAlias?: string | null;
   counterpartyConfidence?: number | string | null;
+  accountGroupId?: string | null;
 };
 
 type BankAccountDraft = {
@@ -3266,6 +3270,14 @@ type BankAccountDraft = {
   bankName?: string | null;
   accountNumberLast4?: string | null;
   currency?: string | null;
+};
+
+type ExtractedAccountGroup = {
+  id: string;
+  bankAccount?: BankAccountDraft | null;
+  currency?: string | null;
+  lines?: ParsedBankLine[];
+  evidenceStatus?: "identified" | "ambiguous";
 };
 
 type AICopilotRecommendation = {
@@ -4473,6 +4485,80 @@ function bankAccountResponse(account: typeof bankAccountsTable.$inferSelect) {
   };
 }
 
+function statementGroupFromParsedSection(group: ParsedStatementAccountGroup): ExtractedAccountGroup {
+  return {
+    id: group.id,
+    bankAccount: {
+      name: group.identity.name,
+      bankName: group.identity.bankName,
+      accountNumberLast4: group.identity.accountNumberLast4,
+      currency: group.identity.currency,
+    },
+    currency: group.identity.currency,
+    evidenceStatus: group.evidenceStatus,
+    lines: group.lines.map((line) => ({ ...line, accountGroupId: group.id })),
+  };
+}
+
+function normalizedExtractedGroups(
+  candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null; accountGroups?: ExtractedAccountGroup[] },
+  fallbackCurrency: string,
+) {
+  const candidateGroups = (candidate.accountGroups ?? []).map((group, index) => {
+    const id = safeText(group.id, `account-${index + 1}`, 80);
+    const lines = (group.lines ?? candidate.lines?.filter((line) => line.accountGroupId === id) ?? [])
+      .map((line) => ({ ...line, accountGroupId: id }));
+    const bankAccount = cleanBankAccountDraft(group.bankAccount, group.currency ?? fallbackCurrency);
+    return {
+      id,
+      bankAccount,
+      currency: normalizeCurrency(group.currency ?? bankAccount?.currency ?? fallbackCurrency),
+      evidenceStatus: group.evidenceStatus === "ambiguous" || !bankAccount ? "ambiguous" as const : "identified" as const,
+      lines,
+    };
+  }).filter((group) => group.lines.length > 0);
+  if (candidateGroups.length) {
+    const merged = new Map<string, typeof candidateGroups[number]>();
+    for (const group of candidateGroups) {
+      const mergeKey = group.bankAccount
+        ? [
+          (group.bankAccount.bankName ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase(),
+          (group.bankAccount.name ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase(),
+          normalizeCurrency(group.currency),
+          (group.bankAccount.accountNumberLast4 ?? "").replace(/\D/g, "").slice(-4),
+        ].join("|")
+        : `ambiguous:${group.id}`;
+      const current = merged.get(mergeKey);
+      if (!current) {
+        merged.set(mergeKey, group);
+        continue;
+      }
+      current.lines.push(...group.lines.map((line) => ({ ...line, accountGroupId: current.id })));
+    }
+    return [...merged.values()];
+  }
+
+  const lines = candidate.lines ?? [];
+  const ids = [...new Set(lines.map((line) => line.accountGroupId).filter((id): id is string => Boolean(id)))];
+  if (ids.length) {
+    return ids.map((id) => ({
+      id,
+      bankAccount: null,
+      currency: normalizeCurrency(lines.find((line) => line.accountGroupId === id)?.currency ?? fallbackCurrency),
+      evidenceStatus: "ambiguous" as const,
+      lines: lines.filter((line) => line.accountGroupId === id),
+    }));
+  }
+  const bankAccount = cleanBankAccountDraft(candidate.bankAccount, fallbackCurrency);
+  return [{
+    id: "account-1",
+    bankAccount,
+    currency: normalizeCurrency(bankAccount?.currency ?? lines[0]?.currency ?? fallbackCurrency),
+    evidenceStatus: bankAccount ? "identified" as const : "ambiguous" as const,
+    lines: lines.map((line) => ({ ...line, accountGroupId: "account-1" })),
+  }];
+}
+
 async function findOrCreateBankAccount(clientId: number, draft: BankAccountDraft | undefined | null, fallbackCurrency: string) {
   const clean = cleanBankAccountDraft(draft, fallbackCurrency);
   if (!clean) return null;
@@ -4891,7 +4977,18 @@ function detectedStatementCurrency(
 router.post("/agaraccounting/import-statement", async (req, res) => {
   const parsed = ImportStatementBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "A verified statement upload is required." });
-  const { importId: pendingImportId, clientId, bankAccountId, fileName, mimeType, objectPath, currency, confirmed, background } = parsed.data as typeof parsed.data & { objectPath?: string };
+  const {
+    importId: pendingImportId,
+    clientId,
+    bankAccountId,
+    fileName,
+    mimeType,
+    objectPath,
+    currency,
+    confirmed,
+    background,
+    accountGroups: reviewedAccountGroups,
+  } = parsed.data as typeof parsed.data & { objectPath?: string };
   if (!objectPath) return res.status(400).json({ error: "A verified statement upload is required." });
   let activeClientId: number | undefined;
   let activeAnalysisImportId: number | undefined;
@@ -5051,6 +5148,10 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const isPdfStatement = mimeType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf");
     const textCurrency = statementCurrencyFromText(extractedText);
     const fallbackCurrency = normalizeCurrency(currency ?? textCurrency ?? client.functionalCurrency);
+    const deterministicSections = (isPdfStatement
+      ? parsePdfBankStatementSections(extractedText, fallbackCurrency)
+      : parseDelimitedBankStatementSections(extractedText, fallbackCurrency))
+      .map(statementGroupFromParsedSection);
     const delimitedFallback: ParsedBankLine[] = parseDelimitedBankStatementRows(extractedText, fallbackCurrency).map((line): ParsedBankLine => ({
       ...line,
       accountSuggestion: suggestAccount(line.description, line.direction),
@@ -5063,7 +5164,9 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         confidence: 0.75,
       }))
       : [];
-    const fallback = delimitedFallback.length ? delimitedFallback : pdfFallback;
+    const fallback = deterministicSections.length > 1
+      ? deterministicSections.flatMap((group) => group.lines ?? [])
+      : delimitedFallback.length ? delimitedFallback : pdfFallback;
     const hasRecognizedPdfTable = isPdfStatement
       && hasPdfBankStatementTable(extractedText)
       && pdfFallback.length > 0;
@@ -5184,7 +5287,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         }));
       }
     }
-    let candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+    let candidate: { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null; accountGroups?: ExtractedAccountGroup[] };
     let usingDeterministicFallback = false;
     const canonicalPreviewLines = pendingPreview?.success ? pendingPreview.data.lines : null;
     if (pendingPreview?.success) {
@@ -5208,6 +5311,26 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           counterpartyName: line.proposedContactName ?? line.contactName ?? undefined,
           counterpartyAlias: line.proposedContactAlias ?? undefined,
           counterpartyConfidence: line.proposedContactConfidence ?? line.contactMatchConfidence ?? undefined,
+          accountGroupId: line.accountGroupId,
+        })),
+        accountGroups: pendingPreview.data.accountGroups?.map((group) => ({
+          id: group.id,
+          bankAccount: group.identity,
+          currency: group.identity.currency,
+          evidenceStatus: group.status,
+          lines: group.lines.map((line) => ({
+            date: line.date,
+            description: line.description,
+            amount: line.amount,
+            direction: line.direction as ParsedBankLine["direction"],
+            currency: line.currency,
+            accountSuggestion: line.accountSuggestion ?? undefined,
+            confidence: line.confidence ?? undefined,
+            counterpartyName: line.proposedContactName ?? line.contactName ?? undefined,
+            counterpartyAlias: line.proposedContactAlias ?? undefined,
+            counterpartyConfidence: line.proposedContactConfidence ?? line.contactMatchConfidence ?? undefined,
+            accountGroupId: group.id,
+          })),
         })),
       };
     } else {
@@ -5225,14 +5348,14 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
       const extractionAccountNames = [...await activeClientAccountNames(scopedClientId)];
       try {
         const completion = await completeAI(scopedClientId, [
-          { role: "system", content: `Extract bank statement transactions, identify the statement's bank account when the document header supports it, and suggest the most likely counterpart account for each line. Return JSON only with bankAccount and lines containing date, description, amount, direction, currency, accountSuggestion, confidence, and optional counterpartyName, counterpartyAlias, and counterpartyConfidence. Never invent transactions, counterparties, aliases, or bank account numbers. Set counterpartyName and counterpartyAlias only when the narration explicitly supports a concise vendor, supplier, or customer identity; omit them for person-only or ambiguous narrations. Exclude payment rails, card labels, currencies, country codes, references, dates, authorization data, and cardholder names from counterparty fields. Only return bankAccount when a name or bank header is visible; if an account number is visible, return only its last four digits. Use the statement's stated currency when available. accountSuggestion must exactly match one active account in this client chart: ${extractionAccountNames.join(" | ")}. Use Business travel only for clear business-purpose travel; use Entertainment & hospitality for clear customer or supplier entertainment; use Mixed or unsupported purpose when facts or evidence are uncertain. Set confidence and counterpartyConfidence between 0 and 1.` },
+          { role: "system", content: `Extract bank statement transactions and suggest the most likely counterpart account for each line. A document may contain multiple bank-account or currency sections. Return JSON only. For a single account, return the backward-compatible bankAccount and lines fields. Also return accountGroups when the document has distinct account sections; each group must have a stable id, bankAccount, currency, evidenceStatus, and only the exact lines printed under that section. Every grouped line must repeat accountGroupId. Use evidenceStatus "identified" only when the section header visibly supports the account identity; otherwise use "ambiguous" and do not attach those lines to another group. Never infer an account from transaction narration. Never invent transactions, counterparties, aliases, bank names, or bank account numbers. If an account number is visible, return only its last four digits. Lines contain date, description, amount, direction, currency, accountSuggestion, confidence, and optional counterpartyName, counterpartyAlias, and counterpartyConfidence. Set counterparty fields only when the narration explicitly supports a concise vendor, supplier, or customer identity; omit them for person-only or ambiguous narrations. Exclude payment rails, card labels, currencies, country codes, references, dates, authorization data, and cardholder names from counterparty fields. Use the section's stated currency when available. accountSuggestion must exactly match one active account in this client chart: ${extractionAccountNames.join(" | ")}. Use Business travel only for clear business-purpose travel; use Entertainment & hospitality for clear customer or supplier entertainment; use Mixed or unsupported purpose when facts or evidence are uncertain. Set confidence and counterpartyConfidence between 0 and 1.` },
           { role: "user", content: `File: ${fileName}\nInfer the statement currency from the document rather than assuming one.\n\nStatement text:\n${extractedText.slice(0, 55000)}` },
         ], { json: true, maxTokens: 8192 });
         if (aiActivityId !== undefined) {
           await db.update(aiActivityTable).set(completedAIActivityValues(completion)).where(eq(aiActivityTable.id, aiActivityId));
           aiCompletionRecorded = true;
         }
-        candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null };
+        candidate = JSON.parse(completion.content) as { lines?: ParsedBankLine[]; bankAccount?: BankAccountDraft | null; accountGroups?: ExtractedAccountGroup[] };
       } catch (error) {
         if (aiActivityId !== undefined && !aiCompletionRecorded) {
           await db.update(aiActivityTable).set({ status: "failed" }).where(eq(aiActivityTable.id, aiActivityId));
@@ -5246,19 +5369,29 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         }
       }
     }
-    const lines = (hasRecognizedPdfTable
-      ? fallback
-      : candidate.lines?.length
-        ? candidate.lines
-        : usingDeterministicFallback
-          ? fallback
-          : []).filter((line) =>
+    const extractionCandidate = hasRecognizedPdfTable || deterministicSections.length > 1
+      ? { accountGroups: deterministicSections, lines: fallback }
+      : candidate;
+    const extractedGroups = normalizedExtractedGroups(extractionCandidate, fallbackCurrency);
+    if (extractedGroups.length === 1 && textCurrency) {
+      const [singleGroup] = extractedGroups;
+      singleGroup.currency = normalizeCurrency(textCurrency);
+      if (singleGroup.bankAccount) singleGroup.bankAccount.currency = normalizeCurrency(textCurrency);
+      singleGroup.lines = singleGroup.lines.map((line) => ({
+        ...line,
+        currency: normalizeCurrency(textCurrency),
+      }));
+    }
+    const lines = extractedGroups.flatMap((group) => group.lines).filter((line) =>
       isIsoDate(line.date)
       && line.description
       && Number.isFinite(Number(line.amount))
       && Number(line.amount) > 0,
     );
-    const detectedCurrency = detectedStatementCurrency(extractedText, candidate);
+    const groupCurrencies = new Set(extractedGroups.map((group) => normalizeCurrency(group.currency)));
+    const detectedCurrency = groupCurrencies.size === 1
+      ? normalizeCurrency(textCurrency ?? [...groupCurrencies][0])
+      : detectedStatementCurrency(extractedText, extractionCandidate);
     if (!lines.length) {
       if (analysisHeartbeat) clearInterval(analysisHeartbeat);
       const errorMessage = "No bank-statement transactions were found. Upload a bank statement PDF, CSV, XLS, or XLSX with dated transaction rows.";
@@ -5294,12 +5427,83 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     const activeAccountNames = await activeClientAccountNames(scopedClientId);
     const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
       .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
+    const existingBankAccounts = await db.select().from(bankAccountsTable)
+      .where(eq(bankAccountsTable.clientId, scopedClientId));
+    const reviewedGroupsById = new Map((reviewedAccountGroups ?? []).map((group) => [group.id, group]));
+    if (pendingPreview?.success && reviewedAccountGroups) {
+      const canonicalGroups = pendingPreview.data.accountGroups ?? [];
+      const sameMembership = canonicalGroups.length === reviewedAccountGroups.length
+        && canonicalGroups.every((group) => {
+          const reviewed = reviewedGroupsById.get(group.id);
+          return reviewed
+            && [...reviewed.lineIds].sort((a, b) => a - b).join(",") === [...group.lineIds].sort((a, b) => a - b).join(",");
+        });
+      if (!sameMembership) {
+        return res.status(409).json({
+          error: "The reviewed account-group membership no longer matches this saved preview. Refresh Import history and review it again.",
+        });
+      }
+    }
+    const groupAssignment = extractedGroups.map((group) => {
+      const reviewed = reviewedGroupsById.get(group.id);
+      const effectiveCurrency = normalizeCurrency(
+        extractedGroups.length === 1
+          ? currency ?? reviewed?.currency ?? group.currency
+          : reviewed?.currency ?? group.currency,
+      );
+      const reviewedIdentity: BankAccountDraft | null = reviewed
+        ? {
+          name: reviewed.name,
+          bankName: reviewed.bankName,
+          accountNumberLast4: reviewed.accountNumberLast4,
+          currency: effectiveCurrency,
+        }
+        : group.bankAccount ? { ...group.bankAccount, currency: effectiveCurrency } : null;
+      const cleanIdentity = cleanBankAccountDraft(reviewedIdentity, effectiveCurrency);
+      const explicitLegacyAccount = extractedGroups.length === 1 && bankAccountId != null
+        ? selectedBankAccount
+        : null;
+      const existing = explicitLegacyAccount
+        ?? (reviewed?.bankAccountId != null
+        ? existingBankAccounts.find((account) => account.id === reviewed.bankAccountId) ?? null
+        : cleanIdentity
+          ? existingBankAccounts.find((account) =>
+            matchesBankAccountDraft(account, cleanIdentity, bankAccountIdentityKey(scopedClientId, cleanIdentity)),
+          ) ?? null
+          : extractedGroups.length === 1 ? selectedBankAccount : null);
+      return {
+        ...group,
+        currency: effectiveCurrency,
+        bankAccountDraft: cleanIdentity,
+        bankAccount: existing,
+      };
+    });
+    if (reviewedAccountGroups?.some((group) =>
+      group.bankAccountId != null && !existingBankAccounts.some((account) => account.id === group.bankAccountId),
+    )) {
+      return res.status(400).json({ error: "One selected bank account was not found for this client." });
+    }
+    if (confirmed && groupAssignment.length > 1 && groupAssignment.some((group) => !group.bankAccount && !group.bankAccountDraft)) {
+      return res.status(400).json({
+        error: "Assign every ambiguous account group before loading this multi-account statement into review.",
+      });
+    }
     await getRateProfileForClient(client);
     const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
     const resolvedLines = await Promise.all(lines.map(async (line) => {
-      const currencyValue = normalizeCurrency(currency ?? detectedCurrency ?? line.currency ?? fallbackCurrency);
+      const assignment = groupAssignment.find((group) => group.id === line.accountGroupId)
+        ?? groupAssignment[0];
+      const currencyValue = normalizeCurrency(
+        assignment?.currency
+        ?? (groupAssignment.length === 1 ? currency : undefined)
+        ?? detectedCurrency
+        ?? line.currency
+        ?? fallbackCurrency,
+      );
       return {
         line,
+        accountGroupId: assignment?.id ?? null,
+        assignedBankAccount: assignment?.bankAccount ?? null,
         currencyValue,
         conversion: await resolveExchangeRate(
           rateClient ?? client,
@@ -5312,7 +5516,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
     }));
     if (!confirmed) {
       const evidenceExpiresAt = retentionExpiresAt(RETENTION_POLICY.statementEvidenceDays);
-      const previewLines = await Promise.all(resolvedLines.map(async ({ line, currencyValue, conversion }, index) => {
+      const previewLines = await Promise.all(resolvedLines.map(async ({ line, accountGroupId, assignedBankAccount, currencyValue, conversion }, index) => {
         const contactSuggestion = await resolveContactSuggestion(
           db,
           scopedClientId,
@@ -5332,7 +5536,13 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         return {
           id: -(index + 1),
           clientId: scopedClientId,
-          bankAccountId: selectedBankAccount?.id ?? null,
+          bankAccountId: assignedBankAccount?.id ?? null,
+          accountGroupId,
+          accountAssignmentStatus: assignedBankAccount
+            ? "assigned"
+            : groupAssignment.find((group) => group.id === accountGroupId)?.evidenceStatus === "identified"
+              ? "assigned"
+              : "ambiguous",
           date: line.date,
           description: line.description.trim(),
           currency: currencyValue,
@@ -5377,6 +5587,22 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           createdAt: new Date(),
         };
       }));
+      const previewAccountGroups = groupAssignment.map((group) => {
+        const groupLines = previewLines.filter((line) => line.accountGroupId === group.id);
+        return {
+          id: group.id,
+          identity: {
+            name: group.bankAccountDraft?.name ?? null,
+            bankName: group.bankAccountDraft?.bankName ?? null,
+            accountNumberLast4: group.bankAccountDraft?.accountNumberLast4 ?? null,
+            currency: group.currency,
+          },
+          status: group.evidenceStatus,
+          lineIds: groupLines.map((line) => line.id),
+          lines: groupLines,
+          bankAccount: group.bankAccount ? bankAccountResponse(group.bankAccount) : null,
+        };
+      });
       const previewResponse = ImportStatementResponse.parse({
         fileName,
         importId: activeAnalysisImportId,
@@ -5390,6 +5616,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         duplicateLines: [],
         lines: previewLines,
         bankAccount: selectedBankAccount ? bankAccountResponse(selectedBankAccount) : null,
+        accountGroups: previewAccountGroups,
       });
       if (activeAnalysisImportId == null) throw new Error("The statement analysis record is missing.");
       const [storedPendingImport] = await db.update(statementImportsTable).set({
@@ -5467,33 +5694,47 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         return { kind: "duplicate_file" as const, completedImport, duplicateImport };
       }
 
-      let detectedBankAccount = selectedBankAccount;
-      const cleanBankAccount = cleanBankAccountDraft(candidate.bankAccount, currency ?? detectedCurrency ?? fallbackCurrency);
-      if (!detectedBankAccount && cleanBankAccount) {
-        const identityKey = bankAccountIdentityKey(scopedClientId, cleanBankAccount);
-        const accounts = await tx.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, scopedClientId));
-        detectedBankAccount = accounts.find((account) => matchesBankAccountDraft(account, cleanBankAccount, identityKey)) ?? null;
-        if (!detectedBankAccount) {
-          const [createdBankAccount] = await tx.insert(bankAccountsTable).values({
-            clientId: scopedClientId,
-            ...cleanBankAccount,
-            identityKey,
-          }).onConflictDoNothing({
-            target: bankAccountsTable.identityKey,
-          }).returning();
-          detectedBankAccount = createdBankAccount ?? (await tx.select().from(bankAccountsTable).where(and(
-            eq(bankAccountsTable.clientId, scopedClientId),
-            eq(bankAccountsTable.identityKey, identityKey),
-          )))[0] ?? null;
+      const groupAccounts = new Map<string, typeof bankAccountsTable.$inferSelect | null>();
+      let transactionAccounts = await tx.select().from(bankAccountsTable)
+        .where(eq(bankAccountsTable.clientId, scopedClientId));
+      for (const group of groupAssignment) {
+        let account = group.bankAccount
+          ? transactionAccounts.find((item) => item.id === group.bankAccount?.id) ?? null
+          : null;
+        if (!account && group.bankAccountDraft) {
+          const identityKey = bankAccountIdentityKey(scopedClientId, group.bankAccountDraft);
+          account = transactionAccounts.find((item) =>
+            matchesBankAccountDraft(item, group.bankAccountDraft!, identityKey),
+          ) ?? null;
+          if (!account) {
+            const [createdBankAccount] = await tx.insert(bankAccountsTable).values({
+              clientId: scopedClientId,
+              ...group.bankAccountDraft,
+              identityKey,
+            }).onConflictDoNothing({
+              target: bankAccountsTable.identityKey,
+            }).returning();
+            account = createdBankAccount ?? (await tx.select().from(bankAccountsTable).where(and(
+              eq(bankAccountsTable.clientId, scopedClientId),
+              eq(bankAccountsTable.identityKey, identityKey),
+            )))[0] ?? null;
+            if (createdBankAccount) transactionAccounts = [...transactionAccounts, createdBankAccount];
+          }
         }
+        groupAccounts.set(group.id, account);
       }
+      const distinctAccounts = [...new Map(
+        [...groupAccounts.values()].filter((account): account is typeof bankAccountsTable.$inferSelect => Boolean(account))
+          .map((account) => [account.id, account]),
+      ).values()];
+      const detectedBankAccount = distinctAccounts.length === 1 ? distinctAccounts[0] : null;
       await tx.update(statementImportsTable).set({
         bankAccountId: detectedBankAccount?.id ?? null,
       }).where(and(
         eq(statementImportsTable.id, createdImport.id),
         eq(statementImportsTable.clientId, scopedClientId),
       ));
-      const preparedLines = resolvedLines.map(({ line, currencyValue, conversion }, index) => {
+      const preparedLines = resolvedLines.map(({ line, accountGroupId, currencyValue, conversion }, index) => {
         const canonicalPreviewLine = canonicalPreviewLines?.[index];
         const workspaceSuggestion = canonicalPreviewLine ? null : findWorkspaceSuggestion(workspacePatterns, line.description);
         const accountSuggestion = (isInterAccountTransferDescription(line.description) ? interAccountTransferAccount : null)
@@ -5506,10 +5747,11 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           ? parsedConfidence.toFixed(2)
           : "0.75";
         const amount = String(Math.abs(line.amount));
+        const lineBankAccount = accountGroupId ? groupAccounts.get(accountGroupId) ?? null : detectedBankAccount;
         return {
           statementImportId: createdImport.id,
           clientId: scopedClientId,
-          bankAccountId: detectedBankAccount?.id ?? null,
+          bankAccountId: lineBankAccount?.id ?? null,
           date: line.date,
           description: line.description.trim(),
           currency: currencyValue,
@@ -5532,7 +5774,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           exchangeRateStatus: conversion.exchangeRateStatus,
           importDedupeKey: importDedupeKey({
             clientId: scopedClientId,
-            bankAccountId: detectedBankAccount?.id ?? null,
+            bankAccountId: lineBankAccount?.id ?? null,
             date: line.date,
             description: line.description,
             amount,
@@ -5612,7 +5854,7 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
         eq(statementImportsTable.id, createdImport.id),
         eq(statementImportsTable.clientId, scopedClientId),
       ));
-      return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount };
+      return { kind: "imported" as const, importId: createdImport.id, inserted, duplicateLines, detectedBankAccount, groupAccounts };
     });
     if (importResult.kind === "invalid_pending") {
       return res.status(409).json({
