@@ -370,6 +370,18 @@ function number(value: string | null | undefined) {
   return Number(value ?? 0);
 }
 
+function isInflowDirection(direction: string) {
+  const normalized = direction.trim().toLowerCase();
+  return normalized === "inflow" || normalized === "credit";
+}
+
+function canonicalStatementDirection(direction: string) {
+  const normalized = direction.trim().toLowerCase();
+  if (normalized === "credit") return "inflow";
+  if (normalized === "debit") return "outflow";
+  return normalized;
+}
+
 const legacyDemoRows = [
   { date: "2026-08-03", description: "EMIRATES AIRLINES", currency: "AED", amount: "1840.00", direction: "outflow", status: "posted", accountSuggestion: "Travel & entertainment", confidence: "0.98" },
   { date: "2026-08-05", description: "STRIPE PAYOUT 8472", currency: "USD", amount: "12450.00", direction: "inflow", status: "posted", accountSuggestion: "Revenue", confidence: "0.99" },
@@ -2012,8 +2024,8 @@ async function isUntouchedLegacyDemoWorkspace(
     if (!line) return false;
     const entry = entries.find((candidate) => candidate.statementLineId === line.id);
     const expectedStatus = seed.status === "posted" ? "posted" : "draft";
-    const expectedDebit = seed.direction === "inflow" ? "Bank / cash" : seed.accountSuggestion;
-    const expectedCredit = seed.direction === "inflow" ? seed.accountSuggestion : "Bank / cash";
+    const expectedDebit = isInflowDirection(seed.direction) ? "Bank / cash" : seed.accountSuggestion;
+    const expectedCredit = isInflowDirection(seed.direction) ? seed.accountSuggestion : "Bank / cash";
     return entry?.date === seed.date
       && entry.memo === seed.description
       && entry.currency === seed.currency
@@ -2084,7 +2096,7 @@ function suggestAccount(description: string, direction: string) {
   if (isInterAccountTransferDescription(text)) {
     return interAccountTransferAccount;
   }
-  if (direction === "inflow") {
+  if (isInflowDirection(direction)) {
     if (/stripe|retainer|client|invoice|sale|sales|payment|payout|customer/.test(text)) return "Revenue";
     return "Other income";
   }
@@ -2174,7 +2186,7 @@ function parseAIJsonContent(content: string): { answer?: unknown; recommendation
 }
 
 function journalAccountsForSuggestion(direction: string, accountSuggestion: string) {
-  return direction === "inflow"
+  return isInflowDirection(direction)
     ? { debitAccount: "Bank / cash", creditAccount: accountSuggestion }
     : { debitAccount: accountSuggestion, creditAccount: "Bank / cash" };
 }
@@ -2405,7 +2417,7 @@ function inferContactProposal(
   const deterministicName = deterministicContactCandidate(description);
   const normalizedName = aiName ?? deterministicName;
   if (!normalizedName || normalizedName.length < 2) return null;
-  const contactType = direction === "inflow" ? "customer" as const : "supplier" as const;
+  const contactType = isInflowDirection(direction) ? "customer" as const : "supplier" as const;
   const name = contactNameFromNormalized(normalizedName);
   const alias = contactNameFromNormalized(aiAlias ?? normalizedName);
   const parsedConfidence = Number(extracted?.counterpartyConfidence);
@@ -2455,7 +2467,7 @@ function temporaryContactSuggestion(proposal: InferredContactProposal | null): C
 }
 
 function needsIdentificationSuggestion(direction: string, description: string): ContactSuggestion {
-  const label = direction === "inflow" ? "customer" : "supplier";
+  const label = isInflowDirection(direction) ? "customer" : "supplier";
   return {
     ...temporaryContactSuggestion(null),
     contactSuggestionStatus: "needs_identification",
@@ -2713,7 +2725,7 @@ async function resolveContactSuggestion(
     const stored = storedProposal?.proposedContactName && storedProposal.proposedContactAlias
       ? {
         proposedContactName: storedProposal.proposedContactName,
-        proposedContactType: (storedProposal.proposedContactType as ContactSuggestion["proposedContactType"]) ?? (direction === "inflow" ? "customer" : "supplier"),
+        proposedContactType: (storedProposal.proposedContactType as ContactSuggestion["proposedContactType"]) ?? (isInflowDirection(direction) ? "customer" : "supplier"),
         proposedContactAlias: storedProposal.proposedContactAlias,
         proposedContactConfidence: storedProposal.proposedContactConfidence == null ? 0.68 : Number(storedProposal.proposedContactConfidence),
         proposedContactSource: storedProposal.proposedContactSource ?? "heuristic_description",
@@ -2835,7 +2847,7 @@ async function recordContactEvidence(
   entry: typeof journalEntriesTable.$inferSelect,
 ) {
   if (!line.contactId) return;
-  const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  const accountSuggestion = isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount;
   const activityDate = calendarDate(line.date) ?? calendarDate(entry.date);
   if (!activityDate) {
     throw new Error("Contact evidence could not be recorded because the activity date is missing.");
@@ -2927,7 +2939,7 @@ async function materializeProposedContact(
     || line.contactReviewDisposition !== "accepted"
   ) {
     throw new ContactMaterializationError(
-      `This line still needs a real ${line.direction === "inflow" ? "customer" : "supplier"} identity. Select an existing contact or confirm a real name and alias before posting.`,
+      `This line still needs a real ${isInflowDirection(line.direction) ? "customer" : "supplier"} identity. Select an existing contact or confirm a real name and alias before posting.`,
     );
   }
 
@@ -3043,7 +3055,7 @@ async function validateCurrentContactTreatment(
     )).limit(1);
     if (!activeContact) return "stale_contact" as const;
   }
-  const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  const accountSuggestion = isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount;
   const [activeAccount] = await executor.select({ id: accountClassificationsTable.id })
     .from(accountClassificationsTable)
     .where(and(
@@ -3236,7 +3248,7 @@ async function statementLineResponse(
     : null;
   const recommendedAccount = contactAccount ?? suggestion.accountSuggestion;
   const journalAccount = entry
-    ? line.direction === "inflow" ? entry.creditAccount : entry.debitAccount
+    ? isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount
     : null;
   const accountConfirmationRequired = Boolean(
     entry
@@ -3254,6 +3266,7 @@ async function statementLineResponse(
         : "locked";
   return {
     ...line,
+    direction: canonicalStatementDirection(line.direction),
     status: journalLifecycleStatus(line.status),
     date: calendarDate(line.date),
     amount: number(line.amount),
@@ -3343,8 +3356,8 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
     status: "draft",
     confidence: line.confidence ?? "0.80",
     ...journalAccountsForSuggestion(line.direction, account),
-    debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
-    creditAccountClassificationId: line.direction === "inflow" ? selectedAccountId : bankAccountId,
+    debitAccountClassificationId: isInflowDirection(line.direction) ? bankAccountId : selectedAccountId,
+    creditAccountClassificationId: isInflowDirection(line.direction) ? selectedAccountId : bankAccountId,
     contactId: line.contactId,
     amount: line.amount,
     functionalCurrency: line.functionalCurrency,
@@ -3911,7 +3924,7 @@ function lineCounterpartAccount(
   entry: typeof journalEntriesTable.$inferSelect | undefined,
 ) {
   if (!entry) return line.accountSuggestion ?? null;
-  return line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  return isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount;
 }
 
 function draftLinesMatchingAccount(
@@ -4289,8 +4302,8 @@ async function applyRecodeLinesAction(
       const [updatedEntry] = await tx.update(journalEntriesTable).set({
         confidence,
         ...journalAccountsForSuggestion(line.direction, accountSuggestion),
-        debitAccountClassificationId: line.direction === "inflow" ? bankAccountClassification?.id ?? null : selectedAccount.id,
-        creditAccountClassificationId: line.direction === "inflow" ? selectedAccount.id : bankAccountClassification?.id ?? null,
+        debitAccountClassificationId: isInflowDirection(line.direction) ? bankAccountClassification?.id ?? null : selectedAccount.id,
+        creditAccountClassificationId: isInflowDirection(line.direction) ? selectedAccount.id : bankAccountClassification?.id ?? null,
       }).where(and(
         eq(journalEntriesTable.clientId, clientId),
         eq(journalEntriesTable.statementLineId, line.id),
@@ -7636,7 +7649,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             await reverseClassificationPattern(
               currentUserId(req),
               line.description,
-              line.direction === "inflow" ? entry.creditAccount : entry.debitAccount,
+              isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount,
               tx,
             );
           }
@@ -9532,7 +9545,7 @@ router.post("/agaraccounting/statement-lines/export", async (req, res) => {
   const rows: StatementLineExportRow[] = lines.map((line) => {
     const entry = entriesByLine.get(line.id);
     const account = entry
-      ? (line.direction === "inflow" ? entry.creditAccount : entry.debitAccount)
+      ? (isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount)
       : line.accountSuggestion;
     return {
       date: calendarDate(line.date) ?? "",
@@ -10519,17 +10532,17 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         )).returning();
         if (!updatedLine) return { kind: "line_conflict" as const };
         line = updatedLine;
-        const [updatedEntry] = await tx.update(journalEntriesTable).set(
-          line.direction === "inflow"
-            ? {
-                creditAccount: body.accountSuggestion,
-                creditAccountClassificationId: account.id,
-              }
-            : {
-                debitAccount: body.accountSuggestion,
-                debitAccountClassificationId: account.id,
-              },
-        ).where(and(
+        const [bankAccount] = await tx.select({ id: accountClassificationsTable.id }).from(accountClassificationsTable).where(and(
+          eq(accountClassificationsTable.clientId, client.id),
+          eq(accountClassificationsTable.accountName, "Bank / cash"),
+          eq(accountClassificationsTable.isActive, true),
+        )).limit(1);
+        if (!bankAccount) throw new JournalPostRollback({ kind: "account_not_found" });
+        const [updatedEntry] = await tx.update(journalEntriesTable).set({
+          ...journalAccountsForSuggestion(line.direction, body.accountSuggestion),
+          debitAccountClassificationId: isInflowDirection(line.direction) ? bankAccount.id : account.id,
+          creditAccountClassificationId: isInflowDirection(line.direction) ? account.id : bankAccount.id,
+        }).where(and(
           eq(journalEntriesTable.id, workingEntry.id),
           eq(journalEntriesTable.clientId, client.id),
           inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
@@ -10647,7 +10660,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     throw new Error("Unexpected journal posting result.");
   }
   if (result.line) {
-    const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
+    const accountSuggestion = isInflowDirection(result.line.direction) ? result.entry.creditAccount : result.entry.debitAccount;
     try {
       await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
     } catch (error) {
@@ -10711,7 +10724,7 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
     await reverseClassificationPattern(
       currentUserId(req),
       line.description,
-      line.direction === "inflow" ? entry.creditAccount : entry.debitAccount,
+      isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount,
       tx,
     );
     await recordJournalTransitionAudit(tx, req, {

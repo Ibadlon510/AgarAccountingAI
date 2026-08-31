@@ -279,6 +279,84 @@ test("posting a draft journal entry updates client-scoped reports", async () => 
   );
 });
 
+test("normalizes bank credit and debit directions before creating and posting journals", async () => {
+  const client = await request<{ id: number }>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Legacy direction scope ${randomUUID()}`,
+      legalName: "Legacy direction scope LLC",
+    }),
+  });
+  assert.equal(client.response.status, 201);
+  clientId = client.body.id;
+
+  const receipt = await request<{ id: number; direction: string; accountSuggestion: string }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-04-02",
+      description: "From KOMPASS SOLUTIONS",
+      currency: "AED",
+      amount: 4545,
+      direction: "credit",
+      source: "Imported bank statement",
+    }),
+  });
+  const payment = await request<{ id: number; direction: string; accountSuggestion: string }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-04-03",
+      description: "OFFICE SUPPLIES PAYMENT",
+      currency: "AED",
+      amount: 125,
+      direction: "debit",
+      source: "Imported bank statement",
+    }),
+  });
+  assert.equal(receipt.response.status, 201);
+  assert.equal(payment.response.status, 201);
+  assert.equal(receipt.body.direction, "inflow");
+  assert.equal(payment.body.direction, "outflow");
+
+  const entries = await request<Array<{
+    id: number;
+    statementLineId: number;
+    lines: Array<{ account: string; debit: number; credit: number }>;
+  }>>(`/agaraccounting/journal-entries?clientId=${clientId}`);
+  const receiptEntry = entries.body.find((entry) => entry.statementLineId === receipt.body.id);
+  const paymentEntry = entries.body.find((entry) => entry.statementLineId === payment.body.id);
+  assert.ok(receiptEntry);
+  assert.ok(paymentEntry);
+  assert.deepEqual(receiptEntry.lines, [
+    { account: "Bank / cash", description: "From KOMPASS SOLUTIONS", debit: 4545, credit: 0 },
+    { account: receipt.body.accountSuggestion, description: "From KOMPASS SOLUTIONS", debit: 0, credit: 4545 },
+  ]);
+  assert.deepEqual(paymentEntry.lines, [
+    { account: payment.body.accountSuggestion, description: "OFFICE SUPPLIES PAYMENT", debit: 125, credit: 0 },
+    { account: "Bank / cash", description: "OFFICE SUPPLIES PAYMENT", debit: 0, credit: 125 },
+  ]);
+
+  for (const [line, entry] of [[receipt.body, receiptEntry], [payment.body, paymentEntry]] as const) {
+    assert.equal((await request(`/agaraccounting/statement-lines/${line.id}/contact`, {
+      method: "PATCH",
+      body: JSON.stringify({ clientId, contactId: null, contactReviewDisposition: "dismissed" }),
+    })).response.status, 200);
+    const postedResult: {
+      response: Response;
+      body: { lines: Array<{ account: string; debit: number; credit: number }> };
+    } = await request<{ lines: Array<{ account: string; debit: number; credit: number }> }>(
+      `/agaraccounting/journal-entries/${entry.id}/post`,
+      {
+        method: "POST",
+        body: JSON.stringify({ clientId, accountSuggestion: line.accountSuggestion }),
+      },
+    );
+    assert.equal(postedResult.response.status, 200);
+    assert.deepEqual(postedResult.body.lines, entry.lines);
+  }
+});
+
 test("posting can be reversed without rewriting reports or accountability evidence", async () => {
   assert.ok(database);
   const lifecycleClient = await request<{ id: number }>("/clients", {

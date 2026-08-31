@@ -109,6 +109,10 @@ const nav = [
   { href: '/client-settings', label: 'Client settings', icon: Settings2 },
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
+const isInflowDirection = (direction: string) => {
+  const normalized = direction.trim().toLowerCase();
+  return normalized === 'inflow' || normalized === 'credit';
+};
 const reportMoney = (value: number) => {
   const absolute = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(value));
   return value < 0 ? `(${absolute})` : absolute;
@@ -2216,7 +2220,7 @@ function ContactDetailsPanel({ contact }: { contact: Contact }) {
               <div key={item.statementLineId} className="rounded-md border border-border p-3 text-[11px]">
                 <div className="flex items-start justify-between">
                   <span className="font-mono text-muted-foreground">{shortDate(item.date)}</span>
-                  <span className="font-mono font-medium">{item.direction === 'inflow' ? '+' : '−'}{money(item.amount, item.currency)}</span>
+                  <span className="font-mono font-medium">{isInflowDirection(item.direction) ? '+' : '−'}{money(item.amount, item.currency)}</span>
                 </div>
                 <div className="mt-1.5 font-semibold">{item.description}</div>
                 <div className="mt-1.5 flex items-center justify-between">
@@ -3211,7 +3215,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const canConfirmClassification = !posted && entry?.status.toLowerCase() === 'draft';
   const accountConfirmationRequired = line.accountConfirmationRequired;
   const journalClassifiedAccount = entry
-    ? (line.direction === 'inflow'
+    ? (isInflowDirection(line.direction)
       ? entry.lines.find((item) => item.credit > 0)?.account
       : entry.lines.find((item) => item.debit > 0)?.account)
     : undefined;
@@ -3238,7 +3242,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const previewLines = useMemo(() => {
     const rows = entry?.lines ?? [];
     if (!selectedAccount) return rows;
-    const inflow = line.direction === 'inflow';
+    const inflow = isInflowDirection(line.direction);
     return rows.map((journalLine) => {
       const classifiedLeg = inflow ? journalLine.credit > 0 : journalLine.debit > 0;
       return classifiedLeg ? { ...journalLine, account: selectedAccount } : journalLine;
@@ -3262,9 +3266,9 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const contactSelectionEditedRef = useRef(false);
   const [proposedContactName, setProposedContactName] = useState(line.proposedContactName ?? '');
   const [proposedContactType, setProposedContactType] = useState<'customer' | 'supplier' | 'both'>(
-    line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'),
+    line.proposedContactType ?? (isInflowDirection(line.direction) ? 'customer' : 'supplier'),
   );
-  const likelyContactType = line.direction === 'inflow' ? 'customer' : 'supplier';
+  const likelyContactType = isInflowDirection(line.direction) ? 'customer' : 'supplier';
   const hasTemporaryProposal = line.contactDecisionState === 'named_proposal';
   const needsIdentification = line.contactDecisionState === 'needs_identification';
   const contactProposalSource = line.proposedContactSource === 'ai_counterparty_extraction'
@@ -3285,7 +3289,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       return line.contactId ? String(line.contactId) : '';
     });
     setProposedContactName(line.proposedContactName ?? '');
-    setProposedContactType(line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'));
+    setProposedContactType(line.proposedContactType ?? (isInflowDirection(line.direction) ? 'customer' : 'supplier'));
   }, [contacts, line.contactId, line.proposedContactName, line.proposedContactType, line.direction]);
 
   const toggleFromRow = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
@@ -3431,7 +3435,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                 </thead>
                 <tbody className="divide-y divide-border">
                   {previewLines.map((journalLine, index) => {
-                    const classifiedLeg = line.direction === 'inflow' ? journalLine.credit > 0 : journalLine.debit > 0;
+                    const classifiedLeg = isInflowDirection(line.direction) ? journalLine.credit > 0 : journalLine.debit > 0;
                     return (
                       <tr key={`${entry.id}-${index}`}>
                         <td
