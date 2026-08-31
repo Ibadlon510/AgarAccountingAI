@@ -12,7 +12,10 @@
     "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./src/*"],
-      "@workspace/object-storage-web": ["../../lib/object-storage-web/src/index.ts"]
+      "@workspace/object-storage-web": ["../../lib/object-storage-web/src/index.ts"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
+      "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
   "references": [

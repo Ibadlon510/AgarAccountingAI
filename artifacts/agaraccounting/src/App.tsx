@@ -1886,7 +1886,7 @@ function ContactsPage() {
       clearTestId="button-clear-contact-filters"
       countTestId="text-active-contact-filter-count"
     >
-      <FilterPills
+      <FilterPills<typeof typeFilter>
         compact
         label="Type"
         ariaLabel="Filter by contact type"
@@ -1900,7 +1900,7 @@ function ContactsPage() {
           { value: 'both', label: 'Both' },
         ]}
       />
-      <FilterPills
+      <FilterPills<typeof statusFilter>
         compact
         label="Status"
         ariaLabel="Filter by contact status"
@@ -2338,7 +2338,7 @@ function FilterToolbar({
   );
 }
 
-function FilterPills<T extends string>({
+function FilterPills<const T extends string>({
   label,
   value,
   options,
@@ -2351,7 +2351,7 @@ function FilterPills<T extends string>({
 }: {
   label: string;
   value: T;
-  options: Array<{ value: T; label: string; testId?: string }>;
+  options: Array<{ value: NoInfer<T>; label: string; testId?: string }>;
   onChange: (value: T) => void;
   testId?: string;
   ariaLabel?: string;
@@ -2924,7 +2924,7 @@ function StatementLinesPage() {
       clearTestId="button-clear-all-filters"
       countTestId="text-active-filter-count"
     >
-        <FilterPills
+        <FilterPills<typeof direction>
           compact
           label="Type"
           ariaLabel="Filter by statement type"
@@ -3341,7 +3341,7 @@ function JournalEntriesPage() {
       clearTestId="button-clear-entry-filters"
       countTestId="text-active-entry-filter-count"
     >
-      <FilterPills
+      <FilterPills<typeof filter>
         compact
         label="Status"
         ariaLabel="Filter by journal status"
