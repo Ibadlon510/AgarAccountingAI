@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/react';
 import { LoaderCircle, Mail } from 'lucide-react';
 import {
   getGetStatementLineDetailRequestsQueryKey,
@@ -25,17 +26,20 @@ const MAX_REMARK_LINES = 50;
 
 export function SendForRemarksDialog({
   clientId,
+  clientName,
   lines,
   allowLinePicker = false,
   onClose,
   onSent,
 }: {
   clientId: number;
+  clientName: string;
   lines: StatementLine[];
   allowLinePicker?: boolean;
   onClose: () => void;
   onSent: (result?: { publicUrl?: string; recipientEmail: string; expiresAt: string }) => void;
 }) {
+  const { user } = useUser();
   const team = useGetWorkspaceMembers();
   const queryClient = useQueryClient();
   const send = useRequestStatementLineDetails();
@@ -59,6 +63,8 @@ export function SendForRemarksDialog({
   const selectedLines = lines.length ? lines : pickerLines.filter((line) => pickedIds.includes(line.id));
   const invalidEmail = email.trim().length > 0 && !EMAIL_PATTERN.test(email.trim());
   const overCap = selectedLines.length > MAX_REMARK_LINES;
+  const subject = `Please add remarks for ${clientName} — ${selectedLines.length} transaction${selectedLines.length === 1 ? '' : 's'}`;
+  const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() || 'AgarAccounting AI';
   const canSend = EMAIL_PATTERN.test(email.trim()) && selectedLines.length > 0 && !overCap && !send.isPending;
 
   const submit = (event: React.FormEvent) => {
@@ -100,14 +106,15 @@ export function SendForRemarksDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !send.isPending) onClose(); }}>
-      <DialogContent className="max-w-lg" data-testid="dialog-send-for-remarks">
+      <DialogContent className="!flex !flex-col w-[calc(100%-2rem)] max-w-5xl max-h-[90vh] gap-5 overflow-x-hidden overflow-y-auto p-5 sm:p-6" data-testid="dialog-send-for-remarks">
         <DialogHeader>
           <DialogTitle>Send for remarks</DialogTitle>
           <DialogDescription>
             Email a public link that stays active for 3 days. The recipient does not need an account.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={submit} className="space-y-4">
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)] lg:items-start">
+        <form onSubmit={submit} className="min-w-0 rounded-lg border border-border bg-card p-4 space-y-4">
           <label className="block text-xs font-semibold">
             Recipient email
             <input
@@ -194,7 +201,7 @@ export function SendForRemarksDialog({
           {overCap && (
             <p className="text-[11px] text-destructive">Remarks links can include at most {MAX_REMARK_LINES} lines. Deselect some before sending.</p>
           )}
-          <DialogFooter>
+          <DialogFooter className="mt-5 border-t border-border pt-4">
             <button type="button" onClick={onClose} disabled={send.isPending} className="rounded-md px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Cancel</button>
             <button
               type="submit"
@@ -207,6 +214,47 @@ export function SendForRemarksDialog({
             </button>
           </DialogFooter>
         </form>
+        <aside className="min-w-0 rounded-lg border border-primary/20 bg-primary/5 p-4" data-testid="card-email-preview">
+          <div className="font-mono text-[9px] uppercase tracking-[.14em] text-primary">Email Preview</div>
+          <h3 className="mt-1 text-sm font-semibold">Request for transaction remarks</h3>
+          <div className="mt-4 space-y-3 rounded-md border border-border bg-background p-3 text-[11px] leading-5">
+            <div className="flex min-w-0 gap-2">
+              <span className="w-12 shrink-0 text-muted-foreground">From</span>
+              <span className="min-w-0 truncate font-medium">AgarAccounting AI</span>
+            </div>
+            <div className="flex min-w-0 gap-2">
+              <span className="w-12 shrink-0 text-muted-foreground">To</span>
+              <span className="min-w-0 truncate font-medium">{email.trim() || 'recipient@company.com'}</span>
+            </div>
+            <div className="flex min-w-0 gap-2">
+              <span className="w-12 shrink-0 text-muted-foreground">Subject</span>
+              <span className="min-w-0 font-medium">{subject}</span>
+            </div>
+            <div className="border-t border-border pt-3 text-muted-foreground">
+              {message.trim() || `Please add remarks for ${selectedLines.length} draft statement line${selectedLines.length === 1 ? '' : 's'} in this client workspace.`}
+            </div>
+            <div className="border-t border-border pt-3 text-muted-foreground">
+              This link stays active for 3 days. The recipient does not need an account.
+            </div>
+            <div className="rounded border border-primary/15 bg-primary/5 px-2.5 py-2 text-primary">
+              {selectedLines.length > 0
+                ? `${selectedLines.length} draft statement line${selectedLines.length === 1 ? '' : 's'} included`
+                : 'Select at least one draft statement line'}
+            </div>
+            <div className="border-t border-border pt-3">
+              <div className="text-muted-foreground">Link address</div>
+              <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">Generated securely when the email is sent</div>
+              <button type="button" disabled className="mt-3 inline-flex w-full items-center justify-center rounded-md bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground opacity-50">
+                Open remarks page
+              </button>
+            </div>
+            <div className="border-t border-border pt-3 text-muted-foreground">
+              Kind regards,<br />{senderName}
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] leading-4 text-muted-foreground">The public link and expiry date will be added automatically when the email is sent.</p>
+        </aside>
+        </div>
       </DialogContent>
     </Dialog>
   );

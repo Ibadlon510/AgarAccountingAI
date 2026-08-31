@@ -27,6 +27,8 @@ export const GetCurrentAuthUserResponse = zod.object({
  */
 
 
+
+
 export const UpdateAgarAccountingAccountProfileBody = zod.object({
   "firstName": zod.string().min(1),
   "lastName": zod.string().min(1)
@@ -54,6 +56,8 @@ export const GetFirmProfileResponse = zod.object({
 /**
  * @summary Update the bookkeeping firm's shared identity
  */
+
+
 
 
 export const UpdateFirmProfileBody = zod.object({
@@ -157,6 +161,8 @@ export const GetOrganizationContextResponse = zod.object({
 /**
  * @summary Complete company, accounting-firm, or dual onboarding
  */
+
+
 
 
 export const CompleteOrganizationOnboardingBody = zod.object({
@@ -552,6 +558,11 @@ export const LogoutBrowserSessionResponse = zod.void()
  */
 
 
+
+
+
+
+
 export const ExchangeMobileAuthorizationCodeBody = zod.object({
   "code": zod.string().min(1),
   "code_verifier": zod.string().min(1),
@@ -750,6 +761,8 @@ export const UpdateWorkspaceMemberParams = zod.object({
 })
 
 
+
+
 export const UpdateWorkspaceMemberBody = zod.object({
   "role": zod.enum(['admin', 'accountant', 'bookkeeper']),
   "clientIds": zod.array(zod.number()).min(1)
@@ -786,6 +799,7 @@ export const createWorkspaceInvitationBodyEmailMin = 3;
 
 
 export const createWorkspaceInvitationBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
 
 
 export const CreateWorkspaceInvitationBody = zod.object({
@@ -970,6 +984,7 @@ export const getExchangeRatesResponseFunctionalCurrencyMax = 3;
 export const getExchangeRatesResponseRateExclusiveMin = 0;
 
 
+
 export const GetExchangeRatesResponseItem = zod.object({
   "id": zod.number(),
   "sourceCurrency": zod.string().min(getExchangeRatesResponseSourceCurrencyMin).max(getExchangeRatesResponseSourceCurrencyMax),
@@ -999,6 +1014,7 @@ export const createExchangeRateBodyFunctionalCurrencyMax = 3;
 export const createExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const CreateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(createExchangeRateBodySourceCurrencyMin).max(createExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(createExchangeRateBodyFunctionalCurrencyMin).max(createExchangeRateBodyFunctionalCurrencyMax),
@@ -1015,6 +1031,7 @@ export const createExchangeRateResponseFunctionalCurrencyMin = 3;
 export const createExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const createExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const CreateExchangeRateResponse = zod.object({
@@ -1044,6 +1061,7 @@ export const updateExchangeRateBodyFunctionalCurrencyMax = 3;
 export const updateExchangeRateBodyRateExclusiveMin = 0;
 
 
+
 export const UpdateExchangeRateBody = zod.object({
   "sourceCurrency": zod.string().min(updateExchangeRateBodySourceCurrencyMin).max(updateExchangeRateBodySourceCurrencyMax),
   "functionalCurrency": zod.string().min(updateExchangeRateBodyFunctionalCurrencyMin).max(updateExchangeRateBodyFunctionalCurrencyMax),
@@ -1060,6 +1078,7 @@ export const updateExchangeRateResponseFunctionalCurrencyMin = 3;
 export const updateExchangeRateResponseFunctionalCurrencyMax = 3;
 
 export const updateExchangeRateResponseRateExclusiveMin = 0;
+
 
 
 export const UpdateExchangeRateResponse = zod.object({
@@ -1100,6 +1119,8 @@ export const importExchangeRatesBodyRatesItemFunctionalCurrencyMax = 3;
 export const importExchangeRatesBodyRatesItemRateExclusiveMin = 0;
 
 
+
+
 export const ImportExchangeRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string().min(importExchangeRatesBodyRatesItemSourceCurrencyMin).max(importExchangeRatesBodyRatesItemSourceCurrencyMax),
@@ -1118,6 +1139,7 @@ export const importExchangeRatesResponseRatesItemFunctionalCurrencyMin = 3;
 export const importExchangeRatesResponseRatesItemFunctionalCurrencyMax = 3;
 
 export const importExchangeRatesResponseRatesItemRateExclusiveMin = 0;
+
 
 
 export const ImportExchangeRatesResponse = zod.object({
@@ -1143,6 +1165,7 @@ export const parseExchangeRatesBodyContentMax = 120000;
 export const parseExchangeRatesBodyFileBase64Max = 20000000;
 
 
+
 export const ParseExchangeRatesBody = zod.object({
   "clientId": zod.number(),
   "content": zod.string().min(1).max(parseExchangeRatesBodyContentMax).optional(),
@@ -1160,6 +1183,7 @@ export const parseExchangeRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseExchangeRatesResponseConfidenceMin = 0;
 export const parseExchangeRatesResponseConfidenceMax = 1;
+
 
 
 export const ParseExchangeRatesResponse = zod.object({
@@ -1318,6 +1342,7 @@ export const DeleteSystemRateResponse = zod.void()
  */
 
 
+
 export const ImportSystemRatesBody = zod.object({
   "rates": zod.array(zod.object({
   "sourceCurrency": zod.string(),
@@ -1374,6 +1399,7 @@ export const parseSystemRatesResponseRatesItemRateExclusiveMin = 0;
 
 export const parseSystemRatesResponseConfidenceMin = 0;
 export const parseSystemRatesResponseConfidenceMax = 1;
+
 
 
 export const ParseSystemRatesResponse = zod.object({
@@ -1456,6 +1482,7 @@ export const createBankAccountBodyCurrencyMin = 3;
 export const createBankAccountBodyCurrencyMax = 3;
 
 
+
 export const CreateBankAccountBody = zod.object({
   "clientId": zod.number(),
   "name": zod.string().min(1),
@@ -1529,13 +1556,13 @@ export const GetStatementLinesResponseItem = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })
 export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem)
 
@@ -1598,13 +1625,13 @@ export const CreateStatementLineResponse = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })
 
 
@@ -1612,19 +1639,34 @@ export const CreateStatementLineResponse = zod.object({
  * @summary Export selected statement lines as Excel or PDF
  */
 export const exportStatementLinesBodyLineIdsMax = 1000;
-export const exportStatementLinesBodyLineIdsMin = 1;
 
 
-export const requestStatementLineDetailsBodyRecipientEmailMax = 320;
-export const requestStatementLineDetailsBodySenderMessageMax = 2000;
+
+export const ExportStatementLinesBody = zod.object({
+  "clientId": zod.number().optional(),
+  "lineIds": zod.array(zod.number()).min(1).max(exportStatementLinesBodyLineIdsMax),
+  "format": zod.enum(['xlsx', 'pdf'])
+})
+
+export const ExportStatementLinesResponse = zod.unknown()
+
+
+/**
+ * @summary Email a public remarks link for selected draft statement lines
+ */
 export const requestStatementLineDetailsBodyStatementLineIdsMax = 50;
-export const requestStatementLineDetailsBodyStatementLineIdsMin = 1;
-export const requestStatementLineDetailsBodyRecipientEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+export const requestStatementLineDetailsBodyRecipientEmailMin = 3;
+export const requestStatementLineDetailsBodyRecipientEmailMax = 320;
+
+export const requestStatementLineDetailsBodySenderMessageMax = 2000;
+
+
 
 export const RequestStatementLineDetailsBody = zod.object({
   "clientId": zod.number(),
-  "statementLineIds": zod.array(zod.number()).min(requestStatementLineDetailsBodyStatementLineIdsMin).max(requestStatementLineDetailsBodyStatementLineIdsMax),
-  "recipientEmail": zod.string().min(3).max(requestStatementLineDetailsBodyRecipientEmailMax).regex(requestStatementLineDetailsBodyRecipientEmailRegExp),
+  "statementLineIds": zod.array(zod.number()).min(1).max(requestStatementLineDetailsBodyStatementLineIdsMax),
+  "recipientEmail": zod.string().email().min(requestStatementLineDetailsBodyRecipientEmailMin).max(requestStatementLineDetailsBodyRecipientEmailMax),
   "senderMessage": zod.string().max(requestStatementLineDetailsBodySenderMessageMax).nullish()
 })
 
@@ -1641,23 +1683,54 @@ export const RequestStatementLineDetailsResponse = zod.object({
   "postedLineCount": zod.number(),
   "remarkCount": zod.number(),
   "lines": zod.array(zod.object({
-    "id": zod.number(),
-    "date": zod.string(),
-    "description": zod.string(),
-    "currency": zod.string(),
-    "amount": zod.number(),
-    "direction": zod.string(),
-    "status": zod.enum(['open', 'posted']),
-    "remarkCount": zod.number()
-  }))
+  "id": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "status": zod.enum(['open', 'posted']),
+  "remarkCount": zod.number()
+}))
 })
 
-export const GetStatementLineDetailRequestsQueryParams = zod.object({
+
+/**
+ * @summary List remarks links for a client
+ */
+export const ListStatementLineDetailRequestsQueryParams = zod.object({
   "clientId": zod.coerce.number()
 })
 
-export const GetStatementLineDetailRequestsResponse = zod.array(RequestStatementLineDetailsResponse)
+export const ListStatementLineDetailRequestsResponseItem = zod.object({
+  "id": zod.number(),
+  "recipientEmail": zod.string(),
+  "senderMessage": zod.string().nullish(),
+  "status": zod.enum(['active', 'inactive']),
+  "expiresAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullish(),
+  "publicUrl": zod.string(),
+  "lineCount": zod.number(),
+  "postedLineCount": zod.number(),
+  "remarkCount": zod.number(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "status": zod.enum(['open', 'posted']),
+  "remarkCount": zod.number()
+}))
+})
+export const ListStatementLineDetailRequestsResponse = zod.array(ListStatementLineDetailRequestsResponseItem)
 
+
+/**
+ * @summary Revoke a public remarks link
+ */
 export const RevokeStatementLineDetailRequestParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -1666,8 +1739,34 @@ export const RevokeStatementLineDetailRequestBody = zod.object({
   "clientId": zod.number()
 })
 
-export const RevokeStatementLineDetailRequestResponse = RequestStatementLineDetailsResponse
+export const RevokeStatementLineDetailRequestResponse = zod.object({
+  "id": zod.number(),
+  "recipientEmail": zod.string(),
+  "senderMessage": zod.string().nullish(),
+  "status": zod.enum(['active', 'inactive']),
+  "expiresAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullish(),
+  "publicUrl": zod.string(),
+  "lineCount": zod.number(),
+  "postedLineCount": zod.number(),
+  "remarkCount": zod.number(),
+  "lines": zod.array(zod.object({
+  "id": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "status": zod.enum(['open', 'posted']),
+  "remarkCount": zod.number()
+}))
+})
 
+
+/**
+ * @summary List remarks and attachments on a statement line
+ */
 export const GetStatementLineNotesParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -1676,45 +1775,42 @@ export const GetStatementLineNotesQueryParams = zod.object({
   "clientId": zod.coerce.number()
 })
 
-export const StatementLineNoteAttachmentSchema = zod.object({
-  "id": zod.number(),
-  "filename": zod.string(),
-  "contentType": zod.string(),
-  "size": zod.number()
-})
-
-export const StatementLineNoteSchema = zod.object({
+export const GetStatementLineNotesResponse = zod.object({
+  "lineId": zod.number(),
+  "notes": zod.array(zod.object({
   "id": zod.number(),
   "requestId": zod.number(),
   "submittedByEmail": zod.string(),
   "noteText": zod.string(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
-  "attachments": zod.array(StatementLineNoteAttachmentSchema)
+  "attachments": zod.array(zod.object({
+  "id": zod.number(),
+  "filename": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number()
+}))
+}))
 })
 
-export const GetStatementLineNotesResponse = zod.object({
-  "lineId": zod.number(),
-  "notes": zod.array(StatementLineNoteSchema)
-})
 
-export const getPublicStatementLineRequestParamsTokenMin = 16;
-export const getPublicStatementLineRequestParamsTokenMax = 128;
+/**
+ * @summary Load a public remarks request by token
+ */
+export const getPublicStatementLineRequestPathTokenMin = 16;
+export const getPublicStatementLineRequestPathTokenMax = 128;
+
+
 
 export const GetPublicStatementLineRequestParams = zod.object({
-  "token": zod.string().min(getPublicStatementLineRequestParamsTokenMin).max(getPublicStatementLineRequestParamsTokenMax)
+  "token": zod.coerce.string().min(getPublicStatementLineRequestPathTokenMin).max(getPublicStatementLineRequestPathTokenMax)
 })
 
-export const PublicStatementLineAttachmentSchema = StatementLineNoteAttachmentSchema
-
-export const PublicStatementLineNoteSchema = zod.object({
-  "id": zod.number(),
-  "noteText": zod.string(),
-  "createdAt": zod.coerce.date(),
-  "attachments": zod.array(PublicStatementLineAttachmentSchema)
-})
-
-export const PublicStatementLineSchema = zod.object({
+export const GetPublicStatementLineRequestResponse = zod.object({
+  "clientDisplayName": zod.string(),
+  "senderMessage": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "lines": zod.array(zod.object({
   "id": zod.number(),
   "date": zod.string(),
   "description": zod.string(),
@@ -1723,36 +1819,82 @@ export const PublicStatementLineSchema = zod.object({
   "direction": zod.string(),
   "posted": zod.boolean(),
   "status": zod.enum(['open', 'posted']),
-  "notes": zod.array(PublicStatementLineNoteSchema)
+  "notes": zod.array(zod.object({
+  "id": zod.number(),
+  "noteText": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number(),
+  "filename": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number()
+}))
+}))
+}))
 })
 
-export const GetPublicStatementLineRequestResponse = zod.object({
-  "clientDisplayName": zod.string(),
-  "senderMessage": zod.string().nullish(),
-  "expiresAt": zod.coerce.date(),
-  "lines": zod.array(PublicStatementLineSchema)
-})
+
+/**
+ * @summary Submit a remark and optional attachments for one line in a public request
+ */
+export const submitPublicStatementLineDetailsPathTokenMin = 16;
+export const submitPublicStatementLineDetailsPathTokenMax = 128;
+
+
 
 export const SubmitPublicStatementLineDetailsParams = zod.object({
-  "token": zod.string().min(getPublicStatementLineRequestParamsTokenMin).max(getPublicStatementLineRequestParamsTokenMax),
+  "token": zod.coerce.string().min(submitPublicStatementLineDetailsPathTokenMin).max(submitPublicStatementLineDetailsPathTokenMax),
   "lineId": zod.coerce.number()
 })
 
 export const submitPublicStatementLineDetailsBodyNoteTextMax = 4000;
-export const submitPublicStatementLineDetailsBodyNoteTextMin = 1;
 
-export const SubmitPublicStatementLineDetailsResponse = PublicStatementLineSchema
+export const submitPublicStatementLineDetailsBodyFilesMax = 5;
+
+
+
+export const SubmitPublicStatementLineDetailsBody = zod.object({
+  "noteText": zod.string().min(1).max(submitPublicStatementLineDetailsBodyNoteTextMax),
+  "files": zod.array(zod.any()).max(submitPublicStatementLineDetailsBodyFilesMax).optional()
+})
+
+export const SubmitPublicStatementLineDetailsResponse = zod.object({
+  "id": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "posted": zod.boolean(),
+  "status": zod.enum(['open', 'posted']),
+  "notes": zod.array(zod.object({
+  "id": zod.number(),
+  "noteText": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number(),
+  "filename": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number()
+}))
+}))
+})
+
+
+/**
+ * @summary Download an attachment submitted through a public remarks request
+ */
+export const getPublicStatementLineRequestAttachmentPathTokenMin = 16;
+export const getPublicStatementLineRequestAttachmentPathTokenMax = 128;
+
+
 
 export const GetPublicStatementLineRequestAttachmentParams = zod.object({
-  "token": zod.string().min(getPublicStatementLineRequestParamsTokenMin).max(getPublicStatementLineRequestParamsTokenMax),
+  "token": zod.coerce.string().min(getPublicStatementLineRequestAttachmentPathTokenMin).max(getPublicStatementLineRequestAttachmentPathTokenMax),
   "attachmentId": zod.coerce.number()
 })
 
-export const ExportStatementLinesBody = zod.object({
-  "clientId": zod.number().optional(),
-  "lineIds": zod.array(zod.number()).min(exportStatementLinesBodyLineIdsMin).max(exportStatementLinesBodyLineIdsMax),
-  "format": zod.enum(['xlsx', 'pdf'])
-})
+export const GetPublicStatementLineRequestAttachmentResponse = zod.unknown()
 
 
 /**
@@ -1765,6 +1907,7 @@ export const LinkStatementLineContactParams = zod.object({
 export const linkStatementLineContactBodyProposedContactNameMax = 160;
 
 export const linkStatementLineContactBodyProposedContactAliasMax = 160;
+
 
 
 export const LinkStatementLineContactBody = zod.object({
@@ -1820,13 +1963,13 @@ export const LinkStatementLineContactResponse = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })
 
 
@@ -1864,6 +2007,7 @@ export const createContactBodyLegalNameMax = 160;
 export const createContactBodyAliasesItemMax = 160;
 
 export const createContactBodyAliasesMax = 30;
+
 
 
 export const CreateContactBody = zod.object({
@@ -1904,6 +2048,7 @@ export const updateContactBodyLegalNameMax = 160;
 export const updateContactBodyAliasesItemMax = 160;
 
 export const updateContactBodyAliasesMax = 30;
+
 
 
 export const UpdateContactBody = zod.object({
@@ -2162,13 +2307,13 @@ export const ImportStatementResponse = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2232,13 +2377,13 @@ export const ImportStatementResponse = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2339,13 +2484,13 @@ export const GetStatementImportsResponseItem = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2409,13 +2554,13 @@ export const GetStatementImportsResponseItem = zod.object({
   "latestNotePreview": zod.string().nullish(),
   "latestNoteAt": zod.coerce.date().nullish(),
   "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
+}),
+  "pendingClarification": zod.union([zod.object({
   "requestId": zod.number(),
   "recipientEmail": zod.string(),
   "sentAt": zod.coerce.date(),
   "expiresAt": zod.coerce.date()
-}).nullish()
+}),zod.null()])
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2494,6 +2639,7 @@ export const askAgarAccountingAIBodyMessageMax = 4000;
 
 export const askAgarAccountingAIBodyFiltersCurrencyMin = 3;
 export const askAgarAccountingAIBodyFiltersCurrencyMax = 3;
+
 
 
 export const AskAgarAccountingAIBody = zod.object({
@@ -2609,6 +2755,7 @@ export const GetAgarAccountingAIConversationsResponse = zod.array(GetAgarAccount
 export const createAgarAccountingAIConversationBodyTitleMax = 120;
 
 
+
 export const CreateAgarAccountingAIConversationBody = zod.object({
   "clientId": zod.number(),
   "title": zod.string().min(1).max(createAgarAccountingAIConversationBodyTitleMax).optional()
@@ -2671,6 +2818,7 @@ export const RenameAgarAccountingAIConversationParams = zod.object({
 })
 
 export const renameAgarAccountingAIConversationBodyTitleMax = 120;
+
 
 
 export const RenameAgarAccountingAIConversationBody = zod.object({
@@ -2737,6 +2885,7 @@ export const GetAgarAccountingAISettingsResponse = zod.object({
 /**
  * @summary Select an AI provider and optionally add or rotate its API credential
  */
+
 
 
 export const UpdateAgarAccountingAISettingsBody = zod.object({
@@ -2846,6 +2995,12 @@ export const ConfirmAICopilotActionBody = zod.object({
 }),zod.null()]).optional()
 })
 
+export const confirmAICopilotActionResponseEntriesItemLinesItemDebitMin = 0;
+
+export const confirmAICopilotActionResponseEntriesItemLinesItemCreditMin = 0;
+
+
+
 export const ConfirmAICopilotActionResponse = zod.object({
   "type": zod.string(),
   "clientId": zod.number().optional(),
@@ -2867,28 +3022,17 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
+  "description": zod.string(),
   "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
+  "debit": zod.number().min(confirmAICopilotActionResponseEntriesItemLinesItemDebitMin),
+  "credit": zod.number().min(confirmAICopilotActionResponseEntriesItemLinesItemCreditMin)
 })),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional(),
-  "noteSummary": zod.object({
-  "hasNote": zod.boolean(),
-  "latestNotePreview": zod.string().nullish(),
-  "latestNoteAt": zod.coerce.date().nullish(),
-  "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
-  "requestId": zod.number(),
-  "recipientEmail": zod.string(),
-  "sentAt": zod.coerce.date(),
-  "expiresAt": zod.coerce.date()
-}).nullish()
+  "exchangeRateStatus": zod.string().optional()
 })).optional(),
   "updatedLineCount": zod.number(),
   "contactId": zod.number().nullish(),
@@ -2937,6 +3081,12 @@ export const GetJournalEntriesQueryParams = zod.object({
   "clientId": zod.coerce.number().optional()
 })
 
+export const getJournalEntriesResponseLinesItemDebitMin = 0;
+
+export const getJournalEntriesResponseLinesItemCreditMin = 0;
+
+
+
 export const GetJournalEntriesResponseItem = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
@@ -2949,59 +3099,162 @@ export const GetJournalEntriesResponseItem = zod.object({
   "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
+  "description": zod.string(),
   "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
+  "debit": zod.number().min(getJournalEntriesResponseLinesItemDebitMin),
+  "credit": zod.number().min(getJournalEntriesResponseLinesItemCreditMin)
 })),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional(),
-  "noteSummary": zod.object({
-  "hasNote": zod.boolean(),
-  "latestNotePreview": zod.string().nullish(),
-  "latestNoteAt": zod.coerce.date().nullish(),
-  "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
-  "requestId": zod.number(),
-  "recipientEmail": zod.string(),
-  "sentAt": zod.coerce.date(),
-  "expiresAt": zod.coerce.date()
-}).nullish()
+  "exchangeRateStatus": zod.string().optional()
 })
 export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem)
 
 
+/**
+ * @summary Create a standalone manual journal entry that is not linked to a statement line
+ */
 export const createJournalEntryBodyMemoMax = 500;
+
 export const createJournalEntryBodyCurrencyMin = 3;
 export const createJournalEntryBodyCurrencyMax = 3;
-export const createJournalEntryBodyDebitAccountMax = 160;
-export const createJournalEntryBodyCreditAccountMax = 160;
+
+export const createJournalEntryBodyLinesItemDescriptionMax = 500;
+
+export const createJournalEntryBodyLinesItemAccountMax = 160;
+
+export const createJournalEntryBodyLinesItemDebitMin = 0;
+
+export const createJournalEntryBodyLinesItemCreditMin = 0;
+
+export const createJournalEntryBodyLinesMin = 2;
+export const createJournalEntryBodyLinesMax = 100;
+
+
 
 export const CreateJournalEntryBody = zod.object({
   "clientId": zod.number(),
-  "date": zod.string(),
+  "date": zod.coerce.date(),
   "memo": zod.string().min(1).max(createJournalEntryBodyMemoMax),
   "currency": zod.string().min(createJournalEntryBodyCurrencyMin).max(createJournalEntryBodyCurrencyMax),
-  "amount": zod.number().gt(0),
-  "debitAccount": zod.string().min(1).max(createJournalEntryBodyDebitAccountMax),
-  "creditAccount": zod.string().min(1).max(createJournalEntryBodyCreditAccountMax),
+  "lines": zod.array(zod.object({
+  "description": zod.string().max(createJournalEntryBodyLinesItemDescriptionMax),
+  "account": zod.string().min(1).max(createJournalEntryBodyLinesItemAccountMax),
+  "debit": zod.number().min(createJournalEntryBodyLinesItemDebitMin),
+  "credit": zod.number().min(createJournalEntryBodyLinesItemCreditMin)
+})).min(createJournalEntryBodyLinesMin).max(createJournalEntryBodyLinesMax),
   "contactId": zod.number().nullish()
 })
 
-export const CreateJournalEntryResponse = GetJournalEntriesResponseItem
+export const createJournalEntryResponseLinesItemDebitMin = 0;
 
+export const createJournalEntryResponseLinesItemCreditMin = 0;
+
+
+
+export const CreateJournalEntryResponse = zod.object({
+  "id": zod.number(),
+  "statementLineId": zod.number().nullable(),
+  "source": zod.enum(['statement', 'manual']),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "date": zod.string(),
+  "memo": zod.string(),
+  "currency": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
+  "confidence": zod.number(),
+  "lines": zod.array(zod.object({
+  "description": zod.string(),
+  "account": zod.string(),
+  "debit": zod.number().min(createJournalEntryResponseLinesItemDebitMin),
+  "credit": zod.number().min(createJournalEntryResponseLinesItemCreditMin)
+})),
+  "functionalCurrency": zod.string().nullish(),
+  "functionalAmount": zod.number().nullish(),
+  "exchangeRate": zod.number().nullish(),
+  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
+  "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
+  "exchangeRateStatus": zod.string().optional()
+})
+
+
+/**
+ * @summary Update a draft manual journal entry
+ */
 export const UpdateJournalEntryParams = zod.object({
   "id": zod.coerce.number()
 })
 
-export const UpdateJournalEntryBody = CreateJournalEntryBody
+export const updateJournalEntryBodyMemoMax = 500;
 
-export const UpdateJournalEntryResponse = GetJournalEntriesResponseItem
+export const updateJournalEntryBodyCurrencyMin = 3;
+export const updateJournalEntryBodyCurrencyMax = 3;
 
+export const updateJournalEntryBodyLinesItemDescriptionMax = 500;
+
+export const updateJournalEntryBodyLinesItemAccountMax = 160;
+
+export const updateJournalEntryBodyLinesItemDebitMin = 0;
+
+export const updateJournalEntryBodyLinesItemCreditMin = 0;
+
+export const updateJournalEntryBodyLinesMin = 2;
+export const updateJournalEntryBodyLinesMax = 100;
+
+
+
+export const UpdateJournalEntryBody = zod.object({
+  "clientId": zod.number(),
+  "date": zod.coerce.date(),
+  "memo": zod.string().min(1).max(updateJournalEntryBodyMemoMax),
+  "currency": zod.string().min(updateJournalEntryBodyCurrencyMin).max(updateJournalEntryBodyCurrencyMax),
+  "lines": zod.array(zod.object({
+  "description": zod.string().max(updateJournalEntryBodyLinesItemDescriptionMax),
+  "account": zod.string().min(1).max(updateJournalEntryBodyLinesItemAccountMax),
+  "debit": zod.number().min(updateJournalEntryBodyLinesItemDebitMin),
+  "credit": zod.number().min(updateJournalEntryBodyLinesItemCreditMin)
+})).min(updateJournalEntryBodyLinesMin).max(updateJournalEntryBodyLinesMax),
+  "contactId": zod.number().nullish()
+})
+
+export const updateJournalEntryResponseLinesItemDebitMin = 0;
+
+export const updateJournalEntryResponseLinesItemCreditMin = 0;
+
+
+
+export const UpdateJournalEntryResponse = zod.object({
+  "id": zod.number(),
+  "statementLineId": zod.number().nullable(),
+  "source": zod.enum(['statement', 'manual']),
+  "contactId": zod.number().nullish(),
+  "contactName": zod.string().nullish(),
+  "date": zod.string(),
+  "memo": zod.string(),
+  "currency": zod.string(),
+  "status": zod.enum(['draft', 'posted']),
+  "confidence": zod.number(),
+  "lines": zod.array(zod.object({
+  "description": zod.string(),
+  "account": zod.string(),
+  "debit": zod.number().min(updateJournalEntryResponseLinesItemDebitMin),
+  "credit": zod.number().min(updateJournalEntryResponseLinesItemCreditMin)
+})),
+  "functionalCurrency": zod.string().nullish(),
+  "functionalAmount": zod.number().nullish(),
+  "exchangeRate": zod.number().nullish(),
+  "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
+  "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
+  "exchangeRateStatus": zod.string().optional()
+})
+
+
+/**
+ * @summary Delete a draft manual journal entry
+ */
 export const DeleteJournalEntryParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -3009,6 +3262,8 @@ export const DeleteJournalEntryParams = zod.object({
 export const DeleteJournalEntryBody = zod.object({
   "clientId": zod.number()
 })
+
+export const DeleteJournalEntryResponse = zod.void()
 
 
 /**
@@ -3023,6 +3278,7 @@ export const postJournalEntryBodyProposedContactNameMax = 160;
 export const postJournalEntryBodyProposedContactAliasMax = 160;
 
 
+
 export const PostJournalEntryBody = zod.object({
   "clientId": zod.number(),
   "accountSuggestion": zod.string().nullish(),
@@ -3031,6 +3287,12 @@ export const PostJournalEntryBody = zod.object({
   "proposedContactType": zod.union([zod.literal('customer'),zod.literal('supplier'),zod.literal('both'),zod.literal(null)]).nullish(),
   "proposedContactAlias": zod.string().min(1).max(postJournalEntryBodyProposedContactAliasMax).nullish()
 })
+
+export const postJournalEntryResponseLinesItemDebitMin = 0;
+
+export const postJournalEntryResponseLinesItemCreditMin = 0;
+
+
 
 export const PostJournalEntryResponse = zod.object({
   "id": zod.number(),
@@ -3044,28 +3306,17 @@ export const PostJournalEntryResponse = zod.object({
   "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
+  "description": zod.string(),
   "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
+  "debit": zod.number().min(postJournalEntryResponseLinesItemDebitMin),
+  "credit": zod.number().min(postJournalEntryResponseLinesItemCreditMin)
 })),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional(),
-  "noteSummary": zod.object({
-  "hasNote": zod.boolean(),
-  "latestNotePreview": zod.string().nullish(),
-  "latestNoteAt": zod.coerce.date().nullish(),
-  "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
-  "requestId": zod.number(),
-  "recipientEmail": zod.string(),
-  "sentAt": zod.coerce.date(),
-  "expiresAt": zod.coerce.date()
-}).nullish()
+  "exchangeRateStatus": zod.string().optional()
 })
 
 
@@ -3080,6 +3331,12 @@ export const UnpostJournalEntryBody = zod.object({
   "clientId": zod.number()
 })
 
+export const unpostJournalEntryResponseLinesItemDebitMin = 0;
+
+export const unpostJournalEntryResponseLinesItemCreditMin = 0;
+
+
+
 export const UnpostJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
@@ -3092,28 +3349,17 @@ export const UnpostJournalEntryResponse = zod.object({
   "status": zod.enum(['draft', 'posted']),
   "confidence": zod.number(),
   "lines": zod.array(zod.object({
+  "description": zod.string(),
   "account": zod.string(),
-  "debit": zod.number(),
-  "credit": zod.number()
+  "debit": zod.number().min(unpostJournalEntryResponseLinesItemDebitMin),
+  "credit": zod.number().min(unpostJournalEntryResponseLinesItemCreditMin)
 })),
   "functionalCurrency": zod.string().nullish(),
   "functionalAmount": zod.number().nullish(),
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional(),
-  "noteSummary": zod.object({
-  "hasNote": zod.boolean(),
-  "latestNotePreview": zod.string().nullish(),
-  "latestNoteAt": zod.coerce.date().nullish(),
-  "attachmentCount": zod.number()
-}).optional(),
-  "pendingClarification": zod.object({
-  "requestId": zod.number(),
-  "recipientEmail": zod.string(),
-  "sentAt": zod.coerce.date(),
-  "expiresAt": zod.coerce.date()
-}).nullish()
+  "exchangeRateStatus": zod.string().optional()
 })
 
 
@@ -3252,6 +3498,7 @@ export const GetReportPacksResponse = zod.array(GetReportPacksResponseItem)
  */
 export const createReportPackBodyPresentationCurrencyMin = 3;
 export const createReportPackBodyPresentationCurrencyMax = 3;
+
 
 
 export const CreateReportPackBody = zod.object({
@@ -3891,6 +4138,7 @@ export const listFeedbackPostsQueryLimitDefault = 20;
 export const listFeedbackPostsQueryLimitMax = 50;
 
 
+
 export const ListFeedbackPostsQueryParams = zod.object({
   "limit": zod.coerce.number().min(1).max(listFeedbackPostsQueryLimitMax).default(listFeedbackPostsQueryLimitDefault),
   "cursor": zod.coerce.string().optional()
@@ -3930,6 +4178,7 @@ export const createFeedbackPostBodyBodyMax = 2000;
 
 export const createFeedbackPostBodyLinksItemRegExp = new RegExp('^https:[/][/]');
 export const createFeedbackPostBodyLinksMax = 5;
+
 
 
 export const CreateFeedbackPostBody = zod.object({
@@ -4020,6 +4269,7 @@ export const CreateFeedbackReplyParams = zod.object({
 })
 
 export const createFeedbackReplyBodyBodyMax = 1000;
+
 
 
 export const CreateFeedbackReplyBody = zod.object({
@@ -4181,6 +4431,7 @@ export const createLedgerflowAccountBodyAccountNameMax = 160;
 export const createLedgerflowAccountBodyDisplayNameMax = 160;
 
 
+
 export const CreateLedgerflowAccountBody = zod.object({
   "clientId": zod.number(),
   "accountCode": zod.string().min(1).max(createLedgerflowAccountBodyAccountCodeMax),
@@ -4233,6 +4484,7 @@ export const updateLedgerflowAccountBodyOneAccountCodeMax = 40;
 export const updateLedgerflowAccountBodyOneAccountNameMax = 160;
 
 export const updateLedgerflowAccountBodyOneDisplayNameMax = 160;
+
 
 
 export const UpdateLedgerflowAccountBody = zod.object({
@@ -4361,4 +4613,5 @@ export const GetUaeCorporateTaxSummaryResponse = zod.object({
   "reviewAmount": zod.number()
 }))
 })
+
 

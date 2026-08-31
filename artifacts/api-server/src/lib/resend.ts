@@ -14,6 +14,7 @@ type OutboundEmail = {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 };
 
 type ResendResponse = {
@@ -46,7 +47,7 @@ function verifiedFromAddress() {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
     throw new EmailDeliveryError("The configured Resend sender is not a valid email address.");
   }
-  return from;
+  return `AgarAccounting AI <${address}>`;
 }
 
 async function sendEmail(
@@ -78,6 +79,7 @@ async function sendEmail(
         to: [email.to],
         subject: email.subject,
         text: email.text,
+         ...(email.html ? { html: email.html } : {}),
       }),
     });
   } catch {

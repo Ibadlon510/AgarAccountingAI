@@ -111,6 +111,10 @@ const nav = [
   { href: '/client-settings', label: 'Client settings', icon: Settings2 },
 ];
 const money = (value: number, currency = 'AED') => new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(value);
+const isInflowDirection = (direction: string) => {
+  const normalized = direction.trim().toLowerCase();
+  return normalized === 'inflow' || normalized === 'credit';
+};
 const reportMoney = (value: number) => {
   const absolute = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(value));
   return value < 0 ? `(${absolute})` : absolute;
@@ -682,7 +686,7 @@ function ClientSettingsPage() {
           <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Import another statement to add a new account.</p></div></div>
           <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
         </section>
-        <RemarksLinksSettings clientId={activeClient.id} />
+        <RemarksLinksSettings clientId={activeClient.id} clientName={activeClient.name} />
         {false && <WorkspaceUsageSection />}
         <div id="ai-connection" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <AIProviderSettingsPanel clientId={activeClient.id} />
@@ -1977,26 +1981,22 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
   const accounts = (accountQuery.data ?? []).filter((account) => account.isActive);
   const create = useCreateJournalEntry();
   const update = useUpdateJournalEntry();
-  const debitLine = entry?.lines.find((line) => line.debit > 0);
-  const creditLine = entry?.lines.find((line) => line.credit > 0);
   const [form, setForm] = useState({
     date: entry?.date ?? calendarInputDate(),
     memo: entry?.memo ?? '',
     currency: entry?.currency ?? activeClient?.functionalCurrency ?? 'AED',
-    amount: debitLine?.debit ?? creditLine?.credit ?? 0,
-    debitAccount: debitLine?.account ?? accounts.find((account) => account.accountName === 'Rent expense')?.accountName ?? accounts[0]?.accountName ?? '',
-    creditAccount: creditLine?.account ?? accounts.find((account) => account.accountName === 'Accrued expenses')?.accountName ?? accounts.find((account) => account.accountName === 'Bank / cash')?.accountName ?? accounts[1]?.accountName ?? '',
   });
+  const [lines, setLines] = useState(() => entry?.lines.map((line) => ({ ...line, description: line.description ?? '' })) ?? [
+    { description: '', account: '', debit: 0, credit: 0 },
+    { description: '', account: '', debit: 0, credit: 0 },
+  ]);
   useEffect(() => {
     if (entry || !accounts.length) return;
-    setForm((current) => ({
-      ...current,
-      debitAccount: current.debitAccount && accounts.some((account) => account.accountName === current.debitAccount)
-        ? current.debitAccount
-        : accounts.find((account) => account.accountName === 'Rent expense')?.accountName ?? accounts[0]?.accountName ?? '',
-      creditAccount: current.creditAccount && accounts.some((account) => account.accountName === current.creditAccount)
-        ? current.creditAccount
-        : accounts.find((account) => account.accountName === 'Accrued expenses')?.accountName ?? accounts.find((account) => account.accountName !== current.debitAccount)?.accountName ?? '',
+    setLines((current) => current.map((line, index) => line.account ? line : {
+      ...line,
+      account: index === 0
+        ? accounts.find((account) => account.accountName === 'Rent expense')?.accountName ?? accounts[0]?.accountName ?? ''
+        : accounts.find((account) => account.accountName === 'Accrued expenses')?.accountName ?? accounts[1]?.accountName ?? accounts[0]?.accountName ?? '',
     }));
   }, [accounts, entry]);
   useEffect(() => {
@@ -2011,15 +2011,17 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
   const saving = create.isPending || update.isPending;
   const functionalCurrency = activeClient?.functionalCurrency ?? 'AED';
   const needsRate = form.currency !== functionalCurrency;
-  const unbalanced = accountQuery.isLoading || !form.debitAccount || !form.creditAccount || form.debitAccount === form.creditAccount || !form.amount || !form.memo.trim();
+  const totalDebit = lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+  const totalCredit = lines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+  const balanced = totalDebit > 0 && Math.abs(totalDebit - totalCredit) < 0.005;
+  const invalidLine = lines.some((line) => !line.account || (Number(line.debit) > 0) === (Number(line.credit) > 0));
+  const unbalanced = accountQuery.isLoading || lines.length < 2 || invalidLine || !balanced || !form.memo.trim();
   const payload: JournalEntryInput = {
     clientId,
     date: form.date,
     memo: form.memo.trim(),
     currency: form.currency,
-    amount: form.amount,
-    debitAccount: form.debitAccount,
-    creditAccount: form.creditAccount,
+    lines: lines.map((line) => ({ ...line, description: line.description.trim(), debit: Number(line.debit || 0), credit: Number(line.credit || 0) })),
   };
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -2036,7 +2038,7 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
     create.mutate({ data: payload }, {
       onSuccess: () => {
         onClose();
-        notify.success('Manual journal entry saved', { description: `${payload.memo} · ${payload.amount}` });
+        notify.success('Manual journal entry saved', { description: `${payload.memo} · ${money(totalDebit, form.currency)}` });
       },
     });
   };
@@ -2057,20 +2059,22 @@ function AddJournalEntryDialog({ entry, onClose }: { entry?: JournalEntry; onClo
         <form onSubmit={submit} className="mt-6 space-y-4">
           <label className="block text-xs font-medium">Date<input data-testid="input-journal-date" required type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
           <label className="block text-xs font-medium">Memo<input data-testid="input-journal-memo" required value={form.memo} onChange={(event) => setForm((current) => ({ ...current, memo: event.target.value }))} placeholder="e.g. Accrue August rent" className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-xs font-medium">Amount<input data-testid="input-journal-amount" required min="0.01" step=".01" type="number" value={form.amount || ''} onChange={(event) => setForm((current) => ({ ...current, amount: Number(event.target.value) }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus:border-primary" /></label>
-            <label className="block text-xs font-medium">Currency<select data-testid="select-journal-currency" value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option></select></label>
+          <label className="block text-xs font-medium">Currency<select data-testid="select-journal-currency" value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option>AED</option><option>USD</option><option>EUR</option><option>GBP</option><option>CAD</option></select></label>
+          <div className="overflow-x-auto rounded-md border border-border">
+            <table className="w-full min-w-[680px] text-xs">
+              <thead className="bg-muted/60 text-left text-[10px] uppercase tracking-wider text-muted-foreground"><tr><th className="p-2">Account</th><th className="p-2">Description</th><th className="p-2 text-right">Debit</th><th className="p-2 text-right">Credit</th><th className="w-9" /></tr></thead>
+              <tbody>{lines.map((line, index) => <tr key={index} className="border-t border-border">
+                <td className="p-1.5"><select data-testid={`select-journal-account-${index}`} required value={line.account} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, account: event.target.value } : item))} className="h-9 w-full rounded border border-input bg-background px-2"><option value="">Choose account</option>{accountOptions}</select></td>
+                <td className="p-1.5"><input data-testid={`input-journal-line-description-${index}`} value={line.description} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, description: event.target.value } : item))} className="h-9 w-full rounded border border-input bg-background px-2" placeholder="Line description" /></td>
+                <td className="p-1.5"><input data-testid={`input-journal-debit-${index}`} min="0" step=".01" type="number" value={line.debit || ''} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, debit: Number(event.target.value), credit: event.target.value ? 0 : item.credit } : item))} className="h-9 w-full rounded border border-input bg-background px-2 text-right font-mono" /></td>
+                <td className="p-1.5"><input data-testid={`input-journal-credit-${index}`} min="0" step=".01" type="number" value={line.credit || ''} onChange={(event) => setLines((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, credit: Number(event.target.value), debit: event.target.value ? 0 : item.debit } : item))} className="h-9 w-full rounded border border-input bg-background px-2 text-right font-mono" /></td>
+                <td className="p-1"><button type="button" aria-label={`Remove line ${index + 1}`} disabled={lines.length <= 2} onClick={() => setLines((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="rounded p-2 text-muted-foreground hover:bg-muted hover:text-destructive disabled:opacity-25"><Trash2 size={14} /></button></td>
+              </tr>)}</tbody>
+              <tfoot className="border-t border-border bg-muted/40 font-semibold"><tr><td colSpan={2} className="p-2">Totals</td><td className="p-2 text-right font-mono">{money(totalDebit, form.currency)}</td><td className="p-2 text-right font-mono">{money(totalCredit, form.currency)}</td><td /></tr></tfoot>
+            </table>
           </div>
-          <label className="block text-xs font-medium">Debit account<select data-testid="select-journal-debit-account" required value={form.debitAccount} onChange={(event) => setForm((current) => ({ ...current, debitAccount: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary">{accountQuery.isLoading ? <option>Loading accounts…</option> : accountOptions}</select></label>
-          <label className="block text-xs font-medium">Credit account<select data-testid="select-journal-credit-account" required value={form.creditAccount} onChange={(event) => setForm((current) => ({ ...current, creditAccount: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary">{accountQuery.isLoading ? <option>Loading accounts…</option> : accountOptions}</select></label>
-          {form.amount > 0 && form.debitAccount && form.creditAccount && form.debitAccount !== form.creditAccount && (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px]">
-              <div className="flex justify-between gap-3"><span>Dr {form.debitAccount}</span><span className="font-mono">{money(form.amount, form.currency)}</span></div>
-              <div className="mt-1 flex justify-between gap-3"><span>Cr {form.creditAccount}</span><span className="font-mono">{money(form.amount, form.currency)}</span></div>
-            </div>
-          )}
+          <div className="flex items-center justify-between gap-3"><button type="button" onClick={() => setLines((current) => [...current, { description: '', account: '', debit: 0, credit: 0 }])} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold hover:bg-muted"><Plus size={13} /> Add line</button><span className={`text-xs font-semibold ${balanced ? 'text-primary' : 'text-destructive'}`}>{balanced ? 'Entry is balanced' : `Out of balance by ${money(Math.abs(totalDebit - totalCredit), form.currency)}`}</span></div>
           {needsRate && <p className="text-[11px] leading-5 text-muted-foreground">This currency is not {functionalCurrency}. Posting needs an exchange rate for {form.date || 'this date'}.</p>}
-          {form.debitAccount && form.creditAccount && form.debitAccount === form.creditAccount && <p className="text-xs text-destructive">Choose two different accounts so the entry stays in balance.</p>}
           {(create.isError || update.isError) && <p className="text-xs text-destructive">{readErrorMessage(create.error ?? update.error, 'This journal entry could not be saved. Check the accounts and try again.')}</p>}
           <button data-testid="button-submit-journal" disabled={saving || unbalanced} className="flex h-10 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-semibold text-primary-foreground disabled:opacity-50">{saving ? 'Saving entry…' : <><Plus size={14} /> {entry ? 'Save changes' : 'Save as draft'}</>}</button>
         </form>
@@ -2326,7 +2330,7 @@ function ContactDetailsPanel({ contact }: { contact: Contact }) {
               <div key={item.statementLineId} className="rounded-md border border-border p-3 text-[11px]">
                 <div className="flex items-start justify-between">
                   <span className="font-mono text-muted-foreground">{shortDate(item.date)}</span>
-                  <span className="font-mono font-medium">{item.direction === 'inflow' ? '+' : '−'}{money(item.amount, item.currency)}</span>
+                  <span className="font-mono font-medium">{isInflowDirection(item.direction) ? '+' : '−'}{money(item.amount, item.currency)}</span>
                 </div>
                 <div className="mt-1.5 font-semibold">{item.description}</div>
                 <div className="mt-1.5 flex items-center justify-between">
@@ -3301,7 +3305,7 @@ function StatementLinesPage() {
     </QueryState>
     {addOpen && <AddLineDialog onClose={() => { setAddOpen(false); queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }); }} />}
     {bulkAction && <BulkStatementActionDialog action={bulkAction} lines={rows.filter((line) => bulkAction.lineIds.includes(line.id))} pending={bulkMutation.isPending} error={bulkError} onCancel={cancelBulkAction} onConfirm={confirmBulkAction} />}
-    {sendRemarksOpen && <SendForRemarksDialog clientId={journalParams.clientId} lines={selectedLines} onClose={() => setSendRemarksOpen(false)} onSent={() => { setSendRemarksOpen(false); setSelectedLineIds([]); query.refetch(); }} />}
+    {sendRemarksOpen && activeClient && <SendForRemarksDialog clientId={journalParams.clientId} clientName={activeClient.name} lines={selectedLines} onClose={() => setSendRemarksOpen(false)} onSent={() => { setSendRemarksOpen(false); setSelectedLineIds([]); query.refetch(); }} />}
     <StatementLineNotesDrawer line={notesLine} clientId={journalParams.clientId} onClose={() => setNotesLine(null)} />
   </div>;
 }
@@ -3321,7 +3325,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const canConfirmClassification = !posted && entry?.status.toLowerCase() === 'draft';
   const accountConfirmationRequired = line.accountConfirmationRequired;
   const journalClassifiedAccount = entry
-    ? (line.direction === 'inflow'
+    ? (isInflowDirection(line.direction)
       ? entry.lines.find((item) => item.credit > 0)?.account
       : entry.lines.find((item) => item.debit > 0)?.account)
     : undefined;
@@ -3348,9 +3352,11 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const previewLines = useMemo(() => {
     const rows = entry?.lines ?? [];
     if (!selectedAccount) return rows;
-    const inflow = line.direction === 'inflow';
+    const inflow = isInflowDirection(line.direction);
     return rows.map((journalLine) => {
+      const bankLeg = inflow ? journalLine.debit > 0 : journalLine.credit > 0;
       const classifiedLeg = inflow ? journalLine.credit > 0 : journalLine.debit > 0;
+      if (bankLeg) return { ...journalLine, account: 'Bank / cash' };
       return classifiedLeg ? { ...journalLine, account: selectedAccount } : journalLine;
     });
   }, [entry?.lines, selectedAccount, line.direction]);
@@ -3372,9 +3378,9 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
   const contactSelectionEditedRef = useRef(false);
   const [proposedContactName, setProposedContactName] = useState(line.proposedContactName ?? '');
   const [proposedContactType, setProposedContactType] = useState<'customer' | 'supplier' | 'both'>(
-    line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'),
+    line.proposedContactType ?? (isInflowDirection(line.direction) ? 'customer' : 'supplier'),
   );
-  const likelyContactType = line.direction === 'inflow' ? 'customer' : 'supplier';
+  const likelyContactType = isInflowDirection(line.direction) ? 'customer' : 'supplier';
   const hasTemporaryProposal = line.contactDecisionState === 'named_proposal';
   const needsIdentification = line.contactDecisionState === 'needs_identification';
   const contactProposalSource = line.proposedContactSource === 'ai_counterparty_extraction'
@@ -3395,7 +3401,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
       return line.contactId ? String(line.contactId) : '';
     });
     setProposedContactName(line.proposedContactName ?? '');
-    setProposedContactType(line.proposedContactType ?? (line.direction === 'inflow' ? 'customer' : 'supplier'));
+    setProposedContactType(line.proposedContactType ?? (isInflowDirection(line.direction) ? 'customer' : 'supplier'));
   }, [contacts, line.contactId, line.proposedContactName, line.proposedContactType, line.direction]);
 
   const toggleFromRow = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
@@ -3541,7 +3547,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                 </thead>
                 <tbody className="divide-y divide-border">
                   {previewLines.map((journalLine, index) => {
-                    const classifiedLeg = line.direction === 'inflow' ? journalLine.credit > 0 : journalLine.debit > 0;
+                    const classifiedLeg = isInflowDirection(line.direction) ? journalLine.credit > 0 : journalLine.debit > 0;
                     return (
                       <tr key={`${entry.id}-${index}`}>
                         <td

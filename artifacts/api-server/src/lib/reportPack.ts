@@ -422,6 +422,22 @@ function between(date: string, start: string, end: string) {
   return date >= start && date <= end;
 }
 
+function entryLines(entry: Entry, amount: number) {
+  const lines = Array.isArray(entry.lines) && entry.lines.length >= 2
+    ? entry.lines
+    : [
+      { description: entry.memo, account: entry.debitAccount, debit: Number(entry.amount), credit: 0 },
+      { description: entry.memo, account: entry.creditAccount, debit: 0, credit: Number(entry.amount) },
+    ];
+  const sourceTotal = lines.reduce((sum, line) => sum + Number(line.debit), 0);
+  const factor = sourceTotal > 0 ? amount / sourceTotal : 1;
+  return lines.map((line) => ({
+    account: String(line.account),
+    debit: Number(line.debit) * factor,
+    credit: Number(line.credit) * factor,
+  }));
+}
+
 function reportAmount(label: string, current: number, comparative: number, noteNumber: number, currentEntries: Set<number>, comparativeEntries: Set<number>, currentLines: Set<number>, comparativeLines: Set<number>, children?: ReportAmount[]): ReportAmount {
   return {
     label,
@@ -525,13 +541,17 @@ export function buildReportPack(input: {
   const convertedAmount = (entry: Entry) => Number(entry.functionalAmount ?? entry.amount);
   for (const entry of cumulativeCurrentEntries) {
     const amount = convertedAmount(entry);
-    add(entry.debitAccount, amount, true, entry, "current", true);
-    add(entry.creditAccount, amount, false, entry, "current", true);
+    for (const line of entryLines(entry, amount)) {
+      if (line.debit) add(line.account, line.debit, true, entry, "current", true);
+      if (line.credit) add(line.account, line.credit, false, entry, "current", true);
+    }
   }
   for (const entry of cumulativeComparativeEntries) {
     const amount = convertedAmount(entry);
-    add(entry.debitAccount, amount, true, entry, "comparative", true);
-    add(entry.creditAccount, amount, false, entry, "comparative", true);
+    for (const line of entryLines(entry, amount)) {
+      if (line.debit) add(line.account, line.debit, true, entry, "comparative", true);
+      if (line.credit) add(line.account, line.credit, false, entry, "comparative", true);
+    }
   }
 
   const values = [...balances.values()];
@@ -560,11 +580,11 @@ export function buildReportPack(input: {
   const openingCash = cashComparative;
   const cashMovement = cashCurrent - openingCash;
   const operatingCash = currentEntries.reduce((total, entry) => {
-    if (/inter[\s-]?account transfer/i.test(entry.debitAccount) || /inter[\s-]?account transfer/i.test(entry.creditAccount)) {
-      return total;
-    }
     const amount = convertedAmount(entry);
-    return total + (entry.debitAccount === "Bank / cash" ? amount : entry.creditAccount === "Bank / cash" ? -amount : 0);
+    return total + entryLines(entry, amount).reduce((movement, line) => {
+      if (/inter[\s-]?account transfer/i.test(line.account)) return movement;
+      return movement + (line.account === "Bank / cash" ? line.debit - line.credit : 0);
+    }, 0);
   }, 0);
   const investingCash = 0;
   const financingCash = 0;
@@ -808,7 +828,7 @@ export function finalizationValidation(previous: ReportValidation, notes: Report
 
 export function inferredClassifications(entries: Entry[], existing: Classification[]) {
   const existingAccounts = new Set(existing.map((item) => item.accountName));
-  return [...new Set(entries.flatMap((entry) => [entry.debitAccount, entry.creditAccount]))]
+  return [...new Set(entries.flatMap((entry) => entryLines(entry, Number(entry.amount)).map((line) => line.account)))]
     .filter((account) => !existingAccounts.has(account))
     .map((account) => {
       const meta = standardAccountMeta(account);

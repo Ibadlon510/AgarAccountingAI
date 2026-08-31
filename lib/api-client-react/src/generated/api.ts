@@ -49,6 +49,7 @@ import type {
   ContactMergeResponse,
   ContactUpdate,
   CreateExchangeRateParams,
+  DeleteJournalEntryInput,
   ExchangeRate,
   ExchangeRateImportInput,
   ExchangeRateImportResult,
@@ -83,6 +84,7 @@ import type {
   GetLedgerflowAccountsParams,
   GetReportPacksParams,
   GetStatementImportsParams,
+  GetStatementLineNotesParams,
   GetStatementLinesParams,
   GetTrialBalanceAccountTransactionsParams,
   GetTrialBalanceParams,
@@ -93,13 +95,13 @@ import type {
   InvitationDeliveryError,
   JournalEntry,
   JournalEntryInput,
-  DeleteJournalEntryInput,
   LedgerOverview,
   LedgerflowAccount,
   LedgerflowAccountInput,
   LedgerflowAccountMutation,
   LedgerflowAccountUpdate,
   ListFeedbackPostsParams,
+  ListStatementLineDetailRequestsParams,
   LogoutBrowserSessionParams,
   LogoutSuccess,
   MobileTokenExchangeRequest,
@@ -109,6 +111,9 @@ import type {
   OrganizationInviteInput,
   OrganizationOnboardingInput,
   PostJournalEntryInput,
+  PublicStatementLine,
+  PublicStatementLineRemarkInput,
+  PublicStatementLineRequest,
   ReportPack,
   ReportPackInput,
   ReportPackSummary,
@@ -120,8 +125,12 @@ import type {
   StatementImportUndoResult,
   StatementLine,
   StatementLineContactInput,
+  StatementLineDetailRequest,
+  StatementLineDetailRequestInput,
+  StatementLineDetailRequestRevokeInput,
   StatementLineExportInput,
   StatementLineInput,
+  StatementLineNotes,
   SystemAdminClaimResult,
   SystemRate,
   SystemRateClearResult,
@@ -3990,7 +3999,7 @@ export const exportStatementLines = async (statementLineExportInput: StatementLi
 
 
 
-export const getExportStatementLinesMutationOptions = <TError = ErrorType<unknown>,
+export const getExportStatementLinesMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportStatementLines>>, TError,{data: BodyType<StatementLineExportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof exportStatementLines>>, TError,{data: BodyType<StatementLineExportInput>}, TContext> => {
 
@@ -4019,12 +4028,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ExportStatementLinesMutationResult = NonNullable<Awaited<ReturnType<typeof exportStatementLines>>>
     export type ExportStatementLinesMutationBody = BodyType<StatementLineExportInput>
-    export type ExportStatementLinesMutationError = ErrorType<unknown>
+    export type ExportStatementLinesMutationError = ErrorType<void>
 
     /**
  * @summary Export selected statement lines as Excel or PDF
  */
-export const useExportStatementLines = <TError = ErrorType<unknown>,
+export const useExportStatementLines = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportStatementLines>>, TError,{data: BodyType<StatementLineExportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof exportStatementLines>>,
@@ -4034,6 +4043,560 @@ export const useExportStatementLines = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getExportStatementLinesMutationOptions(options));
     }
+
+export const getRequestStatementLineDetailsUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/statement-lines/request-details`
+}
+
+/**
+ * @summary Email a public remarks link for selected draft statement lines
+ */
+export const requestStatementLineDetails = async (statementLineDetailRequestInput: StatementLineDetailRequestInput, options?: Parameters<typeof customFetch>[1]): Promise<StatementLineDetailRequest> => {
+
+  return customFetch<StatementLineDetailRequest>(getRequestStatementLineDetailsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(statementLineDetailRequestInput)
+  }
+);}
+
+
+
+
+
+export const getRequestStatementLineDetailsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestStatementLineDetails>>, TError,{data: BodyType<StatementLineDetailRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof requestStatementLineDetails>>, TError,{data: BodyType<StatementLineDetailRequestInput>}, TContext> => {
+
+const mutationKey = ['requestStatementLineDetails'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof requestStatementLineDetails>>, {data: BodyType<StatementLineDetailRequestInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  requestStatementLineDetails(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RequestStatementLineDetailsMutationResult = NonNullable<Awaited<ReturnType<typeof requestStatementLineDetails>>>
+    export type RequestStatementLineDetailsMutationBody = BodyType<StatementLineDetailRequestInput>
+    export type RequestStatementLineDetailsMutationError = ErrorType<void>
+
+    /**
+ * @summary Email a public remarks link for selected draft statement lines
+ */
+export const useRequestStatementLineDetails = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof requestStatementLineDetails>>, TError,{data: BodyType<StatementLineDetailRequestInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof requestStatementLineDetails>>,
+        TError,
+        {data: BodyType<StatementLineDetailRequestInput>},
+        TContext
+      > => {
+      return useMutation(getRequestStatementLineDetailsMutationOptions(options));
+    }
+
+export const getListStatementLineDetailRequestsUrl = (params: ListStatementLineDetailRequestsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/statement-lines/detail-requests?${stringifiedParams}` : `/api/agaraccounting/statement-lines/detail-requests`
+}
+
+/**
+ * @summary List remarks links for a client
+ */
+export const listStatementLineDetailRequests = async (params: ListStatementLineDetailRequestsParams, options?: Parameters<typeof customFetch>[1]): Promise<StatementLineDetailRequest[]> => {
+
+  return customFetch<StatementLineDetailRequest[]>(getListStatementLineDetailRequestsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListStatementLineDetailRequestsQueryKey = (params?: ListStatementLineDetailRequestsParams,) => {
+    return [
+    `/api/agaraccounting/statement-lines/detail-requests`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListStatementLineDetailRequestsQueryOptions = <TData = Awaited<ReturnType<typeof listStatementLineDetailRequests>>, TError = ErrorType<void>>(params: ListStatementLineDetailRequestsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listStatementLineDetailRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListStatementLineDetailRequestsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listStatementLineDetailRequests>>> = ({ signal }) => listStatementLineDetailRequests(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listStatementLineDetailRequests>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListStatementLineDetailRequestsQueryResult = NonNullable<Awaited<ReturnType<typeof listStatementLineDetailRequests>>>
+export type ListStatementLineDetailRequestsQueryError = ErrorType<void>
+
+
+/**
+ * @summary List remarks links for a client
+ */
+
+export function useListStatementLineDetailRequests<TData = Awaited<ReturnType<typeof listStatementLineDetailRequests>>, TError = ErrorType<void>>(
+ params: ListStatementLineDetailRequestsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listStatementLineDetailRequests>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListStatementLineDetailRequestsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRevokeStatementLineDetailRequestUrl = (id: number,) => {
+
+
+
+
+  return `/api/agaraccounting/statement-lines/detail-requests/${id}/revoke`
+}
+
+/**
+ * @summary Revoke a public remarks link
+ */
+export const revokeStatementLineDetailRequest = async (id: number,
+    statementLineDetailRequestRevokeInput: StatementLineDetailRequestRevokeInput, options?: Parameters<typeof customFetch>[1]): Promise<StatementLineDetailRequest> => {
+
+  return customFetch<StatementLineDetailRequest>(getRevokeStatementLineDetailRequestUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(statementLineDetailRequestRevokeInput)
+  }
+);}
+
+
+
+
+
+export const getRevokeStatementLineDetailRequestMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeStatementLineDetailRequest>>, TError,{id: number;data: BodyType<StatementLineDetailRequestRevokeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeStatementLineDetailRequest>>, TError,{id: number;data: BodyType<StatementLineDetailRequestRevokeInput>}, TContext> => {
+
+const mutationKey = ['revokeStatementLineDetailRequest'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeStatementLineDetailRequest>>, {id: number;data: BodyType<StatementLineDetailRequestRevokeInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  revokeStatementLineDetailRequest(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeStatementLineDetailRequestMutationResult = NonNullable<Awaited<ReturnType<typeof revokeStatementLineDetailRequest>>>
+    export type RevokeStatementLineDetailRequestMutationBody = BodyType<StatementLineDetailRequestRevokeInput>
+    export type RevokeStatementLineDetailRequestMutationError = ErrorType<void>
+
+    /**
+ * @summary Revoke a public remarks link
+ */
+export const useRevokeStatementLineDetailRequest = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeStatementLineDetailRequest>>, TError,{id: number;data: BodyType<StatementLineDetailRequestRevokeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeStatementLineDetailRequest>>,
+        TError,
+        {id: number;data: BodyType<StatementLineDetailRequestRevokeInput>},
+        TContext
+      > => {
+      return useMutation(getRevokeStatementLineDetailRequestMutationOptions(options));
+    }
+
+export const getGetStatementLineNotesUrl = (id: number,
+    params: GetStatementLineNotesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/statement-lines/${id}/notes?${stringifiedParams}` : `/api/agaraccounting/statement-lines/${id}/notes`
+}
+
+/**
+ * @summary List remarks and attachments on a statement line
+ */
+export const getStatementLineNotes = async (id: number,
+    params: GetStatementLineNotesParams, options?: Parameters<typeof customFetch>[1]): Promise<StatementLineNotes> => {
+
+  return customFetch<StatementLineNotes>(getGetStatementLineNotesUrl(id,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStatementLineNotesQueryKey = (id: number,
+    params?: GetStatementLineNotesParams,) => {
+    return [
+    `/api/agaraccounting/statement-lines/${id}/notes`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetStatementLineNotesQueryOptions = <TData = Awaited<ReturnType<typeof getStatementLineNotes>>, TError = ErrorType<void>>(id: number,
+    params: GetStatementLineNotesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStatementLineNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStatementLineNotesQueryKey(id,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStatementLineNotes>>> = ({ signal }) => getStatementLineNotes(id,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStatementLineNotes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStatementLineNotesQueryResult = NonNullable<Awaited<ReturnType<typeof getStatementLineNotes>>>
+export type GetStatementLineNotesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List remarks and attachments on a statement line
+ */
+
+export function useGetStatementLineNotes<TData = Awaited<ReturnType<typeof getStatementLineNotes>>, TError = ErrorType<void>>(
+ id: number,
+    params: GetStatementLineNotesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStatementLineNotes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStatementLineNotesQueryOptions(id,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPublicStatementLineRequestUrl = (token: string,) => {
+
+
+
+
+  return `/api/public/statement-line-requests/${token}`
+}
+
+/**
+ * @summary Load a public remarks request by token
+ */
+export const getPublicStatementLineRequest = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicStatementLineRequest> => {
+
+  return customFetch<PublicStatementLineRequest>(getGetPublicStatementLineRequestUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicStatementLineRequestQueryKey = (token: string,) => {
+    return [
+    `/api/public/statement-line-requests/${token}`
+    ] as const;
+    }
+
+
+export const getGetPublicStatementLineRequestQueryOptions = <TData = Awaited<ReturnType<typeof getPublicStatementLineRequest>>, TError = ErrorType<void>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStatementLineRequest>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicStatementLineRequestQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicStatementLineRequest>>> = ({ signal }) => getPublicStatementLineRequest(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicStatementLineRequest>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicStatementLineRequestQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicStatementLineRequest>>>
+export type GetPublicStatementLineRequestQueryError = ErrorType<void>
+
+
+/**
+ * @summary Load a public remarks request by token
+ */
+
+export function useGetPublicStatementLineRequest<TData = Awaited<ReturnType<typeof getPublicStatementLineRequest>>, TError = ErrorType<void>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStatementLineRequest>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicStatementLineRequestQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSubmitPublicStatementLineDetailsUrl = (token: string,
+    lineId: number,) => {
+
+
+
+
+  return `/api/public/statement-line-requests/${token}/lines/${lineId}`
+}
+
+/**
+ * @summary Submit a remark and optional attachments for one line in a public request
+ */
+export const submitPublicStatementLineDetails = async (token: string,
+    lineId: number,
+    publicStatementLineRemarkInput: PublicStatementLineRemarkInput, options?: Parameters<typeof customFetch>[1]): Promise<PublicStatementLine> => {
+    const formData = new FormData();
+formData.append(`noteText`, publicStatementLineRemarkInput.noteText);
+if(publicStatementLineRemarkInput.files !== undefined) {
+ publicStatementLineRemarkInput.files.forEach(value => formData.append(`files`, value));
+ }
+
+  return customFetch<PublicStatementLine>(getSubmitPublicStatementLineDetailsUrl(token,lineId),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getSubmitPublicStatementLineDetailsMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitPublicStatementLineDetails>>, TError,{token: string;lineId: number;data: BodyType<PublicStatementLineRemarkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof submitPublicStatementLineDetails>>, TError,{token: string;lineId: number;data: BodyType<PublicStatementLineRemarkInput>}, TContext> => {
+
+const mutationKey = ['submitPublicStatementLineDetails'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof submitPublicStatementLineDetails>>, {token: string;lineId: number;data: BodyType<PublicStatementLineRemarkInput>}> = (props) => {
+          const {token,lineId,data} = props ?? {};
+
+          return  submitPublicStatementLineDetails(token,lineId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SubmitPublicStatementLineDetailsMutationResult = NonNullable<Awaited<ReturnType<typeof submitPublicStatementLineDetails>>>
+    export type SubmitPublicStatementLineDetailsMutationBody = BodyType<PublicStatementLineRemarkInput>
+    export type SubmitPublicStatementLineDetailsMutationError = ErrorType<void>
+
+    /**
+ * @summary Submit a remark and optional attachments for one line in a public request
+ */
+export const useSubmitPublicStatementLineDetails = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof submitPublicStatementLineDetails>>, TError,{token: string;lineId: number;data: BodyType<PublicStatementLineRemarkInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof submitPublicStatementLineDetails>>,
+        TError,
+        {token: string;lineId: number;data: BodyType<PublicStatementLineRemarkInput>},
+        TContext
+      > => {
+      return useMutation(getSubmitPublicStatementLineDetailsMutationOptions(options));
+    }
+
+export const getGetPublicStatementLineRequestAttachmentUrl = (token: string,
+    attachmentId: number,) => {
+
+
+
+
+  return `/api/public/statement-line-requests/${token}/attachments/${attachmentId}`
+}
+
+/**
+ * @summary Download an attachment submitted through a public remarks request
+ */
+export const getPublicStatementLineRequestAttachment = async (token: string,
+    attachmentId: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetPublicStatementLineRequestAttachmentUrl(token,attachmentId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicStatementLineRequestAttachmentQueryKey = (token: string,
+    attachmentId: number,) => {
+    return [
+    `/api/public/statement-line-requests/${token}/attachments/${attachmentId}`
+    ] as const;
+    }
+
+
+export const getGetPublicStatementLineRequestAttachmentQueryOptions = <TData = Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>, TError = ErrorType<void>>(token: string,
+    attachmentId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicStatementLineRequestAttachmentQueryKey(token,attachmentId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>> = ({ signal }) => getPublicStatementLineRequestAttachment(token,attachmentId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: token !== null && token !== undefined && attachmentId !== null && attachmentId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicStatementLineRequestAttachmentQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>>
+export type GetPublicStatementLineRequestAttachmentQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download an attachment submitted through a public remarks request
+ */
+
+export function useGetPublicStatementLineRequestAttachment<TData = Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>, TError = ErrorType<void>>(
+ token: string,
+    attachmentId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicStatementLineRequestAttachment>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicStatementLineRequestAttachmentQueryOptions(token,attachmentId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getLinkStatementLineContactUrl = (id: number,) => {
 
@@ -5954,7 +6517,7 @@ export const createJournalEntry = async (journalEntryInput: JournalEntryInput, o
 
 
 
-export const getCreateJournalEntryMutationOptions = <TError = ErrorType<unknown>,
+export const getCreateJournalEntryMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJournalEntry>>, TError,{data: BodyType<JournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createJournalEntry>>, TError,{data: BodyType<JournalEntryInput>}, TContext> => {
 
@@ -5983,12 +6546,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateJournalEntryMutationResult = NonNullable<Awaited<ReturnType<typeof createJournalEntry>>>
     export type CreateJournalEntryMutationBody = BodyType<JournalEntryInput>
-    export type CreateJournalEntryMutationError = ErrorType<unknown>
+    export type CreateJournalEntryMutationError = ErrorType<void>
 
     /**
  * @summary Create a standalone manual journal entry that is not linked to a statement line
  */
-export const useCreateJournalEntry = <TError = ErrorType<unknown>,
+export const useCreateJournalEntry = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createJournalEntry>>, TError,{data: BodyType<JournalEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createJournalEntry>>,

@@ -1003,6 +1003,14 @@ export interface LedgerOverview {
  * @nullable
  */
 export type StatementLineAccountAssignmentStatus = typeof StatementLineAccountAssignmentStatus[keyof typeof StatementLineAccountAssignmentStatus] | null;
+
+
+export const StatementLineAccountAssignmentStatus = {
+  assigned: 'assigned',
+  ambiguous: 'ambiguous',
+  unassigned: 'unassigned',
+} as const;
+
 export type StatementLineStatus = typeof StatementLineStatus[keyof typeof StatementLineStatus];
 
 
@@ -1091,6 +1099,22 @@ export const StatementLineExchangeRateSourceScope = {
   system: 'system',
 } as const;
 
+export interface StatementLineNoteSummary {
+  hasNote: boolean;
+  /** @nullable */
+  latestNotePreview?: string | null;
+  /** @nullable */
+  latestNoteAt?: string | null;
+  attachmentCount: number;
+}
+
+export interface StatementLinePendingClarification {
+  requestId: number;
+  recipientEmail: string;
+  sentAt: string;
+  expiresAt: string;
+}
+
 export interface StatementLine {
   id: number;
   /** @nullable */
@@ -1158,45 +1182,27 @@ export interface StatementLine {
   pendingClarification: StatementLinePendingClarification | null;
 }
 
-export interface StatementLineNoteSummary {
-  hasNote: boolean;
-  /** @nullable */
-  latestNotePreview?: string | null;
-  /** @nullable */
-  latestNoteAt?: string | null;
-  attachmentCount: number;
-}
-
-export interface StatementLinePendingClarification {
-  requestId: number;
-  recipientEmail: string;
-  sentAt: string;
-  expiresAt: string;
-}
-
 export interface StatementLineDetailRequestInput {
   clientId: number;
+  /**
+     * @minItems 1
+     * @maxItems 50
+     */
   statementLineIds: number[];
+  /**
+     * @minLength 3
+     * @maxLength 320
+     */
   recipientEmail: string;
-  /** @nullable */
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
   senderMessage?: string | null;
 }
 
-export interface StatementLineDetailRequest {
-  id: number;
-  recipientEmail: string;
-  /** @nullable */
-  senderMessage?: string | null;
-  status: StatementLineDetailRequestStatus;
-  expiresAt: string;
-  sentAt: string;
-  /** @nullable */
-  revokedAt?: string | null;
-  publicUrl: string;
-  lineCount: number;
-  postedLineCount: number;
-  remarkCount: number;
-  lines: StatementLineDetailRequestLine[];
+export interface StatementLineDetailRequestRevokeInput {
+  clientId: number;
 }
 
 export type StatementLineDetailRequestStatus = typeof StatementLineDetailRequestStatus[keyof typeof StatementLineDetailRequestStatus];
@@ -1226,6 +1232,23 @@ export interface StatementLineDetailRequestLine {
   remarkCount: number;
 }
 
+export interface StatementLineDetailRequest {
+  id: number;
+  recipientEmail: string;
+  /** @nullable */
+  senderMessage?: string | null;
+  status: StatementLineDetailRequestStatus;
+  expiresAt: string;
+  sentAt: string;
+  /** @nullable */
+  revokedAt?: string | null;
+  publicUrl: string;
+  lineCount: number;
+  postedLineCount: number;
+  remarkCount: number;
+  lines: StatementLineDetailRequestLine[];
+}
+
 export interface StatementLineNoteAttachment {
   id: number;
   filename: string;
@@ -1246,6 +1269,58 @@ export interface StatementLineNote {
 export interface StatementLineNotes {
   lineId: number;
   notes: StatementLineNote[];
+}
+
+export interface PublicStatementLineRemarkInput {
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
+  noteText: string;
+  /** @maxItems 5 */
+  files?: Blob[];
+}
+
+export interface PublicStatementLineAttachment {
+  id: number;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+export type PublicStatementLineStatus = typeof PublicStatementLineStatus[keyof typeof PublicStatementLineStatus];
+
+
+export const PublicStatementLineStatus = {
+  open: 'open',
+  posted: 'posted',
+} as const;
+
+export interface PublicStatementLineNote {
+  id: number;
+  noteText: string;
+  createdAt: string;
+  attachments: PublicStatementLineAttachment[];
+}
+
+export interface PublicStatementLine {
+  id: number;
+  date: string;
+  description: string;
+  currency: string;
+  amount: number;
+  direction: string;
+  posted: boolean;
+  status: PublicStatementLineStatus;
+  notes: PublicStatementLineNote[];
+}
+
+export interface PublicStatementLineRequest {
+  clientDisplayName: string;
+  /** @nullable */
+  senderMessage?: string | null;
+  expiresAt: string;
+  lines: PublicStatementLine[];
 }
 
 export interface StatementLineInput {
@@ -1271,6 +1346,10 @@ export const StatementLineExportInputFormat = {
 
 export interface StatementLineExportInput {
   clientId?: number;
+  /**
+     * @minItems 1
+     * @maxItems 1000
+     */
   lineIds: number[];
   format: StatementLineExportInputFormat;
 }
@@ -1515,6 +1594,7 @@ export interface StatementImportAccountGroupInput {
   currency: string;
   lineIds: number[];
 }
+
 export interface StatementImportInput {
   /** Existing pending import to confirm after the user reviews its detected currency. */
   importId?: number;
@@ -1584,6 +1664,28 @@ export interface StatementImportAccountIdentity {
   accountNumberLast4: string | null;
   currency: string;
 }
+
+export type StatementImportAccountGroupStatus = typeof StatementImportAccountGroupStatus[keyof typeof StatementImportAccountGroupStatus];
+
+
+export const StatementImportAccountGroupStatus = {
+  identified: 'identified',
+  ambiguous: 'ambiguous',
+} as const;
+
+export interface StatementImportAccountGroup {
+  id: string;
+  identity: StatementImportAccountIdentity;
+  status: StatementImportAccountGroupStatus;
+  lineIds: number[];
+  lines: StatementLine[];
+  bankAccount?: BankAccount | null;
+  /** @nullable */
+  openingBalance?: number | null;
+  /** @nullable */
+  closingBalance?: number | null;
+}
+
 export interface StatementImportResult {
   fileName: string;
   importId: number;
@@ -2077,6 +2179,14 @@ export interface AICopilotActionInput {
   bankAccount?: BankAccountDraft | null;
 }
 
+export type JournalEntrySource = typeof JournalEntrySource[keyof typeof JournalEntrySource];
+
+
+export const JournalEntrySource = {
+  statement: 'statement',
+  manual: 'manual',
+} as const;
+
 export type JournalEntryStatus = typeof JournalEntryStatus[keyof typeof JournalEntryStatus];
 
 
@@ -2086,8 +2196,11 @@ export const JournalEntryStatus = {
 } as const;
 
 export interface JournalLine {
+  description: string;
   account: string;
+  /** @minimum 0 */
   debit: number;
+  /** @minimum 0 */
   credit: number;
 }
 
@@ -2099,14 +2212,6 @@ export const JournalEntryExchangeRateSourceScope = {
   client: 'client',
   firm: 'firm',
   system: 'system',
-} as const;
-
-export type JournalEntrySource = typeof JournalEntrySource[keyof typeof JournalEntrySource];
-
-
-export const JournalEntrySource = {
-  statement: 'statement',
-  manual: 'manual',
 } as const;
 
 export interface JournalEntry {
@@ -2134,41 +2239,6 @@ export interface JournalEntry {
   exchangeRateEffectiveDate?: string | null;
   exchangeRateSourceScope?: JournalEntryExchangeRateSourceScope;
   exchangeRateStatus?: string;
-}
-
-export interface JournalEntryInput {
-  clientId: number;
-  date: string;
-  /**
-   * @minLength 1
-   * @maxLength 500
-   */
-  memo: string;
-  /**
-   * @minLength 3
-   * @maxLength 3
-   */
-  currency: string;
-  /**
-   * @exclusiveMin 0
-   */
-  amount: number;
-  /**
-   * @minLength 1
-   * @maxLength 160
-   */
-  debitAccount: string;
-  /**
-   * @minLength 1
-   * @maxLength 160
-   */
-  creditAccount: string;
-  /** @nullable */
-  contactId?: number | null;
-}
-
-export interface DeleteJournalEntryInput {
-  clientId: number;
 }
 
 export interface AICopilotActionResult {
@@ -2219,6 +2289,46 @@ export interface BulkTransitionAudit {
   entryIds: number[];
   statementLineIds: number[];
   confirmedAt: string;
+}
+
+export type JournalEntryInputLinesItem = {
+  /** @maxLength 500 */
+  description: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
+  account: string;
+  /** @minimum 0 */
+  debit: number;
+  /** @minimum 0 */
+  credit: number;
+};
+
+export interface JournalEntryInput {
+  clientId: number;
+  date: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  memo: string;
+  /**
+     * @minLength 3
+     * @maxLength 3
+     */
+  currency: string;
+  /**
+     * @minItems 2
+     * @maxItems 100
+     */
+  lines: JournalEntryInputLinesItem[];
+  /** @nullable */
+  contactId?: number | null;
+}
+
+export interface DeleteJournalEntryInput {
+  clientId: number;
 }
 
 export interface TrialBalanceRow {
@@ -2674,6 +2784,14 @@ export const GetStatementLinesDirection = {
   outflow: 'outflow',
 } as const;
 
+export type ListStatementLineDetailRequestsParams = {
+clientId: number;
+};
+
+export type GetStatementLineNotesParams = {
+clientId: number;
+};
+
 export type GetContactsParams = {
 clientId: number;
 };
@@ -2738,30 +2856,3 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
-
-
-export interface StatementImportAccountGroup {
-  id: string;
-  identity: StatementImportAccountIdentity;
-  status: StatementImportAccountGroupStatus;
-  lineIds: number[];
-  lines: StatementLine[];
-  bankAccount?: BankAccount | null;
-  /** @nullable */
-  openingBalance?: number | null;
-  /** @nullable */
-  closingBalance?: number | null;
-}
-
-export const StatementLineAccountAssignmentStatus = {
-  assigned: 'assigned',
-  ambiguous: 'ambiguous',
-  unassigned: 'unassigned',
-} as const;
-
-export type StatementImportAccountGroupStatus = typeof StatementImportAccountGroupStatus[keyof typeof StatementImportAccountGroupStatus];
-
-export const StatementImportAccountGroupStatus = {
-  identified: 'identified',
-  ambiguous: 'ambiguous',
-} as const;

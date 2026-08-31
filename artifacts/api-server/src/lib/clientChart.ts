@@ -114,6 +114,7 @@ export async function ensureClientChart(clientId: number) {
     db.select({
       debitAccount: journalEntriesTable.debitAccount,
       creditAccount: journalEntriesTable.creditAccount,
+      lines: journalEntriesTable.lines,
     }).from(journalEntriesTable).where(eq(journalEntriesTable.clientId, clientId)),
     db.select({ accountName: accountClassificationsTable.accountName }).from(accountClassificationsTable)
       .where(eq(accountClassificationsTable.clientId, clientId)),
@@ -125,6 +126,7 @@ export async function ensureClientChart(clientId: number) {
     ...historicalLines.map((line) => line.accountName).filter((name): name is string => Boolean(name)),
     ...debitNames,
     ...creditNames,
+    ...historicalEntries.flatMap((entry) => entry.lines?.map((line) => line.account) ?? []),
   ]);
   const missingHistoricalNames = [...historicalNames].filter((name) => !existingNames.has(name));
   if (missingHistoricalNames.length) {
@@ -205,24 +207,24 @@ export function calculateUaeCorporateTaxSummary(
   let unmappedAmount = 0;
   for (const entry of included) {
     const amount = Number(entry.functionalAmount ?? entry.amount);
-    const debit = byName.get(entry.debitAccount);
-    const credit = byName.get(entry.creditAccount);
-    if (debit?.statementSection === "expense") {
-      expenses += amount;
-      expenseTotals.set(debit.accountName, (expenseTotals.get(debit.accountName) ?? 0) + amount);
-    } else if (debit?.statementSection === "revenue") {
-      revenue -= amount;
-    } else if (!debit && entry.debitAccount !== "Bank / cash") {
-      expenses += amount;
-      unmappedAmount += amount;
-    }
-    if (credit?.statementSection === "revenue") revenue += amount;
-    else if (credit?.statementSection === "expense") {
-      expenses -= amount;
-      expenseTotals.set(credit.accountName, (expenseTotals.get(credit.accountName) ?? 0) - amount);
-    } else if (!credit && entry.creditAccount !== "Bank / cash") {
-      revenue += amount;
-      unmappedAmount += amount;
+    const rawLines: Array<{ account: string; debit: number; credit: number }> = Array.isArray(entry.lines) && entry.lines.length >= 2 ? entry.lines : [
+      { account: entry.debitAccount, debit: Number(entry.amount), credit: 0 },
+      { account: entry.creditAccount, debit: 0, credit: Number(entry.amount) },
+    ];
+    const sourceTotal = rawLines.reduce((sum, line) => sum + Number(line.debit), 0);
+    const factor = sourceTotal > 0 ? amount / sourceTotal : 1;
+    for (const line of rawLines) {
+      const debitAmount = Number(line.debit) * factor;
+      const creditAmount = Number(line.credit) * factor;
+      const account = byName.get(String(line.account));
+      if (account?.statementSection === "expense") {
+        expenses += debitAmount - creditAmount;
+        expenseTotals.set(account.accountName, (expenseTotals.get(account.accountName) ?? 0) + debitAmount - creditAmount);
+      } else if (account?.statementSection === "revenue") {
+        revenue += creditAmount - debitAmount;
+      } else if (!account && String(line.account) !== "Bank / cash") {
+        unmappedAmount += debitAmount + creditAmount;
+      }
     }
   }
 

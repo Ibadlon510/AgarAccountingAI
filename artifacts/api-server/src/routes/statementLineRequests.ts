@@ -8,7 +8,6 @@ import {
   SubmitPublicStatementLineDetailsParams,
   SubmitPublicStatementLineDetailsResponse,
   submitPublicStatementLineDetailsBodyNoteTextMax,
-  submitPublicStatementLineDetailsBodyNoteTextMin,
 } from "@workspace/api-zod";
 import {
   db,
@@ -95,7 +94,7 @@ publicStatementLineRequestsRouter.post("/public/statement-line-requests/:token/l
     return res.status(400).json({ error: "The remarks form could not be read." });
   }
   const noteText = (parsedBody.fields.noteText ?? "").trim();
-  if (noteText.length < submitPublicStatementLineDetailsBodyNoteTextMin
+  if (noteText.length < 1
     || noteText.length > submitPublicStatementLineDetailsBodyNoteTextMax) {
     return res.status(400).json({ error: "Add a remark between 1 and 4,000 characters." });
   }

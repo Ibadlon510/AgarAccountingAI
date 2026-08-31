@@ -9,6 +9,10 @@ import type { StatementLineExportInputFormat } from './statementLineExportInputF
 
 export interface StatementLineExportInput {
   clientId?: number;
+  /**
+     * @minItems 1
+     * @maxItems 1000
+     */
   lineIds: number[];
   format: StatementLineExportInputFormat;
 }

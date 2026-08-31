@@ -75,8 +75,8 @@ import {
   RevokeStatementLineDetailRequestBody,
   RevokeStatementLineDetailRequestParams,
   RevokeStatementLineDetailRequestResponse,
-  GetStatementLineDetailRequestsQueryParams,
-  GetStatementLineDetailRequestsResponse,
+  ListStatementLineDetailRequestsQueryParams,
+  ListStatementLineDetailRequestsResponse,
   GetStatementLineNotesParams,
   GetStatementLineNotesQueryParams,
   GetStatementLineNotesResponse,
@@ -296,9 +296,25 @@ const router: IRouter = Router();
 type AccountingTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DRAFT_JOURNAL_STATUSES = ["draft", "suggested", "approved", "needs_review"] as const;
+type JournalLineValue = { description: string; account: string; debit: number; credit: number };
 
 function journalLifecycleStatus(status: string): "draft" | "posted" {
   return status === "posted" ? "posted" : "draft";
+}
+
+function journalLines(entry: typeof journalEntriesTable.$inferSelect): JournalLineValue[] {
+  if (Array.isArray(entry.lines) && entry.lines.length >= 2) {
+    return entry.lines.map((line) => ({
+      description: typeof line.description === "string" ? line.description : "",
+      account: String(line.account),
+      debit: number(String(line.debit)),
+      credit: number(String(line.credit)),
+    }));
+  }
+  return [
+    { description: entry.memo, account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
+    { description: entry.memo, account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
+  ];
 }
 
 function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, contactName: string | null = null) {
@@ -319,10 +335,7 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
     exchangeRateEffectiveDate: calendarDate(entry.exchangeRateEffectiveDate),
     exchangeRateSourceScope: entry.exchangeRateSourceScope ?? "none",
     exchangeRateStatus: entry.exchangeRateStatus ?? "none",
-    lines: [
-      { account: entry.debitAccount, debit: number(entry.amount), credit: 0 },
-      { account: entry.creditAccount, debit: 0, credit: number(entry.amount) },
-    ],
+    lines: journalLines(entry),
   };
 }
 
@@ -363,6 +376,18 @@ async function resolveManualJournalAccounts(
 }
 function number(value: string | null | undefined) {
   return Number(value ?? 0);
+}
+
+function isInflowDirection(direction: string) {
+  const normalized = direction.trim().toLowerCase();
+  return normalized === "inflow" || normalized === "credit";
+}
+
+function canonicalStatementDirection(direction: string) {
+  const normalized = direction.trim().toLowerCase();
+  if (normalized === "credit") return "inflow";
+  if (normalized === "debit") return "outflow";
+  return normalized;
 }
 
 const legacyDemoRows = [
@@ -975,6 +1000,58 @@ function reportingAmount(entry: typeof journalEntriesTable.$inferSelect, functio
   return null;
 }
 
+function reportingJournalLines(entry: typeof journalEntriesTable.$inferSelect, functionalCurrency: string) {
+  const lines = journalLines(entry);
+  const sourceTotal = lines.reduce((sum, line) => sum + line.debit, 0);
+  const functionalTotal = reportingAmount(entry, functionalCurrency);
+  if (functionalTotal == null || sourceTotal <= 0) return null;
+  const factor = functionalTotal / sourceTotal;
+  return lines.map((line) => ({
+    ...line,
+    debit: line.debit * factor,
+    credit: line.credit * factor,
+  }));
+}
+
+async function normalizeManualJournalLines(clientId: number, input: JournalLineValue[]) {
+  if (input.length < 2 || input.length > 100) {
+    return { error: "A manual journal must contain between 2 and 100 lines." } as const;
+  }
+  const lines = input.map((line) => ({
+    description: line.description.trim().replace(/\s+/g, " ").slice(0, 500),
+    account: line.account.trim(),
+    debit: Math.round(Number(line.debit) * 100) / 100,
+    credit: Math.round(Number(line.credit) * 100) / 100,
+  }));
+  if (lines.some((line) => !line.account || !Number.isFinite(line.debit) || !Number.isFinite(line.credit)
+    || line.debit < 0 || line.credit < 0 || (line.debit > 0) === (line.credit > 0))) {
+    return { error: "Every journal line needs an active account and one positive debit or credit amount." } as const;
+  }
+  const debitCents = lines.reduce((sum, line) => sum + Math.round(line.debit * 100), 0);
+  const creditCents = lines.reduce((sum, line) => sum + Math.round(line.credit * 100), 0);
+  if (debitCents <= 0 || debitCents !== creditCents) {
+    return { error: "Total debits must equal total credits." } as const;
+  }
+  const accountNames = [...new Set(lines.map((line) => line.account))];
+  const accounts = await db.select().from(accountClassificationsTable).where(and(
+    eq(accountClassificationsTable.clientId, clientId),
+    eq(accountClassificationsTable.isActive, true),
+    inArray(accountClassificationsTable.accountName, accountNames),
+  ));
+  if (accounts.length !== accountNames.length) {
+    return { error: "Every journal line must use an active account in this client's chart." } as const;
+  }
+  const byName = new Map(accounts.map((account) => [account.accountName, account]));
+  const debitLine = lines.find((line) => line.debit > 0)!;
+  const creditLine = lines.find((line) => line.credit > 0)!;
+  return {
+    lines,
+    amount: debitCents / 100,
+    debit: byName.get(debitLine.account)!,
+    credit: byName.get(creditLine.account)!,
+  } as const;
+}
+
 type ExchangeRateCoverageRecord = {
   currency: string;
   date: string;
@@ -1574,6 +1651,16 @@ function displayName(user: Pick<typeof usersTable.$inferSelect, "email" | "first
   return [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "Team member";
 }
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[character] ?? character));
+}
+
 async function getWorkspaceClientIds(userId: string) {
   const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
@@ -1650,15 +1737,14 @@ async function chartAccountResponses(
     db.select({ accountSuggestion: statementLinesTable.accountSuggestion })
       .from(statementLinesTable)
       .where(and(eq(statementLinesTable.clientId, clientId), isNotNull(statementLinesTable.accountSuggestion))),
-    db.select({ debitAccount: journalEntriesTable.debitAccount, creditAccount: journalEntriesTable.creditAccount })
+    db.select({ debitAccount: journalEntriesTable.debitAccount, creditAccount: journalEntriesTable.creditAccount, lines: journalEntriesTable.lines })
       .from(journalEntriesTable)
       .where(eq(journalEntriesTable.clientId, clientId)),
   ]);
   const referencedNames = new Set<string>();
   for (const line of lines) if (line.accountSuggestion) referencedNames.add(line.accountSuggestion);
   for (const entry of entries) {
-    referencedNames.add(entry.debitAccount);
-    referencedNames.add(entry.creditAccount);
+    for (const line of journalLines(entry as typeof journalEntriesTable.$inferSelect)) referencedNames.add(line.account);
   }
   return accounts.map((account) => ({
     ...account,
@@ -1956,8 +2042,8 @@ async function isUntouchedLegacyDemoWorkspace(
     if (!line) return false;
     const entry = entries.find((candidate) => candidate.statementLineId === line.id);
     const expectedStatus = seed.status === "posted" ? "posted" : "draft";
-    const expectedDebit = seed.direction === "inflow" ? "Bank / cash" : seed.accountSuggestion;
-    const expectedCredit = seed.direction === "inflow" ? seed.accountSuggestion : "Bank / cash";
+    const expectedDebit = isInflowDirection(seed.direction) ? "Bank / cash" : seed.accountSuggestion;
+    const expectedCredit = isInflowDirection(seed.direction) ? seed.accountSuggestion : "Bank / cash";
     return entry?.date === seed.date
       && entry.memo === seed.description
       && entry.currency === seed.currency
@@ -2028,7 +2114,7 @@ function suggestAccount(description: string, direction: string) {
   if (isInterAccountTransferDescription(text)) {
     return interAccountTransferAccount;
   }
-  if (direction === "inflow") {
+  if (isInflowDirection(direction)) {
     if (/stripe|retainer|client|invoice|sale|sales|payment|payout|customer/.test(text)) return "Revenue";
     return "Other income";
   }
@@ -2118,7 +2204,7 @@ function parseAIJsonContent(content: string): { answer?: unknown; recommendation
 }
 
 function journalAccountsForSuggestion(direction: string, accountSuggestion: string) {
-  return direction === "inflow"
+  return isInflowDirection(direction)
     ? { debitAccount: "Bank / cash", creditAccount: accountSuggestion }
     : { debitAccount: accountSuggestion, creditAccount: "Bank / cash" };
 }
@@ -2349,7 +2435,7 @@ function inferContactProposal(
   const deterministicName = deterministicContactCandidate(description);
   const normalizedName = aiName ?? deterministicName;
   if (!normalizedName || normalizedName.length < 2) return null;
-  const contactType = direction === "inflow" ? "customer" as const : "supplier" as const;
+  const contactType = isInflowDirection(direction) ? "customer" as const : "supplier" as const;
   const name = contactNameFromNormalized(normalizedName);
   const alias = contactNameFromNormalized(aiAlias ?? normalizedName);
   const parsedConfidence = Number(extracted?.counterpartyConfidence);
@@ -2399,7 +2485,7 @@ function temporaryContactSuggestion(proposal: InferredContactProposal | null): C
 }
 
 function needsIdentificationSuggestion(direction: string, description: string): ContactSuggestion {
-  const label = direction === "inflow" ? "customer" : "supplier";
+  const label = isInflowDirection(direction) ? "customer" : "supplier";
   return {
     ...temporaryContactSuggestion(null),
     contactSuggestionStatus: "needs_identification",
@@ -2657,7 +2743,7 @@ async function resolveContactSuggestion(
     const stored = storedProposal?.proposedContactName && storedProposal.proposedContactAlias
       ? {
         proposedContactName: storedProposal.proposedContactName,
-        proposedContactType: (storedProposal.proposedContactType as ContactSuggestion["proposedContactType"]) ?? (direction === "inflow" ? "customer" : "supplier"),
+        proposedContactType: (storedProposal.proposedContactType as ContactSuggestion["proposedContactType"]) ?? (isInflowDirection(direction) ? "customer" : "supplier"),
         proposedContactAlias: storedProposal.proposedContactAlias,
         proposedContactConfidence: storedProposal.proposedContactConfidence == null ? 0.68 : Number(storedProposal.proposedContactConfidence),
         proposedContactSource: storedProposal.proposedContactSource ?? "heuristic_description",
@@ -2779,7 +2865,7 @@ async function recordContactEvidence(
   entry: typeof journalEntriesTable.$inferSelect,
 ) {
   if (!line.contactId) return;
-  const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  const accountSuggestion = isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount;
   const activityDate = calendarDate(line.date) ?? calendarDate(entry.date);
   if (!activityDate) {
     throw new Error("Contact evidence could not be recorded because the activity date is missing.");
@@ -2871,7 +2957,7 @@ async function materializeProposedContact(
     || line.contactReviewDisposition !== "accepted"
   ) {
     throw new ContactMaterializationError(
-      `This line still needs a real ${line.direction === "inflow" ? "customer" : "supplier"} identity. Select an existing contact or confirm a real name and alias before posting.`,
+      `This line still needs a real ${isInflowDirection(line.direction) ? "customer" : "supplier"} identity. Select an existing contact or confirm a real name and alias before posting.`,
     );
   }
 
@@ -2987,7 +3073,7 @@ async function validateCurrentContactTreatment(
     )).limit(1);
     if (!activeContact) return "stale_contact" as const;
   }
-  const accountSuggestion = line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  const accountSuggestion = isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount;
   const [activeAccount] = await executor.select({ id: accountClassificationsTable.id })
     .from(accountClassificationsTable)
     .where(and(
@@ -3180,7 +3266,7 @@ async function statementLineResponse(
     : null;
   const recommendedAccount = contactAccount ?? suggestion.accountSuggestion;
   const journalAccount = entry
-    ? line.direction === "inflow" ? entry.creditAccount : entry.debitAccount
+    ? isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount
     : null;
   const accountConfirmationRequired = Boolean(
     entry
@@ -3198,6 +3284,7 @@ async function statementLineResponse(
         : "locked";
   return {
     ...line,
+    direction: canonicalStatementDirection(line.direction),
     status: journalLifecycleStatus(line.status),
     date: calendarDate(line.date),
     amount: number(line.amount),
@@ -3287,8 +3374,8 @@ async function createSuggestedEntry(tx: AccountingTransaction, line: {
     status: "draft",
     confidence: line.confidence ?? "0.80",
     ...journalAccountsForSuggestion(line.direction, account),
-    debitAccountClassificationId: line.direction === "inflow" ? bankAccountId : selectedAccountId,
-    creditAccountClassificationId: line.direction === "inflow" ? selectedAccountId : bankAccountId,
+    debitAccountClassificationId: isInflowDirection(line.direction) ? bankAccountId : selectedAccountId,
+    creditAccountClassificationId: isInflowDirection(line.direction) ? selectedAccountId : bankAccountId,
     contactId: line.contactId,
     amount: line.amount,
     functionalCurrency: line.functionalCurrency,
@@ -3857,7 +3944,7 @@ function lineCounterpartAccount(
   entry: typeof journalEntriesTable.$inferSelect | undefined,
 ) {
   if (!entry) return line.accountSuggestion ?? null;
-  return line.direction === "inflow" ? entry.creditAccount : entry.debitAccount;
+  return isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount;
 }
 
 function draftLinesMatchingAccount(
@@ -4235,8 +4322,8 @@ async function applyRecodeLinesAction(
       const [updatedEntry] = await tx.update(journalEntriesTable).set({
         confidence,
         ...journalAccountsForSuggestion(line.direction, accountSuggestion),
-        debitAccountClassificationId: line.direction === "inflow" ? bankAccountClassification?.id ?? null : selectedAccount.id,
-        creditAccountClassificationId: line.direction === "inflow" ? selectedAccount.id : bankAccountClassification?.id ?? null,
+        debitAccountClassificationId: isInflowDirection(line.direction) ? bankAccountClassification?.id ?? null : selectedAccount.id,
+        creditAccountClassificationId: isInflowDirection(line.direction) ? selectedAccount.id : bankAccountClassification?.id ?? null,
       }).where(and(
         eq(journalEntriesTable.clientId, clientId),
         eq(journalEntriesTable.statementLineId, line.id),
@@ -5729,6 +5816,8 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
           exchangeRateSourceScope: conversion.exchangeRateSourceScope,
           exchangeRateStatus: conversion.exchangeRateStatus,
           importDedupeKey: null,
+          noteSummary: { ...emptyNoteSummary },
+          pendingClarification: null,
           createdAt: new Date(),
         };
       }));
@@ -6588,7 +6677,7 @@ function accountingResultForEntries(
   const selected = entries.filter((entry) => {
     if (entry.statementLineId == null) {
       const amount = number(entry.amount);
-      const account = `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase();
+      const account = journalLines(entry).map((line) => line.account).join(" ").toLowerCase();
       const periodMatch = !filters.period
         || (filters.period.length === 4 && entry.date.startsWith(filters.period))
         || (filters.period.length === 7 && entry.date.startsWith(filters.period))
@@ -6691,18 +6780,17 @@ function accountingResultForTrialBalance(
     && (!filters.dateTo || entry.date <= filters.dateTo)
     && (!filters.status || entry.status === filters.status)
     && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
-    && (!filters.account || `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase().includes(filters.account.toLowerCase())),
+    && (!filters.account || journalLines(entry).some((line) => line.account.toLowerCase().includes(filters.account!.toLowerCase()))),
   );
   const eligibility = reportingEligibility(filteredEntries, functionalCurrency, assistantPeriodEnd(filters.period));
   const accounts = new Map<string, { debit: number; credit: number }>();
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0 };
-    debit.debit += amount;
-    accounts.set(entry.debitAccount, debit);
-    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0 };
-    credit.credit += amount;
-    accounts.set(entry.creditAccount, credit);
+    for (const line of reportingJournalLines(entry, functionalCurrency) ?? []) {
+      const values = accounts.get(line.account) ?? { debit: 0, credit: 0 };
+      values.debit += line.debit;
+      values.credit += line.credit;
+      accounts.set(line.account, values);
+    }
   }
   const rows = [...accounts.entries()].map(([account, value]) => ({
     account,
@@ -6760,7 +6848,7 @@ function accountingResultForFinancialStatements(
     && (!filters.dateTo || entry.date <= filters.dateTo)
     && (!filters.status || entry.status === filters.status)
     && (!filters.currency || entry.currency.toUpperCase() === filters.currency)
-    && (!filters.account || `${entry.debitAccount} ${entry.creditAccount}`.toLowerCase().includes(filters.account.toLowerCase())),
+    && (!filters.account || journalLines(entry).some((line) => line.account.toLowerCase().includes(filters.account!.toLowerCase()))),
   );
   const eligibility = reportingEligibility(selectedEntries, functionalCurrency, periodEnd);
   const expenseAccounts = new Map<string, number>();
@@ -6769,16 +6857,20 @@ function accountingResultForFinancialStatements(
   let transferClearing = 0;
   let operatingCash = 0;
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    if (entry.debitAccount === "Bank / cash") cash += amount;
-    if (entry.creditAccount === "Bank / cash") cash -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
-    if (isInterAccountTransferAccount(entry.creditAccount)) transferClearing -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
-    if (entry.debitAccount === "Bank / cash") operatingCash += amount;
-    if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
-    if (entry.debitAccount !== "Bank / cash") expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
-    if (entry.creditAccount !== "Bank / cash") revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
+    const lines = reportingJournalLines(entry, functionalCurrency) ?? [];
+    const transferEntry = lines.some((line) => isInterAccountTransferAccount(line.account));
+    for (const line of lines) {
+      const movement = line.debit - line.credit;
+      if (line.account === "Bank / cash") {
+        cash += movement;
+        if (!transferEntry) operatingCash += movement;
+      }
+      if (isInterAccountTransferAccount(line.account)) transferClearing += movement;
+      if (line.account !== "Bank / cash") {
+        if (movement >= 0) expenseAccounts.set(line.account, (expenseAccounts.get(line.account) ?? 0) + movement);
+        else revenueAccounts.set(line.account, (revenueAccounts.get(line.account) ?? 0) - movement);
+      }
+    }
   }
   const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
   const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);
@@ -7598,7 +7690,7 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
             await reverseClassificationPattern(
               currentUserId(req),
               line.description,
-              line.direction === "inflow" ? entry.creditAccount : entry.debitAccount,
+              isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount,
               tx,
             );
           }
@@ -9544,7 +9636,7 @@ router.post("/agaraccounting/statement-lines/export", async (req, res) => {
   const rows: StatementLineExportRow[] = lines.map((line) => {
     const entry = entriesByLine.get(line.id);
     const account = entry
-      ? (line.direction === "inflow" ? entry.creditAccount : entry.debitAccount)
+      ? (isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount)
       : line.accountSuggestion;
     return {
       date: calendarDate(line.date) ?? "",
@@ -9585,6 +9677,8 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
   }
   const client = await requireOwnedClient(req, res, parsed.data.clientId);
   if (!client) return;
+  if (!req.dbUser) return res.status(401).json({ error: "Authenticated user is required." });
+  const senderName = displayName(req.dbUser);
   const lineIds = [...new Set(parsed.data.statementLineIds)];
   const lines = await db.select().from(statementLinesTable).where(and(
     eq(statementLinesTable.clientId, client.id),
@@ -9623,7 +9717,7 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
   }
   const count = lineIds.length;
   const link = publicDetailRequestLink(token, req);
-  const subject = `Please add remarks for ${count} transaction${count === 1 ? "" : "s"}`;
+  const subject = `Please add remarks for ${client.name} — ${count} transaction${count === 1 ? "" : "s"}`;
   const text = [
     senderMessage,
     senderMessage ? "" : null,
@@ -9631,12 +9725,24 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
     `This link stays active for 3 days and expires on ${expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" })} UTC.`,
     "",
     link,
+    "",
+    "Kind regards,",
+    senderName,
   ].filter((part) => part !== null).join("\n");
+  const html = [
+    senderMessage ? `<p>${escapeHtml(senderMessage).replace(/\n/g, "<br>")}</p>` : "",
+    `<p>Please add remarks for ${count} draft statement line${count === 1 ? "" : "s"} in <strong>${escapeHtml(client.name)}</strong>.</p>`,
+    `<p>This link stays active for 3 days and expires on ${escapeHtml(expiresAt.toLocaleString("en-US", { dateStyle: "long", timeStyle: "short", timeZone: "UTC" }))} UTC.</p>`,
+    `<p><a href="${escapeHtml(link)}" style="display:inline-block;border-radius:6px;background:#176b4d;color:#ffffff;padding:12px 18px;text-decoration:none;font-weight:600;">Open remarks page</a></p>`,
+    `<p>Link address:<br><a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>`,
+    `<p>Kind regards,<br>${escapeHtml(senderName)}</p>`,
+  ].join("");
   try {
     await sendDetailRequestEmail({
       to: parsed.data.recipientEmail.trim(),
       subject,
       text,
+      html,
     });
   } catch (error) {
     await db.update(statementLineDetailRequestsTable)
@@ -9662,13 +9768,13 @@ router.post("/agaraccounting/statement-lines/request-details", async (req, res) 
 });
 
 router.get("/agaraccounting/statement-lines/detail-requests", async (req, res) => {
-  const query = GetStatementLineDetailRequestsQueryParams.safeParse(req.query);
+  const query = ListStatementLineDetailRequestsQueryParams.safeParse(req.query);
   if (!query.success) {
     return res.status(400).json({ error: "Remarks links could not be loaded." });
   }
   const client = await requireOwnedClient(req, res, query.data.clientId);
   if (!client) return;
-  return res.json(GetStatementLineDetailRequestsResponse.parse(await listDetailRequests(client.id, req)));
+  return res.json(ListStatementLineDetailRequestsResponse.parse(await listDetailRequests(client.id, req)));
 });
 
 router.post("/agaraccounting/statement-lines/detail-requests/:id/revoke", async (req, res) => {
@@ -10237,6 +10343,7 @@ router.get("/agaraccounting/journal-entries", async (req, res) => {
 
 router.post("/agaraccounting/journal-entries", async (req, res) => {
   const body = CreateJournalEntryBody.parse(req.body);
+  const journalDate = calendarDate(body.date) ?? "";
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
   if (body.contactId != null) {
@@ -10251,41 +10358,37 @@ router.post("/agaraccounting/journal-entries", async (req, res) => {
   if (!/^[A-Z]{3}$/.test(currency)) {
     return res.status(400).json({ error: "Currency must use a three-letter ISO code." });
   }
-  if (!isIsoDate(body.date)) {
+  if (!isIsoDate(journalDate)) {
     return res.status(400).json({ error: "Journal date must be a calendar date." });
   }
   const memo = body.memo.trim().replace(/\s+/g, " ");
   if (!memo) return res.status(400).json({ error: "A memo is required." });
-  const accounts = await resolveManualJournalAccounts(db, client.id, body.debitAccount, body.creditAccount);
-  if (accounts.kind === "same_account") {
-    return res.status(400).json({ error: "Debit and credit accounts must be different." });
-  }
-  if (accounts.kind !== "ok") {
-    return res.status(400).json({ error: "Both accounts must be active in this client's chart." });
-  }
+  const normalized = await normalizeManualJournalLines(client.id, body.lines);
+  if ("error" in normalized) return res.status(400).json({ error: normalized.error });
   await getRateProfileForClient(client);
   const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
   const conversion = await resolveExchangeRate(
     rateClient ?? client,
     currency,
     normalizeCurrency(client.functionalCurrency),
-    body.date,
-    body.amount,
+    journalDate,
+    normalized.amount,
   );
   const [entry] = await db.insert(journalEntriesTable).values({
     statementLineId: null,
     clientId: client.id,
-    date: body.date,
+    date: journalDate,
     memo,
     currency,
     status: "draft",
     confidence: "1.00",
-    debitAccount: accounts.debitName,
-    creditAccount: accounts.creditName,
-    debitAccountClassificationId: accounts.debit.id,
-    creditAccountClassificationId: accounts.credit.id,
+    debitAccount: normalized.debit.accountName,
+    creditAccount: normalized.credit.accountName,
+    debitAccountClassificationId: normalized.debit.id,
+    creditAccountClassificationId: normalized.credit.id,
     contactId: body.contactId ?? null,
-    amount: body.amount.toFixed(2),
+    amount: normalized.amount.toFixed(2),
+    lines: normalized.lines,
     functionalCurrency: conversion.functionalCurrency,
     functionalAmount: conversion.functionalAmount,
     exchangeRate: conversion.exchangeRate,
@@ -10300,6 +10403,7 @@ router.post("/agaraccounting/journal-entries", async (req, res) => {
 router.patch("/agaraccounting/journal-entries/:id", async (req, res) => {
   const { id } = UpdateJournalEntryParams.parse({ id: Number(req.params.id) });
   const body = UpdateJournalEntryBody.parse(req.body);
+  const journalDate = calendarDate(body.date) ?? "";
   const client = await requireOwnedClient(req, res, body.clientId);
   if (!client) return;
   if (body.contactId != null) {
@@ -10314,37 +10418,33 @@ router.patch("/agaraccounting/journal-entries/:id", async (req, res) => {
   if (!/^[A-Z]{3}$/.test(currency)) {
     return res.status(400).json({ error: "Currency must use a three-letter ISO code." });
   }
-  if (!isIsoDate(body.date)) {
+  if (!isIsoDate(journalDate)) {
     return res.status(400).json({ error: "Journal date must be a calendar date." });
   }
   const memo = body.memo.trim().replace(/\s+/g, " ");
   if (!memo) return res.status(400).json({ error: "A memo is required." });
-  const accounts = await resolveManualJournalAccounts(db, client.id, body.debitAccount, body.creditAccount);
-  if (accounts.kind === "same_account") {
-    return res.status(400).json({ error: "Debit and credit accounts must be different." });
-  }
-  if (accounts.kind !== "ok") {
-    return res.status(400).json({ error: "Both accounts must be active in this client's chart." });
-  }
+  const normalized = await normalizeManualJournalLines(client.id, body.lines);
+  if ("error" in normalized) return res.status(400).json({ error: normalized.error });
   await getRateProfileForClient(client);
   const [rateClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, client.id)).limit(1);
   const conversion = await resolveExchangeRate(
     rateClient ?? client,
     currency,
     normalizeCurrency(client.functionalCurrency),
-    body.date,
-    body.amount,
+    journalDate,
+    normalized.amount,
   );
   const [entry] = await db.update(journalEntriesTable).set({
-    date: body.date,
+    date: journalDate,
     memo,
     currency,
-    debitAccount: accounts.debitName,
-    creditAccount: accounts.creditName,
-    debitAccountClassificationId: accounts.debit.id,
-    creditAccountClassificationId: accounts.credit.id,
+    debitAccount: normalized.debit.accountName,
+    creditAccount: normalized.credit.accountName,
+    debitAccountClassificationId: normalized.debit.id,
+    creditAccountClassificationId: normalized.credit.id,
     contactId: body.contactId ?? null,
-    amount: body.amount.toFixed(2),
+    amount: normalized.amount.toFixed(2),
+    lines: normalized.lines,
     functionalCurrency: conversion.functionalCurrency,
     functionalAmount: conversion.functionalAmount,
     exchangeRate: conversion.exchangeRate,
@@ -10418,8 +10518,15 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
       if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
 
       if (entry.statementLineId == null) {
-        const accounts = await resolveManualJournalAccounts(tx, client.id, entry.debitAccount, entry.creditAccount);
-        if (accounts.kind !== "ok") throw new JournalPostRollback({ kind: "stale_treatment" });
+        const accountNames = [...new Set(journalLines(entry).map((line) => line.account))];
+        const activeAccounts = await tx.select({ accountName: accountClassificationsTable.accountName })
+          .from(accountClassificationsTable)
+          .where(and(
+            eq(accountClassificationsTable.clientId, client.id),
+            eq(accountClassificationsTable.isActive, true),
+            inArray(accountClassificationsTable.accountName, accountNames),
+          ));
+        if (activeAccounts.length !== accountNames.length) throw new JournalPostRollback({ kind: "stale_treatment" });
         if (isMissingExchangeRate(entry, client.functionalCurrency)) {
           throw new JournalPostRollback({ kind: "missing_exchange_rate", entry });
         }
@@ -10516,17 +10623,17 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         )).returning();
         if (!updatedLine) return { kind: "line_conflict" as const };
         line = updatedLine;
-        const [updatedEntry] = await tx.update(journalEntriesTable).set(
-          line.direction === "inflow"
-            ? {
-                creditAccount: body.accountSuggestion,
-                creditAccountClassificationId: account.id,
-              }
-            : {
-                debitAccount: body.accountSuggestion,
-                debitAccountClassificationId: account.id,
-              },
-        ).where(and(
+        const [bankAccount] = await tx.select({ id: accountClassificationsTable.id }).from(accountClassificationsTable).where(and(
+          eq(accountClassificationsTable.clientId, client.id),
+          eq(accountClassificationsTable.accountName, "Bank / cash"),
+          eq(accountClassificationsTable.isActive, true),
+        )).limit(1);
+        if (!bankAccount) throw new JournalPostRollback({ kind: "account_not_found" });
+        const [updatedEntry] = await tx.update(journalEntriesTable).set({
+          ...journalAccountsForSuggestion(line.direction, body.accountSuggestion),
+          debitAccountClassificationId: isInflowDirection(line.direction) ? bankAccount.id : account.id,
+          creditAccountClassificationId: isInflowDirection(line.direction) ? account.id : bankAccount.id,
+        }).where(and(
           eq(journalEntriesTable.id, workingEntry.id),
           eq(journalEntriesTable.clientId, client.id),
           inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
@@ -10644,7 +10751,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     throw new Error("Unexpected journal posting result.");
   }
   if (result.line) {
-    const accountSuggestion = result.line.direction === "inflow" ? result.entry.creditAccount : result.entry.debitAccount;
+    const accountSuggestion = isInflowDirection(result.line.direction) ? result.entry.creditAccount : result.entry.debitAccount;
     try {
       await recordClassificationPattern(currentUserId(req), result.line.description, accountSuggestion, result.entry.confidence);
     } catch (error) {
@@ -10708,7 +10815,7 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
     await reverseClassificationPattern(
       currentUserId(req),
       line.description,
-      line.direction === "inflow" ? entry.creditAccount : entry.debitAccount,
+      isInflowDirection(line.direction) ? entry.creditAccount : entry.debitAccount,
       tx,
     );
     await recordJournalTransitionAudit(tx, req, {
@@ -10749,15 +10856,14 @@ router.get("/agaraccounting/trial-balance", async (req, res) => {
   const eligibility = reportingEligibility(entries, functionalCurrency);
   const missingRateCurrencies = [...new Set(eligibility.missingRateEntries.map((entry) => entry.currency))];
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    const debitMeta = accountMetadata.get(entry.debitAccount);
-    const debit = accounts.get(entry.debitAccount) ?? { debit: 0, credit: 0, category: debitMeta ? chartAccountCategory(debitMeta.statementSection) : ledgerAccountCategory(entry.debitAccount, "debit") };
-    debit.debit += amount;
-    accounts.set(entry.debitAccount, debit);
-    const creditMeta = accountMetadata.get(entry.creditAccount);
-    const credit = accounts.get(entry.creditAccount) ?? { debit: 0, credit: 0, category: creditMeta ? chartAccountCategory(creditMeta.statementSection) : ledgerAccountCategory(entry.creditAccount, "credit") };
-    credit.credit += amount;
-    accounts.set(entry.creditAccount, credit);
+    for (const line of reportingJournalLines(entry, functionalCurrency) ?? []) {
+      const meta = accountMetadata.get(line.account);
+      const side = line.debit > 0 ? "debit" : "credit";
+      const values = accounts.get(line.account) ?? { debit: 0, credit: 0, category: meta ? chartAccountCategory(meta.statementSection) : ledgerAccountCategory(line.account, side) };
+      values.debit += line.debit;
+      values.credit += line.credit;
+      accounts.set(line.account, values);
+    }
   }
   const rows = [...accounts.entries()].map(([account, values]) => ({
     account, category: values.category, debit: values.debit, credit: values.credit, balance: values.debit - values.credit,
@@ -10794,23 +10900,25 @@ router.get("/agaraccounting/trial-balance/transactions", async (req, res) => {
   const functionalCurrency = normalizeCurrency(client.functionalCurrency);
   const eligibility = reportingEligibility(entries, functionalCurrency);
   const transactions = eligibility.eligibleEntries
-    .filter((entry) => entry.debitAccount === account || entry.creditAccount === account)
-    .map((entry) => {
-      const side = entry.debitAccount === account ? "debit" as const : "credit" as const;
+    .flatMap((entry) => (reportingJournalLines(entry, functionalCurrency) ?? [])
+      .filter((line) => line.account === account)
+      .map((line) => {
+      const side = line.debit > 0 ? "debit" as const : "credit" as const;
+      const sourceLine = journalLines(entry).find((candidate) => candidate.account === account && (side === "debit" ? candidate.debit > 0 : candidate.credit > 0));
       return {
         entryId: entry.id,
         statementLineId: entry.statementLineId,
         date: entry.date,
-        description: entry.memo,
+        description: sourceLine?.description || entry.memo,
         side,
-        amount: number(entry.amount),
+        amount: side === "debit" ? sourceLine?.debit ?? 0 : sourceLine?.credit ?? 0,
         currency: entry.currency,
-        functionalAmount: entry.functionalAmount == null ? null : number(entry.functionalAmount),
+        functionalAmount: side === "debit" ? line.debit : line.credit,
         functionalCurrency: entry.functionalCurrency,
         contactName: entry.contactId == null ? null : contactNames.get(entry.contactId) ?? null,
-        counterAccount: side === "debit" ? entry.creditAccount : entry.debitAccount,
+        counterAccount: journalLines(entry).filter((candidate) => candidate.account !== account).map((candidate) => candidate.account).join(", "),
       };
-    })
+    }))
     .sort((left, right) => left.date.localeCompare(right.date) || left.entryId - right.entryId);
   res.json(GetTrialBalanceAccountTransactionsResponse.parse(transactions));
 });
@@ -10832,20 +10940,23 @@ router.get("/agaraccounting/financial-statements", async (req, res) => {
   let transferClearing = 0;
   let operatingCash = 0;
   for (const entry of eligibility.eligibleEntries) {
-    const amount = reportingAmount(entry, functionalCurrency)!;
-    if (entry.debitAccount === "Bank / cash") cash += amount;
-    if (entry.creditAccount === "Bank / cash") cash -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount)) transferClearing += amount;
-    if (isInterAccountTransferAccount(entry.creditAccount)) transferClearing -= amount;
-    if (isInterAccountTransferAccount(entry.debitAccount) || isInterAccountTransferAccount(entry.creditAccount)) continue;
-    if (entry.debitAccount === "Bank / cash") operatingCash += amount;
-    if (entry.creditAccount === "Bank / cash") operatingCash -= amount;
-    const debitMeta = accountMetadata.get(entry.debitAccount);
-    const creditMeta = accountMetadata.get(entry.creditAccount);
-    if (debitMeta?.statementSection === "expense" || (!debitMeta && entry.debitAccount !== "Bank / cash")) expenseAccounts.set(entry.debitAccount, (expenseAccounts.get(entry.debitAccount) ?? 0) + amount);
-    if (debitMeta?.statementSection === "revenue") revenueAccounts.set(entry.debitAccount, (revenueAccounts.get(entry.debitAccount) ?? 0) - amount);
-    if (creditMeta?.statementSection === "revenue" || (!creditMeta && entry.creditAccount !== "Bank / cash")) revenueAccounts.set(entry.creditAccount, (revenueAccounts.get(entry.creditAccount) ?? 0) + amount);
-    if (creditMeta?.statementSection === "expense") expenseAccounts.set(entry.creditAccount, (expenseAccounts.get(entry.creditAccount) ?? 0) - amount);
+    const lines = reportingJournalLines(entry, functionalCurrency) ?? [];
+    const transferEntry = lines.some((line) => isInterAccountTransferAccount(line.account));
+    for (const line of lines) {
+      const movement = line.debit - line.credit;
+      if (line.account === "Bank / cash") {
+        cash += movement;
+        if (!transferEntry) operatingCash += movement;
+      }
+      if (isInterAccountTransferAccount(line.account)) transferClearing += movement;
+      const meta = accountMetadata.get(line.account);
+      if (meta?.statementSection === "expense" || (!meta && line.account !== "Bank / cash")) {
+        expenseAccounts.set(line.account, (expenseAccounts.get(line.account) ?? 0) + movement);
+      }
+      if (meta?.statementSection === "revenue") {
+        revenueAccounts.set(line.account, (revenueAccounts.get(line.account) ?? 0) - movement);
+      }
+    }
   }
   const totalExpenses = [...expenseAccounts.values()].reduce((sum, amount) => sum + amount, 0);
   const totalRevenue = [...revenueAccounts.values()].reduce((sum, amount) => sum + amount, 0);

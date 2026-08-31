@@ -5,34 +5,26 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { JournalEntryInputLinesItem } from './journalEntryInputLinesItem';
 
 export interface JournalEntryInput {
   clientId: number;
-  date: string;
+  date: Date;
   /**
-   * @minLength 1
-   * @maxLength 500
-   */
+     * @minLength 1
+     * @maxLength 500
+     */
   memo: string;
   /**
-   * @minLength 3
-   * @maxLength 3
-   */
+     * @minLength 3
+     * @maxLength 3
+     */
   currency: string;
   /**
-   * @exclusiveMin 0
-   */
-  amount: number;
-  /**
-   * @minLength 1
-   * @maxLength 160
-   */
-  debitAccount: string;
-  /**
-   * @minLength 1
-   * @maxLength 160
-   */
-  creditAccount: string;
+     * @minItems 2
+     * @maxItems 100
+     */
+  lines: JournalEntryInputLinesItem[];
   /** @nullable */
   contactId?: number | null;
 }

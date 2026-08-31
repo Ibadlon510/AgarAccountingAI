@@ -34,7 +34,7 @@ test("sends invitation content through the Resend email endpoint", async () => {
     connector: "resend",
     path: "/emails",
     body: {
-      from: "AgarAccounting <invitations@agaraccounting.test>",
+      from: "AgarAccounting AI <invitations@agaraccounting.test>",
       to: ["teammate@example.test"],
       subject: "You’re invited to AgarAccounting AI System",
       text: "Role, client access, expiry, and secure link",
@@ -49,15 +49,23 @@ test("sends remarks-request content through the same Resend email endpoint", asy
 
   const result = await sendDetailRequestEmail({
     to: "owner@client.test",
-    subject: "Please add remarks for 2 transactions",
+    subject: "Please add remarks for Remarks client — 2 transactions",
     text: "https://127.0.0.1/detail-request/token",
+    html: "<p><a href=\"https://127.0.0.1/detail-request/token\">Open remarks page</a></p>",
   }, async (connector, path, options) => {
     request = { connector, path, body: JSON.parse(options.body) };
     return Response.json({ id: "email-456" });
   });
 
   assert.deepEqual(result, { id: "email-456" });
-  assert.equal((request?.body as { subject?: string }).subject, "Please add remarks for 2 transactions");
+  assert.equal((request?.body as { subject?: string }).subject, "Please add remarks for Remarks client — 2 transactions");
+  assert.deepEqual(request?.body, {
+    from: "AgarAccounting AI <invitations@agaraccounting.test>",
+    to: ["owner@client.test"],
+    subject: "Please add remarks for Remarks client — 2 transactions",
+    text: "https://127.0.0.1/detail-request/token",
+    html: "<p><a href=\"https://127.0.0.1/detail-request/token\">Open remarks page</a></p>",
+  });
 });
 
 test("rejects delivery when no verified sender is configured", async () => {

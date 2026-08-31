@@ -24,7 +24,7 @@ function statusTone(status: StatementLineDetailRequest['status']) {
     : 'bg-muted text-muted-foreground';
 }
 
-export function RemarksLinksSettings({ clientId }: { clientId: number }) {
+export function RemarksLinksSettings({ clientId, clientName }: { clientId: number; clientName: string }) {
   const queryClient = useQueryClient();
   const list = useGetStatementLineDetailRequests(clientId);
   const revoke = useRevokeStatementLineDetailRequest();
@@ -140,6 +140,7 @@ export function RemarksLinksSettings({ clientId }: { clientId: number }) {
       {createOpen && (
         <SendForRemarksDialog
           clientId={clientId}
+          clientName={clientName}
           lines={[]}
           allowLinePicker
           onClose={() => setCreateOpen(false)}

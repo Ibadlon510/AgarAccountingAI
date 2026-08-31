@@ -6,11 +6,16 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface JournalLine {
+export type JournalEntryInputLinesItem = {
+  /** @maxLength 500 */
   description: string;
+  /**
+     * @minLength 1
+     * @maxLength 160
+     */
   account: string;
   /** @minimum 0 */
   debit: number;
   /** @minimum 0 */
   credit: number;
-}
+};
