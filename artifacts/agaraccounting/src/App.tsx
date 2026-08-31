@@ -70,8 +70,7 @@ const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error, query) => {
       const notifyMeta = readNotifyMeta(query.meta);
-      if (!notifyMeta) return;
-      if (notifyMeta === false) return;
+      if (notifyMeta === null || notifyMeta === false) return;
       if (typeof notifyMeta === 'object' && notifyMeta.silent) return;
       const title = typeof notifyMeta === 'object' ? notifyMeta.error ?? notifyMeta.title : undefined;
       notify.error(error, { title });
@@ -83,14 +82,14 @@ const queryClient = new QueryClient({
       // own onError handler — skip to avoid stacking two toasts.
       if (isErrorHandled(error)) return;
       const notifyMeta = readNotifyMeta(mutation.meta);
-      if (notifyMeta === false) return;
+      if (notifyMeta === null || notifyMeta === false) return;
       if (typeof notifyMeta === 'object' && notifyMeta.silent) return;
       const title = typeof notifyMeta === 'object' ? notifyMeta.error ?? notifyMeta.title : undefined;
       notify.error(error, { title });
     },
     onSuccess: (_data, _variables, _context, mutation) => {
       const notifyMeta = readNotifyMeta(mutation.meta);
-      if (typeof notifyMeta === 'object' && notifyMeta.success) notify.success(notifyMeta.success);
+      if (notifyMeta !== null && typeof notifyMeta === 'object' && notifyMeta.success) notify.success(notifyMeta.success);
     },
   }),
 });
@@ -3705,7 +3704,7 @@ function FinancialStatementsPage() {
         },
         // Background auto-hydration — errors should stay silent (user did not
         // click Save). Mark the error handled so the global toast skips it.
-        onError: (err) => { if (err && typeof err === 'object') { try { (err as Record<string, unknown>)[HANDLED_ERROR_MARK] = true; } catch { /* frozen */ } } },
+        onError: (err) => { if (err && typeof err === 'object') { try { (err as unknown as Record<string, unknown>)[HANDLED_ERROR_MARK] = true; } catch { /* frozen */ } } },
       },
     );
   }, [rawPack?.id, rawPack?.updatedAt, clientId]);
