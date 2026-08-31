@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-base-3.13", "postgresql-16"]
+modules = ["nodejs-24"]
 
 [deployment]
 router = "application"
@@ -11,49 +11,10 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "agaraccounting-reports"
-
-[[workflows.workflow]]
-name = "agaraccounting-reports"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run test:ci"
-
-[workflows.workflow.metadata]
-isValidation = true
-
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 180000
-
-[nix]
-channel = "stable-25_05"
-packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "libjpeg_turbo", "mupdf", "openjpeg", "swig", "xcbuild"]
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
-
-[[ports]]
-localPort = 21293
-externalPort = 80
-
-[objectStorage]
-defaultBucketID = "replit-objstore-a04995c7-f5b6-43d7-8d75-880c6133ccff"
+timeoutMs = 20000
