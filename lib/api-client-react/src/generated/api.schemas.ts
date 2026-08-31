@@ -1121,6 +1121,63 @@ export interface StatementLine {
   exchangeRateEffectiveDate?: string | null;
   exchangeRateSourceScope?: StatementLineExchangeRateSourceScope;
   exchangeRateStatus?: string;
+  noteSummary: StatementLineNoteSummary;
+  pendingClarification: StatementLinePendingClarification | null;
+}
+
+export interface StatementLineNoteSummary {
+  hasNote: boolean;
+  /** @nullable */
+  latestNotePreview?: string | null;
+  /** @nullable */
+  latestNoteAt?: string | null;
+  attachmentCount: number;
+}
+
+export interface StatementLinePendingClarification {
+  requestId: number;
+  recipientEmail: string;
+  sentAt: string;
+  expiresAt: string;
+}
+
+export interface StatementLineDetailRequestInput {
+  clientId: number;
+  statementLineIds: number[];
+  recipientEmail: string;
+  /** @nullable */
+  senderMessage?: string | null;
+}
+
+export interface StatementLineDetailRequest {
+  id: number;
+  recipientEmail: string;
+  expiresAt: string;
+  sentAt: string;
+  /** @nullable */
+  revokedAt?: string | null;
+}
+
+export interface StatementLineNoteAttachment {
+  id: number;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+export interface StatementLineNote {
+  id: number;
+  requestId: number;
+  submittedByEmail: string;
+  noteText: string;
+  createdAt: string;
+  updatedAt: string;
+  attachments: StatementLineNoteAttachment[];
+}
+
+export interface StatementLineNotes {
+  lineId: number;
+  notes: StatementLineNote[];
 }
 
 export interface StatementLineInput {
@@ -1134,6 +1191,20 @@ export interface StatementLineInput {
   direction: string;
   /** @nullable */
   contactId?: number | null;
+}
+
+export type StatementLineExportInputFormat = typeof StatementLineExportInputFormat[keyof typeof StatementLineExportInputFormat];
+
+
+export const StatementLineExportInputFormat = {
+  xlsx: 'xlsx',
+  pdf: 'pdf',
+} as const;
+
+export interface StatementLineExportInput {
+  clientId?: number;
+  lineIds: number[];
+  format: StatementLineExportInputFormat;
 }
 
 /**

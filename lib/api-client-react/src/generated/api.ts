@@ -118,6 +118,7 @@ import type {
   StatementImportUndoResult,
   StatementLine,
   StatementLineContactInput,
+  StatementLineExportInput,
   StatementLineInput,
   SystemAdminClaimResult,
   SystemRate,
@@ -3959,6 +3960,77 @@ export const useCreateStatementLine = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateStatementLineMutationOptions(options));
+    }
+
+export const getExportStatementLinesUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/statement-lines/export`
+}
+
+/**
+ * @summary Export selected statement lines as Excel or PDF
+ */
+export const exportStatementLines = async (statementLineExportInput: StatementLineExportInput, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportStatementLinesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(statementLineExportInput)
+  }
+);}
+
+
+
+
+
+export const getExportStatementLinesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportStatementLines>>, TError,{data: BodyType<StatementLineExportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof exportStatementLines>>, TError,{data: BodyType<StatementLineExportInput>}, TContext> => {
+
+const mutationKey = ['exportStatementLines'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof exportStatementLines>>, {data: BodyType<StatementLineExportInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  exportStatementLines(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExportStatementLinesMutationResult = NonNullable<Awaited<ReturnType<typeof exportStatementLines>>>
+    export type ExportStatementLinesMutationBody = BodyType<StatementLineExportInput>
+    export type ExportStatementLinesMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Export selected statement lines as Excel or PDF
+ */
+export const useExportStatementLines = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportStatementLines>>, TError,{data: BodyType<StatementLineExportInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof exportStatementLines>>,
+        TError,
+        {data: BodyType<StatementLineExportInput>},
+        TContext
+      > => {
+      return useMutation(getExportStatementLinesMutationOptions(options));
     }
 
 export const getLinkStatementLineContactUrl = (id: number,) => {

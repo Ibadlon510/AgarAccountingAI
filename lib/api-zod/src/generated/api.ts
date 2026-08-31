@@ -1443,7 +1443,19 @@ export const GetStatementLinesResponseItem = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })
 export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem)
 
@@ -1500,7 +1512,142 @@ export const CreateStatementLineResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
+})
+
+
+/**
+ * @summary Export selected statement lines as Excel or PDF
+ */
+export const exportStatementLinesBodyLineIdsMax = 1000;
+export const exportStatementLinesBodyLineIdsMin = 1;
+
+
+export const requestStatementLineDetailsBodyRecipientEmailMax = 320;
+export const requestStatementLineDetailsBodySenderMessageMax = 2000;
+export const requestStatementLineDetailsBodyStatementLineIdsMax = 50;
+export const requestStatementLineDetailsBodyStatementLineIdsMin = 1;
+export const requestStatementLineDetailsBodyRecipientEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+
+export const RequestStatementLineDetailsBody = zod.object({
+  "clientId": zod.number(),
+  "statementLineIds": zod.array(zod.number()).min(requestStatementLineDetailsBodyStatementLineIdsMin).max(requestStatementLineDetailsBodyStatementLineIdsMax),
+  "recipientEmail": zod.string().min(3).max(requestStatementLineDetailsBodyRecipientEmailMax).regex(requestStatementLineDetailsBodyRecipientEmailRegExp),
+  "senderMessage": zod.string().max(requestStatementLineDetailsBodySenderMessageMax).nullish()
+})
+
+export const RequestStatementLineDetailsResponse = zod.object({
+  "id": zod.number(),
+  "recipientEmail": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "sentAt": zod.coerce.date(),
+  "revokedAt": zod.coerce.date().nullish()
+})
+
+export const RevokeStatementLineDetailRequestParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RevokeStatementLineDetailRequestBody = zod.object({
+  "clientId": zod.number()
+})
+
+export const RevokeStatementLineDetailRequestResponse = RequestStatementLineDetailsResponse
+
+export const GetStatementLineNotesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetStatementLineNotesQueryParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const StatementLineNoteAttachmentSchema = zod.object({
+  "id": zod.number(),
+  "filename": zod.string(),
+  "contentType": zod.string(),
+  "size": zod.number()
+})
+
+export const StatementLineNoteSchema = zod.object({
+  "id": zod.number(),
+  "requestId": zod.number(),
+  "submittedByEmail": zod.string(),
+  "noteText": zod.string(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "attachments": zod.array(StatementLineNoteAttachmentSchema)
+})
+
+export const GetStatementLineNotesResponse = zod.object({
+  "lineId": zod.number(),
+  "notes": zod.array(StatementLineNoteSchema)
+})
+
+export const getPublicStatementLineRequestParamsTokenMin = 16;
+export const getPublicStatementLineRequestParamsTokenMax = 128;
+
+export const GetPublicStatementLineRequestParams = zod.object({
+  "token": zod.string().min(getPublicStatementLineRequestParamsTokenMin).max(getPublicStatementLineRequestParamsTokenMax)
+})
+
+export const PublicStatementLineAttachmentSchema = StatementLineNoteAttachmentSchema
+
+export const PublicStatementLineNoteSchema = zod.object({
+  "noteText": zod.string(),
+  "updatedAt": zod.coerce.date(),
+  "attachments": zod.array(PublicStatementLineAttachmentSchema)
+})
+
+export const PublicStatementLineSchema = zod.object({
+  "id": zod.number(),
+  "date": zod.string(),
+  "description": zod.string(),
+  "currency": zod.string(),
+  "amount": zod.number(),
+  "direction": zod.string(),
+  "posted": zod.boolean(),
+  "note": PublicStatementLineNoteSchema.nullable()
+})
+
+export const GetPublicStatementLineRequestResponse = zod.object({
+  "clientDisplayName": zod.string(),
+  "senderMessage": zod.string().nullish(),
+  "expiresAt": zod.coerce.date(),
+  "lines": zod.array(PublicStatementLineSchema)
+})
+
+export const SubmitPublicStatementLineDetailsParams = zod.object({
+  "token": zod.string().min(getPublicStatementLineRequestParamsTokenMin).max(getPublicStatementLineRequestParamsTokenMax),
+  "lineId": zod.coerce.number()
+})
+
+export const submitPublicStatementLineDetailsBodyNoteTextMax = 4000;
+export const submitPublicStatementLineDetailsBodyNoteTextMin = 1;
+
+export const SubmitPublicStatementLineDetailsResponse = PublicStatementLineSchema
+
+export const GetPublicStatementLineRequestAttachmentParams = zod.object({
+  "token": zod.string().min(getPublicStatementLineRequestParamsTokenMin).max(getPublicStatementLineRequestParamsTokenMax),
+  "attachmentId": zod.coerce.number()
+})
+
+export const ExportStatementLinesBody = zod.object({
+  "clientId": zod.number().optional(),
+  "lineIds": zod.array(zod.number()).min(exportStatementLinesBodyLineIdsMin).max(exportStatementLinesBodyLineIdsMax),
+  "format": zod.enum(['xlsx', 'pdf'])
 })
 
 
@@ -1563,7 +1710,19 @@ export const LinkStatementLineContactResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })
 
 
@@ -1893,7 +2052,19 @@ export const ImportStatementResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -1951,7 +2122,19 @@ export const ImportStatementResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2042,7 +2225,19 @@ export const GetStatementImportsResponseItem = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2100,7 +2295,19 @@ export const GetStatementImportsResponseItem = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })),
   "bankAccount": zod.union([zod.object({
   "id": zod.number(),
@@ -2556,7 +2763,19 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })).optional(),
   "updatedLineCount": zod.number(),
   "contactId": zod.number().nullish(),
@@ -2625,7 +2844,19 @@ export const GetJournalEntriesResponseItem = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })
 export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem)
 
@@ -2671,7 +2902,19 @@ export const PostJournalEntryResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })
 
 
@@ -2706,7 +2949,19 @@ export const UnpostJournalEntryResponse = zod.object({
   "exchangeRate": zod.number().nullish(),
   "exchangeRateEffectiveDate": zod.coerce.date().nullish(),
   "exchangeRateSourceScope": zod.enum(['none', 'client', 'firm', 'system']).optional(),
-  "exchangeRateStatus": zod.string().optional()
+  "exchangeRateStatus": zod.string().optional(),
+  "noteSummary": zod.object({
+  "hasNote": zod.boolean(),
+  "latestNotePreview": zod.string().nullish(),
+  "latestNoteAt": zod.coerce.date().nullish(),
+  "attachmentCount": zod.number()
+}).optional(),
+  "pendingClarification": zod.object({
+  "requestId": zod.number(),
+  "recipientEmail": zod.string(),
+  "sentAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date()
+}).nullish()
 })
 
 

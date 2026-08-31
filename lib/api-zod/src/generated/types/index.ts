@@ -217,6 +217,8 @@ export * from './statementLineContactReviewDisposition';
 export * from './statementLineContactSuggestionStatus';
 export * from './statementLineContactType';
 export * from './statementLineExchangeRateSourceScope';
+export * from './statementLineExportInput';
+export * from './statementLineExportInputFormat';
 export * from './statementLineInput';
 export * from './statementLineProposedContactType';
 export * from './statementLineStatus';

@@ -1534,3 +1534,40 @@ test("reverses mistaken account learning when a posted line is reopened and corr
   assert.equal(nextLine.accountSuggestion, "Revenue");
   assert.equal(nextLine.supportingPatternCount, 1);
 });
+
+test("exports selected statement lines as Excel and PDF without writing other clients", async () => {
+  const line = await createLine(`EXPORT LINE ${randomUUID()}`);
+  const excel = await fetch(`${baseUrl}/agaraccounting/statement-lines/export`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-test-user-id": ownerId },
+    body: JSON.stringify({ clientId, lineIds: [line.id], format: "xlsx" }),
+  });
+  assert.equal(excel.status, 200);
+  assert.match(excel.headers.get("content-type") ?? "", /spreadsheetml/);
+  assert.match(excel.headers.get("content-disposition") ?? "", /statement-lines\.xlsx/);
+  const excelBytes = Buffer.from(await excel.arrayBuffer());
+  assert.ok(excelBytes.length > 100);
+
+  const pdf = await fetch(`${baseUrl}/agaraccounting/statement-lines/export`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-test-user-id": ownerId },
+    body: JSON.stringify({ clientId, lineIds: [line.id], format: "pdf" }),
+  });
+  assert.equal(pdf.status, 200);
+  assert.equal(pdf.headers.get("content-type"), "application/pdf");
+  const pdfBytes = Buffer.from(await pdf.arrayBuffer());
+  assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
+  assert.match(pdfBytes.toString("utf8"), /EXPORT LINE/);
+
+  const missing = await request<{ error: string }>("/agaraccounting/statement-lines/export", {
+    method: "POST",
+    body: JSON.stringify({ clientId, lineIds: [9_999_999], format: "xlsx" }),
+  });
+  assert.equal(missing.response.status, 400);
+
+  const crossClient = await request<{ error: string }>("/agaraccounting/statement-lines/export", {
+    method: "POST",
+    body: JSON.stringify({ clientId: foreignClientId, lineIds: [line.id], format: "pdf" }),
+  }, foreignId);
+  assert.equal(crossClient.response.status, 400);
+});

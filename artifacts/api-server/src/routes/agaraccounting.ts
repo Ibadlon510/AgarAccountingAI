@@ -70,8 +70,17 @@ import {
   UpdateExchangeRateResponse,
   UpdateFirmProfileBody,
   UpdateFirmProfileResponse,
+  RequestStatementLineDetailsBody,
+  RequestStatementLineDetailsResponse,
+  RevokeStatementLineDetailRequestBody,
+  RevokeStatementLineDetailRequestParams,
+  RevokeStatementLineDetailRequestResponse,
+  GetStatementLineNotesParams,
+  GetStatementLineNotesQueryParams,
+  GetStatementLineNotesResponse,
   CreateStatementLineBody,
   CreateStatementLineResponse,
+  ExportStatementLinesBody,
   GetFinancialStatementsQueryParams,
   GetFinancialStatementsResponse,
   GetReportPackParams,
@@ -190,6 +199,8 @@ import {
   statementImportsTable,
   statementImportUndoAuditsTable,
   statementLinesTable,
+  statementLineDetailRequestsTable,
+  statementLineDetailRequestItemsTable,
   systemRateAdminBootstrapStateTable,
   systemRateAdminsTable,
   systemRateAuditEventsTable,
@@ -208,8 +219,15 @@ import {
   saveAIProviderConfig,
   testAIProvider,
 } from "../lib/ai-provider";
-import { EmailDeliveryError, sendWorkspaceInvitationEmail } from "../lib/resend";
-import { ObjectNotFoundError } from "../lib/objectStorage";
+import { EmailDeliveryError, sendDetailRequestEmail, sendWorkspaceInvitationEmail } from "../lib/resend";
+import {
+  emptyNoteSummary,
+  listLineNotes,
+  loadRemarkState,
+  publicDetailRequestLink,
+  DETAIL_REQUEST_TTL_MS,
+  type RemarkState,
+} from "../lib/statementLineRemarks";
 import { objectStorageService } from "./storage";
 import {
   delimitedRows,
@@ -243,6 +261,13 @@ import {
 } from "../lib/reportPack";
 import { calculateUaeCorporateTaxSummary, ensureClientChart } from "../lib/clientChart";
 import { buildReportPdf } from "../lib/reportPdf";
+import {
+  STATEMENT_LINE_EXPORT_MAX_IDS,
+  sanitizeExportFilename,
+  statementLineExportPdf,
+  statementLineExportWorkbook,
+  type StatementLineExportRow,
+} from "../lib/statementLineExport";
 
 const router: IRouter = Router();
 type AccountingTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -9273,6 +9298,87 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
   if (!line) throw new Error("Manual statement line was not created.");
   const contactSuggestion = await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line);
   return res.status(201).json(CreateStatementLineResponse.parse(await statementLineResponse(line, workspacePatterns, contactSuggestion)));
+});
+
+router.post("/agaraccounting/statement-lines/export", async (req, res) => {
+  const parsed = ExportStatementLinesBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Select at least one statement line and choose Excel or PDF." });
+  const client = await requireOwnedClient(req, res, parsed.data.clientId);
+  if (!client) return;
+  const lineIds = [...new Set(parsed.data.lineIds)];
+  if (lineIds.length > STATEMENT_LINE_EXPORT_MAX_IDS) {
+    return res.status(400).json({ error: `Export is limited to ${STATEMENT_LINE_EXPORT_MAX_IDS} statement lines at a time.` });
+  }
+  const lines = await db.select().from(statementLinesTable).where(and(
+    eq(statementLinesTable.clientId, client.id),
+    inArray(statementLinesTable.id, lineIds),
+  )).orderBy(asc(statementLinesTable.date), asc(statementLinesTable.id));
+  if (lines.length !== lineIds.length) {
+    return res.status(400).json({ error: "One or more selected statement lines are not available in this client." });
+  }
+  const contactIds = [...new Set(lines.flatMap((line) => line.contactId == null ? [] : [line.contactId]))];
+  const bankAccountIds = [...new Set(lines.flatMap((line) => line.bankAccountId == null ? [] : [line.bankAccountId]))];
+  const contacts = contactIds.length ? await db.select({
+    id: contactsTable.id,
+    displayName: contactsTable.displayName,
+  }).from(contactsTable).where(and(
+    eq(contactsTable.clientId, client.id),
+    inArray(contactsTable.id, contactIds),
+  )) : [];
+  const bankAccounts = bankAccountIds.length ? await db.select({
+    id: bankAccountsTable.id,
+    name: bankAccountsTable.name,
+  }).from(bankAccountsTable).where(and(
+    eq(bankAccountsTable.clientId, client.id),
+    inArray(bankAccountsTable.id, bankAccountIds),
+  )) : [];
+  const entries = lines.length ? await db.select({
+    statementLineId: journalEntriesTable.statementLineId,
+    status: journalEntriesTable.status,
+    debitAccount: journalEntriesTable.debitAccount,
+    creditAccount: journalEntriesTable.creditAccount,
+  }).from(journalEntriesTable).where(and(
+    eq(journalEntriesTable.clientId, client.id),
+    inArray(journalEntriesTable.statementLineId, lineIds),
+  )) : [];
+  const contactsById = new Map(contacts.map((contact) => [contact.id, contact.displayName]));
+  const bankAccountsById = new Map(bankAccounts.map((account) => [account.id, account.name]));
+  const entriesByLine = new Map(entries.map((entry) => [entry.statementLineId, entry]));
+  const rows: StatementLineExportRow[] = lines.map((line) => {
+    const entry = entriesByLine.get(line.id);
+    const account = entry
+      ? (line.direction === "inflow" ? entry.creditAccount : entry.debitAccount)
+      : line.accountSuggestion;
+    return {
+      date: calendarDate(line.date) ?? "",
+      description: line.description,
+      direction: line.direction,
+      currency: line.currency,
+      amount: number(line.amount),
+      contactName: (line.contactId == null ? null : contactsById.get(line.contactId)) ?? line.proposedContactName ?? "",
+      account: account ?? "",
+      status: journalLifecycleStatus(line.status),
+      confidence: line.confidence == null ? null : number(line.confidence),
+      source: line.source,
+      bankAccountName: (line.bankAccountId == null ? null : bankAccountsById.get(line.bankAccountId)) ?? "",
+      functionalCurrency: line.functionalCurrency ?? client.functionalCurrency,
+      functionalAmount: line.functionalAmount == null ? null : number(line.functionalAmount),
+    };
+  });
+  const document = {
+    clientName: client.name,
+    generatedAt: new Date().toISOString().slice(0, 10),
+    rows,
+  };
+  const filename = sanitizeExportFilename(client.name, parsed.data.format);
+  if (parsed.data.format === "xlsx") {
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.send(statementLineExportWorkbook(document));
+  }
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  return res.send(statementLineExportPdf(document));
 });
 
 router.patch("/agaraccounting/statement-lines/:id/contact", async (req, res) => {

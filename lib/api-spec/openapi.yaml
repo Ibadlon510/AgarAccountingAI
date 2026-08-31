@@ -18,6 +18,8 @@ tags:
     description: Object storage upload and serving endpoints.
   - name: feedback
     description: Public feedback board reads and authenticated writes
+  - name: public
+    description: Token-gated public pages that never grant workspace access
 paths:
   /auth/user:
     get:
@@ -909,6 +911,181 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementLine"
+  /agaraccounting/statement-lines/export:
+    post:
+      operationId: exportStatementLines
+      tags: [agaraccounting]
+      summary: Export selected statement lines as Excel or PDF
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineExportInput"
+      responses:
+        "200":
+          description: Selected statement lines as an Excel workbook or PDF
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: The selected lines are missing, empty, or not in this client
+  /agaraccounting/statement-lines/request-details:
+    post:
+      operationId: requestStatementLineDetails
+      tags: [agaraccounting]
+      summary: Email a public remarks link for selected draft statement lines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineDetailRequestInput"
+      responses:
+        "201":
+          description: Remarks request created and email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLineDetailRequest"
+        "400":
+          description: Selection is empty, too large, not draft, or not in this client
+        "502":
+          description: The remarks email was not sent
+  /agaraccounting/statement-lines/detail-requests/{id}/revoke:
+    post:
+      operationId: revokeStatementLineDetailRequest
+      tags: [agaraccounting]
+      summary: Revoke a public remarks link
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatementLineDetailRequestRevokeInput"
+      responses:
+        "200":
+          description: Remarks request revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLineDetailRequest"
+        "404":
+          description: Remarks request was not found for this client
+  /agaraccounting/statement-lines/{id}/notes:
+    get:
+      operationId: getStatementLineNotes
+      tags: [agaraccounting]
+      summary: List remarks and attachments on a statement line
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+        - name: clientId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Remarks on the statement line
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLineNotes"
+        "404":
+          description: Statement line was not found in this client
+  /public/statement-line-requests/{token}:
+    get:
+      operationId: getPublicStatementLineRequest
+      tags: [public]
+      summary: Load a public remarks request by token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128 }
+      responses:
+        "200":
+          description: Public remarks request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicStatementLineRequest"
+        "404":
+          description: Unknown token
+        "410":
+          description: Token expired or revoked
+  /public/statement-line-requests/{token}/lines/{lineId}:
+    post:
+      operationId: submitPublicStatementLineDetails
+      tags: [public]
+      summary: Submit a remark and optional attachments for one line in a public request
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128 }
+        - name: lineId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/PublicStatementLineRemarkInput"
+      responses:
+        "200":
+          description: Remark saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicStatementLine"
+        "404":
+          description: Unknown token or line is not in this batch
+        "409":
+          description: The line has already been posted
+        "410":
+          description: Token expired or revoked
+  /public/statement-line-requests/{token}/attachments/{attachmentId}:
+    get:
+      operationId: getPublicStatementLineRequestAttachment
+      tags: [public]
+      summary: Download an attachment submitted through a public remarks request
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128 }
+        - name: attachmentId
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Attachment bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Unknown token or attachment
+        "410":
+          description: Token expired or revoked
   /agaraccounting/statement-lines/{id}/contact:
     patch:
       operationId: linkStatementLineContact
@@ -1400,6 +1577,70 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/JournalEntry"
+    post:
+      operationId: createJournalEntry
+      tags: [agaraccounting]
+      summary: Create a standalone manual journal entry that is not linked to a statement line
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JournalEntryInput"
+      responses:
+        "201":
+          description: Draft manual journal entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+        "400":
+          description: The journal entry is incomplete or unbalanced
+  /agaraccounting/journal-entries/{id}:
+    patch:
+      operationId: updateJournalEntry
+      tags: [agaraccounting]
+      summary: Update a draft manual journal entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JournalEntryInput"
+      responses:
+        "200":
+          description: Updated draft journal entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntry"
+        "409":
+          description: Only draft manual journal entries can be edited
+    delete:
+      operationId: deleteJournalEntry
+      tags: [agaraccounting]
+      summary: Delete a draft manual journal entry
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteJournalEntryInput"
+      responses:
+        "204":
+          description: Draft manual journal entry deleted
+        "409":
+          description: Only draft manual journal entries can be deleted
   /agaraccounting/journal-entries/{id}/post:
     post:
       operationId: postJournalEntry
@@ -2834,7 +3075,7 @@ components:
           items: { type: string }
     StatementLine:
       type: object
-      required: [id, date, description, currency, amount, direction, status, source, contactDecisionState, contactReviewDisposition, accountConfirmationRequired, accountRecommendationState]
+      required: [id, date, description, currency, amount, direction, status, source, contactDecisionState, contactReviewDisposition, accountConfirmationRequired, accountRecommendationState, noteSummary, pendingClarification]
       properties:
         id: { type: number }
         bankAccountId: { type: ["number", "null"] }
@@ -2880,6 +3121,140 @@ components:
           type: string
           enum: [none, client, firm, system]
         exchangeRateStatus: { type: string }
+        noteSummary:
+          $ref: "#/components/schemas/StatementLineNoteSummary"
+        pendingClarification:
+          oneOf:
+            - $ref: "#/components/schemas/StatementLinePendingClarification"
+            - type: "null"
+    StatementLineNoteSummary:
+      type: object
+      required: [hasNote, attachmentCount]
+      properties:
+        hasNote: { type: boolean }
+        latestNotePreview: { type: ["string", "null"] }
+        latestNoteAt: { type: ["string", "null"], format: date-time }
+        attachmentCount: { type: number }
+    StatementLinePendingClarification:
+      type: object
+      required: [requestId, recipientEmail, sentAt, expiresAt]
+      properties:
+        requestId: { type: number }
+        recipientEmail: { type: string }
+        sentAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    StatementLineDetailRequestInput:
+      type: object
+      required: [clientId, statementLineIds, recipientEmail]
+      properties:
+        clientId: { type: number }
+        statementLineIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: number }
+        recipientEmail: { type: string, format: email, minLength: 3, maxLength: 320 }
+        senderMessage: { type: ["string", "null"], maxLength: 2000 }
+    StatementLineDetailRequestRevokeInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+    StatementLineDetailRequest:
+      type: object
+      required: [id, recipientEmail, expiresAt, sentAt]
+      properties:
+        id: { type: number }
+        recipientEmail: { type: string }
+        expiresAt: { type: string, format: date-time }
+        sentAt: { type: string, format: date-time }
+        revokedAt: { type: ["string", "null"], format: date-time }
+    StatementLineNoteAttachment:
+      type: object
+      required: [id, filename, contentType, size]
+      properties:
+        id: { type: number }
+        filename: { type: string }
+        contentType: { type: string }
+        size: { type: number }
+    StatementLineNote:
+      type: object
+      required: [id, requestId, submittedByEmail, noteText, createdAt, updatedAt, attachments]
+      properties:
+        id: { type: number }
+        requestId: { type: number }
+        submittedByEmail: { type: string }
+        noteText: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementLineNoteAttachment"
+    StatementLineNotes:
+      type: object
+      required: [lineId, notes]
+      properties:
+        lineId: { type: number }
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementLineNote"
+    PublicStatementLineRemarkInput:
+      type: object
+      required: [noteText]
+      properties:
+        noteText: { type: string, minLength: 1, maxLength: 4000 }
+        files:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+            format: binary
+    PublicStatementLineAttachment:
+      type: object
+      required: [id, filename, contentType, size]
+      properties:
+        id: { type: number }
+        filename: { type: string }
+        contentType: { type: string }
+        size: { type: number }
+    PublicStatementLine:
+      type: object
+      required: [id, date, description, currency, amount, direction, posted, note]
+      properties:
+        id: { type: number }
+        date: { type: string }
+        description: { type: string }
+        currency: { type: string }
+        amount: { type: number }
+        direction: { type: string }
+        posted: { type: boolean }
+        note:
+          oneOf:
+            - $ref: "#/components/schemas/PublicStatementLineNote"
+            - type: "null"
+    PublicStatementLineNote:
+      type: object
+      required: [noteText, updatedAt, attachments]
+      properties:
+        noteText: { type: string }
+        updatedAt: { type: string, format: date-time }
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicStatementLineAttachment"
+    PublicStatementLineRequest:
+      type: object
+      required: [clientDisplayName, expiresAt, lines]
+      properties:
+        clientDisplayName: { type: string }
+        senderMessage: { type: ["string", "null"] }
+        expiresAt: { type: string, format: date-time }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicStatementLine"
     StatementLineInput:
       type: object
       required: [date, description, currency, amount, direction]
@@ -2892,6 +3267,19 @@ components:
         amount: { type: number }
         direction: { type: string }
         contactId: { type: ["number", "null"] }
+    StatementLineExportInput:
+      type: object
+      required: [lineIds, format]
+      properties:
+        clientId: { type: number }
+        lineIds:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: { type: number }
+        format:
+          type: string
+          enum: [xlsx, pdf]
     StatementLineContactInput:
       type: object
       required: [clientId]
@@ -3583,10 +3971,11 @@ components:
         credit: { type: number }
     JournalEntry:
       type: object
-      required: [id, statementLineId, date, memo, currency, status, confidence, lines]
+      required: [id, statementLineId, source, date, memo, currency, status, confidence, lines]
       properties:
         id: { type: number }
-        statementLineId: { type: number }
+        statementLineId: { type: ["number", "null"] }
+        source: { type: string, enum: [statement, manual] }
         contactId: { type: ["number", "null"] }
         contactName: { type: ["string", "null"] }
         date: { type: string }
@@ -3605,6 +3994,23 @@ components:
           type: string
           enum: [none, client, firm, system]
         exchangeRateStatus: { type: string }
+    JournalEntryInput:
+      type: object
+      required: [clientId, date, memo, currency, amount, debitAccount, creditAccount]
+      properties:
+        clientId: { type: number }
+        date: { type: string, format: date }
+        memo: { type: string, minLength: 1, maxLength: 500 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        amount: { type: number, exclusiveMinimum: 0 }
+        debitAccount: { type: string, minLength: 1, maxLength: 160 }
+        creditAccount: { type: string, minLength: 1, maxLength: 160 }
+        contactId: { type: ["number", "null"] }
+    DeleteJournalEntryInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
     TrialBalanceRow:
       type: object
       required: [account, category, debit, credit, balance, functionalCurrency, missingRateCount, missingRateCurrencies]
@@ -3624,7 +4030,7 @@ components:
       required: [entryId, statementLineId, date, description, side, amount, currency, functionalAmount, functionalCurrency, contactName]
       properties:
         entryId: { type: number }
-        statementLineId: { type: number }
+        statementLineId: { type: ["number", "null"] }
         date: { type: string }
         description: { type: string }
         side: { type: string, enum: [debit, credit] }
