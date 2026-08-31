@@ -5,7 +5,9 @@ import {
   hasPdfBankStatementTable,
   normalizeStatementDate,
   parseDelimitedBankStatementRows,
+  parseDelimitedBankStatementSections,
   parsePdfBankStatementRows,
+  parsePdfBankStatementSections,
 } from "../src/lib/statementDocument";
 
 const mashreqMultiLinePdfText = `
@@ -169,4 +171,88 @@ Date,Description,Debit,Credit,Balance
 
   assert.equal(rows.length, 2);
   assert.equal(hasDelimitedBankStatementStructure(generalLedger, rows, false), false);
+});
+
+test("splits repeated AED, EUR, and USD account sections without mixing their rows", () => {
+  const statement = [
+    ["Bank Name", "Mashreq"],
+    ["Account Holder Name", "Trading AED"],
+    ["Account Number", "0011223344"],
+    ["Account Currency", "AED"],
+    ["Date", "Description", "Credit", "Debit"],
+    ["17 Jan 2026", "AED receipt", "100", ""],
+    ["Bank Name", "Mashreq"],
+    ["Account Holder Name", "Trading EUR"],
+    ["Account Number", "9911223344"],
+    ["Account Currency", "EUR"],
+    ["Date", "Description", "Credit", "Debit"],
+    ["18 Jan 2026", "EUR fee", "", "25"],
+    ["Bank Name", "Mashreq"],
+    ["Account Holder Name", "Trading USD"],
+    ["Account Number", "7711223344"],
+    ["Account Currency", "USD"],
+    ["Date", "Description", "Credit", "Debit"],
+    ["19 Jan 2026", "USD receipt", "300", ""],
+  ].map((row) => row.join(",")).join("\n");
+
+  const groups = parseDelimitedBankStatementSections(statement, "AED");
+  assert.deepEqual(groups.map((group) => ({
+    name: group.identity.name,
+    last4: group.identity.accountNumberLast4,
+    currency: group.identity.currency,
+    descriptions: group.lines.map((line) => line.description),
+  })), [
+    { name: "Trading AED", last4: "3344", currency: "AED", descriptions: ["AED receipt"] },
+    { name: "Trading EUR", last4: "3344", currency: "EUR", descriptions: ["EUR fee"] },
+    { name: "Trading USD", last4: "3344", currency: "USD", descriptions: ["USD receipt"] },
+  ]);
+});
+
+test("flags a section without credible account-header evidence as ambiguous", () => {
+  const statement = "Date,Description,Credit,Debit\n17 Jan 2026,Unassigned receipt,100,";
+  const [group] = parseDelimitedBankStatementSections(statement, "AED");
+  assert.equal(group.evidenceStatus, "ambiguous");
+  assert.equal(group.identity.name, null);
+});
+
+test("splits repeated PDF account headers and preserves section currencies", () => {
+  const section = (number: string, currency: string) => mashreqMultiLinePdfText
+    .replace("019101198068", number)
+    .replace("Account Number", `Account Number\n${number}\nAccount Name\n${currency} operating\nAccount Currency\n${currency}\nBank Name\nMashreq`);
+  const groups = parsePdfBankStatementSections(
+    section("0011223344", "AED") + section("9911223344", "EUR"),
+    "AED",
+  );
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups.map((group) => group.identity.currency), ["AED", "EUR"]);
+  assert.deepEqual(groups.map((group) => group.identity.accountNumberLast4), ["3344", "3344"]);
+});
+
+test("parses bank-provenanced signed-amount PDF rows", () => {
+  const statement = `
+Wio Bank
+ACCOUNT HOLDER NAME
+Example FZE
+CURRENCY
+USD
+ACCOUNT NAME
+USD account
+ACCOUNT NUMBER
+9403128306
+IBAN
+AE520860000009403128306
+ACCOUNT STATEMENT
+Date Ref. Number Description Amount (Incl. VAT) Balance
+02/12/2025 P270189912 Subscription fee -99 4,927.8
+04/12/2025 P946406829 Customer receipt 1,150.43 6,078.23
+`;
+  assert.equal(hasPdfBankStatementTable(statement), true);
+  assert.deepEqual(parsePdfBankStatementRows(statement, "USD"), [
+    { date: "2025-12-02", description: "Subscription fee", amount: 99, direction: "outflow", currency: "USD" },
+    { date: "2025-12-04", description: "Customer receipt", amount: 1150.43, direction: "inflow", currency: "USD" },
+  ]);
+  const [group] = parsePdfBankStatementSections(statement, "AED");
+  assert.equal(group.identity.name, "USD account");
+  assert.equal(group.identity.accountNumberLast4, "8306");
+  assert.equal(group.identity.currency, "USD");
 });

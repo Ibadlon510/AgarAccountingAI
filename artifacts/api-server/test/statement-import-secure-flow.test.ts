@@ -8,6 +8,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   aiActivityTable,
   aiProviderConfigsTable,
+  bankAccountsTable,
   clientsTable,
   clientWorkspacesTable,
   db,
@@ -164,6 +165,7 @@ after(async () => {
     await db.delete(journalEntriesTable).where(inArray(journalEntriesTable.clientId, ownedClientIds));
     await db.delete(statementLinesTable).where(inArray(statementLinesTable.clientId, ownedClientIds));
     await db.delete(statementImportsTable).where(inArray(statementImportsTable.clientId, ownedClientIds));
+    await db.delete(bankAccountsTable).where(inArray(bankAccountsTable.clientId, ownedClientIds));
     await db.delete(clientWorkspacesTable).where(inArray(clientWorkspacesTable.clientId, ownedClientIds));
     await db.delete(clientsTable).where(inArray(clientsTable.id, ownedClientIds));
   }

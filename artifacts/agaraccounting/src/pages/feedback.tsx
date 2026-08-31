@@ -783,7 +783,15 @@ export default function FeedbackPage({ signedIn }: { signedIn: boolean }) {
   );
 }
 
-export function FeedbackPublicShell({ children }: { children: React.ReactNode }) {
+export function FeedbackPublicShell({
+  children,
+  signedIn = false,
+  onLogout,
+}: {
+  children: React.ReactNode;
+  signedIn?: boolean;
+  onLogout?: () => void;
+}) {
   return (
     <div className="min-h-[100dvh] bg-background" data-testid="feedback-public-shell">
       <header className="sticky top-0 z-30 flex h-[78px] items-center justify-between border-b border-border/80 bg-background/90 px-4 backdrop-blur-md md:px-8">
@@ -794,12 +802,35 @@ export function FeedbackPublicShell({ children }: { children: React.ReactNode })
             <div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Feedback board</div>
           </div>
         </div>
-        <Link
-          href={feedbackSignInHref("/feedback")}
-          className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-        >
-          Sign in
-        </Link>
+        {signedIn ? (
+          <div className="flex items-center gap-2">
+            <Link
+              data-testid="link-feedback-back-to-workspace"
+              href="/user-portal"
+              className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+            >
+              Back to workspace
+            </Link>
+            {onLogout && (
+              <button
+                type="button"
+                data-testid="button-feedback-signout"
+                onClick={onLogout}
+                className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+              >
+                Sign out
+              </button>
+            )}
+          </div>
+        ) : (
+          <Link
+            data-testid="link-feedback-signin"
+            href={feedbackSignInHref("/feedback")}
+            className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+          >
+            Sign in
+          </Link>
+        )}
       </header>
       <main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10">{children}</main>
     </div>

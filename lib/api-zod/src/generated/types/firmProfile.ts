@@ -12,4 +12,6 @@ export interface FirmProfile {
   legalName: string;
   /** Whether the system catalog may supply a fallback rate for this firm's clients. */
   systemRatesEnabled: boolean;
+  /** Whether eligible newly generated reports show the firm's name. */
+  reportAttributionEnabled: boolean;
 }

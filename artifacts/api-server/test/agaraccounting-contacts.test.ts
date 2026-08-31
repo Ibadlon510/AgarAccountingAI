@@ -987,6 +987,8 @@ test("reuses a prior client mapping for a legacy unresolved line at posting", as
 });
 
 test("posts through a stale learned-account recommendation, while recode confirmation still protects against a wrong one", async () => {
+  await database.db.delete(database.classificationPatternsTable)
+    .where(eq(database.classificationPatternsTable.userId, ownerId));
   const created = await request<{ id: number }>("/clients", {
     method: "POST",
     body: JSON.stringify({
@@ -1042,9 +1044,12 @@ test("posts through a stale learned-account recommendation, while recode confirm
   // The separate explicit recode-confirmation flow is unaffected: it still
   // rejects confirming a stale/wrong suggestion, and still applies a correct
   // one, ahead of posting that entry too.
+  await database.db.delete(database.classificationPatternsTable)
+    .where(eq(database.classificationPatternsTable.userId, ownerId));
   const secondRecurring = await createLine("Payment reference Z88R21: Emirates, NBD bank service fee transaction 992244");
   assert.equal(secondRecurring.contactId, bank.body.id);
   const secondRecurringEntry = await entryFor(secondRecurring.id);
+  await recode(secondRecurring.id, "Bank charges");
   await database.db.update(database.journalEntriesTable).set({ debitAccount: "General expenses" })
     .where(eq(database.journalEntriesTable.id, secondRecurringEntry.id));
   await database.db.update(database.statementLinesTable).set({ contactSuggestionEvidenceCount: null })
@@ -1331,16 +1336,13 @@ test("applies Bank charges contact assignment in one chat turn without guessing"
     }),
   });
   assert.equal(duplicate.response.status, 201);
-  const duplicateB = await request<Contact>("/agaraccounting/contacts", {
-    method: "POST",
-    body: JSON.stringify({
-      clientId: scopedClientId,
-      displayName: "Duplicate Bank",
-      legalName: "Duplicate Bank B LLC",
-      contactType: "supplier",
-    }),
+  await database.db.insert(database.contactsTable).values({
+    clientId: scopedClientId,
+    displayName: "Duplicate Bank",
+    legalName: "Duplicate Bank B LLC",
+    contactType: "supplier",
+    status: "active",
   });
-  assert.equal(duplicateB.response.status, 201);
   const ambiguous = await request<{ answer: string; recommendations: unknown[] }>("/agaraccounting/ai-chat", {
     method: "POST",
     body: JSON.stringify({
@@ -1395,7 +1397,7 @@ test("applies Bank charges contact assignment in one chat turn without guessing"
     method: "POST",
     body: JSON.stringify({
       clientId: scopedClientId,
-      message: "update all Bank charges statement lines' proposed contact to Mashreq Bank",
+      message: "Assign all Bank charges to Mashreq Bank.",
     }),
   });
   assert.equal(applied.response.status, 200);
@@ -1473,4 +1475,62 @@ test("applies Bank charges contact assignment in one chat turn without guessing"
   const stillDraft = await database.db.select().from(database.journalEntriesTable)
     .where(eq(database.journalEntriesTable.clientId, scopedClientId));
   assert.ok(stillDraft.some((entry) => entry.status !== "posted"));
+});
+
+test("reverses mistaken account learning when a posted line is reopened and corrected", async () => {
+  const accounts = await request<Array<{ accountName: string }>>(
+    `/agaraccounting/accounts?clientId=${clientId}`,
+  );
+  assert.equal(accounts.response.status, 200);
+  assert.ok(accounts.body.some((account) => account.accountName === "Other income"));
+  assert.ok(accounts.body.some((account) => account.accountName === "Revenue"));
+
+  const description = `RECURRING CUSTOMER RECEIPT ${randomUUID()}`;
+  const mistakenLine = await createLine(description, "AED", 450, "inflow");
+  const mistakenEntry = await entryFor(mistakenLine.id);
+  const mistakenPost = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${mistakenEntry.id}/post`,
+    {
+      method: "POST",
+      body: JSON.stringify({ clientId, accountSuggestion: "Other income", contactId: null }),
+    },
+  );
+  assert.equal(mistakenPost.response.status, 200);
+  const [mistakenPattern] = await database.db.select()
+    .from(database.classificationPatternsTable)
+    .where(and(
+      eq(database.classificationPatternsTable.userId, ownerId),
+      eq(database.classificationPatternsTable.accountSuggestion, "Other income"),
+    ));
+  assert.ok(mistakenPattern);
+
+  const reopened = await request<{ status: string }>(
+    `/agaraccounting/journal-entries/${mistakenEntry.id}/unpost`,
+    {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    },
+  );
+  assert.equal(reopened.response.status, 200);
+  assert.equal(reopened.body.status, "draft");
+  await database.db.insert(database.classificationPatternsTable).values({
+    userId: ownerId,
+    normalizedVendor: mistakenPattern.normalizedVendor,
+    accountSuggestion: "Other income",
+    confidence: mistakenPattern.confidence,
+    confirmationCount: 1,
+  });
+
+  await recode(mistakenLine.id, "Revenue");
+  const correctedLines = await request<Line[]>(
+    `/agaraccounting/statement-lines?clientId=${clientId}`,
+  );
+  assert.equal(correctedLines.response.status, 200);
+  const correctedLine = correctedLines.body.find((line) => line.id === mistakenLine.id);
+  assert.equal(correctedLine?.accountSuggestion, "Revenue");
+  assert.equal(correctedLine?.journalAccount, "Revenue");
+
+  const nextLine = await createLine(description, "AED", 500, "inflow");
+  assert.equal(nextLine.accountSuggestion, "Revenue");
+  assert.equal(nextLine.supportingPatternCount, 1);
 });

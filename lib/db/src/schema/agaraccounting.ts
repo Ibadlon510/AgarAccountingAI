@@ -31,6 +31,7 @@ export const firmProfilesTable = pgTable("agaraccounting_firm_profiles", {
   legalName: text("legal_name").notNull(),
   profileKind: text("profile_kind").notNull().default("accounting_firm"),
   systemRatesEnabled: boolean("system_rates_enabled").notNull().default(true),
+  reportAttributionEnabled: boolean("report_attribution_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [

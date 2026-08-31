@@ -18,7 +18,7 @@ import {
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
-  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement,
+  Client, ClientUpdateInput, ExchangeRate, ExchangeRateInput, ExchangeRateParseResult, JournalEntry, LedgerflowAccount, ReportAmount, ReportChecklistItem, ReportNote, ReportPack, ReportSignatory, StatementImport, StatementImportResult, StatementImportAccountGroupInput, StatementLine, StatementLineInput, StatementSection, WorkspaceInvitation, WorkspaceMember, OrganizationContext, OrganizationMode, FirmMembership, OrganizationInvitation, FirmEngagement,
   Contact, ContactHistory, ContactInput, ContactMergePreview
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -229,11 +229,6 @@ async function fileAsBase64(file: File) {
   return base64;
 }
 
-function openInvitationEmail(invitation: Pick<WorkspaceInvitation, 'email' | 'emailSubject' | 'emailBody'>) {
-  if (!invitation.emailSubject || !invitation.emailBody) return;
-  const mailto = `mailto:${encodeURIComponent(invitation.email)}?subject=${encodeURIComponent(invitation.emailSubject)}&body=${encodeURIComponent(invitation.emailBody)}`;
-  window.location.assign(mailto);
-}
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
 const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const clerkAppearance = {
@@ -719,15 +714,15 @@ function FirmSettingsPage() {
   const importRates = useImportExchangeRates();
   const parseRates = useParseExchangeRates();
   const { user } = useUser();
-  const [form, setForm] = useState({ name: '', legalName: '', systemRatesEnabled: true });
+  const [form, setForm] = useState({ name: '', legalName: '', systemRatesEnabled: true, reportAttributionEnabled: false });
   const [rate, setRate] = useState({ sourceCurrency: 'USD', functionalCurrency: 'AED', effectiveDate: new Date().toISOString().slice(0, 10), rate: '' });
   const [rateImportError, setRateImportError] = useState('');
   const [rateImportNotice, setRateImportNotice] = useState('');
   const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
   const [ratePage, setRatePage] = useState(1);
   useEffect(() => {
-    if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName, systemRatesEnabled: firmQuery.data.systemRatesEnabled });
-  }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName, firmQuery.data?.systemRatesEnabled]);
+    if (firmQuery.data) setForm({ name: firmQuery.data.name, legalName: firmQuery.data.legalName, systemRatesEnabled: firmQuery.data.systemRatesEnabled, reportAttributionEnabled: firmQuery.data.reportAttributionEnabled });
+  }, [firmQuery.data?.id, firmQuery.data?.name, firmQuery.data?.legalName, firmQuery.data?.systemRatesEnabled, firmQuery.data?.reportAttributionEnabled]);
   const refreshRates = () => {
     queryClient.invalidateQueries({ queryKey: getGetExchangeRatesQueryKey(firmRateScope) });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
@@ -807,6 +802,7 @@ function FirmSettingsPage() {
           <label className="text-xs font-medium">Firm name<input data-testid="input-firm-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
           <label className="text-xs font-medium">Legal firm name<input data-testid="input-firm-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
           <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-system-rates" type="checkbox" checked={form.systemRatesEnabled} onChange={(event) => setForm({ ...form, systemRatesEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Allow system exchange-rate fallback</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Firm and client schedules remain authoritative. Disable this to keep every client on firm-controlled rates only.</span></span></label>
+          <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-report-attribution" type="checkbox" checked={form.reportAttributionEnabled} onChange={(event) => setForm({ ...form, reportAttributionEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Show firm name on generated reports</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">New report packs for active firm engagements will show the firm name on the browser cover and final PDF. Existing snapshots never change.</span></span></label>
           <div className="rounded-md bg-muted px-3 py-2 text-xs sm:col-span-2">Account owner: <strong>{user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Loading profile…'}</strong></div>
           <div className="flex justify-end sm:col-span-2"><button data-testid="button-save-firm-settings" disabled={saveFirm.isPending || firmQuery.isLoading} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">{saveFirm.isPending ? 'Saving…' : 'Save firm settings'}</button></div>
         </form>
@@ -942,6 +938,7 @@ function TeamAccessSection() {
   const revoke = useRevokeWorkspaceInvitation();
   const [form, setForm] = useState({ email: '', role: 'bookkeeper' as 'admin' | 'bookkeeper', clientIds: [] as number[] });
   const [link, setLink] = useState('');
+  const [deliveryMessage, setDeliveryMessage] = useState('');
   const refresh = () => queryClient.invalidateQueries({ queryKey: getGetWorkspaceMembersQueryKey() });
   const toggle = (id: number) => setForm((current) => ({ ...current, clientIds: current.clientIds.includes(id) ? current.clientIds.filter((item) => item !== id) : [...current.clientIds, id] }));
   const toggleMemberClient = (member: WorkspaceMember, clientId: number) => {
@@ -962,25 +959,28 @@ function TeamAccessSection() {
       {data?.canManage && <form onSubmit={(event) => {
         event.preventDefault();
         const invitedEmail = form.email;
+        setDeliveryMessage('');
+        setLink('');
         invite.mutate({ data: form }, {
           onSuccess: (result) => {
             setLink(result.inviteLink ?? '');
+            setDeliveryMessage(`Invitation sent to ${result.email}.`);
             setForm((current) => ({ ...current, email: '' }));
             refresh();
-            openInvitationEmail(result);
-            notify.success('Invitation prepared', { description: `Email opened for ${invitedEmail}.` });
+            notify.success('Invitation sent', { description: `Email delivered to ${invitedEmail}.` });
           },
         });
       }} className="mt-4 rounded border border-primary/20 bg-primary/5 p-3">
         <div className="flex items-center gap-2 text-xs font-semibold"><UserPlus size={14} /> Invite teammate</div>
         <div className="mt-3 flex flex-wrap gap-2"><input data-testid="input-invite-email" required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} placeholder="teammate@firm.com" className="h-8 flex-1 rounded border border-input bg-card px-2 text-xs" /><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as 'admin' | 'bookkeeper' })} className="h-8 rounded border border-input bg-card px-2 text-xs"><option value="bookkeeper">Bookkeeper</option><option value="admin">Admin</option></select></div>
         <div className="mt-3 flex flex-wrap gap-3">{data.clients.map((client) => <label key={client.id} className="text-[11px]"><input data-testid={`checkbox-invite-client-${client.id}`} type="checkbox" checked={form.clientIds.includes(client.id)} onChange={() => toggle(client.id)} /> {client.name}</label>)}</div>
-        <button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{invite.isPending ? 'Preparing email…' : <><Mail size={13} /> Email invitation</>}</button>
-        {link && <><input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" /><p className="mt-2 text-[10px] leading-4 text-muted-foreground">Your email app opened with the role, client access, expiry, and secure link. If it did not open, use the invitation link above.</p></>}
-        {invite.isError && <p data-testid="status-invite-error" className="mt-2 text-[10px] text-destructive">The invitation could not be prepared. Check the email and selected client access.</p>}
+        <button data-testid="button-invite-teammate" disabled={invite.isPending || !form.clientIds.length} className="mt-3 inline-flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-[11px] font-semibold text-primary-foreground disabled:opacity-50">{invite.isPending ? 'Sending invitation…' : <><Mail size={13} /> Send invitation</>}</button>
+        {deliveryMessage && <p data-testid="status-invite-sent" className="mt-2 inline-flex items-center gap-1 text-[10px] text-primary"><Check size={12} /> {deliveryMessage}</p>}
+        {link && <><input data-testid="input-invite-link" readOnly value={link} className="mt-3 h-8 w-full rounded border border-input bg-card px-2 font-mono text-[10px]" /><p className="mt-2 text-[10px] leading-4 text-muted-foreground">Resend uses a new secure link each time. This link is also included in the email.</p></>}
+        {invite.isError && <p data-testid="status-invite-error" className="mt-2 text-[10px] text-destructive">The invitation was not sent. Check the email delivery configuration and try again.</p>}
       </form>}
-      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} data-testid={`row-workspace-invitation-${invitation.id}`} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.role} · {invitation.status}<small className="ml-2 text-muted-foreground">expires {shortDate(invitation.expiresAt)}</small></span>{invitation.status === 'pending' && <span className="flex gap-3"><button data-testid={`button-resend-invitation-${invitation.id}`} disabled={resend.isPending || revoke.isPending} onClick={() => resend.mutate({ id: invitation.id }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); openInvitationEmail(result); refresh(); notify.success('Invitation resent', { description: `Email opened for ${invitation.email}.` }); } })} className="inline-flex items-center gap-1 text-primary disabled:opacity-50"><RotateCw size={12} /> {resend.isPending ? 'Preparing…' : 'Resend email'}</button><button data-testid={`button-revoke-invitation-${invitation.id}`} disabled={revoke.isPending} onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: () => { refresh(); notify.success(`Invitation to ${invitation.email} revoked`); } })} className="text-destructive disabled:opacity-50">Revoke</button></span>}</div>)}
-      {resend.isError && <p data-testid="status-resend-invitation-error" className="mt-2 text-[10px] text-destructive">This invitation could not be resent. It may no longer be pending.</p>}
+      {data?.canManage && data.invitations.map((invitation) => <div key={invitation.id} data-testid={`row-workspace-invitation-${invitation.id}`} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded border border-border p-2 text-[11px]"><span>{invitation.email} · {invitation.role} · {invitation.status}<small className="ml-2 text-muted-foreground">expires {shortDate(invitation.expiresAt)}</small></span>{invitation.status === 'pending' && <span className="flex gap-3"><button data-testid={`button-resend-invitation-${invitation.id}`} disabled={resend.isPending || revoke.isPending} onClick={() => { setDeliveryMessage(''); setLink(''); resend.mutate({ id: invitation.id }, { onSuccess: (result) => { setLink(result.inviteLink ?? ''); setDeliveryMessage(`Invitation resent to ${result.email}.`); refresh(); notify.success('Invitation resent', { description: `Email delivered to ${invitation.email}.` }); } }); }} className="inline-flex items-center gap-1 text-primary disabled:opacity-50"><RotateCw size={12} /> {resend.isPending ? 'Sending…' : 'Resend email'}</button><button data-testid={`button-revoke-invitation-${invitation.id}`} disabled={revoke.isPending} onClick={() => revoke.mutate({ id: invitation.id }, { onSuccess: () => { refresh(); notify.success(`Invitation to ${invitation.email} revoked`); } })} className="text-destructive disabled:opacity-50">Revoke</button></span>}</div>)}
+      {resend.isError && <p data-testid="status-resend-invitation-error" className="mt-2 text-[10px] text-destructive">The invitation email was not sent. Its secure link was rotated; resend again to retry delivery.</p>}
     </>}
   </section>;
 }
@@ -1337,10 +1337,22 @@ function ImportActivity({
   </div>;
 }
 
+function reviewedStatementGroups(result: StatementImportResult): Record<string, StatementImportAccountGroupInput> {
+  return Object.fromEntries((result.accountGroups ?? []).map((group) => [group.id, {
+    id: group.id,
+    bankAccountId: group.bankAccount?.id ?? null,
+    name: group.identity.name,
+    bankName: group.identity.bankName,
+    accountNumberLast4: group.identity.accountNumberLast4,
+    currency: group.identity.currency,
+    lineIds: group.lineIds,
+  }]));
+}
 function ImportStatementPage() {
   const { activeClient } = useClientWorkspace();
   const clientId = activeClient?.id ?? 0;
   const importMutation = useImportStatement();
+  const bankAccountsQuery = useGetBankAccounts({ clientId });
   const { uploadFile, isUploading } = useUpload();
   const importsQuery = useGetStatementImports({ clientId }, {
     query: {
@@ -1356,6 +1368,7 @@ function ImportStatementPage() {
   const [preview, setPreview] = useState<{ clientId: number; clientName: string; fileName: string; mimeType: string; objectPath: string; result: StatementImportResult } | null>(null);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [selectedCurrency, setSelectedCurrency] = useState('');
+  const [groupAssignments, setGroupAssignments] = useState<Record<string, StatementImportAccountGroupInput>>({});
   const [message, setMessage] = useState('');
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
   const [activityStage, setActivityStage] = useState<ImportActivityStage | null>(null);
@@ -1388,6 +1401,7 @@ function ImportStatementPage() {
       && !dismissedPreviewIds.has(statementImport.id));
     if (!pending || !activeClient || preview) return;
     setSelectedCurrency(pending.preview?.detectedCurrency ?? activeClient.functionalCurrency);
+    setGroupAssignments(reviewedStatementGroups(pending.preview as StatementImportResult));
     setPreview({
       clientId: activeClient.id,
       clientName: activeClient.name,
@@ -1483,6 +1497,7 @@ function ImportStatementPage() {
         return;
       }
       setSelectedCurrency(result.detectedCurrency ?? item.functionalCurrency);
+      setGroupAssignments(reviewedStatementGroups(result));
       setPreview({ clientId: item.clientId, clientName: item.clientName, fileName: file.name, mimeType: file.type || 'application/octet-stream', objectPath: uploaded.objectPath, result });
       setPreviewIndex(index);
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === index
@@ -1515,7 +1530,7 @@ function ImportStatementPage() {
   };
 
   const confirmImport = async () => {
-    if (!preview || !activeClient || !selectedCurrency) return;
+    if (!preview || !activeClient || (!selectedCurrency && !(preview.result.accountGroups?.length))) return;
     if (activeClient.id !== preview.clientId) {
       setMessage(`This preview belongs to ${preview.clientName}. Switch back to that client before loading any transactions.`);
       return;
@@ -1533,6 +1548,7 @@ function ImportStatementPage() {
           mimeType: preview.mimeType,
           objectPath: preview.objectPath,
           currency: selectedCurrency,
+          accountGroups: (preview.result.accountGroups?.length ?? 0) > 1 ? Object.values(groupAssignments) : undefined,
           confirmed: true,
         },
       });
@@ -1563,6 +1579,7 @@ function ImportStatementPage() {
     const currentIndex = previewIndex;
     setDismissedPreviewIds((current) => new Set(current).add(preview.result.importId));
     setPreview(null);
+    setGroupAssignments({});
     setPreviewIndex(null);
     if (currentIndex != null) {
       setQueue((current) => current.map((entry, entryIndex) => entryIndex === currentIndex
@@ -1574,8 +1591,13 @@ function ImportStatementPage() {
   };
 
   if (preview) {
-    const isCurrencyUncertain = !preview.result.detectedCurrency;
+    const hasGroupedAccounts = (preview.result.accountGroups?.length ?? 0) > 1;
+    const isCurrencyUncertain = !preview.result.detectedCurrency && !hasGroupedAccounts;
     const isWrongClient = activeClient?.id !== preview.clientId;
+    const hasUnassignedGroup = hasGroupedAccounts && (preview.result.accountGroups ?? []).some((group) => {
+      const assignment = groupAssignments[group.id];
+      return !assignment?.bankAccountId && !assignment?.name?.trim();
+    });
     const queuePosition = previewIndex == null ? null : previewIndex + 1;
     return <div>
       <PageHeading eyebrow={queuePosition == null ? 'Saved analysis · review before load' : `Document ${queuePosition} of ${queue.length} · review before load`} title="Review parsed statement" description={`AgarAccounting AI has not loaded any rows for ${preview.clientName} yet. Confirm the interpreted currency and transactions before they enter that client’s review queue.`} />
@@ -1586,15 +1608,26 @@ function ImportStatementPage() {
           <button type="button" onClick={skipPreview} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button>
         </div>
         {isWrongClient && <div data-testid="statement-preview-client-mismatch" className="mt-5 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-xs leading-5 text-destructive">This preview is permanently assigned to <strong>{preview.clientName}</strong>. Switch back to that client before loading transactions. AgarAccounting AI will not move this file to the currently selected workspace.</div>}
-        <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
+        {!hasGroupedAccounts && <div className={`mt-5 rounded-md border px-4 py-3 ${isCurrencyUncertain ? 'border-accent/30 bg-accent/10' : 'border-primary/25 bg-primary/5'}`}>
           <div className="text-xs font-semibold">{isCurrencyUncertain ? 'Currency needs your confirmation' : `AI understood the statement currency as ${preview.result.detectedCurrency}`}</div>
           <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{isCurrencyUncertain ? 'The source did not state one clear currency. Select the currency that applies to every row before loading.' : 'Check this against the original statement. You can correct it before the rows are loaded.'}</p>
           <label className="mt-3 block max-w-xs text-xs font-medium">Currency to load<select data-testid="select-confirm-statement-currency" value={selectedCurrency} onChange={(event) => setSelectedCurrency(event.target.value)} className="mt-1.5 block h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="AED">AED — UAE dirham</option><option value="USD">USD — US dollar</option><option value="EUR">EUR — euro</option><option value="GBP">GBP — pound sterling</option><option value="SAR">SAR — Saudi riyal</option><option value="QAR">QAR — Qatari riyal</option></select></label>
-        </div>
-        <div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[660px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Suggested account</th></tr></thead><tbody className="divide-y divide-border">{preview.result.lines.slice(0, 25).map((line) => <tr key={line.id}><td className="px-3 py-2.5 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2.5 font-medium">{line.description}</td><td className="px-3 py-2.5 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2.5 text-right font-mono">{money(line.amount, selectedCurrency || line.currency)}</td><td className="px-3 py-2.5 text-muted-foreground">{line.accountSuggestion ?? 'Review needed'}</td></tr>)}</tbody></table></div>
-        {preview.result.lines.length > 25 && <p className="mt-3 text-[11px] text-muted-foreground">Showing the first 25 of {preview.result.lines.length} parsed transactions. All rows will be loaded only after you confirm.</p>}
+        </div>}
+        {hasGroupedAccounts ? <div className="mt-5 space-y-4" data-testid="statement-account-groups">{preview.result.accountGroups?.map((group) => {
+          const assignment = groupAssignments[group.id];
+          return <section key={group.id} data-testid={`statement-account-group-${group.id}`} className={`rounded-md border p-4 ${group.status === 'ambiguous' ? 'border-accent/40 bg-accent/5' : 'border-border'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-semibold">{assignment?.name || group.identity.accountNumberLast4 && `Account ending ${group.identity.accountNumberLast4}` || 'Account assignment needed'}</h3><p className="mt-1 text-[11px] text-muted-foreground">{assignment?.bankName || 'Bank not identified'} · {assignment?.currency} · {group.lines.length} transaction{group.lines.length === 1 ? '' : 's'}</p></div>{group.status === 'ambiguous' ? <span className="rounded-full bg-accent/15 px-2 py-1 text-[10px] font-semibold text-accent-foreground">Needs assignment</span> : null}</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-[11px] font-medium">Existing client account<select aria-label={`Existing account for ${group.id}`} value={assignment?.bankAccountId ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], bankAccountId: event.target.value ? Number(event.target.value) : null } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="">Create or match from identity</option>{bankAccountsQuery.data?.map((account) => <option key={account.id} value={account.id}>{account.name} · {account.currency}{account.accountNumberLast4 ? ` · ••••${account.accountNumberLast4}` : ''}</option>)}</select></label>
+              <label className="text-[11px] font-medium">Account name or identifier<input value={assignment?.name ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], name: event.target.value } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs" /></label>
+              <label className="text-[11px] font-medium">Bank<input value={assignment?.bankName ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], bankName: event.target.value } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs" /></label>
+              <label className="text-[11px] font-medium">Currency<select value={assignment?.currency ?? ''} onChange={(event) => setGroupAssignments((current) => ({ ...current, [group.id]: { ...current[group.id], currency: event.target.value } }))} className="mt-1 block h-9 w-full rounded-md border border-input bg-background px-2 text-xs"><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select></label>
+            </div>
+            <div className="mt-3 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[560px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th></tr></thead><tbody className="divide-y divide-border">{group.lines.map((line) => <tr key={line.id}><td className="px-3 py-2 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2 font-medium">{line.description}</td><td className="px-3 py-2 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2 text-right font-mono">{money(line.amount, assignment?.currency || line.currency)}</td></tr>)}</tbody></table></div>
+          </section>;
+        })}</div> : <><div className="mt-5 overflow-x-auto rounded-md border border-border"><table className="w-full min-w-[660px] text-left text-xs"><thead className="bg-muted/60 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2">Suggested account</th></tr></thead><tbody className="divide-y divide-border">{preview.result.lines.slice(0, 25).map((line) => <tr key={line.id}><td className="px-3 py-2.5 font-mono">{shortDate(line.date)}</td><td className="px-3 py-2.5 font-medium">{line.description}</td><td className="px-3 py-2.5 capitalize text-muted-foreground">{line.direction}</td><td className="px-3 py-2.5 text-right font-mono">{money(line.amount, selectedCurrency || line.currency)}</td><td className="px-3 py-2.5 text-muted-foreground">{line.accountSuggestion ?? 'Review needed'}</td></tr>)}</tbody></table></div>{preview.result.lines.length > 25 && <p className="mt-3 text-[11px] text-muted-foreground">Showing the first 25 of {preview.result.lines.length} parsed transactions. All rows will be loaded only after you confirm.</p>}</>}
         {message && <p className="mt-4 text-xs text-destructive">{message}</p>}
-         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={skipPreview} className="h-10 rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={isWrongClient || !selectedCurrency || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to {preview.clientName}</>}</button></div>
+         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={skipPreview} className="h-10 rounded-md border border-border px-4 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button><button data-testid="button-confirm-statement-import" type="button" onClick={confirmImport} disabled={isWrongClient || (!hasGroupedAccounts && !selectedCurrency) || hasUnassignedGroup || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">{importMutation.isPending ? <><LoaderCircle size={14} className="animate-spin" /> Loading to review…</> : <><Check size={14} /> Load {preview.result.lines.length} transaction{preview.result.lines.length === 1 ? '' : 's'} to {preview.clientName}</>}</button></div>
       </section>
     </div>;
   }
@@ -2681,6 +2714,8 @@ function StatementLinesPage() {
   const [bulkError, setBulkError] = useState<unknown>(null);
   const [lineActionError, setLineActionError] = useState<{ lineId: number; message: string } | null>(null);
   const [pendingPostLineIds, setPendingPostLineIds] = useState<number[]>([]);
+  const [refreshingLines, setRefreshingLines] = useState(false);
+  const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const pendingPostLineIdsRef = useRef(new Set<number>());
   const bulkActionTriggerRef = useRef<HTMLButtonElement | null>(null);
   const params = useMemo(() => ({ clientId: activeClient?.id ?? 1, ...(currency !== 'all' ? { currency } : {}), ...(status !== 'all' ? { status } : {}), ...(direction !== 'all' ? { direction } : {}) }), [activeClient?.id, currency, status, direction]);
@@ -2872,6 +2907,9 @@ function StatementLinesPage() {
   };
   const refreshingSuggestions = query.isFetching || catalogQuery.isFetching || journalQuery.isFetching || bankAccountsQuery.isFetching;
   const refreshSuggestions = async () => {
+    if (refreshingSuggestions || refreshingLines) return;
+    const refreshStartedAt = Date.now();
+    setRefreshingLines(true);
     setLineActionError(null);
     // Statement-line GET recomputes learned account/contact suggestions from current
     // workspace patterns, so an explicit refetch is enough to surface new learning.
@@ -2884,11 +2922,18 @@ function StatementLinesPage() {
         queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId: journalParams.clientId }) }),
         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAccountsQueryKey({ clientId: journalParams.clientId }) }),
       ]);
+      const elapsed = Date.now() - refreshStartedAt;
+      if (elapsed < 500) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500 - elapsed));
+      }
       notify.success('Suggestions refreshed', {
         description: 'Draft accounts and contacts now reflect the latest learning.',
       });
+      setLastRefreshAt(new Date());
     } catch (error) {
       notify.error(error, { title: 'Refresh failed', fallback: 'Some suggestions could not be reloaded. Try again in a moment.' });
+    } finally {
+      setRefreshingLines(false);
     }
   };
   return <div>
@@ -2902,11 +2947,11 @@ function StatementLinesPage() {
           data-testid="button-refresh-statement-lines"
           title="Reload statement lines and refresh learned account and contact suggestions"
           onClick={() => { void refreshSuggestions(); }}
-          disabled={refreshingSuggestions}
+          disabled={refreshingSuggestions || refreshingLines}
           className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground shadow-sm transition-transform hover:-translate-y-0.5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
         >
-          <RefreshCw size={14} className={refreshingSuggestions ? 'animate-spin' : ''} />
-          {refreshingSuggestions ? 'Refreshing…' : 'Refresh suggestions'}
+          <RefreshCw size={14} className={refreshingSuggestions || refreshingLines ? 'animate-spin' : ''} />
+          {refreshingSuggestions || refreshingLines ? 'Refreshing…' : 'Refresh suggestions'}
         </button>
         <button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>
       </div>}
@@ -2955,8 +3000,18 @@ function StatementLinesPage() {
         <DateRangeFilter compact from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} fromTestId="input-statement-lines-date-from" toTestId="input-statement-lines-date-to" clearTestId="button-clear-statement-lines-date-filter" />
     </FilterToolbar>
     <QueryState loading={query.isLoading} error={query.isError} empty={!rows.length} filtered={activeFilterCount > 0} onClearFilters={clearAllFilters} onRetry={() => query.refetch()}>
-      <div className="overflow-hidden rounded-lg border border-card-border bg-card">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div>
+      <div
+        data-testid="statement-lines-review-queue"
+        aria-busy={refreshingLines}
+        className="relative overflow-hidden rounded-lg border border-card-border bg-card"
+      >
+        {refreshingLines && <div data-testid="statement-lines-refresh-state" className="pointer-events-none absolute inset-0 z-20 grid place-items-center bg-card/75 p-6 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-full border border-primary/25 bg-background/95 px-4 py-2.5 text-xs font-semibold text-primary shadow-lg" role="status" aria-live="polite">
+            <RefreshCw size={14} className="animate-spin" />
+            Refreshing review queue…
+          </div>
+        </div>}
+         <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><div className="flex items-center gap-3">{lastRefreshAt && <span data-testid="statement-lines-refresh-success" title={`Last refreshed ${lastRefreshAt.toLocaleTimeString()}`} className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.08em] text-primary"><Check size={12} /> Queue refreshed</span>}<span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div></div>
         {selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue ? 'text-destructive' : 'text-muted-foreground'}`}>{selectionIssue ?? 'Draft entries selected · recoding and posting are available.'}</p></div>}
          <div className="overflow-x-auto"><table className="w-full min-w-[1220px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[360px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[148px] px-3 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(pendingPostLineIds.includes(line.id) || post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={lineActionError?.lineId === line.id ? lineActionError.message : null} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onPost={postEntry} onUnpost={unpostEntry} />)}</tbody></table></div>
         {rows.length > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, rows.length)} of {rows.length} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
@@ -2994,6 +3049,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     return accounts[0]?.accountName ?? preferred ?? '';
   };
   const [selectedAccount, setSelectedAccount] = useState(() => resolveSelectableAccount(line.accountSuggestion));
+  const saveAccount = useConfirmAICopilotAction();
   const accountSelectionEditedRef = useRef(false);
   useEffect(() => {
     setSelectedAccount((current) => {
@@ -3212,12 +3268,35 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                               <select
                                 data-testid={`select-account-suggestion-${line.id}`}
                                 aria-label="Classification decision"
-                                aria-busy={accountQuery.isLoading}
-                                disabled={accountQuery.isLoading}
+                                aria-busy={accountQuery.isLoading || saveAccount.isPending}
+                                disabled={accountQuery.isLoading || saveAccount.isPending}
                                 value={selectedAccount}
                                 onChange={(event) => {
+                                  const accountSuggestion = event.target.value;
+                                  const previousAccount = selectedAccount;
                                   accountSelectionEditedRef.current = true;
-                                  setSelectedAccount(event.target.value);
+                                  setSelectedAccount(accountSuggestion);
+                                  if (!activeClient || !accountSuggestion || accountSuggestion === journalClassifiedAccount) return;
+                                  saveAccount.mutate({
+                                    data: {
+                                      clientId: activeClient.id,
+                                      type: 'recode_lines',
+                                      lineIds: [line.id],
+                                      accountSuggestion,
+                                      confidence: 0.85,
+                                    },
+                                  }, {
+                                    onSuccess: () => {
+                                      queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+                                      queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+                                      notify.success('Draft account updated', { description: `${accountSuggestion} will be used when this entry is posted.` });
+                                    },
+                                    onError: (error) => {
+                                      accountSelectionEditedRef.current = false;
+                                      setSelectedAccount(previousAccount);
+                                      notify.error(error, { title: 'Account update failed', fallback: 'The draft account could not be updated. Refresh the queue and try again.' });
+                                    },
+                                  });
                                 }}
                                 onClick={(event) => event.stopPropagation()}
                                 className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary disabled:opacity-50"
@@ -3228,7 +3307,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
                                     ? <option value="">No active accounts available</option>
                                     : accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName}</option>)}
                               </select>
-                              {accountQuery.isFetching && !accountQuery.isLoading && <LoaderCircle size={12} className="shrink-0 animate-spin text-primary" aria-label="Refreshing accounts" />}
+                              {(saveAccount.isPending || (accountQuery.isFetching && !accountQuery.isLoading)) && <LoaderCircle size={12} className="shrink-0 animate-spin text-primary" aria-label={saveAccount.isPending ? 'Saving account' : 'Refreshing accounts'} />}
                             </span>
                           ) : <span className="font-semibold">{journalLine.account}</span>}
                         </td>
@@ -3421,7 +3500,7 @@ function TrialBalanceTransactionsRow({ account, currency, colSpan }: { account: 
     {query.isLoading ? <div className="flex items-center gap-2 text-xs text-muted-foreground"><RefreshCw size={13} className="animate-spin" /> Loading transactions…</div>
       : query.isError ? <div className="text-xs text-destructive">Transactions could not be loaded. <button type="button" onClick={() => query.refetch()} className="font-semibold underline">Retry</button></div>
       : !transactions.length ? <div className="text-xs text-muted-foreground">No posted transactions for this account.</div>
-      : <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-[11px]"><thead className="font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><tr><th className="pb-2 pr-3 font-medium">Date</th><th className="pb-2 pr-3 font-medium">Description</th><th className="pb-2 pr-3 font-medium">Counter account</th><th className="pb-2 pr-3 text-right font-medium">Debit</th><th className="pb-2 text-right font-medium">Credit</th></tr></thead><tbody className="divide-y divide-border/60">{transactions.map((transaction) => <tr key={transaction.entryId} data-testid={`row-trial-balance-transaction-${transaction.entryId}`}><td className="py-2 pr-3 font-mono text-muted-foreground">{shortDate(transaction.date)}</td><td className="py-2 pr-3">{transaction.description}</td><td className="py-2 pr-3 text-muted-foreground">{transaction.counterAccount}</td><td className="py-2 pr-3 text-right font-mono">{transaction.side === 'debit' ? money(transaction.functionalAmount ?? transaction.amount, currency) : '—'}</td><td className="py-2 text-right font-mono">{transaction.side === 'credit' ? money(transaction.functionalAmount ?? transaction.amount, currency) : '—'}</td></tr>)}</tbody></table></div>}
+      : <div className="overflow-x-auto"><table className="w-full min-w-[660px] text-left text-[11px]"><thead className="font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><tr><th className="pb-2 pr-3 font-medium">Date</th><th className="pb-2 pr-3 font-medium">Description</th><th className="pb-2 pr-3 font-medium">Contact</th><th className="pb-2 pr-3 font-medium">Counter account</th><th className="pb-2 pr-3 text-right font-medium">Debit</th><th className="pb-2 text-right font-medium">Credit</th></tr></thead><tbody className="divide-y divide-border/60">{transactions.map((transaction) => <tr key={transaction.entryId} data-testid={`row-trial-balance-transaction-${transaction.entryId}`}><td className="py-2 pr-3 font-mono text-muted-foreground">{shortDate(transaction.date)}</td><td className="py-2 pr-3">{transaction.description}</td><td data-testid={`cell-trial-balance-transaction-contact-${transaction.entryId}`} className="py-2 pr-3 text-muted-foreground">{transaction.contactName ?? '—'}</td><td className="py-2 pr-3 text-muted-foreground">{transaction.counterAccount}</td><td className="py-2 pr-3 text-right font-mono">{transaction.side === 'debit' ? money(transaction.functionalAmount ?? transaction.amount, currency) : '—'}</td><td className="py-2 text-right font-mono">{transaction.side === 'credit' ? money(transaction.functionalAmount ?? transaction.amount, currency) : '—'}</td></tr>)}</tbody></table></div>}
   </td></tr>;
 }
 
@@ -3759,6 +3838,21 @@ function FinancialStatementsPage() {
     }
     focusReportSection(target.sectionId);
   };
+  useEffect(() => {
+    const previous = document.querySelector('[data-report-firm-attribution="true"]');
+    previous?.remove();
+    const attribution = pack?.snapshot.firmAttribution;
+    if (!attribution?.enabled || !attribution.firmName) return;
+    const title = document.querySelector('#report-comparative-statements .report-cover h2');
+    if (!title) return;
+    const label = document.createElement('p');
+    label.dataset.reportFirmAttribution = 'true';
+    label.dataset.testid = 'report-firm-attribution';
+    label.className = 'mt-3 text-[12px] font-semibold';
+    label.textContent = `Prepared by firm: ${attribution.firmName}`;
+    title.insertAdjacentElement('afterend', label);
+    return () => label.remove();
+  }, [pack?.id, pack?.snapshot.firmAttribution?.enabled, pack?.snapshot.firmAttribution?.firmName, showComparatives]);
   const blocked = pack?.validation.status !== 'pass';
   const errorText = generate.error || update.error
     ? 'The report pack could not be saved. Review the visible requirements and try again.'
@@ -3797,7 +3891,7 @@ function FinancialStatementsPage() {
   </div>;
 }
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route path="/feedback">{() => <FeedbackPage signedIn />}</Route><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
@@ -4181,7 +4275,7 @@ function PublicFeedbackEntry() {
       clearUserScopedState(queryClient);
       void signOut({ redirectUrl: basePath || "/" });
     };
-    return <InviteAcceptanceGate><AgarAccountingApp key={user.externalId ?? user.id} user={user} profileUser={user} onLogout={handleLogout} /></InviteAcceptanceGate>;
+    return <InviteAcceptanceGate><FeedbackPublicShell signedIn onLogout={handleLogout}><FeedbackPage signedIn /></FeedbackPublicShell></InviteAcceptanceGate>;
   }
   return <FeedbackPublicShell><FeedbackPage signedIn={false} /></FeedbackPublicShell>;
 }

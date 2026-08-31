@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { WorkspaceInvitationEmailDeliveryStatus } from './workspaceInvitationEmailDeliveryStatus';
 import type { WorkspaceInvitationStatus } from './workspaceInvitationStatus';
 import type { WorkspaceMembershipClient } from './workspaceMembershipClient';
 import type { WorkspaceRole } from './workspaceRole';
@@ -21,4 +22,5 @@ export interface WorkspaceInvitation {
   inviteLink?: string;
   emailSubject?: string;
   emailBody?: string;
+  emailDeliveryStatus?: WorkspaceInvitationEmailDeliveryStatus;
 }

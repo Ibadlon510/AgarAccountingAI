@@ -451,6 +451,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceInvitation"
+        "502":
+          description: Invitation email delivery failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationDeliveryError"
   /workspace/invitations/{id}:
     delete:
       operationId: revokeWorkspaceInvitation
@@ -481,6 +487,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkspaceInvitation"
+        "502":
+          description: Invitation email delivery failed after the secure link was rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationDeliveryError"
   /workspace/invitations/{token}/accept:
     post:
       operationId: acceptWorkspaceInvitation
@@ -2199,7 +2211,7 @@ components:
             $ref: "#/components/schemas/UaeCorporateTaxAdjustment"
     FirmProfile:
       type: object
-      required: [id, name, legalName, systemRatesEnabled]
+      required: [id, name, legalName, systemRatesEnabled, reportAttributionEnabled]
       properties:
         id: { type: number }
         name: { type: string }
@@ -2207,6 +2219,9 @@ components:
         systemRatesEnabled:
           type: boolean
           description: Whether the system catalog may supply a fallback rate for this firm's clients.
+        reportAttributionEnabled:
+          type: boolean
+          description: Whether eligible newly generated reports show the firm's name.
     FirmProfileInput:
       type: object
       required: [name, legalName]
@@ -2214,6 +2229,7 @@ components:
         name: { type: string, minLength: 1 }
         legalName: { type: string, minLength: 1 }
         systemRatesEnabled: { type: boolean }
+        reportAttributionEnabled: { type: boolean }
     OrganizationMode:
       type: string
       enum: [company, firm, both]
@@ -2473,6 +2489,7 @@ components:
         inviteLink: { type: string }
         emailSubject: { type: string }
         emailBody: { type: string }
+        emailDeliveryStatus: { type: string, enum: [sent] }
     WorkspaceMembers:
       type: object
       required: [currentRole, canManage, clients, members, invitations]
@@ -2501,6 +2518,11 @@ components:
           type: array
           minItems: 1
           items: { type: number }
+    InvitationDeliveryError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
     WorkspaceMemberUpdate:
       type: object
       required: [role, clientIds]
@@ -2816,6 +2838,8 @@ components:
       properties:
         id: { type: number }
         bankAccountId: { type: ["number", "null"] }
+        accountGroupId: { type: ["string", "null"] }
+        accountAssignmentStatus: { type: ["string", "null"], enum: [assigned, ambiguous, unassigned, null] }
         date: { type: string }
         description: { type: string }
         currency: { type: string }
@@ -3044,6 +3068,11 @@ components:
         background:
           type: boolean
           description: Return after the durable analysis record is created while extraction continues server-side.
+        accountGroups:
+          type: array
+          description: Reviewed account assignments for a grouped statement preview.
+          items:
+            $ref: "#/components/schemas/StatementImportAccountGroupInput"
     StatementImportResult:
       type: object
       required: [fileName, importId, importStatus, importedCount, duplicateCount, duplicateLines, lines]
@@ -3069,6 +3098,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/BankAccount"
             - type: "null"
+        accountGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementImportAccountGroup"
     StatementImport:
       type: object
       required: [id, fileName, mimeType, objectPath, outcome, importedLineCount, createdAt, updatedAt, preview]
@@ -3149,6 +3182,46 @@ components:
         direction: { type: string }
         existingLineId: { type: ["number", "null"] }
         reason: { type: string, enum: [already_imported, duplicate_in_file] }
+    StatementImportAccountIdentity:
+      type: object
+      required: [name, bankName, accountNumberLast4, currency]
+      properties:
+        name: { type: ["string", "null"] }
+        bankName: { type: ["string", "null"] }
+        accountNumberLast4: { type: ["string", "null"] }
+        currency: { type: string }
+    StatementImportAccountGroupInput:
+      type: object
+      required: [id, lineIds, currency]
+      properties:
+        id: { type: string }
+        bankAccountId: { type: ["number", "null"] }
+        name: { type: ["string", "null"] }
+        bankName: { type: ["string", "null"] }
+        accountNumberLast4: { type: ["string", "null"] }
+        currency: { type: string }
+        lineIds:
+          type: array
+          items: { type: number }
+    StatementImportAccountGroup:
+      type: object
+      required: [id, identity, status, lineIds, lines]
+      properties:
+        id: { type: string }
+        identity:
+          $ref: "#/components/schemas/StatementImportAccountIdentity"
+        status: { type: string, enum: [identified, ambiguous] }
+        lineIds:
+          type: array
+          items: { type: number }
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatementLine"
+        bankAccount:
+          oneOf:
+            - $ref: "#/components/schemas/BankAccount"
+            - type: "null"
     BankAccount:
       type: object
       required: [id, clientId, name, currency]
@@ -3548,7 +3621,7 @@ components:
           items: { type: string }
     TrialBalanceAccountTransaction:
       type: object
-      required: [entryId, statementLineId, date, description, side, amount, currency, functionalAmount, functionalCurrency]
+      required: [entryId, statementLineId, date, description, side, amount, currency, functionalAmount, functionalCurrency, contactName]
       properties:
         entryId: { type: number }
         statementLineId: { type: number }
@@ -3559,6 +3632,7 @@ components:
         currency: { type: string }
         functionalAmount: { type: ["number", "null"] }
         functionalCurrency: { type: ["string", "null"] }
+        contactName: { type: ["string", "null"] }
         counterAccount: { type: string }
     StatementSection:
       type: object
@@ -3684,6 +3758,12 @@ components:
         reviewedBy: { type: string }
         authorizedBy: { type: string }
         authorizationDate: { type: ["string", "null"], format: date }
+    ReportFirmAttribution:
+      type: object
+      required: [enabled, firmName]
+      properties:
+        enabled: { type: boolean }
+        firmName: { type: ["string", "null"] }
     ReportSnapshot:
       type: object
       required: [entityName, legalName, periodEnd, comparativePeriodEnd, presentationCurrency, reportingBasis, presentationProfile, statementOfFinancialPosition, profitOrLossAndOci, changesInEquity, cashFlows, notes, traceability, taxSummary]
@@ -3695,6 +3775,8 @@ components:
         presentationCurrency: { type: string }
         reportingBasis: { type: string }
         presentationProfile: { type: string }
+        firmAttribution:
+          $ref: "#/components/schemas/ReportFirmAttribution"
         statementOfFinancialPosition:
           type: array
           items: { $ref: "#/components/schemas/ReportAmount" }
