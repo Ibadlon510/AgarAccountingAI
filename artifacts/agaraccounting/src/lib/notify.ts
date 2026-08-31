@@ -54,9 +54,18 @@ function warning(title: string, opts: BaseOptions = {}) {
   return sonnerToast.warning(title, opts);
 }
 
+// When an explicit notify.error() call handles a mutation error, mark the
+// error object so the global MutationCache handler can skip re-toasting it.
+export const HANDLED_ERROR_MARK = '__agarNotifyHandled';
+export function isErrorHandled(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as Record<string, unknown>)[HANDLED_ERROR_MARK] === true;
+}
 function error(err: unknown, opts: ErrorOptions = {}) {
   const { fallback, action, title, description, duration, id } = opts;
   const body = description ?? readErrorMessage(err, fallback);
+  if (err && typeof err === 'object') {
+    try { (err as Record<string, unknown>)[HANDLED_ERROR_MARK] = true; } catch { /* frozen */ }
+  }
   return sonnerToast.error(title ?? 'Something went wrong', {
     description: body,
     duration: duration ?? 6500,
