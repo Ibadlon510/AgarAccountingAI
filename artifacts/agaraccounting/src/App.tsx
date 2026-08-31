@@ -3244,7 +3244,9 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
     if (!selectedAccount) return rows;
     const inflow = isInflowDirection(line.direction);
     return rows.map((journalLine) => {
+      const bankLeg = inflow ? journalLine.debit > 0 : journalLine.credit > 0;
       const classifiedLeg = inflow ? journalLine.credit > 0 : journalLine.debit > 0;
+      if (bankLeg) return { ...journalLine, account: 'Bank / cash' };
       return classifiedLeg ? { ...journalLine, account: selectedAccount } : journalLine;
     });
   }, [entry?.lines, selectedAccount, line.direction]);
