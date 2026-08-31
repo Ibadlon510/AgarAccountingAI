@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, TextInput, Pressable } from 'react-native';
+import { Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import {
   useGetStatementLines,
   getGetStatementLinesQueryKey,
@@ -29,10 +31,12 @@ const FILTERS: ChipOption<StatusFilter>[] = [
 function LineRow({
   line,
   onPost,
+  onOpen,
   busy,
 }: {
   line: StatementLine;
   onPost: (() => void) | null;
+  onOpen: () => void;
   busy: boolean;
 }) {
   const { colors } = useTheme();
@@ -48,7 +52,15 @@ function LineRow({
   const willCreateContact = !line.contactId && Boolean(line.proposedContactName?.trim());
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <Pressable
+      onPress={onOpen}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${line.description}`}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.75 : 1 },
+      ]}
+    >
       <View style={styles.cardTop}>
         <Text style={[styles.date, { color: colors.mutedForeground, fontFamily: fonts.mono }]}>
           {shortDate(line.date)}
@@ -98,13 +110,15 @@ function LineRow({
           Needs an exchange rate before it counts toward reporting.
         </Text>
       )}
-    </View>
+    </Pressable>
   );
 }
 
 export default function BankLinesScreen() {
   const { colors } = useTheme();
+  const router = useRouter();
   const [status, setStatus] = useState<StatusFilter>('all');
+  const [search, setSearch] = useState('');
   const { activeClient, isLoading: clientLoading, isError: clientError, refetch: refetchClient } = useActiveClient();
 
   const params = { clientId: activeClient?.id ?? 0 };
@@ -146,10 +160,17 @@ export default function BankLinesScreen() {
   };
 
   const all = useMemo(() => linesQuery.data ?? [], [linesQuery.data]);
-  const visible = useMemo(
-    () => (status === 'all' ? all : all.filter((line) => line.status === status)),
-    [all, status],
-  );
+  const visible = useMemo(() => {
+    const byStatus = status === 'all' ? all : all.filter((line) => line.status === status);
+    const needle = search.trim().toLowerCase();
+    if (!needle) return byStatus;
+    // Same fields the web app searches: description, account and contact.
+    return byStatus.filter((line) =>
+      `${line.description} ${line.accountSuggestion ?? ''} ${line.contactName ?? ''} ${line.proposedContactName ?? ''}`
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [all, status, search]);
 
   const filters = useMemo<ChipOption<StatusFilter>[]>(
     () =>
@@ -196,6 +217,7 @@ export default function BankLinesScreen() {
               line={item}
               busy={entryId !== undefined && busyId === entryId}
               onPost={entryId === undefined ? null : () => postLine(item)}
+              onOpen={() => router.push(`/line/${item.id}`)}
             />
           );
         }}
@@ -210,6 +232,22 @@ export default function BankLinesScreen() {
         ListHeaderComponent={
           <View style={styles.header}>
             <ScreenHeader title="Bank lines" />
+            <View style={[styles.searchRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Feather name="search" size={14} color={colors.mutedForeground} />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search description, account or contact"
+                placeholderTextColor={colors.mutedForeground}
+                autoCorrect={false}
+                style={[styles.searchInput, { color: colors.foreground, fontFamily: fonts.sans }]}
+              />
+              {search.length > 0 && (
+                <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel="Clear search">
+                  <Feather name="x" size={14} color={colors.mutedForeground} />
+                </Pressable>
+              )}
+            </View>
             <Chips<StatusFilter> options={filters} value={status} onChange={setStatus} />
           </View>
         }
@@ -223,9 +261,16 @@ export default function BankLinesScreen() {
           ) : (
             <EmptyState
               icon="filter"
-              title="Nothing matches this filter"
-              body={`No ${status} lines in this workspace.`}
-              onClear={() => setStatus('all')}
+              title="Nothing matches"
+              body={
+                search.trim()
+                  ? `No ${status === 'all' ? '' : `${status} `}lines match “${search.trim()}”.`
+                  : `No ${status} lines in this workspace.`
+              }
+              onClear={() => {
+                setStatus('all');
+                setSearch('');
+              }}
             />
           )
         }
@@ -238,6 +283,17 @@ const styles = StyleSheet.create({
   list: { padding: spacing.lg, paddingBottom: spacing.xxl, gap: spacing.md },
   listEmpty: { flexGrow: 1 },
   header: { marginBottom: spacing.xs },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm - 2,
+    marginBottom: spacing.xs,
+  },
+  searchInput: { flex: 1, fontSize: 13, paddingVertical: 2 },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   date: { fontSize: 11 },
