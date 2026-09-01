@@ -40,7 +40,7 @@ async function request<T>(path: string, init?: RequestInit, userId = primaryUser
 type JournalEntry = {
   id: number;
   statementLineId: number | null;
-  source: "manual" | "statement";
+  source: "manual" | "statement" | "system";
   status: string;
   memo: string;
   date: string;

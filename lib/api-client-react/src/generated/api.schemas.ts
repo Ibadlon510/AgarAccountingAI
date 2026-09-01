@@ -2185,6 +2185,7 @@ export type JournalEntrySource = typeof JournalEntrySource[keyof typeof JournalE
 export const JournalEntrySource = {
   statement: 'statement',
   manual: 'manual',
+  system: 'system',
 } as const;
 
 export type JournalEntryStatus = typeof JournalEntryStatus[keyof typeof JournalEntryStatus];

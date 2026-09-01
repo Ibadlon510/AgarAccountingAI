@@ -321,7 +321,11 @@ function journalEntryResponse(entry: typeof journalEntriesTable.$inferSelect, co
   return {
     id: entry.id,
     statementLineId: entry.statementLineId,
-    source: entry.statementLineId == null ? "manual" as const : "statement" as const,
+    source: entry.systemSource != null
+      ? "system" as const
+      : entry.statementLineId == null
+        ? "manual" as const
+        : "statement" as const,
     contactId: entry.contactId,
     contactName,
     date: calendarDate(entry.date),
@@ -10463,12 +10467,14 @@ router.patch("/agaraccounting/journal-entries/:id", async (req, res) => {
     eq(journalEntriesTable.id, id),
     eq(journalEntriesTable.clientId, client.id),
     isNull(journalEntriesTable.statementLineId),
+    isNull(journalEntriesTable.systemSource),
     inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
   )).returning();
   if (!entry) {
     const [existing] = await db.select({
       id: journalEntriesTable.id,
       statementLineId: journalEntriesTable.statementLineId,
+      systemSource: journalEntriesTable.systemSource,
       status: journalEntriesTable.status,
     }).from(journalEntriesTable).where(and(
       eq(journalEntriesTable.id, id),
@@ -10488,19 +10494,25 @@ router.delete("/agaraccounting/journal-entries/:id", async (req, res) => {
   const [existing] = await db.select({
     id: journalEntriesTable.id,
     statementLineId: journalEntriesTable.statementLineId,
+    systemSource: journalEntriesTable.systemSource,
     status: journalEntriesTable.status,
   }).from(journalEntriesTable).where(and(
     eq(journalEntriesTable.id, id),
     eq(journalEntriesTable.clientId, client.id),
   )).limit(1);
   if (!existing) return res.status(404).json({ error: "Journal entry not found for this client" });
-  if (existing.statementLineId != null || journalLifecycleStatus(existing.status) !== "draft") {
+  if (
+    existing.statementLineId != null
+    || existing.systemSource != null
+    || journalLifecycleStatus(existing.status) !== "draft"
+  ) {
     return res.status(409).json({ error: "Only draft manual journal entries can be deleted." });
   }
   const deleted = await db.delete(journalEntriesTable).where(and(
     eq(journalEntriesTable.id, id),
     eq(journalEntriesTable.clientId, client.id),
     isNull(journalEntriesTable.statementLineId),
+    isNull(journalEntriesTable.systemSource),
     inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
   )).returning({ id: journalEntriesTable.id });
   if (!deleted.length) {

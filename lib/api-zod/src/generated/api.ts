@@ -3013,7 +3013,7 @@ export const ConfirmAICopilotActionResponse = zod.object({
   "entries": zod.array(zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
-  "source": zod.enum(['statement', 'manual']),
+  "source": zod.enum(['statement', 'manual', 'system']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -3090,7 +3090,7 @@ export const getJournalEntriesResponseLinesItemCreditMin = 0;
 export const GetJournalEntriesResponseItem = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
-  "source": zod.enum(['statement', 'manual']),
+  "source": zod.enum(['statement', 'manual', 'system']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -3158,7 +3158,7 @@ export const createJournalEntryResponseLinesItemCreditMin = 0;
 export const CreateJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
-  "source": zod.enum(['statement', 'manual']),
+  "source": zod.enum(['statement', 'manual', 'system']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -3229,7 +3229,7 @@ export const updateJournalEntryResponseLinesItemCreditMin = 0;
 export const UpdateJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
-  "source": zod.enum(['statement', 'manual']),
+  "source": zod.enum(['statement', 'manual', 'system']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -3297,7 +3297,7 @@ export const postJournalEntryResponseLinesItemCreditMin = 0;
 export const PostJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
-  "source": zod.enum(['statement', 'manual']),
+  "source": zod.enum(['statement', 'manual', 'system']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),
@@ -3340,7 +3340,7 @@ export const unpostJournalEntryResponseLinesItemCreditMin = 0;
 export const UnpostJournalEntryResponse = zod.object({
   "id": zod.number(),
   "statementLineId": zod.number().nullable(),
-  "source": zod.enum(['statement', 'manual']),
+  "source": zod.enum(['statement', 'manual', 'system']),
   "contactId": zod.number().nullish(),
   "contactName": zod.string().nullish(),
   "date": zod.string(),

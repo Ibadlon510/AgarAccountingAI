@@ -63,6 +63,7 @@ type ClientBody = {
 
 type JournalEntry = {
   id: number;
+  source: "manual" | "statement" | "system";
   status: string;
   memo: string;
   date: string;
@@ -242,12 +243,23 @@ test("saves the share register, posts a replaceable system journal, and warns ab
   assert.equal(journals.response.status, 200);
   const systemJournal = journals.body.find((entry) => entry.id === first.body.shareCapitalJournalId);
   assert.ok(systemJournal);
+  assert.equal(systemJournal.source, "system");
   assert.equal(systemJournal.status, "posted");
   assert.equal(systemJournal.date, "2026-08-01");
   assert.deepEqual(systemJournal.lines, [
     { description: "Share capital per client register", account: "Due from shareholders", debit: 200000, credit: 0 },
     { description: "Share capital per client register", account: SHARE_CAPITAL_ACCOUNT_NAME, debit: 0, credit: 200000 },
   ]);
+
+  await database!.db.update(database!.journalEntriesTable)
+    .set({ status: "draft" })
+    .where(eq(database!.journalEntriesTable.id, systemJournal.id));
+  const blockedDelete = await request<{ error: string }>(`/agaraccounting/journal-entries/${systemJournal.id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(blockedDelete.response.status, 409);
+  assert.equal(blockedDelete.body.error, "Only draft manual journal entries can be deleted.");
 
   const second = await request<ClientBody>(`/clients/${clientId}`, {
     method: "PATCH",

@@ -4060,7 +4060,7 @@ components:
       properties:
         id: { type: number }
         statementLineId: { type: ["number", "null"] }
-        source: { type: string, enum: [statement, manual] }
+        source: { type: string, enum: [statement, manual, system] }
         contactId: { type: ["number", "null"] }
         contactName: { type: ["string", "null"] }
         date: { type: string }
