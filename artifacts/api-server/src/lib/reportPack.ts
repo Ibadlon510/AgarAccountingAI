@@ -86,6 +86,17 @@ export type ReportSnapshot = {
 type Entry = typeof journalEntriesTable.$inferSelect;
 type Classification = typeof accountClassificationsTable.$inferSelect;
 type Client = typeof clientsTable.$inferSelect;
+type BankAccountInput = {
+  id: number;
+  name: string;
+  bankName: string | null;
+  accountNumberLast4: string | null;
+  currency: string;
+};
+type StatementLineBankInput = {
+  id: number;
+  bankAccountId: number | null;
+};
 
 type AccountKind = "asset" | "liability" | "equity" | "revenue" | "expense" | "oci";
 type AccountMeta = {
@@ -172,6 +183,7 @@ function buildDefaultReportNotes(input: {
   hasComparative: boolean;
   cashCurrent: number;
   cashComparative: number;
+  cashBalancesByBankAccount: Array<{ label: string; current: number; comparative: number }>;
   revenues: Array<{ label: string; current: number; comparative: number }>;
   expenses: Array<{ label: string; current: number; comparative: number }>;
   taxExpenses: Array<{ label: string; current: number; comparative: number }>;
@@ -244,7 +256,9 @@ function buildDefaultReportNotes(input: {
         "Unless management records a restriction, these balances are treated as available on demand and are included in the statement of cash flows.",
       ].join(" "),
       requiresInput: false,
-      tables: [{ label: "Cash and bank balances", current: input.cashCurrent, comparative: input.cashComparative }],
+      tables: input.cashBalancesByBankAccount.length
+        ? input.cashBalancesByBankAccount
+        : [{ label: "Cash and bank balances", current: input.cashCurrent, comparative: input.cashComparative }],
     },
     {
       number: 4,
@@ -447,6 +461,16 @@ function entryLines(entry: Entry, amount: number) {
   }));
 }
 
+function bankAccountLabel(account: BankAccountInput) {
+  const bankName = account.bankName?.trim();
+  const accountName = account.name.trim();
+  const names = bankName && bankName.localeCompare(accountName, undefined, { sensitivity: "accent" }) !== 0
+    ? `${bankName} — ${accountName}`
+    : bankName || accountName;
+  const lastFour = account.accountNumberLast4 ? ` •••• ${account.accountNumberLast4}` : "";
+  return `${names}${lastFour} (${account.currency.toUpperCase()})`;
+}
+
 function reportAmount(label: string, current: number, comparative: number, noteNumber: number, currentEntries: Set<number>, comparativeEntries: Set<number>, currentLines: Set<number>, comparativeLines: Set<number>, children?: ReportAmount[]): ReportAmount {
   return {
     label,
@@ -533,6 +557,8 @@ export function buildReportPack(input: {
   missingRateEntries: Entry[];
   firmAttribution?: ReportFirmAttribution;
   shareholders?: ShareholdingRowInput[];
+  bankAccounts?: BankAccountInput[];
+  statementLines?: StatementLineBankInput[];
 }) {
   const periods = resolveReportPeriod(input.periodEnd);
   const metaByAccount = new Map(input.classifications.map((classification) => [classification.accountName, customAccountMeta(classification)]));
@@ -619,6 +645,40 @@ export function buildReportPack(input: {
   const cashBalances = assets.filter((item) => /bank|cash|inter[\s-]?account transfer/i.test(item.account));
   const cashCurrent = sums(cashBalances, "current");
   const cashComparative = sums(cashBalances, "comparative");
+  const bankAccountByLineId = new Map(
+    (input.statementLines ?? []).flatMap((line) =>
+      line.bankAccountId == null ? [] : [[line.id, line.bankAccountId] as const],
+    ),
+  );
+  const bankMovement = (entry: Entry) => entryLines(entry, convertedAmount(entry)).reduce((total, line) => {
+    if (line.account !== "Bank / cash") return total;
+    return total + line.debit - line.credit;
+  }, 0);
+  const cashBalancesByBankAccount = (input.bankAccounts ?? []).map((account) => {
+    const linkedEntries = input.entries.filter((entry) =>
+      entry.statementLineId != null && bankAccountByLineId.get(entry.statementLineId) === account.id,
+    );
+    return {
+      label: bankAccountLabel(account),
+      current: linkedEntries
+        .filter((entry) => entry.date <= periods.periodEnd)
+        .reduce((total, entry) => total + bankMovement(entry), 0),
+      comparative: linkedEntries
+        .filter((entry) => entry.date <= periods.comparativePeriodEnd)
+        .reduce((total, entry) => total + bankMovement(entry), 0),
+    };
+  }).filter((row) => Math.abs(row.current) > 0.009 || Math.abs(row.comparative) > 0.009);
+  const allocatedCurrentCash = cashBalancesByBankAccount.reduce((total, row) => total + row.current, 0);
+  const allocatedComparativeCash = cashBalancesByBankAccount.reduce((total, row) => total + row.comparative, 0);
+  const unallocatedCurrentCash = cashCurrent - allocatedCurrentCash;
+  const unallocatedComparativeCash = cashComparative - allocatedComparativeCash;
+  if (Math.abs(unallocatedCurrentCash) > 0.009 || Math.abs(unallocatedComparativeCash) > 0.009) {
+    cashBalancesByBankAccount.push({
+      label: "Other cash and bank balances",
+      current: unallocatedCurrentCash,
+      comparative: unallocatedComparativeCash,
+    });
+  }
   const openingCash = cashComparative;
   const cashMovement = cashCurrent - openingCash;
   const operatingCash = currentEntries.reduce((total, entry) => {
@@ -724,6 +784,7 @@ export function buildReportPack(input: {
     hasComparative: comparativeEntries.length > 0,
     cashCurrent,
     cashComparative,
+    cashBalancesByBankAccount,
     revenues: revenueNoteRows,
     expenses: expenseNoteRows,
     taxExpenses: taxNoteRows,
@@ -774,7 +835,7 @@ export function buildReportPack(input: {
     openingCash,
     cashMovement,
     closingCash: cashCurrent,
-    noteCash: notes[2].tables[0]?.current ?? 0,
+    noteCash: notes[2].tables.reduce((total, row) => total + row.current, 0),
     relatedPartyCurrent,
     relatedPartyComponentCurrent,
     missingRateEntries: input.missingRateEntries,

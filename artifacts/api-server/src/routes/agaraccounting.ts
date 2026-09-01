@@ -11178,6 +11178,13 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
     : classifications;
   const sourceImports = await db.select({ id: statementImportsTable.id }).from(statementImportsTable)
     .where(and(eq(statementImportsTable.clientId, client.id), eq(statementImportsTable.outcome, "completed")));
+  const [bankAccounts, statementLines] = await Promise.all([
+    db.select().from(bankAccountsTable).where(eq(bankAccountsTable.clientId, client.id)),
+    db.select({
+      id: statementLinesTable.id,
+      bankAccountId: statementLinesTable.bankAccountId,
+    }).from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id)),
+  ]);
   const shareCapitalExtras = (await loadShareCapitalClientExtras([client.id])).get(client.id);
   const generated = buildReportPack({
     client,
@@ -11196,6 +11203,8 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
       nationality: row.nationality,
       numberOfShares: row.numberOfShares,
     })) ?? [],
+    bankAccounts,
+    statementLines,
   });
   const [pack] = await db.insert(reportPacksTable).values({
     clientId: client.id,

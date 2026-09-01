@@ -28,6 +28,30 @@ test('uses the client legal name throughout financial statement presentation', a
   assert.doesNotMatch(notes[0]?.narrative ?? '', /Global Leisure/);
 });
 
+test('preserves every bank-account row when hydrating the cash note', () => {
+  const cashRows = [
+    { label: 'Wio Bank — AED •••• 8819', current: 120, comparative: 90 },
+    { label: 'Wio Bank — USD •••• 8306', current: 80, comparative: 70 },
+  ];
+  const notes = buildSystemNoteDrafts({
+    legalName: 'Sample Accounting',
+    periodEnd: '2025-12-31',
+    comparativePeriodEnd: '2024-12-31',
+    presentationCurrency: 'AED',
+    reportingBasis: 'IFRS',
+    presentationProfile: 'IAS 1',
+  }, [{
+    number: 3,
+    title: 'Cash and cash equivalents',
+    narrative: 'Confirm restricted cash',
+    requiresInput: true,
+    tables: cashRows,
+  }]);
+
+  assert.deepEqual(notes[0]?.tables, cashRows);
+  assert.match(notes[0]?.narrative ?? '', /200\.00 AED/);
+});
+
 test('prints a handwritten signature placeholder on each primary statement and the notes', async () => {
   const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
   const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');

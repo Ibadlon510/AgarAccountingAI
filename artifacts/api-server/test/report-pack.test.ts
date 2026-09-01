@@ -167,6 +167,80 @@ test("blocks a draft pack with missing comparatives and accountant inputs", () =
   assert.equal(result.checklist.length, 12);
 });
 
+test("breaks the cash note down by persisted bank account and keeps unassigned cash separate", () => {
+  const result = buildReportPack({
+    client: {
+      id: 1,
+      name: "Bank note entity",
+      legalName: "Bank Note Entity LLC",
+      functionalCurrency: "AED",
+    } as never,
+    entries: [
+      {
+        id: 10,
+        clientId: 1,
+        statementLineId: 20,
+        date: "2026-06-01",
+        status: "posted",
+        debitAccount: "Bank / cash",
+        creditAccount: "Revenue",
+        amount: "100",
+        functionalAmount: "100",
+        functionalCurrency: "AED",
+      },
+      {
+        id: 11,
+        clientId: 1,
+        statementLineId: 21,
+        date: "2026-07-01",
+        status: "posted",
+        debitAccount: "General expenses",
+        creditAccount: "Bank / cash",
+        amount: "30",
+        functionalAmount: "30",
+        functionalCurrency: "AED",
+      },
+      {
+        id: 12,
+        clientId: 1,
+        statementLineId: null,
+        date: "2026-08-01",
+        status: "posted",
+        debitAccount: "Bank / cash",
+        creditAccount: "Revenue",
+        amount: "5",
+        functionalAmount: "5",
+        functionalCurrency: "AED",
+      },
+    ] as never,
+    classifications: [],
+    periodEnd: "2026-12-31",
+    presentationCurrency: "AED",
+    reportingBasis: "IFRS",
+    presentationProfile: "IAS 1",
+    roundingPolicy: "Nearest whole unit",
+    sourceImportCount: 1,
+    missingRateEntries: [],
+    bankAccounts: [
+      { id: 1, name: "Operating", bankName: "Wio Bank", accountNumberLast4: "8819", currency: "AED" },
+      { id: 2, name: "Reserve", bankName: "Wio Bank", accountNumberLast4: "4421", currency: "AED" },
+    ],
+    statementLines: [
+      { id: 20, bankAccountId: 1 },
+      { id: 21, bankAccountId: 2 },
+    ],
+  });
+
+  const note = result.notes.find((item) => item.number === 3);
+  assert.deepEqual(note?.tables, [
+    { label: "Wio Bank — Operating •••• 8819 (AED)", current: 100, comparative: 0 },
+    { label: "Wio Bank — Reserve •••• 4421 (AED)", current: -30, comparative: 0 },
+    { label: "Other cash and bank balances", current: 5, comparative: 0 },
+  ]);
+  assert.equal(note?.tables.reduce((total, row) => total + row.current, 0), 75);
+  assert.equal(result.validation.checks.find((check) => check.id === "note-totals")?.status, "pass");
+});
+
 test("accepts only the report profiles eligible for each basis and annual period", () => {
   assert.deepEqual(
     eligibleReportProfiles("2026-12-31", "IFRS").map((profile) => profile.profile),

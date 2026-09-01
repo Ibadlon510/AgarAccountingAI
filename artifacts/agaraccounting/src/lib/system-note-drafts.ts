@@ -76,13 +76,13 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
   const comparativeSentence = hasComparative
     ? `Comparative information is presented for the year ended ${comparativeLabel}.`
     : `Comparative figures for the year ended ${comparativeLabel} are presented as zero because no posted prior-period ledger activity is available in this workspace.`;
-  const cashTable = existingNotes.find((note) => note.number === 3)?.tables?.[0];
+  const cashTables = existingNotes.find((note) => note.number === 3)?.tables ?? [];
   const revenueTables = existingNotes.find((note) => note.number === 4)?.tables ?? [];
   const expenseTables = existingNotes.find((note) => note.number === 5)?.tables ?? [];
   const relatedTables = existingNotes.find((note) => note.number === 6)?.tables ?? [];
   const taxTables = existingNotes.find((note) => note.number === 7)?.tables ?? [];
-  const cashCurrent = cashTable?.current ?? 0;
-  const cashComparative = cashTable?.comparative ?? 0;
+  const cashCurrent = cashTables.reduce((total, row) => total + row.current, 0);
+  const cashComparative = cashTables.reduce((total, row) => total + row.comparative, 0);
   const revenueLabels = revenueTables.map((row) => row.label);
   const expenseLabels = expenseTables.map((row) => row.label);
   const taxLabels = taxTables.map((row) => row.label);
@@ -133,7 +133,7 @@ export function buildSystemNoteDrafts(snapshot: SnapshotLike, existingNotes: Dra
         "Unless management records a restriction, these balances are treated as available on demand and are included in the statement of cash flows.",
       ].join(" "),
       requiresInput: false,
-      tables: cashTable ? [cashTable] : [{ label: "Cash and bank balances", current: cashCurrent, comparative: cashComparative }],
+      tables: cashTables.length ? cashTables : [{ label: "Cash and bank balances", current: cashCurrent, comparative: cashComparative }],
     },
     {
       number: 4,
