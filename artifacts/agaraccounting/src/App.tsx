@@ -32,6 +32,7 @@ import { notify, readErrorMessage, isErrorHandled, markErrorHandled } from '@/li
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { SearchableSelect } from '@/components/searchable-select';
 import { AssistantFAB } from './components/assistant-fab';
 import FeedbackPage, { FeedbackPublicShell } from './pages/feedback';
 import BankStatementDisplayPage from './pages/bank-statement-display';
@@ -3553,22 +3554,28 @@ function InlineStatementRow({ line, bankAccountName, expanded, selected, process
                   Contact
                   {contactsQuery.isFetching && <LoaderCircle size={11} className="animate-spin text-primary" aria-label="Refreshing contacts" />}
                 </span>
-                <select
-                  data-testid={`select-contact-${line.id}`}
-                  aria-label="Contact"
-                  aria-busy={contactsQuery.isLoading}
+                <SearchableSelect
+                  testId={`select-contact-${line.id}`}
+                  ariaLabel="Contact"
+                  ariaBusy={contactsQuery.isLoading}
                   disabled={!canEditContact || contactsQuery.isLoading}
                   value={selectedContactId}
-                  onChange={(event) => { contactSelectionEditedRef.current = true; setSelectedContactId(event.target.value); }}
-                  className="h-8 min-w-[10rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50"
-                >
-                  {contactsQuery.isLoading
-                    ? <option value="">Loading contacts…</option>
-                    : <>
-                      <option value="">{needsIdentification ? `Identify ${likelyContactType}` : 'No contact'}</option>
-                      {selectableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.displayName} ({contact.contactType}{contact.status === 'archived' ? ', archived' : ''})</option>)}
-                    </>}
-                </select>
+                  onValueChange={(next) => { contactSelectionEditedRef.current = true; setSelectedContactId(next); }}
+                  placeholder={contactsQuery.isLoading ? 'Loading contacts…' : (needsIdentification ? `Identify ${likelyContactType}` : 'No contact')}
+                  searchPlaceholder="Search contacts…"
+                  emptyText="No matching contacts"
+                  fallbackLabel={line.contactName ?? undefined}
+                  className="min-w-[10rem] flex-1"
+                  triggerClassName="h-8 px-2 text-xs font-normal"
+                  options={contactsQuery.isLoading ? [] : [
+                    { value: '', label: needsIdentification ? `Identify ${likelyContactType}` : 'No contact' },
+                    ...selectableContacts.map((contact) => ({
+                      value: String(contact.id),
+                      label: `${contact.displayName} (${contact.contactType}${contact.status === 'archived' ? ', archived' : ''})`,
+                      searchText: `${contact.displayName} ${contact.contactType} ${contact.status ?? ''}`,
+                    })),
+                  ]}
+                />
               </div>
               {showContactProposalEditor && <div data-testid={`contact-proposal-editor-${line.id}`} className="flex flex-wrap items-center gap-2 pl-16">
                 <input data-testid={`input-proposed-contact-name-${line.id}`} aria-label="Contact name" placeholder="Name" disabled={!canEditContact} value={proposedContactName} onChange={(event) => setProposedContactName(event.target.value)} className="h-8 min-w-[8rem] flex-1 rounded-md border border-input bg-background px-2 text-xs font-normal outline-none focus:border-primary disabled:opacity-50" />
@@ -3612,14 +3619,14 @@ function InlineStatementRow({ line, bankAccountName, expanded, selected, process
                         >
                           {classifiedLeg && canConfirmClassification ? (
                             <span className="flex items-center gap-1.5">
-                              <select
-                                data-testid={`select-account-suggestion-${line.id}`}
-                                aria-label="Classification decision"
-                                aria-busy={accountQuery.isLoading || saveAccount.isPending}
+                              <SearchableSelect
+                                testId={`select-account-suggestion-${line.id}`}
+                                ariaLabel="Classification decision"
+                                ariaBusy={accountQuery.isLoading || saveAccount.isPending}
                                 disabled={accountQuery.isLoading || saveAccount.isPending}
                                 value={selectedAccount}
-                                onChange={(event) => {
-                                  const accountSuggestion = event.target.value;
+                                onValueChange={(accountSuggestion) => {
+                                  if (accountSuggestion === selectedAccount) return;
                                   const previousAccount = selectedAccount;
                                   accountSelectionEditedRef.current = true;
                                   setSelectedAccount(accountSuggestion);
@@ -3645,15 +3652,18 @@ function InlineStatementRow({ line, bankAccountName, expanded, selected, process
                                     },
                                   });
                                 }}
-                                onClick={(event) => event.stopPropagation()}
-                                className="h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs font-semibold outline-none focus:border-primary disabled:opacity-50"
-                              >
-                                {accountQuery.isLoading
-                                  ? <option value="">Loading accounts…</option>
-                                  : !accounts.length
-                                    ? <option value="">No active accounts available</option>
-                                    : accounts.map((account) => <option key={account.id} value={account.accountName}>{account.accountCode} · {account.displayName}</option>)}
-                              </select>
+                                placeholder={accountQuery.isLoading ? 'Loading accounts…' : (!accounts.length ? 'No active accounts available' : 'Select account')}
+                                searchPlaceholder="Search accounts…"
+                                emptyText="No matching accounts"
+                                fallbackLabel={selectedAccount || undefined}
+                                className="w-full"
+                                triggerClassName="h-7 px-1.5 text-xs font-semibold"
+                                options={accounts.map((account) => ({
+                                  value: account.accountName,
+                                  label: `${account.accountCode} · ${account.displayName}`,
+                                  searchText: `${account.accountCode} ${account.accountName} ${account.displayName}`,
+                                }))}
+                              />
                               {(saveAccount.isPending || (accountQuery.isFetching && !accountQuery.isLoading)) && <LoaderCircle size={12} className="shrink-0 animate-spin text-primary" aria-label={saveAccount.isPending ? 'Saving account' : 'Refreshing accounts'} />}
                             </span>
                           ) : <span className="font-semibold">{journalLine.account}</span>}
