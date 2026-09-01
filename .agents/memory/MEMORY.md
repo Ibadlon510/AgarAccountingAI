@@ -39,3 +39,4 @@
 - [Stale generated declarations](stale-generated-declarations.md) — force a composite rebuild when generated source types and downstream declarations disagree.
 - [Database environment boundary](database-environment-boundary.md) — verify logical targets and representative rows; a Replit-managed database may still use a Neon-looking host.
 - [Filtered ledger summaries](filtered-ledger-summaries.md) — every aggregate branch must reuse the active list filters, not only the headline total.
+- [Bank register and journal reconciliation](bank-register-journal-reconciliation.md) — compare normalized statement signs with each linked journal’s Bank / cash movement before investigating opening balances.
