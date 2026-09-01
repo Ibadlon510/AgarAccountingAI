@@ -37,3 +37,4 @@
 - [Financial statement identity](financial-statement-identity.md) — report covers, headers, PDFs, and generated notes use the client’s legal name.
 - [Remarks email identity](remarks-email-identity.md) — remarks emails use AgarAccounting AI as From, company name in the subject, and a user salutation with raw and button links.
 - [Stale generated declarations](stale-generated-declarations.md) — force a composite rebuild when generated source types and downstream declarations disagree.
+- [Database environment boundary](database-environment-boundary.md) — verify logical targets and representative rows; a Replit-managed database may still use a Neon-looking host.
