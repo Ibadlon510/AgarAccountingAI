@@ -25,6 +25,14 @@ async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Pro
     .where(eq(usersTable.id, userId))
     .limit(1);
 
+  if (!dbUser && identity?.email) {
+    [dbUser] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, identity.email))
+      .limit(1);
+  }
+
   if (!dbUser) {
     const [inserted] = await db
       .insert(usersTable)
@@ -40,11 +48,17 @@ async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Pro
   }
 
   if (!dbUser) {
-    [dbUser] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.id, userId))
-      .limit(1);
+    [dbUser] = identity?.email
+      ? await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, identity.email))
+        .limit(1)
+      : await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.id, userId))
+        .limit(1);
   }
 
   if (!dbUser) {
@@ -61,7 +75,7 @@ async function provisionLocalUser(userId: string, identity?: ClerkIdentity): Pro
         firstName: dbUser.firstName ?? identity.firstName,
         lastName: dbUser.lastName ?? identity.lastName,
       })
-      .where(eq(usersTable.id, userId))
+      .where(eq(usersTable.id, dbUser.id))
       .returning();
     dbUser = updated ?? dbUser;
   }
