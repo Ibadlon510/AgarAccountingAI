@@ -238,7 +238,11 @@ async function fileAsBase64(file: File) {
   return base64;
 }
 
-const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+// Replit provisions the production proxy secret in the shared environment as
+// well, but the proxy is only available for published Clerk instances.
+const clerkProxyUrl = import.meta.env.PROD
+  ? import.meta.env.VITE_CLERK_PROXY_URL
+  : undefined;
 const clerkPubKey = publishableKeyFromHost(window.location.hostname, import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 const clerkAppearance = {
   theme: shadcn,
