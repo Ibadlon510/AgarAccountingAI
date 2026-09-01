@@ -10,7 +10,9 @@ let server: Server | undefined;
 let baseUrl = "";
 let database: typeof import("@workspace/db") | undefined;
 let primaryUserId = "";
+let secondaryUserId = "";
 let clientId: number | undefined;
+let isolatedClientId: number | undefined;
 
 function testDatabaseUrl() {
   const value = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
@@ -22,12 +24,12 @@ function testDatabaseUrl() {
   return value;
 }
 
-async function request<T>(path: string, init?: RequestInit) {
+async function request<T>(path: string, init?: RequestInit, userId = primaryUserId) {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-test-user-id": primaryUserId,
+      "x-test-user-id": userId,
       ...init?.headers,
     },
   });
@@ -67,12 +69,21 @@ before(async () => {
   const { createRequireAuth } = await import("../src/middlewares/authMiddleware");
   database = await import("@workspace/db");
   primaryUserId = `agaraccounting-share-capital-${randomUUID()}`;
-  await database.db.insert(database.usersTable).values({
-    id: primaryUserId,
-    email: `${primaryUserId}@example.test`,
-    firstName: "Share",
-    lastName: "Capital",
-  });
+  secondaryUserId = `agaraccounting-share-capital-isolated-${randomUUID()}`;
+  await database.db.insert(database.usersTable).values([
+    {
+      id: primaryUserId,
+      email: `${primaryUserId}@example.test`,
+      firstName: "Share",
+      lastName: "Capital",
+    },
+    {
+      id: secondaryUserId,
+      email: `${secondaryUserId}@example.test`,
+      firstName: "Isolated",
+      lastName: "Owner",
+    },
+  ]);
 
   const app = createApp({
     clerkAuthMiddleware: (_req, _res, next) => next(),
@@ -94,14 +105,15 @@ after(async () => {
     if (database) {
       const memberships = await database.db.select({ clientId: database.clientWorkspacesTable.clientId })
         .from(database.clientWorkspacesTable)
-        .where(eq(database.clientWorkspacesTable.userId, primaryUserId));
+        .where(inArray(database.clientWorkspacesTable.userId, [primaryUserId, secondaryUserId]));
       const clientIds = [...new Set([
         ...memberships.map((row) => row.clientId),
         ...(clientId ? [clientId] : []),
+        ...(isolatedClientId ? [isolatedClientId] : []),
       ])];
       await database.db.update(database.usersTable)
         .set({ starterClientId: null, remediatedLegacyClientId: null })
-        .where(eq(database.usersTable.id, primaryUserId));
+        .where(inArray(database.usersTable.id, [primaryUserId, secondaryUserId]));
       if (clientIds.length) {
         await database.db.delete(database.journalEntriesTable)
           .where(inArray(database.journalEntriesTable.clientId, clientIds));
@@ -115,13 +127,46 @@ after(async () => {
           .where(inArray(database.clientsTable.id, clientIds));
       }
       await database.db.delete(database.usersTable)
-        .where(eq(database.usersTable.id, primaryUserId));
+        .where(inArray(database.usersTable.id, [primaryUserId, secondaryUserId]));
     }
   } finally {
     server?.closeAllConnections();
     await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
     await database?.pool.end();
   }
+});
+
+test("fresh schema contains durable share-register storage and one system journal per client", async () => {
+  const columns = await database!.pool.query<{ table_name: string; column_name: string }>(`
+    SELECT table_name, column_name
+      FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND (
+         (table_name = 'agaraccounting_clients'
+           AND column_name IN ('share_capital_authorised_shares', 'share_capital_par_value'))
+         OR (table_name = 'agaraccounting_journal_entries' AND column_name = 'system_source')
+       )
+     ORDER BY table_name, column_name
+  `);
+  assert.deepEqual(columns.rows, [
+    { table_name: "agaraccounting_clients", column_name: "share_capital_authorised_shares" },
+    { table_name: "agaraccounting_clients", column_name: "share_capital_par_value" },
+    { table_name: "agaraccounting_journal_entries", column_name: "system_source" },
+  ]);
+
+  const objects = await database!.pool.query<{
+    shareholder_table: string | null;
+    register_journal_index: string | null;
+  }>(`
+    SELECT
+      to_regclass('agaraccounting_shareholders')::text AS shareholder_table,
+      to_regclass('agaraccounting_journal_entries_share_capital_register_idx')::text AS register_journal_index
+  `);
+  assert.equal(objects.rows[0]?.shareholder_table, "agaraccounting_shareholders");
+  assert.equal(
+    objects.rows[0]?.register_journal_index,
+    "agaraccounting_journal_entries_share_capital_register_idx",
+  );
 });
 
 test("saves the share register, posts a replaceable system journal, and warns about foreign Share capital credits", async () => {
@@ -166,25 +211,35 @@ test("saves the share register, posts a replaceable system journal, and warns ab
   assert.ok(first.body.shareCapitalJournalId);
   assert.equal(first.body.shareCapitalDuplicateWarning, null);
 
-  const journals = await request<JournalEntry[]>(`/agaraccounting/journal-entries?clientId=${clientId}`);
+  const [reloadedClients, organization, journals] = await Promise.all([
+    request<ClientBody[]>("/clients"),
+    request<{ companies: ClientBody[] }>("/organizations/context"),
+    request<JournalEntry[]>(`/agaraccounting/journal-entries?clientId=${clientId}`),
+  ]);
+  const reloaded = reloadedClients.body.find((candidate) => candidate.id === clientId);
+  const organizationClient = organization.body.companies.find((candidate) => candidate.id === clientId);
+  assert.ok(reloaded);
+  assert.ok(organizationClient);
+  assert.equal(reloaded.shareCapitalAuthorisedShares, 100);
+  assert.equal(reloaded.shareCapitalParValue, 2000);
+  assert.equal(organizationClient.shareCapitalJournalId, first.body.shareCapitalJournalId);
+  assert.equal(organizationClient.shareholders.length, 2);
+  assert.deepEqual(reloaded.shareholders.map(({ name, nationality, numberOfShares }) => ({
+    name,
+    nationality,
+    numberOfShares,
+  })), [
+    { name: "Mona Wagdy Ayad Helmy", nationality: "Indian", numberOfShares: 40 },
+    { name: "Emad Helmy Saad Tadros", nationality: null, numberOfShares: 60 },
+  ]);
   assert.equal(journals.response.status, 200);
   const systemJournal = journals.body.find((entry) => entry.id === first.body.shareCapitalJournalId);
   assert.ok(systemJournal);
   assert.equal(systemJournal.status, "posted");
   assert.equal(systemJournal.date, "2026-08-01");
   assert.deepEqual(systemJournal.lines, [
-    {
-      description: "Share capital per client register",
-      account: "Due from shareholders",
-      debit: 200000,
-      credit: 0,
-    },
-    {
-      description: "Share capital per client register",
-      account: SHARE_CAPITAL_ACCOUNT_NAME,
-      debit: 0,
-      credit: 200000,
-    },
+    { description: "Share capital per client register", account: "Due from shareholders", debit: 200000, credit: 0 },
+    { description: "Share capital per client register", account: SHARE_CAPITAL_ACCOUNT_NAME, debit: 0, credit: 200000 },
   ]);
 
   const second = await request<ClientBody>(`/clients/${clientId}`, {
@@ -258,4 +313,50 @@ test("saves the share register, posts a replaceable system journal, and warns ab
     eq(database!.journalEntriesTable.systemSource, SHARE_CAPITAL_SYSTEM_SOURCE),
   ));
   assert.equal(remaining.length, 0);
+});
+
+test("rejects unauthorized register saves and keeps clients isolated", async () => {
+  const created = await request<ClientBody>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Isolated share capital ${randomUUID()}`,
+      legalName: "Isolated Share Capital LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "August 2026",
+    }),
+  }, secondaryUserId);
+  assert.equal(created.response.status, 201);
+  isolatedClientId = created.body.id;
+
+  const update = {
+    name: created.body.name,
+    legalName: created.body.legalName,
+    functionalCurrency: created.body.functionalCurrency,
+    basis: created.body.basis,
+    period: created.body.period,
+    systemRatesEnabled: created.body.systemRatesEnabled,
+    shareCapitalAuthorisedShares: 10,
+    shareCapitalParValue: 25,
+    shareholders: [{ name: "Isolated Owner", nationality: null, numberOfShares: 10 }],
+  };
+  const forbidden = await request<{ error: string }>(`/clients/${isolatedClientId}`, {
+    method: "PATCH",
+    body: JSON.stringify(update),
+  });
+  assert.equal(forbidden.response.status, 403);
+
+  const saved = await request<ClientBody>(`/clients/${isolatedClientId}`, {
+    method: "PATCH",
+    body: JSON.stringify(update),
+  }, secondaryUserId);
+  assert.equal(saved.response.status, 200);
+  assert.equal(saved.body.shareCapitalJournalId !== null, true);
+
+  const [primaryClients, secondaryClients] = await Promise.all([
+    request<ClientBody[]>("/clients"),
+    request<ClientBody[]>("/clients", undefined, secondaryUserId),
+  ]);
+  assert.equal(primaryClients.body.some((candidate) => candidate.id === isolatedClientId), false);
+  assert.equal(secondaryClients.body.some((candidate) => candidate.id === isolatedClientId), true);
 });

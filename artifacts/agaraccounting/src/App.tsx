@@ -415,6 +415,7 @@ function ShareCapitalSettingsSection({ client }: { client: Client }) {
   const [parValue, setParValue] = useState(client.shareCapitalParValue != null ? String(client.shareCapitalParValue) : '');
   const [rows, setRows] = useState<ShareCapitalRowDraft[]>(shareholderDraftsFromClient(client));
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   useEffect(() => {
     setAuthorisedShares(client.shareCapitalAuthorisedShares != null ? String(client.shareCapitalAuthorisedShares) : '');
     setParValue(client.shareCapitalParValue != null ? String(client.shareCapitalParValue) : '');
@@ -439,6 +440,7 @@ function ShareCapitalSettingsSection({ client }: { client: Client }) {
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     setSaved(false);
+    setSaveError(null);
     const data: ClientUpdateInput = {
       name: client.name,
       legalName: client.legalName,
@@ -451,12 +453,28 @@ function ShareCapitalSettingsSection({ client }: { client: Client }) {
       shareholders: parsedRows.filter((row) => Number.isInteger(row.numberOfShares) && row.numberOfShares >= 1),
     };
     mutation.mutate({ id: client.id, data }, {
-      onSuccess: () => {
+      onSuccess: (persistedClient) => {
+        setAuthorisedShares(persistedClient.shareCapitalAuthorisedShares != null ? String(persistedClient.shareCapitalAuthorisedShares) : '');
+        setParValue(persistedClient.shareCapitalParValue != null ? String(persistedClient.shareCapitalParValue) : '');
+        setRows(shareholderDraftsFromClient(persistedClient));
         queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetUaeCorporateTaxSummaryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetReportPacksQueryKey() });
         setSaved(true);
         notify.success('Share capital register saved');
+      },
+      onError: (error) => {
+        const message = readErrorMessage(error, 'The share register could not be saved.');
+        setSaveError(message);
+        notify.error(error, {
+          title: 'Unable to save share capital',
+          fallback: 'The share register could not be saved.',
+        });
       },
     });
   };
@@ -494,7 +512,7 @@ function ShareCapitalSettingsSection({ client }: { client: Client }) {
       {sumMismatch && <p data-testid="status-share-capital-sum-warning" className="text-xs text-accent-foreground">Share counts total {shareTotal}, which does not match {authorised} authorised shares.</p>}
       {client.shareCapitalDuplicateWarning && <p data-testid="status-share-capital-duplicate-warning" className="text-xs text-accent-foreground">{client.shareCapitalDuplicateWarning}</p>}
       {client.shareCapitalJournalId != null && <p data-testid="status-share-capital-journal" className="text-[11px] text-muted-foreground">System journal #{client.shareCapitalJournalId} is posted from this register.</p>}
-      {(mutation.isError || saved) && <p data-testid={saved ? 'status-share-capital-saved' : 'status-share-capital-error'} className={`text-xs ${saved ? 'text-primary' : 'text-destructive'}`}>{saved ? 'Share capital register saved.' : 'The share register could not be saved. Check the details and try again.'}</p>}
+      {(saveError || saved) && <p data-testid={saved ? 'status-share-capital-saved' : 'status-share-capital-error'} className={`text-xs ${saved ? 'text-primary' : 'text-destructive'}`}>{saved ? 'Share capital register saved.' : saveError}</p>}
       <div className="flex justify-end"><button data-testid="button-save-share-capital" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save share capital'}</button></div>
     </form>
   </section>;

@@ -8164,6 +8164,9 @@ async function organizationContext(userId: string) {
   const memberships = await db.select({ client: clientsTable, role: clientWorkspacesTable.role }).from(clientWorkspacesTable)
     .innerJoin(clientsTable, eq(clientsTable.id, clientWorkspacesTable.clientId))
     .where(eq(clientWorkspacesTable.userId, userId));
+  const shareCapitalByClient = await loadShareCapitalClientExtras(
+    memberships.map(({ client }) => client.id),
+  );
   const firms = await firmMembershipsTableForUser(userId);
   // Old accounts had a firm profile but no membership row. Backfill only their
   // own firm; this does not grant any company access.
@@ -8224,7 +8227,12 @@ async function organizationContext(userId: string) {
       firmId: firm.id, firmName: firm.name, userId: memberUser.id, name: displayName(memberUser),
       email: memberUser.email ?? "", role: membership.role as WorkspaceRole,
     })),
-    companies: memberships.map(({ client }) => clientResponse(client)),
+    companies: memberships.map(({ client }) => clientResponse(
+      client,
+      false,
+      undefined,
+      shareCapitalByClient.get(client.id),
+    )),
     managedCompanyIds: memberships
       .filter(({ role }) => isManagerRole(role))
       .map(({ client }) => client.id),
