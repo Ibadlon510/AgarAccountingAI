@@ -889,6 +889,44 @@ paths:
           in: query
           required: false
           schema: { type: number }
+        - name: bankAccountId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateFrom
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateTo
+          in: query
+          required: false
+          schema: { type: string }
+        - name: remarks
+          in: query
+          required: false
+          schema: { type: string, enum: [awaiting] }
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [date, description, contact, account, amount, confidence, status]
+        - name: sortDirection
+          in: query
+          required: false
+          schema: { type: string, enum: [asc, desc] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: number, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
       responses:
         "200":
           description: Bank statement lines
@@ -915,6 +953,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementLine"
+  /agaraccounting/statement-lines/summary:
+    get:
+      operationId: getStatementLinesSummary
+      tags: [agaraccounting]
+      summary: Count, currencies, and bank-register rollups for statement lines
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: currency
+          in: query
+          required: false
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string }
+        - name: direction
+          in: query
+          required: false
+          schema: { type: string, enum: [inflow, outflow] }
+        - name: statementImportId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: bankAccountId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateFrom
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateTo
+          in: query
+          required: false
+          schema: { type: string }
+        - name: remarks
+          in: query
+          required: false
+          schema: { type: string, enum: [awaiting] }
+      responses:
+        "200":
+          description: Statement line summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatementLinesSummary"
   /agaraccounting/statement-lines/export:
     post:
       operationId: exportStatementLines
@@ -1593,6 +1684,52 @@ paths:
           in: query
           required: false
           schema: { type: number }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [draft, posted] }
+        - name: source
+          in: query
+          required: false
+          schema: { type: string, enum: [manual, statement, system] }
+        - name: currency
+          in: query
+          required: false
+          schema: { type: string }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateFrom
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateTo
+          in: query
+          required: false
+          schema: { type: string }
+        - name: statementLineId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [date, memo, currency, amount, confidence, status]
+        - name: sortDirection
+          in: query
+          required: false
+          schema: { type: string, enum: [asc, desc] }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: number, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          required: false
+          schema: { type: number, minimum: 0 }
       responses:
         "200":
           description: Journal entries
@@ -1621,6 +1758,51 @@ paths:
                 $ref: "#/components/schemas/JournalEntry"
         "400":
           description: The journal entry is incomplete or unbalanced
+  /agaraccounting/journal-entries/summary:
+    get:
+      operationId: getJournalEntriesSummary
+      tags: [agaraccounting]
+      summary: Count and currencies for journal entries
+      parameters:
+        - name: clientId
+          in: query
+          required: false
+          schema: { type: number }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [draft, posted] }
+        - name: source
+          in: query
+          required: false
+          schema: { type: string, enum: [manual, statement, system] }
+        - name: currency
+          in: query
+          required: false
+          schema: { type: string }
+        - name: search
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateFrom
+          in: query
+          required: false
+          schema: { type: string }
+        - name: dateTo
+          in: query
+          required: false
+          schema: { type: string }
+        - name: statementLineId
+          in: query
+          required: false
+          schema: { type: number }
+      responses:
+        "200":
+          description: Journal entry summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalEntriesSummary"
   /agaraccounting/journal-entries/{id}:
     patch:
       operationId: updateJournalEntry
@@ -3113,7 +3295,7 @@ components:
         message: { type: string }
     LedgerOverview:
       type: object
-      required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies]
+      required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies, journalCount]
       properties:
         period: { type: string }
         currencies:
@@ -3129,6 +3311,7 @@ components:
         missingRateCurrencies:
           type: array
           items: { type: string }
+        journalCount: { type: number }
     StatementLine:
       type: object
       required: [id, date, description, currency, amount, direction, status, source, contactDecisionState, contactReviewDisposition, accountConfirmationRequired, accountRecommendationState, noteSummary, pendingClarification]
@@ -3165,6 +3348,7 @@ components:
         supportingPatternCount: { type: ["number", "null"] }
         journalAccount: { type: ["string", "null"] }
         journalStatus: { type: ["string", "null"] }
+        journalEntryId: { type: ["number", "null"] }
         accountConfirmationRequired: { type: boolean }
         accountRecommendationState:
           type: string
@@ -3183,6 +3367,36 @@ components:
           oneOf:
             - $ref: "#/components/schemas/StatementLinePendingClarification"
             - type: "null"
+    StatementLinesSummary:
+      type: object
+      required: [totalCount, currencies, unassignedCount, bankAccounts]
+      properties:
+        totalCount: { type: number }
+        currencies:
+          type: array
+          items: { type: string }
+        unassignedCount: { type: number }
+        bankAccounts:
+          type: array
+          items:
+            type: object
+            required: [bankAccountId, lineCount, sourceLabels]
+            properties:
+              bankAccountId: { type: number }
+              lineCount: { type: number }
+              dateFrom: { type: ["string", "null"] }
+              dateTo: { type: ["string", "null"] }
+              sourceLabels:
+                type: array
+                items: { type: string }
+    JournalEntriesSummary:
+      type: object
+      required: [totalCount, currencies]
+      properties:
+        totalCount: { type: number }
+        currencies:
+          type: array
+          items: { type: string }
     StatementLineNoteSummary:
       type: object
       required: [hasNote, attachmentCount]

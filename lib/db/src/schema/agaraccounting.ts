@@ -548,6 +548,9 @@ export const statementLinesTable = pgTable("agaraccounting_statement_lines", {
   importDedupeKeyUnique: uniqueIndex("agaraccounting_statement_lines_import_dedupe_key_idx").on(table.importDedupeKey),
   idClientUnique: uniqueIndex("agaraccounting_statement_lines_id_client_idx").on(table.id, table.clientId),
   statementImportIndex: index("agaraccounting_statement_lines_import_idx").on(table.statementImportId),
+  clientDateIdx: index("agaraccounting_statement_lines_client_date_idx").on(table.clientId, table.date),
+  clientStatusIdx: index("agaraccounting_statement_lines_client_status_idx").on(table.clientId, table.status),
+  clientBankDateIdx: index("agaraccounting_statement_lines_client_bank_date_idx").on(table.clientId, table.bankAccountId, table.date),
   proposedContactTypeCheck: check(
     "agaraccounting_statement_lines_proposed_contact_type_check",
     sql`${table.proposedContactType} is null or ${table.proposedContactType} in ('customer', 'supplier', 'both')`,
@@ -628,6 +631,7 @@ export const journalEntriesTable = pgTable("agaraccounting_journal_entries", {
 }, (table) => ({
   statementLineUnique: uniqueIndex("agaraccounting_journal_entries_statement_line_id_idx").on(table.statementLineId),
   idClientUnique: uniqueIndex("agaraccounting_journal_entries_id_client_idx").on(table.id, table.clientId),
+  clientDateIdx: index("agaraccounting_journal_entries_client_date_idx").on(table.clientId, table.date),
   shareCapitalRegisterUnique: uniqueIndex("agaraccounting_journal_entries_share_capital_register_idx")
     .on(table.clientId)
     .where(sql`${table.systemSource} = 'share_capital_register'`),

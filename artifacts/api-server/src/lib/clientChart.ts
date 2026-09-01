@@ -96,7 +96,8 @@ function historicalAccountDefaults(accountName: string, debitNames: Set<string>,
   };
 }
 
-export async function ensureClientChart(clientId: number) {
+export async function ensureClientChart(clientId: number, options?: { syncHistoricalAccounts?: boolean }) {
+  const syncHistoricalAccounts = options?.syncHistoricalAccounts !== false;
   const existingBeforeSeed = await db.select({
     accountName: accountClassificationsTable.accountName,
   }).from(accountClassificationsTable)
@@ -116,6 +117,11 @@ export async function ensureClientChart(clientId: number) {
       isActive: true,
       isSystem: true,
     }))).onConflictDoNothing();
+  }
+
+  if (!syncHistoricalAccounts) {
+    return db.select().from(accountClassificationsTable)
+      .where(eq(accountClassificationsTable.clientId, clientId));
   }
 
   const [historicalLines, historicalEntries, seededAccounts] = await Promise.all([

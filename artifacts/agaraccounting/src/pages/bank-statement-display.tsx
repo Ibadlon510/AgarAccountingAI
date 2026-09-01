@@ -11,28 +11,9 @@ import {
   type StatementLine,
 } from "@workspace/api-client-react";
 import { useClientWorkspace } from "@/lib/workspace-context";
-import {
-  buildBankStatementRows,
-  statementPeriod,
-  type BankStatementDisplayLine,
-} from "@/lib/bank-statement-display";
-
-const money = (value: number, currency = "AED") =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
-
-const shortDate = (value: string) => {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-};
-
-function parseOpeningInput(value: string, fallback: number) {
-  const parsed = Number(value.replace(/,/g, "").trim());
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { type BankStatementDisplayLine } from "@/lib/bank-statement-display";
+import { BankStatementSheet, type BankStatementSheetSection } from "@/components/bank-statement-sheet";
+import { registerHrefForImport } from "@/lib/bank-register";
 
 function asDisplayLines(lines: Array<Pick<StatementLine, "id" | "date" | "description" | "amount" | "direction" | "currency">>): BankStatementDisplayLine[] {
   return lines.map((line) => ({
@@ -45,17 +26,7 @@ function asDisplayLines(lines: Array<Pick<StatementLine, "id" | "date" | "descri
   }));
 }
 
-type StatementSection = {
-  id: string;
-  title: string;
-  bankName: string | null;
-  accountNumberLast4: string | null;
-  currency: string;
-  parsedOpening: number | null;
-  lines: BankStatementDisplayLine[];
-};
-
-function sectionsFromImport(statementImport: StatementImport, loadedLines: StatementLine[] | undefined): StatementSection[] {
+function sectionsFromImport(statementImport: StatementImport, loadedLines: StatementLine[] | undefined): BankStatementSheetSection[] {
   const preview = statementImport.preview;
   const groups = preview?.accountGroups?.filter((group) => group.lines.length > 0) ?? [];
   if (groups.length > 1) {
@@ -83,7 +54,7 @@ function sectionFromGroup(
   group: StatementImportAccountGroup,
   fallbackCurrency: string | null | undefined,
   fallbackOpening: number | null | undefined,
-): StatementSection {
+): BankStatementSheetSection {
   const identity = group.identity;
   return {
     id: group.id,
@@ -96,94 +67,6 @@ function sectionFromGroup(
     parsedOpening: group.openingBalance ?? fallbackOpening ?? null,
     lines: asDisplayLines(group.lines),
   };
-}
-
-function BankStatementSheet({
-  clientName,
-  fileName,
-  section,
-  openingValue,
-  onOpeningChange,
-  openingFound,
-}: {
-  clientName: string;
-  fileName: string;
-  section: StatementSection;
-  openingValue: string;
-  onOpeningChange: (value: string) => void;
-  openingFound: boolean;
-}) {
-  const opening = parseOpeningInput(openingValue, section.parsedOpening ?? 0);
-  const rows = buildBankStatementRows(section.lines, opening);
-  const period = statementPeriod(section.lines);
-
-  return (
-    <article className="bank-statement-sheet" data-testid={`bank-statement-sheet-${section.id}`}>
-      <header className="bank-statement-cover">
-        <div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Account statement</div>
-        <h2 className="mt-6 font-display text-4xl leading-none">{clientName}</h2>
-        <p className="mt-4 text-sm font-semibold">{section.title}</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">
-          {[section.bankName, section.accountNumberLast4 ? `••••${section.accountNumberLast4}` : null, section.currency]
-            .filter(Boolean)
-            .join(" · ") || fileName}
-        </p>
-        {period ? (
-          <p className="mt-5 text-[12px]">
-            Statement period {shortDate(period.from)} to {shortDate(period.to)}
-          </p>
-        ) : (
-          <p className="mt-5 text-[12px] text-muted-foreground">No dated transactions on this statement.</p>
-        )}
-        <div className="bank-statement-opening-control mt-6 print:hidden">
-          <label className="text-[11px] font-semibold">
-            Opening balance
-            <input
-              data-testid={`input-statement-opening-${section.id}`}
-              type="text"
-              inputMode="decimal"
-              value={openingValue}
-              onChange={(event) => onOpeningChange(event.target.value)}
-              className="mt-1 block h-9 w-full max-w-[14rem] rounded-md border border-input bg-background px-3 font-mono text-xs outline-none focus:border-primary"
-            />
-          </label>
-          {!openingFound ? (
-            <p className="mt-2 max-w-md text-[11px] leading-5 text-muted-foreground">
-              Opening balance was not found on the source document. Running balances start at 0 until you enter the figure from the paper statement.
-            </p>
-          ) : null}
-        </div>
-      </header>
-      <div className="overflow-x-auto px-[42px] pb-10 max-sm:px-[18px]">
-        <table className="bank-statement-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Description</th>
-              <th className="text-right">Money out</th>
-              <th className="text-right">Money in</th>
-              <th className="text-right">Balance</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.kind}-${row.lineId ?? index}`} data-kind={row.kind}>
-                <td className="font-mono">{row.date ? shortDate(row.date) : ""}</td>
-                <td>{row.description}</td>
-                <td className="text-right font-mono tabular-nums">
-                  {row.moneyOut == null ? "" : money(row.moneyOut, section.currency)}
-                </td>
-                <td className="text-right font-mono tabular-nums">
-                  {row.moneyIn == null ? "" : money(row.moneyIn, section.currency)}
-                </td>
-                <td className="text-right font-mono tabular-nums">{money(row.balance, section.currency)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </article>
-  );
 }
 
 export default function BankStatementDisplayPage() {
@@ -212,6 +95,7 @@ export default function BankStatementDisplayPage() {
     [linesQuery.data, statementImport],
   );
   const [openingValues, setOpeningValues] = useState<Record<string, string>>({});
+  const registerHref = registerHrefForImport(statementImport ?? {});
 
   if (!Number.isInteger(importId) || importId <= 0) {
     return (
@@ -232,12 +116,12 @@ export default function BankStatementDisplayPage() {
     <div data-testid="bank-statement-display">
       <div className="bank-statement-toolbar mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[.19em] text-primary">Import / bank statement</div>
+          <div className="font-mono text-[10px] uppercase tracking-[.19em] text-primary">Import / source document</div>
           <h1 className="mt-2 font-display text-[34px] leading-none tracking-tight text-foreground md:text-[42px]">
-            Bank statement
+            Uploaded statement
           </h1>
           <p className="mt-3 max-w-2xl text-[13px] leading-5 text-muted-foreground">
-            A register view of {statementImport?.fileName ?? "this import"} with opening, money out, money in, and a running balance.
+            Transactions from {statementImport?.fileName ?? "this import"} only. The bank register combines every loaded file for the same currency and bank name.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -248,6 +132,15 @@ export default function BankStatementDisplayPage() {
           >
             <ArrowLeft size={14} /> Back to import
           </Link>
+          {statementImport?.outcome === "completed" ? (
+            <Link
+              href={registerHref}
+              data-testid="link-open-bank-register-from-file"
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-primary/30 px-4 text-xs font-semibold text-primary hover:bg-primary/5"
+            >
+              Open bank register
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={() => window.print()}

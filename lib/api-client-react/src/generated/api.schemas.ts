@@ -997,6 +997,7 @@ export interface LedgerOverview {
   postedAmountFunctional: number;
   missingRateCount: number;
   missingRateCurrencies: string[];
+  journalCount: number;
 }
 
 /**
@@ -1166,6 +1167,8 @@ export interface StatementLine {
   journalAccount?: string | null;
   /** @nullable */
   journalStatus?: string | null;
+  /** @nullable */
+  journalEntryId?: number | null;
   accountConfirmationRequired: boolean;
   accountRecommendationState: StatementLineAccountRecommendationState;
   /** @nullable */
@@ -2775,6 +2778,15 @@ currency?: string;
 status?: string;
 direction?: GetStatementLinesDirection;
 statementImportId?: number;
+bankAccountId?: number;
+search?: string;
+dateFrom?: string;
+dateTo?: string;
+remarks?: 'awaiting';
+sort?: 'date' | 'description' | 'contact' | 'account' | 'amount' | 'confidence' | 'status';
+sortDirection?: 'asc' | 'desc';
+limit?: number;
+offset?: number;
 };
 
 export type GetStatementLinesDirection = typeof GetStatementLinesDirection[keyof typeof GetStatementLinesDirection];
@@ -2819,6 +2831,17 @@ clientId?: number;
 
 export type GetJournalEntriesParams = {
 clientId?: number;
+status?: 'draft' | 'posted';
+source?: 'manual' | 'statement' | 'system';
+currency?: string;
+search?: string;
+dateFrom?: string;
+dateTo?: string;
+statementLineId?: number;
+sort?: 'date' | 'memo' | 'currency' | 'amount' | 'confidence' | 'status';
+sortDirection?: 'asc' | 'desc';
+limit?: number;
+offset?: number;
 };
 
 export type GetTrialBalanceParams = {

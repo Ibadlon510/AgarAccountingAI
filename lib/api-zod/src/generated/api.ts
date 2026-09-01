@@ -1451,7 +1451,8 @@ export const GetLedgerOverviewResponse = zod.object({
   "functionalCurrency": zod.string(),
   "postedAmountFunctional": zod.number(),
   "missingRateCount": zod.number(),
-  "missingRateCurrencies": zod.array(zod.string())
+  "missingRateCurrencies": zod.array(zod.string()),
+  "journalCount": zod.number()
 })
 
 
@@ -1509,7 +1510,16 @@ export const GetStatementLinesQueryParams = zod.object({
   "currency": zod.coerce.string().optional(),
   "status": zod.coerce.string().optional(),
   "direction": zod.enum(['inflow', 'outflow']).optional(),
-  "statementImportId": zod.coerce.number().optional()
+  "statementImportId": zod.coerce.number().optional(),
+  "bankAccountId": zod.coerce.number().optional(),
+  "search": zod.coerce.string().optional(),
+  "dateFrom": zod.coerce.string().optional(),
+  "dateTo": zod.coerce.string().optional(),
+  "remarks": zod.enum(['awaiting']).optional(),
+  "sort": zod.enum(['date', 'description', 'contact', 'account', 'amount', 'confidence', 'status']).optional(),
+  "sortDirection": zod.enum(['asc', 'desc']).optional(),
+  "limit": zod.coerce.number().min(1).max(200).optional(),
+  "offset": zod.coerce.number().min(0).optional()
 })
 
 export const GetStatementLinesResponseItem = zod.object({
@@ -1543,6 +1553,7 @@ export const GetStatementLinesResponseItem = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -1565,6 +1576,27 @@ export const GetStatementLinesResponseItem = zod.object({
 }),zod.null()])
 })
 export const GetStatementLinesResponse = zod.array(GetStatementLinesResponseItem)
+
+export const GetStatementLinesSummaryQueryParams = GetStatementLinesQueryParams.omit({
+  sort: true,
+  sortDirection: true,
+  limit: true,
+  offset: true,
+})
+
+export const GetStatementLinesSummaryResponse = zod.object({
+  totalCount: zod.number(),
+  currencies: zod.array(zod.string()),
+  unassignedCount: zod.number(),
+  bankAccounts: zod.array(zod.object({
+    bankAccountId: zod.number(),
+    lineCount: zod.number(),
+    dateFrom: zod.string().nullable(),
+    dateTo: zod.string().nullable(),
+    sourceLabels: zod.array(zod.string()),
+  })),
+})
+
 
 
 /**
@@ -1612,6 +1644,7 @@ export const CreateStatementLineResponse = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -1950,6 +1983,7 @@ export const LinkStatementLineContactResponse = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -2294,6 +2328,7 @@ export const ImportStatementResponse = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -2364,6 +2399,7 @@ export const ImportStatementResponse = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -2471,6 +2507,7 @@ export const GetStatementImportsResponseItem = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -2541,6 +2578,7 @@ export const GetStatementImportsResponseItem = zod.object({
   "supportingPatternCount": zod.number().nullish(),
   "journalAccount": zod.string().nullish(),
   "journalStatus": zod.string().nullish(),
+  "journalEntryId": zod.number().nullish(),
   "accountConfirmationRequired": zod.boolean(),
   "accountRecommendationState": zod.enum(['applied', 'confirmation_required', 'locked', 'unavailable']),
   "functionalCurrency": zod.string().nullish(),
@@ -3078,7 +3116,18 @@ export const GetBulkTransitionAuditsResponse = zod.array(GetBulkTransitionAudits
  * @summary List journal entries
  */
 export const GetJournalEntriesQueryParams = zod.object({
-  "clientId": zod.coerce.number().optional()
+  "clientId": zod.coerce.number().optional(),
+  "status": zod.enum(['draft', 'posted']).optional(),
+  "source": zod.enum(['manual', 'statement', 'system']).optional(),
+  "currency": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "dateFrom": zod.coerce.string().optional(),
+  "dateTo": zod.coerce.string().optional(),
+  "statementLineId": zod.coerce.number().optional(),
+  "sort": zod.enum(['date', 'memo', 'currency', 'amount', 'confidence', 'status']).optional(),
+  "sortDirection": zod.enum(['asc', 'desc']).optional(),
+  "limit": zod.coerce.number().min(1).max(200).optional(),
+  "offset": zod.coerce.number().min(0).optional()
 })
 
 export const getJournalEntriesResponseLinesItemDebitMin = 0;
@@ -3112,6 +3161,19 @@ export const GetJournalEntriesResponseItem = zod.object({
   "exchangeRateStatus": zod.string().optional()
 })
 export const GetJournalEntriesResponse = zod.array(GetJournalEntriesResponseItem)
+
+export const GetJournalEntriesSummaryQueryParams = GetJournalEntriesQueryParams.omit({
+  sort: true,
+  sortDirection: true,
+  limit: true,
+  offset: true,
+})
+
+export const GetJournalEntriesSummaryResponse = zod.object({
+  totalCount: zod.number(),
+  currencies: zod.array(zod.string()),
+})
+
 
 
 /**

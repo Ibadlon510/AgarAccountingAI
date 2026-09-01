@@ -43,9 +43,9 @@ export function SendForRemarksDialog({
   const team = useGetWorkspaceMembers();
   const queryClient = useQueryClient();
   const send = useRequestStatementLineDetails();
-  const pickerQuery = useGetStatementLines({ clientId }, {
+  const pickerQuery = useGetStatementLines({ clientId, status: 'draft', limit: 50, sort: 'date', sortDirection: 'desc' }, {
     query: {
-      queryKey: getGetStatementLinesQueryKey({ clientId }),
+      queryKey: getGetStatementLinesQueryKey({ clientId, status: 'draft', limit: 50, sort: 'date', sortDirection: 'desc' }),
       enabled: allowLinePicker && lines.length === 0 && clientId > 0,
     },
   });

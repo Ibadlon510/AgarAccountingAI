@@ -197,6 +197,7 @@ test("brands generated report PDFs as AgarAccounting AI System", () => {
   assert.match(pdf, /\(AgarAccounting AI System\.\)/);
   assert.match(pdf, /\(Profile test entity LLC\)/);
   assert.doesNotMatch(pdf, /\(Profile test entity\)/);
+  assert.equal((pdf.match(/Authorized signatory/g) ?? []).length, 5);
 });
 
 test("includes only frozen eligible firm attribution in report PDFs", () => {
@@ -234,7 +235,9 @@ test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct fr
 
   assert.ok(ias1.snapshot.profitOrLossAndOci.some((row) => row.label === "Other comprehensive income"));
   assert.ok(!sme.snapshot.profitOrLossAndOci.some((row) => row.label === "Other comprehensive income"));
-  assert.ok(!sme.snapshot.changesInEquity.some((row) => row.label === "Other comprehensive income"));
+  assert.ok(!sme.snapshot.changesInEquity.some((period) => period.children?.some((row) => row.label === "Other comprehensive income")));
+  assert.ok(sme.snapshot.changesInEquity.every((period) => /^Year ended /.test(period.label)));
+  assert.ok(ias1.snapshot.changesInEquity[0]?.children?.some((row) => row.children?.some((cell) => cell.label === "Share capital")));
   assert.equal(sme.snapshot.profitOrLossAndOci.length, ias1.snapshot.profitOrLossAndOci.length - 2);
   assert.notEqual(sme.notes.find((note) => note.number === 1)?.narrative, ias1.notes.find((note) => note.number === 1)?.narrative);
   assert.notEqual(sme.notes.find((note) => note.number === 4)?.narrative, ias1.notes.find((note) => note.number === 4)?.narrative);

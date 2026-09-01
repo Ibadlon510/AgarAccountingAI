@@ -18,6 +18,8 @@ import {
   useClearAgarAccountingAIConversation,
   getGetStatementImportsQueryKey,
   getGetStatementLinesQueryKey,
+  getGetStatementLinesSummaryQueryKey,
+  getGetJournalEntriesSummaryQueryKey,
   getGetBulkTransitionAuditsQueryKey,
   getGetLedgerOverviewQueryKey,
   getGetJournalEntriesQueryKey,
@@ -225,9 +227,11 @@ function RecommendationCard({ rec, activeClientId, activeThreadId, onClose, onAp
 
   const invalidateAccountantQueries = () => {
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetStatementLinesSummaryQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetBulkTransitionAuditsQueryKey({ clientId: activeClientId }) });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetJournalEntriesSummaryQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClientId }) });

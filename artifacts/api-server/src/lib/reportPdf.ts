@@ -1,3 +1,4 @@
+import { equityMatrixLines, isEquityMatrix } from "./equityStatement";
 import type { ReportAmount, ReportNote, ReportSnapshot, ReportSignatory } from "./reportPack";
 
 function pdfText(value: string) {
@@ -15,6 +16,11 @@ function rowLines(rows: ReportAmount[], currency: string, indent = ""): string[]
     `${indent}  ${money(row.current, currency)}     ${money(row.comparative, currency)}`,
     ...(row.children ? rowLines(row.children, currency, `${indent}    `) : []),
   ]);
+}
+
+function equityStatementPdfLines(rows: ReportAmount[], currency: string) {
+  if (isEquityMatrix(rows)) return equityMatrixLines(rows, true);
+  return ["Current period | Comparative period", "", ...rowLines(rows, currency)];
 }
 
 function shareholdingLines(note: ReportNote) {
@@ -46,6 +52,32 @@ function noteLines(notes: ReportNote[], currency: string) {
 }
 
 const PDF_BODY_LINES_PER_PAGE = 58;
+
+function signaturePlaceholderLines() {
+  return [
+    "",
+    "",
+    "______________________________          ____________________",
+    "Authorized signatory                    Date",
+    "",
+    "______________________________",
+    "Name",
+  ];
+}
+
+function withSignaturePlaceholder(lines: string[]) {
+  return [...lines, ...signaturePlaceholderLines()];
+}
+
+function appendSignaturePlaceholder(pages: string[][]) {
+  const last = pages[pages.length - 1] ?? [];
+  const signature = signaturePlaceholderLines();
+  if (last.length + signature.length <= PDF_BODY_LINES_PER_PAGE) {
+    pages[pages.length - 1] = [...last, ...signature];
+    return pages;
+  }
+  return [...pages, ["Notes to the financial statements", "", ...signature]];
+}
 
 function wrapPdfLines(lines: string[]) {
   return lines.flatMap((line) => {
@@ -105,11 +137,11 @@ export function buildReportPdf(snapshot: ReportSnapshot, signatory: ReportSignat
       `Reviewed by: ${signatory.reviewedBy || "Pending human review"}`,
       `Authorized by: ${signatory.authorizedBy || "Pending human review"}`,
     ],
-    ["Statement of financial position", "Current period | Comparative period", "", ...rowLines(snapshot.statementOfFinancialPosition, currency)],
-    ["Statement of profit or loss and other comprehensive income", "Current period | Comparative period", "", ...rowLines(snapshot.profitOrLossAndOci, currency)],
-    ["Statement of changes in equity", "Current period | Comparative period", "", ...rowLines(snapshot.changesInEquity, currency)],
-    ["Statement of cash flows — indirect method", "Current period | Comparative period", "", ...rowLines(snapshot.cashFlows, currency)],
-    ...paginatePdfLines(["Notes to the financial statements", "Current period | Comparative period", "", ...noteLines(snapshot.notes, currency)]),
+    withSignaturePlaceholder(["Statement of financial position", "Current period | Comparative period", "", ...rowLines(snapshot.statementOfFinancialPosition, currency)]),
+    withSignaturePlaceholder(["Statement of profit or loss and other comprehensive income", "Current period | Comparative period", "", ...rowLines(snapshot.profitOrLossAndOci, currency)]),
+    withSignaturePlaceholder(["Statement of changes in equity", "", ...equityStatementPdfLines(snapshot.changesInEquity, currency)]),
+    withSignaturePlaceholder(["Statement of cash flows — indirect method", "Current period | Comparative period", "", ...rowLines(snapshot.cashFlows, currency)]),
+    ...appendSignaturePlaceholder(paginatePdfLines(["Notes to the financial statements", "Current period | Comparative period", "", ...noteLines(snapshot.notes, currency)])),
     [
       "Authorization and source traceability",
       "",

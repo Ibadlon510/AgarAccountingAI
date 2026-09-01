@@ -68,6 +68,8 @@ export interface StatementLine {
   journalAccount?: string | null;
   /** @nullable */
   journalStatus?: string | null;
+  /** @nullable */
+  journalEntryId?: number | null;
   accountConfirmationRequired: boolean;
   accountRecommendationState: StatementLineAccountRecommendationState;
   /** @nullable */

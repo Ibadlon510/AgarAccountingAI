@@ -788,6 +788,70 @@ test("does not merge bank accounts that share last four digits", async () => {
   assert.equal(importedAccounts.length, 2);
 });
 
+test("filters statement lines by the created bank account across the client", async () => {
+  const clientId = await createClient(`Bank register filter ${randomUUID()}`);
+  const mashreq = await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "Operating AED", bankName: "Mashreq", currency: "AED" }),
+  });
+  const other = await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "Operating USD", bankName: "Mashreq", currency: "USD" }),
+  });
+  assert.equal(mashreq.response.status, 201);
+  assert.equal(other.response.status, 201);
+
+  const january = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      bankAccountId: mashreq.body.id,
+      date: "2026-01-05",
+      description: "January Mashreq receipt",
+      currency: "AED",
+      amount: 100,
+      direction: "inflow",
+    }),
+  });
+  const february = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      bankAccountId: mashreq.body.id,
+      date: "2026-02-03",
+      description: "February Mashreq payment",
+      currency: "AED",
+      amount: 40,
+      direction: "outflow",
+    }),
+  });
+  const usd = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      bankAccountId: other.body.id,
+      date: "2026-02-10",
+      description: "Mashreq USD transfer",
+      currency: "USD",
+      amount: 20,
+      direction: "outflow",
+    }),
+  });
+  assert.equal(january.response.status, 201);
+  assert.equal(february.response.status, 201);
+  assert.equal(usd.response.status, 201);
+
+  const register = await request<Array<{ description: string; bankAccountId: number | null }>>(
+    `/agaraccounting/statement-lines?clientId=${clientId}&bankAccountId=${mashreq.body.id}`,
+  );
+  assert.equal(register.response.status, 200);
+  assert.deepEqual(register.body.map((line) => line.description), [
+    "January Mashreq receipt",
+    "February Mashreq payment",
+  ]);
+  assert.ok(register.body.every((line) => line.bankAccountId === mashreq.body.id));
+});
+
 test("previews and atomically confirms distinct account sections from one statement source", async () => {
   const clientId = await createClient(`Grouped statement ${randomUUID()}`);
   const csv = [

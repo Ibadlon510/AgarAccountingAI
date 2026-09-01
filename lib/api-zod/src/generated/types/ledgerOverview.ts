@@ -17,4 +17,5 @@ export interface LedgerOverview {
   postedAmountFunctional: number;
   missingRateCount: number;
   missingRateCurrencies: string[];
+  journalCount: number;
 }

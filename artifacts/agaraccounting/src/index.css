@@ -158,7 +158,40 @@
   flex-direction: column;
   border-top: 8px solid hsl(var(--primary));
 }
+.report-statement {
+  display: flex;
+  flex-direction: column;
+}
 .report-statement + .report-statement { border-top: 1px solid hsl(var(--border)); }
+.report-signature {
+  margin-top: auto;
+  padding-top: 3.25rem;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  break-before: avoid;
+  page-break-before: avoid;
+}
+.report-signature-grid {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(8rem, 0.55fr);
+  column-gap: 3rem;
+  max-width: 28rem;
+}
+.report-signature-line {
+  height: 2.4rem;
+  border-bottom: 1px solid hsl(var(--foreground) / .75);
+}
+.report-signature-label {
+  margin-top: 0.4rem;
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.report-signature-name {
+  margin-top: 1.5rem;
+  max-width: 16rem;
+}
 .report-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 7.5rem 7.5rem;
@@ -204,6 +237,38 @@
 .report-shareholding-total td:nth-child(2),
 .report-shareholding-total td:nth-child(4),
 .report-shareholding-total td:nth-child(5) {
+  border-bottom: 3px double hsl(var(--foreground) / .75);
+}
+.report-equity {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.report-equity th,
+.report-equity td {
+  padding: 0.35rem 0.4rem 0.35rem 0;
+  vertical-align: baseline;
+}
+.report-equity th {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  border-bottom: 1px solid hsl(var(--foreground) / .35);
+}
+.report-equity td {
+  border-bottom: 1px solid hsl(var(--border) / .45);
+}
+.report-equity .text-left { text-align: left; }
+.report-equity .text-right { text-align: right; }
+.report-equity tr[data-kind="opening"] td,
+.report-equity tr[data-kind="closing"] td {
+  font-weight: 700;
+}
+.report-equity tr[data-kind="closing"] td {
+  border-top: 1px solid hsl(var(--foreground) / .35);
   border-bottom: 3px double hsl(var(--foreground) / .75);
 }
 .bank-statement-sheet {
@@ -260,6 +325,12 @@
     grid-template-columns: minmax(0, 1fr) 6.5rem;
     column-gap: 1rem;
   }
+  .report-signature-grid {
+    grid-template-columns: 1fr;
+    row-gap: 1.25rem;
+    max-width: none;
+  }
+  .report-signature-name { max-width: none; }
 }
 @media print {
   body { background: #fff; }
@@ -267,4 +338,5 @@
   .report-sheet, .bank-statement-sheet { width: 100%; border: 0; box-shadow: none; }
   .report-cover, .report-statement { min-height: 0; break-after: page; page-break-after: always; }
   .bank-statement-sheet { break-after: page; page-break-after: always; }
+  .report-signature-line { border-bottom-color: #111; }
 }

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider, keepPreviousData } from '@tanstack/react-query';
 import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
@@ -10,8 +10,9 @@ import {
 import {
   getGetBankAccountsQueryKey, getGetBulkTransitionAuditsQueryKey, getGetClientsQueryKey, getGetFinancialStatementsQueryKey, getGetJournalEntriesQueryKey, getGetLedgerOverviewQueryKey, getGetLedgerflowAccountsQueryKey, getGetReportPackQueryKey, getGetReportPacksQueryKey, getGetUaeCorporateTaxSummaryQueryKey,
   getGetStatementLinesQueryKey, getGetTrialBalanceQueryKey, getGetTrialBalanceAccountTransactionsQueryKey, getGetExchangeRatesQueryKey, getGetAgarAccountingUsageQueryKey, getGetFirmProfileQueryKey,
+  getGetStatementLinesSummaryQueryKey, getGetJournalEntriesSummaryQueryKey,
   useArchiveLedgerflowAccount, useCreateClient, useCreateJournalEntry, useCreateLedgerflowAccount, useCreateReportPack, useCreateStatementLine, useDeleteJournalEntry, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetLedgerflowAccounts, useGetReportPack, useGetReportPacks, useGetUaeCorporateTaxSummary,
-  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useDeleteReportPack, useExportStatementLines, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
+  useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useDeleteReportPack, useExportStatementLines, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetStatementLinesSummary, useGetJournalEntriesSummary, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useUpdateJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
   useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement,
   useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts
@@ -34,6 +35,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { AssistantFAB } from './components/assistant-fab';
 import FeedbackPage, { FeedbackPublicShell } from './pages/feedback';
 import BankStatementDisplayPage from './pages/bank-statement-display';
+import BankRegisterDetailPage, { BankRegisterIndexPage } from './pages/bank-register';
+import { registerHrefForImport } from '@/lib/bank-register';
 import { SendForRemarksDialog } from './components/send-for-remarks-dialog';
 import { RemarksLinksSettings } from './components/remarks-links-settings';
 import { StatementLineNotesDrawer, StatementLineRemarkIcons } from './components/statement-line-remarks';
@@ -72,6 +75,12 @@ function readNotifyMeta(meta: unknown): NotifyMeta | null {
   return null;
 }
 const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
   queryCache: new QueryCache({
     onError: (error, query) => {
       const notifyMeta = readNotifyMeta(query.meta);
@@ -103,6 +112,7 @@ const brandMarkUrl = `${basePath}/mark.svg`;
 const nav = [
   { href: '/', label: 'Close overview', icon: LayoutDashboard },
   { href: '/import-statement', label: 'Import statement', icon: UploadCloud },
+  { href: '/bank-register', label: 'Bank register', icon: Landmark },
   { href: '/statement-lines', label: 'Statement lines', icon: Table2 },
   { href: '/contacts', label: 'Contacts', icon: Users },
   { href: '/journal-entries', label: 'Journal entries', icon: BookOpenCheck },
@@ -122,6 +132,7 @@ const reportMoney = (value: number) => {
 const MAX_IMPORT_FILE_SIZE = 50 * 1024 * 1024;
 const FIRM_RATE_PAGE_SIZE = 25;
 const STATEMENT_LINES_PAGE_SIZE = 25;
+const JOURNAL_ENTRIES_PAGE_SIZE = 25;
 const shortDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -705,8 +716,8 @@ function ClientSettingsPage() {
         <div className="mt-4 overflow-x-auto rounded-lg border border-border"><table className="w-full min-w-[650px] text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground"><tr><th className="px-3 py-2">Effective</th><th className="px-3 py-2">Direction</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2">Source / note</th><th className="px-3 py-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border">{ratesQuery.isLoading ? <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">Loading workspace rates…</td></tr> : ratesQuery.data?.length ? ratesQuery.data?.map((rate) => <tr data-testid={`row-page-exchange-rate-${rate.id}`} key={rate.id}><td className="px-3 py-3 font-mono text-[11px]">{shortDate(rate.effectiveDate)}</td><td className="px-3 py-3 text-xs font-semibold">{rate.sourceCurrency} → {rate.functionalCurrency}</td><td className="px-3 py-3 text-right font-mono text-xs">{rate.rate.toLocaleString(undefined, { maximumFractionDigits: 8 })}</td><td className="px-3 py-3 text-[11px] text-muted-foreground">{rate.source}{rate.note ? ` · ${rate.note}` : ''}</td><td className="px-3 py-3 text-right"><button data-testid={`button-page-edit-exchange-rate-${rate.id}`} type="button" onClick={() => editRate(rate)} className="mr-2 text-[11px] font-semibold text-primary">Edit</button><button data-testid={`button-page-delete-exchange-rate-${rate.id}`} type="button" disabled={deleteRate.isPending} onClick={() => deleteRate.mutate({ id: rate.id }, { onSuccess: () => { invalidateRates(); notify.success(`${rate.sourceCurrency} → ${rate.functionalCurrency} removed`); } })} className="text-[11px] font-semibold text-destructive">Remove</button></td></tr>) : <tr><td colSpan={5} className="px-3 py-5 text-center text-xs text-muted-foreground">No workspace rates yet. AED-only clients do not need a rate.</td></tr>}</tbody></table></div>
         </section></>}
         <section id="bank-accounts" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
-          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Import another statement to add a new account.</p></div></div>
-          <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
+          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Open the register to see every loaded file for that currency and bank name.</p></div></div>
+          <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><div className="flex items-center gap-3"><Link href={`/bank-register/${account.id}`} data-testid={`link-open-bank-register-${account.id}`} className="text-[11px] font-semibold text-primary underline">Open register</Link><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
         </section>
         <RemarksLinksSettings clientId={activeClient.id} clientName={activeClient.name} />
         {false && <WorkspaceUsageSection />}
@@ -1377,7 +1388,6 @@ function Home() {
   const { user } = useUser();
   const params = { clientId: activeClient?.id ?? 0 };
   const query = useGetLedgerOverview(params, { query: { queryKey: getGetLedgerOverviewQueryKey(params), enabled: !!activeClient } });
-  const journalsQuery = useGetJournalEntries(params, { query: { queryKey: getGetJournalEntriesQueryKey(params), enabled: !!activeClient } });
   const [now, setNow] = useState(() => new Date());
   const greetingName = user?.firstName?.trim()
     || user?.fullName?.trim()
@@ -1404,7 +1414,7 @@ function Home() {
       onSelectWorkspace={setActiveClientId}
     />;
   }
-  if (overview && overview.totalLines === 0 && !journalsQuery.isLoading && !(journalsQuery.data?.length)) return <EmptyWorkspaceHome workspaceName={activeClient?.name ?? "Your private workspace"} />;
+  if (overview && overview.totalLines === 0 && overview.journalCount === 0) return <EmptyWorkspaceHome workspaceName={activeClient?.name ?? "Your private workspace"} />;
   return <div><PageHeading eyebrow={`${dashboardDateLabel(now)} · Close control`} title={`${greeting}, ${greetingName}.`} description="A clear view of what moved, what needs your judgment, and what is ready to stand behind." action={<Link href="/statement-lines" data-testid="link-review-lines" className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Review open lines <ArrowRight size={14} /></Link>} /><QueryState loading={query.isLoading} error={query.isError} empty={!overview} onRetry={() => query.refetch()}>{overview && <div className="space-y-6"><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Metric label="Close progress" value={`${overview.completionPercent}%`} note={`${overview.pendingReview} drafts still need review`} accent /><Metric label="Statement lines" value={overview.totalLines.toLocaleString()} note={`${overview.currencies.length} currencies in scope`} /><Metric label="Posted amount" value={money(overview.postedAmount)} note={`Through ${overview.period}`} /><Metric label="Currencies" value={overview.currencies.join(' · ')} note="Active bank feeds" /></div><div className="grid gap-6 xl:grid-cols-[1.35fr_.65fr]"><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-start justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Close control / {overview.period}</div><h2 className="mt-2 text-base font-semibold">The desk at a glance</h2></div><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">Active</span></div><div className="mt-6 flex items-end gap-5"><div className="relative size-[148px] shrink-0 rounded-full" style={{ background: `conic-gradient(hsl(var(--accent)) ${overview.completionPercent}%, hsl(var(--muted)) 0)` }}><div className="absolute inset-[10px] grid place-items-center rounded-full bg-card"><span className="font-display text-[34px]">{overview.completionPercent}<small className="text-lg">%</small></span></div></div><div className="pb-2"><p className="text-sm font-medium leading-6">Your review queue is moving well.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">AgarAccounting AI System has surfaced the evidence beside each draft so the final posting decision stays yours.</p><Link href="/journal-entries" data-testid="link-view-drafts" className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline">Inspect draft entries <ChevronRight size={13} /></Link></div></div><div className="mt-7 grid grid-cols-3 border-t border-border pt-4"><div><div className="font-mono text-lg">{overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Drafts</div></div><div><div className="font-mono text-lg">{overview.totalLines - overview.pendingReview}</div><div className="mt-1 text-[10px] text-muted-foreground">Posted lines</div></div><div><div className="font-mono text-lg">{overview.currencies.length}</div><div className="mt-1 text-[10px] text-muted-foreground">Currencies</div></div></div></section><section className="flex flex-col justify-between rounded-lg border border-primary/20 bg-primary/5 p-5 md:p-6"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Assurance model</div><h2 className="mt-2 text-base font-semibold">Ready for audit</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">Posted bank journals keep an append-only transition record and a link to the original statement line. Manual journals post the same way, without a bank line.</p><p className="mt-2 text-[11px] leading-5 text-muted-foreground">AI prepares drafts but cannot post them or modify the base reports. Post only what you can explain.</p><div className="mt-8 flex items-center gap-2 border-t border-accent/20 pt-4 text-[11px] font-semibold text-accent-foreground"><CircleCheck size={15} /> Evidence attached to every decision</div></div></section></div><section className="rounded-lg border border-card-border bg-card p-5 md:p-6"><div className="flex items-center justify-between"><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-muted-foreground">Next actions</div><h2 className="mt-2 text-base font-semibold">Keep the close moving</h2></div><span className="font-mono text-[10px] text-muted-foreground">3 lanes</span></div><div className="mt-5 grid gap-3 md:grid-cols-3"><ActionCard index="01" title="Review statement lines" detail={`${overview.pendingReview} drafts are waiting for a call`} href="/statement-lines" icon={Table2} /><ActionCard index="02" title="Post draft entries" detail="Confirm the postings AgarAccounting AI System prepared" href="/journal-entries" icon={BookOpenCheck} /><ActionCard index="03" title="Check the trial balance" detail="Make sure debits and credits agree" href="/trial-balance" icon={BarChart3} /></div></section></div>}</QueryState></div>;
 }
 
@@ -1705,6 +1715,7 @@ function ImportStatementPage() {
       queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: preview.clientId }) });
       queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: preview.clientId }) });
       queryClient.invalidateQueries({ queryKey: getGetStatementImportsQueryKey({ clientId: preview.clientId }) });
+      queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: preview.clientId }) });
       if (currentIndex != null) continueQueue(currentIndex);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Statement import failed.');
@@ -1745,7 +1756,7 @@ function ImportStatementPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">AI extraction preview</div><h2 className="mt-2 text-lg font-semibold">{preview.fileName}</h2><p className="mt-1 text-xs text-muted-foreground">{preview.result.lines.length} proposed transaction{preview.result.lines.length === 1 ? '' : 's'} · source and preview saved, no statement lines loaded</p></div>
           <div className="flex flex-wrap gap-2">
-            <Link href={`/import-statement/${preview.result.importId}`} data-testid="link-view-bank-statement" className="rounded-md border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View statement</Link>
+            <Link href={`/import-statement/${preview.result.importId}`} data-testid="link-view-bank-statement" className="rounded-md border border-primary/30 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/5">View this file</Link>
             <button type="button" onClick={skipPreview} className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted">Skip this document</button>
           </div>
         </div>
@@ -1797,7 +1808,7 @@ function ImportStatementPage() {
           <span className={`shrink-0 rounded-full px-2 py-1 font-mono text-[9px] uppercase tracking-[.08em] ${item.status === 'loaded' ? 'bg-primary/10 text-primary' : item.status === 'failed' ? 'bg-destructive/10 text-destructive' : item.status === 'ready' ? 'bg-accent/15 text-accent-foreground' : item.status === 'analyzing' ? 'bg-secondary text-primary' : 'bg-muted text-muted-foreground'}`}>{item.status === 'ready' ? 'Needs review' : item.status === 'loaded' ? 'Loaded to review' : item.status === 'analyzing' ? 'Analyzing' : item.status}{item.message && item.status === 'failed' ? ` · ${item.message}` : ''}</span>
         </div>)}
       </div>}
-      {message && <div data-testid="import-statement-result" className="mt-5 rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-xs text-primary">{message}{queue.some((item) => item.clientId === activeClient?.id && item.status === 'loaded' && item.result?.importedCount) ? <Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link> : null}</div>}
+      {message && <div data-testid="import-statement-result" className="mt-5 rounded-md border border-primary/25 bg-primary/5 px-4 py-3 text-xs text-primary">{message}{queue.some((item) => item.clientId === activeClient?.id && item.status === 'loaded' && item.result?.importedCount) ? <><Link href={registerHrefForImport(queue.find((item) => item.clientId === activeClient?.id && item.status === 'loaded' && item.result?.bankAccount?.id)?.result ?? {})} className="ml-2 font-semibold underline">Open bank register</Link><Link href="/statement-lines" className="ml-2 font-semibold underline">Review imported lines</Link></> : null}</div>}
       <div className="mt-5 flex justify-end">
         {queue.length > 0 && !isProcessingQueue && <button data-testid="button-discard-statement-queue" type="button" onClick={() => { setQueue([]); setMessage(''); }} className="mr-2 h-10 rounded-md border border-border px-4 text-xs font-semibold text-muted-foreground hover:bg-muted">Discard queue</button>}
         <button data-testid="button-parse-statement" type="button" onClick={startQueue} disabled={!queue.some((item) => item.status === 'queued' || item.status === 'failed') || isProcessingQueue || isUploading || importMutation.isPending} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
@@ -1859,6 +1870,7 @@ function StatementImportHistory() {
           queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) }),
           queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey({ clientId: activeClient.id }) }),
           queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClient.id }) }),
         ]);
       },
       onError: (error) => {
@@ -1908,6 +1920,7 @@ function StatementImportHistory() {
           queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey({ clientId: activeClient.id }) }),
           queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey({ clientId: activeClient.id }) }),
           queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey({ clientId: activeClient.id }) }),
+          queryClient.invalidateQueries({ queryKey: getGetBankAccountsQueryKey({ clientId: activeClient.id }) }),
         ]);
       },
       onError: (error) => {
@@ -1923,7 +1936,7 @@ function StatementImportHistory() {
     <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Import history</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Uploads waiting for currency confirmation create no statement lines. Undo is available only while every loaded transaction and journal is still draft and unchanged.</p></div><button type="button" onClick={() => void importsQuery.refetch()} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-muted-foreground hover:bg-muted"><RefreshCw size={13} /> Refresh</button></div>
     {feedback ? <div className="mt-4 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-primary" role="status">{feedback}</div> : null}
     {importsQuery.isLoading ? <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground"><LoaderCircle size={14} className="animate-spin" /> Loading import history…</div> : null}
-    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} loaded transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replaceAll('_', ' ')}</span></div>{statementImport.outcome === 'analyzing' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Analysis is continuing in the background. You can leave this page.</p> : statementImport.outcome === 'pending_confirmation' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Nothing has been loaded. Review the saved preview and confirm its currency first.</p> : statementImport.outcome === 'failed' ? <p className="mt-2 text-[11px] text-destructive">{statementImport.errorMessage ?? 'Analysis did not finish. The original upload remains available for retry.'}</p> : statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a draft transaction or journal is changed or posted.</p> : null}</div><div className="flex shrink-0 flex-wrap items-center gap-2">{statementImport.outcome === 'analyzing' ? <span className="inline-flex h-9 items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 text-xs font-semibold text-accent-foreground"><LoaderCircle size={13} className="animate-spin" /> Analyzing</span> : null}{statementImport.outcome === 'pending_confirmation' ? <><select data-testid={`select-pending-statement-currency-${statementImport.id}`} aria-label={`Currency for ${statementImport.fileName}`} value={pendingCurrencies[statementImport.id] ?? statementImport.detectedCurrency ?? ''} onChange={(event) => setPendingCurrencies((current) => ({ ...current, [statementImport.id]: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="">Choose currency</option><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select><button data-testid={`button-confirm-pending-statement-${statementImport.id}`} type="button" onClick={() => confirmPendingImport(statementImport)} disabled={confirmMutation.isPending || !statementImport.objectPath} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{confirmMutation.isPending && confirmMutation.variables?.data.importId === statementImport.id ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />} Confirm & load</button></> : null}{statementImport.outcome === 'failed' && statementImport.objectPath ? <button data-testid={`button-retry-statement-analysis-${statementImport.id}`} type="button" onClick={() => retryAnalysis(statementImport)} disabled={retryMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-primary/30 px-3 text-xs font-semibold text-primary disabled:opacity-50">{retryMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <RotateCw size={13} />} Retry analysis</button> : null}{statementImport.sourceUrl ? <button data-testid={`button-preview-statement-source-${statementImport.id}`} type="button" onClick={(event) => { sourceTriggerRef.current = event.currentTarget; setSourcePreview(statementImport); }} aria-label={`Preview source ${statementImport.fileName}`} className="text-xs font-semibold text-primary underline">Source</button> : null}{(statementImport.outcome === 'pending_confirmation' && (statementImport.preview?.lines?.length ?? 0) > 0) || (statementImport.outcome === 'completed' && ((statementImport.preview?.lines?.length ?? 0) > 0 || statementImport.importedLineCount > 0)) ? <Link href={`/import-statement/${statementImport.id}`} data-testid={`link-view-bank-statement-${statementImport.id}`} className="text-xs font-semibold text-primary underline">View statement</Link> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
+    {importsQuery.data?.length ? <div className="mt-4 divide-y divide-border rounded-md border border-border">{importsQuery.data.map((statementImport) => <div key={statementImport.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="truncate text-sm font-semibold">{statementImport.fileName}</div><div className="mt-1 text-xs text-muted-foreground">{statementImport.importedLineCount} loaded transaction{statementImport.importedLineCount === 1 ? '' : 's'} · {new Date(statementImport.createdAt).toLocaleString()} · <span className="capitalize">{statementImport.outcome.replaceAll('_', ' ')}</span></div>{statementImport.outcome === 'analyzing' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Analysis is continuing in the background. You can leave this page.</p> : statementImport.outcome === 'pending_confirmation' ? <p className="mt-2 text-[11px] font-medium text-accent-foreground">Nothing has been loaded. Review the saved preview and confirm its currency first.</p> : statementImport.outcome === 'failed' ? <p className="mt-2 text-[11px] text-destructive">{statementImport.errorMessage ?? 'Analysis did not finish. The original upload remains available for retry.'}</p> : statementImport.outcome === 'completed' ? <p className="mt-2 text-[11px] text-muted-foreground">Undo remains available only until a draft transaction or journal is changed or posted.</p> : null}</div><div className="flex shrink-0 flex-wrap items-center gap-2">{statementImport.outcome === 'analyzing' ? <span className="inline-flex h-9 items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 text-xs font-semibold text-accent-foreground"><LoaderCircle size={13} className="animate-spin" /> Analyzing</span> : null}{statementImport.outcome === 'pending_confirmation' ? <><select data-testid={`select-pending-statement-currency-${statementImport.id}`} aria-label={`Currency for ${statementImport.fileName}`} value={pendingCurrencies[statementImport.id] ?? statementImport.detectedCurrency ?? ''} onChange={(event) => setPendingCurrencies((current) => ({ ...current, [statementImport.id]: event.target.value }))} className="h-9 rounded-md border border-input bg-background px-2 text-xs outline-none focus:border-primary"><option value="">Choose currency</option><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="SAR">SAR</option><option value="QAR">QAR</option></select><button data-testid={`button-confirm-pending-statement-${statementImport.id}`} type="button" onClick={() => confirmPendingImport(statementImport)} disabled={confirmMutation.isPending || !statementImport.objectPath} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground disabled:opacity-50">{confirmMutation.isPending && confirmMutation.variables?.data.importId === statementImport.id ? <LoaderCircle size={13} className="animate-spin" /> : <Check size={13} />} Confirm & load</button></> : null}{statementImport.outcome === 'failed' && statementImport.objectPath ? <button data-testid={`button-retry-statement-analysis-${statementImport.id}`} type="button" onClick={() => retryAnalysis(statementImport)} disabled={retryMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-primary/30 px-3 text-xs font-semibold text-primary disabled:opacity-50">{retryMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <RotateCw size={13} />} Retry analysis</button> : null}{statementImport.sourceUrl ? <button data-testid={`button-preview-statement-source-${statementImport.id}`} type="button" onClick={(event) => { sourceTriggerRef.current = event.currentTarget; setSourcePreview(statementImport); }} aria-label={`Preview source ${statementImport.fileName}`} className="text-xs font-semibold text-primary underline">Source</button> : null}{(statementImport.outcome === 'pending_confirmation' && (statementImport.preview?.lines?.length ?? 0) > 0) ? <Link href={`/import-statement/${statementImport.id}`} data-testid={`link-view-bank-statement-${statementImport.id}`} className="text-xs font-semibold text-primary underline">View statement</Link> : null}{statementImport.outcome === 'completed' && ((statementImport.preview?.lines?.length ?? 0) > 0 || statementImport.importedLineCount > 0) ? <><Link href={registerHrefForImport(statementImport)} data-testid={`link-view-bank-register-${statementImport.id}`} className="text-xs font-semibold text-primary underline">View register</Link><Link href={`/import-statement/${statementImport.id}`} data-testid={`link-view-bank-statement-${statementImport.id}`} className="text-xs font-semibold text-muted-foreground underline">This file</Link></> : null}{statementImport.outcome === 'completed' ? <button data-testid={`button-undo-statement-import-${statementImport.id}`} type="button" onClick={() => undoImport(statementImport.id, statementImport.fileName)} disabled={undoMutation.isPending} className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/35 px-3 text-xs font-semibold text-destructive hover:bg-destructive/5 disabled:opacity-50">{undoMutation.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <Trash2 size={13} />} Undo import</button> : null}</div></div>)}</div> : !importsQuery.isLoading ? <p className="mt-4 text-xs text-muted-foreground">No statement imports have been recorded for this client.</p> : null}
     <Dialog open={Boolean(sourcePreview)} onOpenChange={(open) => { if (!open) closeSourcePreview(); }}>
       {sourcePreview ? <StatementSourcePreview source={sourcePreview} onClose={closeSourcePreview} /> : null}
     </Dialog>
@@ -2979,58 +2992,56 @@ function StatementLinesPage() {
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null);
   const pendingPostLineIdsRef = useRef(new Set<number>());
   const bulkActionTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const params = useMemo(() => ({ clientId: activeClient?.id ?? 1, ...(currency !== 'all' ? { currency } : {}), ...(status !== 'all' ? { status } : {}), ...(direction !== 'all' ? { direction } : {}) }), [activeClient?.id, currency, status, direction]);
+  const summaryParams = useMemo(() => ({
+    clientId: activeClient?.id ?? 1,
+    ...(currency !== 'all' ? { currency } : {}),
+    ...(status !== 'all' ? { status } : {}),
+    ...(direction !== 'all' ? { direction } : {}),
+    ...(search.trim() ? { search: search.trim() } : {}),
+    ...(dateFrom ? { dateFrom } : {}),
+    ...(dateTo ? { dateTo } : {}),
+    ...(remarksFilter === 'awaiting' ? { remarks: 'awaiting' as const } : {}),
+  }), [activeClient?.id, currency, status, direction, search, dateFrom, dateTo, remarksFilter]);
+  const params = useMemo(() => ({
+    ...summaryParams,
+    sort: sortKey,
+    sortDirection,
+    limit: STATEMENT_LINES_PAGE_SIZE,
+    offset: (linePage - 1) * STATEMENT_LINES_PAGE_SIZE,
+  }), [summaryParams, sortKey, sortDirection, linePage]);
   const catalogParams = useMemo(() => ({ clientId: activeClient?.id ?? 1 }), [activeClient?.id]);
-  const query = useGetStatementLines(params, { query: { queryKey: getGetStatementLinesQueryKey(params) } });
-  const catalogQuery = useGetStatementLines(catalogParams, { query: { queryKey: getGetStatementLinesQueryKey(catalogParams) } });
+  const query = useGetStatementLines(params, { query: { queryKey: getGetStatementLinesQueryKey(params), placeholderData: keepPreviousData } });
+  const summaryQuery = useGetStatementLinesSummary(summaryParams, { query: { queryKey: getGetStatementLinesSummaryQueryKey(summaryParams), placeholderData: keepPreviousData } });
+  const catalogQuery = useGetStatementLinesSummary(catalogParams, { query: { queryKey: getGetStatementLinesSummaryQueryKey(catalogParams) } });
   const journalParams = { clientId: activeClient?.id ?? 1 };
-  const journalQuery = useGetJournalEntries(journalParams, { query: { queryKey: getGetJournalEntriesQueryKey(journalParams) } });
   const bankAccountsQuery = useGetBankAccounts(journalParams);
   const post = usePostJournalEntry();
   const bulkMutation = useConfirmAICopilotAction();
   const exportMutation = useExportStatementLines();
-  const entriesByLine = useMemo(() => new Map((journalQuery.data ?? []).flatMap((entry) => entry.statementLineId == null ? [] : [[entry.statementLineId, entry] as const])), [journalQuery.data]);
+  const selectedLinesByIdRef = useRef(new Map<number, StatementLine>());
   const bankAccountsById = useMemo(() => new Map((bankAccountsQuery.data ?? []).map((account) => [account.id, account])), [bankAccountsQuery.data]);
-  const rows = useMemo(() => {
-    const filtered = (query.data ?? []).filter((line) => isDateInRange(line.date, dateFrom, dateTo) && `${line.description} ${line.accountSuggestion ?? ''} ${line.contactName ?? ''}`.toLowerCase().includes(search.toLowerCase()) && (remarksFilter !== 'awaiting' || Boolean(line.pendingClarification && line.status === 'draft')));
-    return [...filtered].sort((left, right) => {
-      const leftValue = sortKey === 'date' ? left.date
-        : sortKey === 'description' ? left.description
-          : sortKey === 'contact' ? left.contactName ?? ''
-            : sortKey === 'account' ? left.accountSuggestion ?? ''
-              : sortKey === 'amount' ? left.amount
-                : sortKey === 'confidence' ? left.confidence ?? -1
-                  : left.status;
-      const rightValue = sortKey === 'date' ? right.date
-        : sortKey === 'description' ? right.description
-          : sortKey === 'contact' ? right.contactName ?? ''
-            : sortKey === 'account' ? right.accountSuggestion ?? ''
-              : sortKey === 'amount' ? right.amount
-                : sortKey === 'confidence' ? right.confidence ?? -1
-                  : right.status;
-      const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
-        ? leftValue - rightValue
-        : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' });
-      return (comparison || left.id - right.id) * (sortDirection === 'asc' ? 1 : -1);
-    });
-  }, [query.data, search, dateFrom, dateTo, sortKey, sortDirection, remarksFilter]);
-  const linePageCount = Math.max(1, Math.ceil(rows.length / STATEMENT_LINES_PAGE_SIZE));
+  const rows = query.data ?? [];
+  const totalCount = summaryQuery.data?.totalCount ?? rows.length;
+  const currencies = [...new Set((catalogQuery.data?.currencies ?? []) )].sort();
+  const linePageCount = Math.max(1, Math.ceil(totalCount / STATEMENT_LINES_PAGE_SIZE));
   const currentLinePage = Math.min(linePage, linePageCount);
-  const visibleRows = rows.slice((currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE, currentLinePage * STATEMENT_LINES_PAGE_SIZE);
+  const visibleRows = rows;
   usePublishAssistantPageContext({
     route: '/statement-lines',
     selectedLineIds,
     visibleLineIds: visibleRows.map((line) => line.id),
     statementLineSearch: search.trim() || undefined,
   });
-  const currencies = [...new Set((catalogQuery.data ?? []).map((line) => line.currency))].sort();
   const activeFilterCount = [search.trim() !== '', currency !== 'all', status !== 'all', direction !== 'all', Boolean(dateFrom || dateTo), remarksFilter !== 'all'].filter(Boolean).length;
   const clearAllFilters = () => { setSearch(''); setCurrency('all'); setStatus('all'); setDirection('all'); setDateFrom(''); setDateTo(''); setRemarksFilter('all'); };
-  const selectedLines = useMemo(() => rows.filter((line) => selectedLineIds.includes(line.id)), [rows, selectedLineIds]);
-  const selectedEntries = useMemo(() => selectedLines.map((line) => entriesByLine.get(line.id)), [selectedLines, entriesByLine]);
-  const hasMissingEntries = selectedLines.some((_, index) => !selectedEntries[index]);
-  const hasPostedSelection = selectedLines.some((line, index) => line.status.toLowerCase() === 'posted' || selectedEntries[index]?.status.toLowerCase() === 'posted');
-  const allDraft = selectedLines.length > 0 && !hasMissingEntries && !hasPostedSelection && selectedEntries.every((entry) => entry?.status.toLowerCase() === 'draft');
+  const selectedLines = useMemo(() => selectedLineIds.flatMap((id) => {
+    const cached = selectedLinesByIdRef.current.get(id);
+    const fromPage = rows.find((line) => line.id === id);
+    return fromPage ?? cached ? [fromPage ?? cached!] : [];
+  }), [rows, selectedLineIds]);
+  const hasMissingEntries = selectedLines.some((line) => line.journalEntryId == null);
+  const hasPostedSelection = selectedLines.some((line) => line.status.toLowerCase() === 'posted' || line.journalStatus?.toLowerCase() === 'posted');
+  const allDraft = selectedLines.length > 0 && !hasMissingEntries && !hasPostedSelection && selectedLines.every((line) => (line.journalStatus ?? 'draft').toLowerCase() === 'draft');
   const allDraftLines = selectedLines.length > 0 && selectedLines.every((line) => line.status.toLowerCase() === 'draft');
   const remarksOverCap = selectedLines.length > 50;
   const remarksEligible = allDraftLines && !remarksOverCap;
@@ -3051,7 +3062,9 @@ function StatementLinesPage() {
         : 'Draft entries selected · recoding, posting, remarks, and export are available.';
   const refreshPostedData = () => {
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetStatementLinesSummaryQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetJournalEntriesSummaryQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
@@ -3061,12 +3074,9 @@ function StatementLinesPage() {
     queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey() });
   };
   useEffect(() => {
-    setSelectedLineIds((current) => {
-      const visibleIds = new Set(rows.map((line) => line.id));
-      const next = current.filter((id) => visibleIds.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [rows, activeClient?.id]);
+    setSelectedLineIds([]);
+    selectedLinesByIdRef.current = new Map();
+  }, [activeClient?.id, currency, status, direction, search, dateFrom, dateTo, remarksFilter]);
   useEffect(() => {
     setLinePage(1);
   }, [activeClient?.id, currency, status, direction, search, dateFrom, dateTo, sortKey, sortDirection, remarksFilter]);
@@ -3126,7 +3136,7 @@ function StatementLinesPage() {
     if (!eligible) return;
     bulkActionTriggerRef.current = trigger;
     setBulkError(null);
-    setBulkAction({ type, lineIds: selectedLines.map((line) => line.id), entryIds: selectedEntries.flatMap((entry) => entry ? [entry.id] : []) });
+    setBulkAction({ type, lineIds: selectedLines.map((line) => line.id), entryIds: selectedLines.flatMap((line) => line.journalEntryId != null ? [line.journalEntryId] : []) });
   };
   const cancelBulkAction = () => {
     if (bulkMutation.isPending) return;
@@ -3172,7 +3182,14 @@ function StatementLinesPage() {
       },
     });
   };
-  const toggleLineSelection = (lineId: number) => setSelectedLineIds((current) => current.includes(lineId) ? current.filter((id) => id !== lineId) : [...current, lineId]);
+  const toggleLineSelection = (line: StatementLine) => setSelectedLineIds((current) => {
+    if (current.includes(line.id)) {
+      selectedLinesByIdRef.current.delete(line.id);
+      return current.filter((id) => id !== line.id);
+    }
+    selectedLinesByIdRef.current.set(line.id, line);
+    return [...current, line.id];
+  });
   const exportSelectedLines = (format: 'xlsx' | 'pdf') => {
     if (!selectedLines.length || exportingFormat) return;
     setExportingFormat(format);
@@ -3204,19 +3221,17 @@ function StatementLinesPage() {
       setSortDirection('asc');
     }
   };
-  const refreshingSuggestions = query.isFetching || catalogQuery.isFetching || journalQuery.isFetching || bankAccountsQuery.isFetching;
+  const refreshingSuggestions = query.isFetching || summaryQuery.isFetching || catalogQuery.isFetching || bankAccountsQuery.isFetching;
   const refreshSuggestions = async () => {
     if (refreshingSuggestions || refreshingLines) return;
     const refreshStartedAt = Date.now();
     setRefreshingLines(true);
     setLineActionError(null);
-    // Statement-line GET recomputes learned account/contact suggestions from current
-    // workspace patterns, so an explicit refetch is enough to surface new learning.
     try {
       await Promise.all([
         query.refetch(),
+        summaryQuery.refetch(),
         catalogQuery.refetch(),
-        journalQuery.refetch(),
         bankAccountsQuery.refetch(),
         queryClient.invalidateQueries({ queryKey: getGetContactsQueryKey({ clientId: journalParams.clientId }) }),
         queryClient.invalidateQueries({ queryKey: getGetLedgerflowAccountsQueryKey({ clientId: journalParams.clientId }) }),
@@ -3253,6 +3268,7 @@ function StatementLinesPage() {
           {refreshingSuggestions || refreshingLines ? 'Refreshing…' : 'Refresh suggestions'}
         </button>
         <button data-testid="button-add-line" onClick={() => setAddOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5"><Plus size={14} /> Add line</button>
+        <Link href="/bank-register" data-testid="link-statement-lines-bank-register" className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-4 py-2.5 text-xs font-semibold text-muted-foreground shadow-sm transition-transform hover:-translate-y-0.5 hover:text-foreground">Bank register</Link>
       </div>}
     />
     <FilterToolbar
@@ -3261,8 +3277,8 @@ function StatementLinesPage() {
       searchTestId="input-search-lines"
       searchPlaceholder="Search descriptions, contacts, or accounts"
       activeCount={activeFilterCount}
-      shownCount={rows.length}
-      totalCount={query.data?.length ?? 0}
+      shownCount={visibleRows.length}
+      totalCount={totalCount}
       noun="lines"
       onClear={clearAllFilters}
       clearTestId="button-clear-all-filters"
@@ -3321,12 +3337,20 @@ function StatementLinesPage() {
         </div>}
          <div className="flex items-center justify-between border-b border-border px-5 py-4"><div><span className="text-sm font-semibold">Review queue</span><span data-testid="text-visible-line-count" className="ml-2 rounded-full bg-secondary px-2 py-1 font-mono text-[10px] text-primary">{rows.length} lines</span></div><div className="flex items-center gap-3">{lastRefreshAt && <span data-testid="statement-lines-refresh-success" title={`Last refreshed ${lastRefreshAt.toLocaleTimeString()}`} className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.08em] text-primary"><Check size={12} /> Queue refreshed</span>}<span className="font-mono text-[10px] text-muted-foreground">Click a line to inspect · post an eligible draft when ready</span></div></div>
         {selectedLines.length > 0 && <div data-testid="bulk-action-toolbar" className="border-b border-primary/20 bg-primary/5 px-5 py-3"><div className="flex flex-wrap items-center gap-2"><span data-testid="text-selected-line-count" className="mr-2 text-xs font-semibold">{selectedLines.length} selected</span><button data-testid="button-bulk-post" onClick={(event) => openBulkAction('bulk_post_entries', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"><Check size={13} /> Post selected</button><button data-testid="button-bulk-recode" onClick={(event) => openBulkAction('recode_lines', event.currentTarget)} disabled={!allDraft || bulkMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40">Recode selected</button><button type="button" data-testid="button-send-for-remarks" onClick={() => setSendRemarksOpen(true)} disabled={!remarksEligible} className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-background px-2.5 py-1.5 text-[11px] font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-40"><Mail size={13} /> Send for remarks</button><button type="button" data-testid="button-export-selected-excel" onClick={() => exportSelectedLines('xlsx')} disabled={Boolean(exportingFormat)} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-40"><FileSpreadsheet size={13} /> {exportingFormat === 'xlsx' ? 'Exporting Excel…' : 'Export Excel'}</button><button type="button" data-testid="button-export-selected-pdf" onClick={() => exportSelectedLines('pdf')} disabled={Boolean(exportingFormat)} className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-40"><FileText size={13} /> {exportingFormat === 'pdf' ? 'Exporting PDF…' : 'Export PDF'}</button></div><p data-testid="text-bulk-selection-guidance" className={`mt-2 text-[10px] ${selectionIssue || remarksOverCap ? 'text-destructive' : 'text-muted-foreground'}`}>{bulkGuidance}</p></div>}
-         <div className="overflow-x-auto"><table className="w-full min-w-[1220px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => setSelectedLineIds(allSelected ? [] : visibleRows.map((line) => line.id))} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[360px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[148px] px-3 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} entry={entriesByLine.get(line.id)} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} journalLoading={journalQuery.isLoading} processing={Boolean(pendingPostLineIds.includes(line.id) || post.isPending && post.variables?.id === entriesByLine.get(line.id)?.id || unpost.isPending && unpost.variables?.id === entriesByLine.get(line.id)?.id || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={lineActionError?.lineId === line.id ? lineActionError.message : null} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line.id)} onPost={postEntry} onUnpost={unpostEntry} onOpenNotes={setNotesLine} />)}</tbody></table></div>
-        {rows.length > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, rows.length)} of {rows.length} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
+         <div className="overflow-x-auto"><table className="w-full min-w-[1220px] table-fixed text-left"><thead className="bg-muted/55 font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground"><tr><th className="w-12 px-4 py-3"><input data-testid="checkbox-select-all-lines" type="checkbox" aria-label={allSelected ? 'Clear all visible statement lines' : 'Select all visible statement lines'} checked={allSelected} onChange={() => {
+                    if (allSelected) {
+                      visibleRows.forEach((line) => selectedLinesByIdRef.current.delete(line.id));
+                      setSelectedLineIds([]);
+                    } else {
+                      visibleRows.forEach((line) => selectedLinesByIdRef.current.set(line.id, line));
+                      setSelectedLineIds(visibleRows.map((line) => line.id));
+                    }
+                  }} className="size-4 accent-primary" /></th><th className="w-[92px] px-3 py-3 font-medium"><SortControl label="Date" column="date" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-date" /></th><th className="w-[360px] px-4 py-3 font-medium"><SortControl label="Source description" column="description" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-description" /></th><th className="w-[160px] px-4 py-3 font-medium"><SortControl label="Contact" column="contact" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-contact" /></th><th className="w-[180px] px-4 py-3 font-medium"><SortControl label="Suggested account" column="account" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-account" /></th><th className="w-[130px] px-4 py-3 font-medium"><SortControl label="Amount" column="amount" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-amount" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Confidence" column="confidence" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-confidence" /></th><th className="w-[100px] px-4 py-3 font-medium"><SortControl label="Status" column="status" activeColumn={sortKey} direction={sortDirection} onSort={sortStatementLines} testId="button-sort-statement-lines-status" /></th><th className="w-[148px] px-3 py-3 text-right font-medium">Action</th></tr></thead><tbody className="divide-y divide-border">{visibleRows.map((line) => <InlineStatementRow key={line.id} line={line} bankAccountName={line.bankAccountId == null ? undefined : bankAccountsById.get(line.bankAccountId)?.name} expanded={expandedLineId === line.id} selected={selectedLineIds.includes(line.id)} processing={Boolean(pendingPostLineIds.includes(line.id) || post.isPending && post.variables?.id === line.journalEntryId || unpost.isPending && unpost.variables?.id === line.journalEntryId || bulkMutation.isPending && bulkAction?.lineIds.includes(line.id))} actionError={lineActionError?.lineId === line.id ? lineActionError.message : null} onToggle={() => setExpandedLineId(expandedLineId === line.id ? null : line.id)} onToggleSelected={() => toggleLineSelection(line)} onPost={postEntry} onUnpost={unpostEntry} onOpenNotes={setNotesLine} />)}</tbody></table></div>
+        {totalCount > STATEMENT_LINES_PAGE_SIZE && <div data-testid="pagination-statement-lines" className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-muted-foreground"><span>Showing {(currentLinePage - 1) * STATEMENT_LINES_PAGE_SIZE + 1}–{Math.min(currentLinePage * STATEMENT_LINES_PAGE_SIZE, totalCount)} of {totalCount} lines</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous statement-lines page" onClick={() => setLinePage((page) => Math.max(1, page - 1))} disabled={currentLinePage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentLinePage} of {linePageCount}</span><button type="button" aria-label="Next statement-lines page" onClick={() => setLinePage((page) => Math.min(linePageCount, page + 1))} disabled={currentLinePage === linePageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
       </div>
     </QueryState>
     {addOpen && <AddLineDialog onClose={() => { setAddOpen(false); queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }); }} />}
-    {bulkAction && <BulkStatementActionDialog action={bulkAction} lines={rows.filter((line) => bulkAction.lineIds.includes(line.id))} pending={bulkMutation.isPending} error={bulkError} onCancel={cancelBulkAction} onConfirm={confirmBulkAction} />}
+    {bulkAction && <BulkStatementActionDialog action={bulkAction} lines={selectedLines.filter((line) => bulkAction.lineIds.includes(line.id))} pending={bulkMutation.isPending} error={bulkError} onCancel={cancelBulkAction} onConfirm={confirmBulkAction} />}
     {sendRemarksOpen && activeClient && <SendForRemarksDialog clientId={journalParams.clientId} clientName={activeClient.name} lines={selectedLines} onClose={() => setSendRemarksOpen(false)} onSent={() => { setSendRemarksOpen(false); setSelectedLineIds([]); query.refetch(); }} />}
     <StatementLineNotesDrawer line={notesLine} clientId={journalParams.clientId} onClose={() => setNotesLine(null)} />
   </div>;
@@ -3336,15 +3360,25 @@ function StatementRow({ line }: { line: StatementLine }) {
   return <tr data-testid={`row-statement-line-${line.id}`} className="group transition-colors hover:bg-secondary/30"><td className="whitespace-nowrap px-5 py-4 font-mono text-[11px] text-muted-foreground">{shortDate(line.date)}</td><td className="max-w-[250px] px-4 py-4"><div className="truncate text-[12px] font-semibold">{line.description}</div><div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><span className="rounded bg-muted px-1.5 py-0.5">{line.source}</span><span>· {line.currency}</span></div></td><td className="px-4 py-4"><div className="text-[12px]">{line.accountSuggestion || 'Needs account call'}</div><div className="mt-1 text-[10px] text-muted-foreground">AI suggestion</div></td><td className={`whitespace-nowrap px-4 py-4 font-mono text-[12px] font-medium ${positive ? 'text-primary' : 'text-foreground'}`}>{positive ? '+' : '−'}{money(Math.abs(line.amount), line.currency)}</td><td className="px-4 py-4">{confidence == null ? <span className="text-[11px] text-muted-foreground">Unscored</span> : <div className="flex items-center gap-2"><div className="h-1.5 w-14 overflow-hidden rounded-full bg-muted"><div className={`h-full rounded-full ${confidence > 85 ? 'bg-primary' : 'bg-accent'}`} style={{ width: `${confidence}%` }} /></div><span className="font-mono text-[10px]">{confidence}%</span></div>}</td><td className="px-4 py-4"><StatusPill status={line.status} /></td></tr>;
 }
 
-function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, journalLoading, processing, actionError, onToggle, onToggleSelected, onPost, onUnpost, onOpenNotes }: { line: StatementLine; bankAccountName?: string; entry: JournalEntry | undefined; expanded: boolean; selected: boolean; journalLoading: boolean; processing: boolean; actionError: string | null; onToggle: () => void; onToggleSelected: () => void; onPost: (entry: JournalEntry, decision: PostLineDecision) => void; onUnpost: (entry: JournalEntry) => void; onOpenNotes: (line: StatementLine) => void }) {
+function InlineStatementRow({ line, bankAccountName, expanded, selected, processing, actionError, onToggle, onToggleSelected, onPost, onUnpost, onOpenNotes }: { line: StatementLine; bankAccountName?: string; expanded: boolean; selected: boolean; processing: boolean; actionError: string | null; onToggle: () => void; onToggleSelected: () => void; onPost: (entry: JournalEntry, decision: PostLineDecision) => void; onUnpost: (entry: JournalEntry) => void; onOpenNotes: (line: StatementLine) => void }) {
   const { activeClient } = useClientWorkspace();
   const accountParams = { clientId: activeClient?.id ?? 0 };
   const accountQuery = useGetLedgerflowAccounts(accountParams, { query: { queryKey: getGetLedgerflowAccountsQueryKey(accountParams) } });
+  const journalParams = { clientId: activeClient?.id ?? 0, statementLineId: line.id, limit: 1 };
+  const entryQuery = useGetJournalEntries(journalParams, {
+    query: { queryKey: getGetJournalEntriesQueryKey(journalParams), enabled: expanded && Boolean(activeClient) },
+  });
   const accounts = accountQuery.data ?? [];
+  const entry = entryQuery.data?.[0];
+  const journalLoading = expanded && entryQuery.isLoading;
+  const stubEntry = line.journalEntryId != null
+    ? { id: line.journalEntryId, statementLineId: line.id } as JournalEntry
+    : undefined;
+  const postableEntry = entry ?? stubEntry;
   const positive = line.direction.toLowerCase().includes('credit') || line.direction.toLowerCase().includes('in');
   const confidence = line.confidence == null ? null : Math.round(line.confidence * 100);
   const posted = line.status.toLowerCase() === 'posted';
-  const canConfirmClassification = !posted && entry?.status.toLowerCase() === 'draft';
+  const canConfirmClassification = !posted && (entry?.status ?? line.journalStatus)?.toLowerCase() === 'draft';
   const accountConfirmationRequired = line.accountConfirmationRequired;
   const journalClassifiedAccount = entry
     ? (isInflowDirection(line.direction)
@@ -3394,7 +3428,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
 
   const contactsQuery = useGetContacts({ clientId: activeClient?.id ?? 0 }, { query: { queryKey: getGetContactsQueryKey({ clientId: activeClient?.id ?? 0 }), enabled: expanded } });
   const contacts = contactsQuery.data ?? [];
-  const canEditContact = entry?.status.toLowerCase() === 'draft';
+  const canEditContact = (entry?.status ?? line.journalStatus)?.toLowerCase() === 'draft';
   const selectableContacts = contacts.filter((contact) => contact.status === 'active' || contact.id === line.contactId);
   const [selectedContactId, setSelectedContactId] = useState<string>(line.contactId ? String(line.contactId) : '');
   const contactSelectionEditedRef = useRef(false);
@@ -3454,7 +3488,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
         : 'Posts this journal entry now, unlinked to a contact';
   const rowAction = posted
     ? <div data-testid={`posted-line-${line.id}`} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary"><CircleCheck size={14} /> Posted</div>
-    : !entry
+    : !postableEntry
       ? <span className="text-[11px] text-muted-foreground">{journalLoading ? 'Loading…' : 'Unavailable'}</span>
       : <button
           type="button"
@@ -3467,7 +3501,7 @@ function InlineStatementRow({ line, bankAccountName, entry, expanded, selected, 
             event.preventDefault();
             event.stopPropagation();
             if (postBlocked) return;
-            onPost(entry, postDecision);
+            onPost(postableEntry, postDecision);
           }}
           className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground ${postBlocked ? 'cursor-not-allowed opacity-50' : ''}`}
         >{processing ? 'Posting…' : <><Check size={13} /> {postLabel}</>}</button>;
@@ -3653,12 +3687,6 @@ function StatusPill({ status }: { status: string }) {
 
 function JournalEntriesPage() {
   const { activeClient } = useClientWorkspace();
-  const params = { clientId: activeClient?.id ?? 1 };
-  const query = useGetJournalEntries(params, { query: { queryKey: getGetJournalEntriesQueryKey(params) } });
-  const post = usePostJournalEntry();
-  const unpost = useUnpostJournalEntry();
-  const remove = useDeleteJournalEntry();
-  const entries = query.data ?? [];
   const [selected, setSelected] = useState<number | null>(null);
   const [filter, setFilter] = useState<'all' | 'draft' | 'posted'>('all');
   const [source, setSource] = useState<'all' | 'manual' | 'statement' | 'system'>('all');
@@ -3667,37 +3695,37 @@ function JournalEntriesPage() {
   const [currency, setCurrency] = useState('all');
   const [dateFrom, setDateFrom] = useState(''); const [dateTo, setDateTo] = useState('');
   const [sortKey, setSortKey] = useState<JournalSortKey>('date'); const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const currencies = [...new Set(entries.map((entry) => entry.currency))].sort();
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const matching = entries.filter((item) =>
-      (filter === 'all' || item.status.toLowerCase() === filter)
-      && (source === 'all' || item.source === source)
-      && (currency === 'all' || item.currency === currency)
-      && isDateInRange(item.date, dateFrom, dateTo)
-      && (!needle || `${item.memo} ${item.currency} ${item.contactName ?? ''} ${item.status} ${item.source} JE-${String(item.id).padStart(4, '0')}`.toLowerCase().includes(needle))
-    );
-    return [...matching].sort((left, right) => {
-      const leftAmount = left.lines.reduce((sum, line) => sum + Math.max(line.debit, line.credit), 0);
-      const rightAmount = right.lines.reduce((sum, line) => sum + Math.max(line.debit, line.credit), 0);
-      const leftValue = sortKey === 'date' ? left.date
-        : sortKey === 'memo' ? left.memo
-          : sortKey === 'currency' ? left.currency
-            : sortKey === 'amount' ? leftAmount
-              : sortKey === 'confidence' ? left.confidence
-                : left.status;
-      const rightValue = sortKey === 'date' ? right.date
-        : sortKey === 'memo' ? right.memo
-          : sortKey === 'currency' ? right.currency
-            : sortKey === 'amount' ? rightAmount
-              : sortKey === 'confidence' ? right.confidence
-                : right.status;
-      const comparison = typeof leftValue === 'number' && typeof rightValue === 'number'
-        ? leftValue - rightValue
-        : String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: 'base' });
-      return (comparison || left.id - right.id) * (sortDirection === 'asc' ? 1 : -1);
-    });
-  }, [entries, filter, source, currency, search, dateFrom, dateTo, sortKey, sortDirection]);
+  const [entryPage, setEntryPage] = useState(1);
+  const summaryParams = useMemo(() => ({
+    clientId: activeClient?.id ?? 1,
+    ...(filter !== 'all' ? { status: filter } : {}),
+    ...(source !== 'all' ? { source } : {}),
+    ...(currency !== 'all' ? { currency } : {}),
+    ...(search.trim() ? { search: search.trim() } : {}),
+    ...(dateFrom ? { dateFrom } : {}),
+    ...(dateTo ? { dateTo } : {}),
+  }), [activeClient?.id, filter, source, currency, search, dateFrom, dateTo]);
+  const params = useMemo(() => ({
+    ...summaryParams,
+    sort: sortKey,
+    sortDirection,
+    limit: JOURNAL_ENTRIES_PAGE_SIZE,
+    offset: (entryPage - 1) * JOURNAL_ENTRIES_PAGE_SIZE,
+  }), [summaryParams, sortKey, sortDirection, entryPage]);
+  const catalogParams = { clientId: activeClient?.id ?? 1 };
+  const query = useGetJournalEntries(params, { query: { queryKey: getGetJournalEntriesQueryKey(params), placeholderData: keepPreviousData } });
+  const summaryQuery = useGetJournalEntriesSummary(summaryParams, { query: { queryKey: getGetJournalEntriesSummaryQueryKey(summaryParams), placeholderData: keepPreviousData } });
+  const catalogQuery = useGetJournalEntriesSummary(catalogParams, { query: { queryKey: getGetJournalEntriesSummaryQueryKey(catalogParams) } });
+  const post = usePostJournalEntry();
+  const unpost = useUnpostJournalEntry();
+  const remove = useDeleteJournalEntry();
+  const filtered = query.data ?? [];
+  const totalCount = summaryQuery.data?.totalCount ?? filtered.length;
+  const currencies = [...(catalogQuery.data?.currencies ?? [])];
+  const entryPageCount = Math.max(1, Math.ceil(totalCount / JOURNAL_ENTRIES_PAGE_SIZE));
+  const currentEntryPage = Math.min(entryPage, entryPageCount);
+  useEffect(() => { setEntryPage(1); }, [activeClient?.id, filter, source, currency, search, dateFrom, dateTo, sortKey, sortDirection]);
+  useEffect(() => { if (entryPage > entryPageCount) setEntryPage(entryPageCount); }, [entryPage, entryPageCount]);
   const sortJournalEntries = (column: string) => {
     const nextColumn = column as JournalSortKey;
     if (nextColumn === sortKey) setSortDirection((current) => current === 'asc' ? 'desc' : 'asc');
@@ -3708,7 +3736,9 @@ function JournalEntriesPage() {
   };
   const refreshJournalData = () => {
     queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetJournalEntriesSummaryQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetStatementLinesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetStatementLinesSummaryQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetLedgerOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() });
@@ -3744,7 +3774,7 @@ function JournalEntriesPage() {
       searchPlaceholder="Search memos, contacts, or currencies"
       activeCount={activeEntryFilterCount}
       shownCount={filtered.length}
-      totalCount={entries.length}
+      totalCount={totalCount}
       noun="entries"
       onClear={clearEntryFilters}
       clearTestId="button-clear-entry-filters"
@@ -3806,7 +3836,9 @@ function JournalEntriesPage() {
         ]}
       />
     </FilterToolbar>
-    <QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} filtered={activeEntryFilterCount > 0} onClearFilters={clearEntryFilters} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onPost={() => postEntry(entry)} onUnpost={() => unpostEntry(entry)} onEdit={() => setEditor(entry)} onDelete={() => deleteEntry(entry)} posting={post.isPending && post.variables?.id === entry.id} unposting={unpost.isPending && unpost.variables?.id === entry.id} deleting={remove.isPending && remove.variables?.id === entry.id} />)}</div></QueryState>
+    <QueryState loading={query.isLoading} error={query.isError} empty={!filtered.length} filtered={activeEntryFilterCount > 0} onClearFilters={clearEntryFilters} onRetry={() => query.refetch()}><div className="grid gap-4 xl:grid-cols-2">{filtered.map((entry) => <JournalCard key={entry.id} entry={entry} selected={selected === entry.id} onSelect={() => setSelected(selected === entry.id ? null : entry.id)} onPost={() => postEntry(entry)} onUnpost={() => unpostEntry(entry)} onEdit={() => setEditor(entry)} onDelete={() => deleteEntry(entry)} posting={post.isPending && post.variables?.id === entry.id} unposting={unpost.isPending && unpost.variables?.id === entry.id} deleting={remove.isPending && remove.variables?.id === entry.id} />)}</div>
+    {totalCount > JOURNAL_ENTRIES_PAGE_SIZE && <div data-testid="pagination-journal-entries" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[11px] text-muted-foreground"><span>Showing {(currentEntryPage - 1) * JOURNAL_ENTRIES_PAGE_SIZE + 1}–{Math.min(currentEntryPage * JOURNAL_ENTRIES_PAGE_SIZE, totalCount)} of {totalCount} entries</span><div className="flex items-center gap-2"><button type="button" aria-label="Previous journal-entries page" onClick={() => setEntryPage((page) => Math.max(1, page - 1))} disabled={currentEntryPage === 1} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Previous</button><span className="font-mono">Page {currentEntryPage} of {entryPageCount}</span><button type="button" aria-label="Next journal-entries page" onClick={() => setEntryPage((page) => Math.min(entryPageCount, page + 1))} disabled={currentEntryPage === entryPageCount} className="rounded border border-border px-2 py-1 font-semibold disabled:cursor-not-allowed disabled:opacity-50">Next</button></div></div>}
+    </QueryState>
     {editor && <AddJournalEntryDialog entry={editor === 'new' ? undefined : editor} onClose={() => { setEditor(null); queryClient.invalidateQueries({ queryKey: getGetJournalEntriesQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetTrialBalanceQueryKey() }); queryClient.invalidateQueries({ queryKey: getGetFinancialStatementsQueryKey() }); }} />}
   </div>;
 }
@@ -3902,11 +3934,85 @@ function UaeTaxSummaryPanel({ currency }: { currency: string }) {
     <div className="mt-5 rounded-md border border-accent/25 bg-accent/10 p-3 text-[10px] leading-5 text-accent-foreground"><strong>Assumptions and exclusions.</strong> {summary.assumptions.join(' ')} Excluded: {summary.excludedReliefs.join(', ')}.</div>
   </section>;
 }
+function isEquityMatrix(rows: ReportAmount[]) {
+  return rows.length > 0 && rows.every((row) => /^Year ended /.test(row.label) && Boolean(row.children?.some((child) => child.children?.length)));
+}
+
+function equityCellAmount(value: number, kind: string) {
+  if ((kind === 'profit' || kind === 'oci' || kind === 'dividends' || kind === 'capital' || kind === 'other') && Math.abs(value) < 0.005) return '—';
+  return reportMoney(value);
+}
+
+function ReportEquityStatement({ rows, currency, id, showComparatives = true }: { rows: ReportAmount[]; currency: string; id?: string; showComparatives?: boolean }) {
+  const periods = showComparatives ? rows : rows.slice(0, 1);
+  const columns = periods[0]?.children?.find((row) => row.children?.length)?.children?.map((cell) => cell.label) ?? ['Total'];
+  return <section id={id} tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30" data-testid="report-equity-statement">
+    <div className="text-center">
+      <h3 className="font-display text-[26px] leading-none">Statement of changes in equity</h3>
+      <p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · {showComparatives ? 'Current year and comparative year' : 'Current year'}</p>
+    </div>
+    <div className="mt-8 space-y-10">
+      {periods.map((period) => <div key={period.label}>
+        <p className="text-center text-[11px] font-semibold">{period.label}</p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="report-equity">
+            <thead>
+              <tr>
+                <th className="text-left">{currency}</th>
+                {columns.map((column) => <th key={column} className="text-right">{column}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {(period.children ?? []).map((row) => {
+                const kind = row.noteRef;
+                return <tr key={row.label} data-kind={kind}>
+                  <td>{row.label}</td>
+                  {columns.map((column) => {
+                    const amount = row.children?.find((cell) => cell.label === column)?.current ?? 0;
+                    return <td key={column} className="text-right font-mono tabular-nums">{equityCellAmount(amount, kind)}</td>;
+                  })}
+                </tr>;
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>)}
+    </div>
+    <ReportSignatureBlock />
+  </section>;
+}
+
+function ReportEquitySection({ rows, currency, id, showComparatives = true }: { rows: ReportAmount[]; currency: string; id?: string; showComparatives?: boolean }) {
+  if (!isEquityMatrix(rows)) {
+    return <ReportStatement id={id} title="Statement of changes in equity" rows={rows} currency={currency} showComparatives={showComparatives} />;
+  }
+  return <ReportEquityStatement id={id} rows={rows} currency={currency} showComparatives={showComparatives} />;
+}
+
+function ReportSignatureBlock() {
+  return <div className="report-signature" data-testid="report-signature">
+    <div className="report-signature-grid">
+      <div className="report-signature-field">
+        <div className="report-signature-line" />
+        <div className="report-signature-label">Authorized signatory</div>
+      </div>
+      <div className="report-signature-field">
+        <div className="report-signature-line" />
+        <div className="report-signature-label">Date</div>
+      </div>
+    </div>
+    <div className="report-signature-name">
+      <div className="report-signature-line" />
+      <div className="report-signature-label">Name</div>
+    </div>
+  </div>;
+}
+
 function ReportStatement({ title, rows, currency, id, showComparatives = true }: { title: string; rows: ReportAmount[]; currency: string; id?: string; showComparatives?: boolean }) {
   const headStyle = showComparatives
     ? { gridTemplateColumns: 'minmax(0, 1fr) 7.5rem 7.5rem' }
     : { gridTemplateColumns: 'minmax(0, 1fr) 8.5rem' };
-  return <><section id={id} tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="text-center"><h3 className="font-display text-[26px] leading-none">{title}</h3><p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · {showComparatives ? 'Current year / comparative year' : 'Current year'}</p></div><div className="mt-6 border-y border-foreground/20 py-2"><div data-comparative={showComparatives ? 'true' : 'false'} style={headStyle} className="report-row report-row-head font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span>Statement line</span><span className="report-amount text-right">{showComparatives ? 'Current' : currency}</span>{showComparatives ? <span className="report-amount text-right">Comparative</span> : null}</div></div><div className="report-body"><ReportRows rows={rows} currency={currency} showComparatives={showComparatives} /></div></section>{title.startsWith('Statement of cash flows') && <UaeTaxSummaryPanel currency={currency} />}</>;
+  return <><section id={id} tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="text-center"><h3 className="font-display text-[26px] leading-none">{title}</h3><p className="mt-2 font-mono text-[9px] uppercase tracking-[.15em] text-muted-foreground">{currency} · {showComparatives ? 'Current year / comparative year' : 'Current year'}</p></div><div className="mt-6 border-y border-foreground/20 py-2"><div data-comparative={showComparatives ? 'true' : 'false'} style={headStyle} className="report-row report-row-head font-mono text-[9px] uppercase tracking-[.1em] text-muted-foreground"><span>Statement line</span><span className="report-amount text-right">{showComparatives ? 'Current' : currency}</span>{showComparatives ? <span className="report-amount text-right">Comparative</span> : null}</div></div><div className="report-body"><ReportRows rows={rows} currency={currency} showComparatives={showComparatives} /></div><ReportSignatureBlock /></section>{title.startsWith('Statement of cash flows') && <UaeTaxSummaryPanel currency={currency} />}</>;
 }
 
 function ReportNotesEditor({ notes, onChange, showComparatives = true, currency = 'AED' }: { notes: ReportNote[]; onChange: (notes: ReportNote[]) => void; showComparatives?: boolean; currency?: string }) {
@@ -3966,8 +4072,8 @@ const reportCheckGuidance: Record<string, { meaning: string; action: string }> =
     action: 'Review posted journal entries for missing or incorrect asset, liability, and equity classifications, correct them, then generate a new snapshot.',
   },
   'retained-earnings': {
-    meaning: 'Confirms that current-period profit and other comprehensive income explain the movement in retained earnings.',
-    action: 'Review opening equity, profit or loss, OCI, dividend, and distribution entries in Journal entries, correct any omission or classification, then regenerate.',
+    meaning: 'Confirms that opening equity plus profit, OCI, dividends, and capital movements equal closing equity, and that closing equity agrees with the statement of financial position.',
+    action: 'Review share capital, retained earnings, dividend, and distribution entries in Journal entries, correct any omission or classification, then regenerate.',
   },
   'cash-flow': {
     meaning: 'Confirms that opening cash plus the period’s cash movement equals closing cash.',
@@ -4216,7 +4322,7 @@ function FinancialStatementsPage() {
     return focusable
       ? <button key={check.id} type="button" data-testid={`button-focus-report-check-${check.id}`} className={cardClass} onClick={() => focusCheckTarget(check.id)}>{body}</button>
       : <div key={check.id} className={cardClass}>{body}</div>;
-  })}</div></section><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div><div className="text-xs font-semibold">Report presentation</div><p className="mt-0.5 text-[11px] text-muted-foreground">Choose whether statement and note tables include comparative-year columns.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[11px] font-semibold"><input data-testid="checkbox-show-comparatives" type="checkbox" checked={showComparatives} onChange={(event) => setShowComparatives(event.target.checked)} className="size-3.5 accent-primary" />Show comparative figures</label></div><article key={showComparatives ? 'report-with-comparatives' : 'report-current-only'} id="report-comparative-statements" tabIndex={-1} data-show-comparatives={showComparatives ? 'true' : 'false'} className="report-sheet scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="report-cover"><div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">AgarAccounting AI System / generated accounting output</div><h2 className="mt-14 font-display text-5xl leading-none">{pack.snapshot.legalName}</h2><div className="mt-7 h-px w-20 bg-foreground/40" /><p className="mt-7 font-display text-3xl">Financial statements</p><p className="mt-3 text-[12px]">For the year ended {pack.snapshot.periodEnd.slice(0, 10)}</p>{showComparatives ? <p className="mt-1 text-[11px] text-muted-foreground">Comparative period ended {pack.snapshot.comparativePeriodEnd.slice(0, 10)} · {pack.snapshot.presentationCurrency}</p> : <p className="mt-1 text-[11px] text-muted-foreground">{pack.snapshot.presentationCurrency} · Current period only</p>}<div className="mt-20 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Prepared under {pack.snapshot.reportingBasis} using the {pack.snapshot.presentationProfile} presentation profile. This document is not an audit opinion, statutory filing, tax return, or assurance conclusion.</div></div><ReportStatement id="report-statement-financial-position" title="Statement of financial position" rows={pack.snapshot.statementOfFinancialPosition} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-profit-or-loss" title="Statement of profit or loss and other comprehensive income" rows={pack.snapshot.profitOrLossAndOci} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-equity" title="Statement of changes in equity" rows={pack.snapshot.changesInEquity} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-cash-flows" title="Statement of cash flows — indirect method" rows={pack.snapshot.cashFlows} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><section id="report-statement-notes" tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><h3 className="text-center font-display text-[26px]">Notes to the financial statements</h3><div className="mt-7 space-y-6">{notes.map((note) => <div key={note.number}><div className="font-semibold text-[12px]">Note {note.number} — {note.title}</div><p className="mt-2 whitespace-pre-line text-[11px] leading-5 text-muted-foreground">{note.narrative}</p>{note.tables.length ? <div className="mt-3 grid gap-x-4 gap-y-1 text-[10px]" style={{ gridTemplateColumns: showComparatives ? '1fr auto auto' : '1fr auto' }}>{note.tables.map((row) => <Fragment key={`${note.number}-${row.label}`}><span>{row.label}</span><span className="text-right font-mono tabular-nums">{reportMoney(row.current)}</span>{showComparatives ? <span className="text-right font-mono tabular-nums text-muted-foreground">{reportMoney(row.comparative)}</span> : null}</Fragment>)}</div> : null}{note.shareholding ? <ShareholdingTable shareholding={note.shareholding} currency={pack.snapshot.presentationCurrency} /> : null}</div>)}</div><div className="mt-10 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Traceability: {pack.snapshot.traceability.postedEntryCount} posted journal entries · {pack.snapshot.traceability.postedLineCount} linked statement lines · {pack.snapshot.traceability.sourceImportCount} source imports in the client workspace.</div></section></article><div className="grid gap-6 xl:grid-cols-2"><ReportNotesEditor notes={notes} onChange={setNotes} showComparatives={showComparatives} currency={pack.snapshot.presentationCurrency} /><ChecklistEditor checklist={checklist} onChange={setChecklist} /></div><SignatoryEditor signatory={signatory} onChange={setSignatory} /></div> : <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center"><FileSpreadsheet className="mx-auto text-primary" size={24} /><h2 className="mt-4 text-sm font-semibold">Generate a controlled report snapshot</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">Select a 31 December annual reporting period to derive statements, notes, comparative columns, controls, and ledger traceability from the client’s posted entries.</p></div>}
+  })}</div></section><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-card-border bg-card px-4 py-3"><div><div className="text-xs font-semibold">Report presentation</div><p className="mt-0.5 text-[11px] text-muted-foreground">Choose whether statement and note tables include comparative-year columns.</p></div><label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-[11px] font-semibold"><input data-testid="checkbox-show-comparatives" type="checkbox" checked={showComparatives} onChange={(event) => setShowComparatives(event.target.checked)} className="size-3.5 accent-primary" />Show comparative figures</label></div><article key={showComparatives ? 'report-with-comparatives' : 'report-current-only'} id="report-comparative-statements" tabIndex={-1} data-show-comparatives={showComparatives ? 'true' : 'false'} className="report-sheet scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><div className="report-cover"><div className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">AgarAccounting AI System / generated accounting output</div><h2 className="mt-14 font-display text-5xl leading-none">{pack.snapshot.legalName}</h2><div className="mt-7 h-px w-20 bg-foreground/40" /><p className="mt-7 font-display text-3xl">Financial statements</p><p className="mt-3 text-[12px]">For the year ended {pack.snapshot.periodEnd.slice(0, 10)}</p>{showComparatives ? <p className="mt-1 text-[11px] text-muted-foreground">Comparative period ended {pack.snapshot.comparativePeriodEnd.slice(0, 10)} · {pack.snapshot.presentationCurrency}</p> : <p className="mt-1 text-[11px] text-muted-foreground">{pack.snapshot.presentationCurrency} · Current period only</p>}<div className="mt-20 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Prepared under {pack.snapshot.reportingBasis} using the {pack.snapshot.presentationProfile} presentation profile. This document is not an audit opinion, statutory filing, tax return, or assurance conclusion.</div></div><ReportStatement id="report-statement-financial-position" title="Statement of financial position" rows={pack.snapshot.statementOfFinancialPosition} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-profit-or-loss" title="Statement of profit or loss and other comprehensive income" rows={pack.snapshot.profitOrLossAndOci} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportEquitySection id="report-statement-equity" rows={pack.snapshot.changesInEquity} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><ReportStatement id="report-statement-cash-flows" title="Statement of cash flows — indirect method" rows={pack.snapshot.cashFlows} currency={pack.snapshot.presentationCurrency} showComparatives={showComparatives} /><section id="report-statement-notes" tabIndex={-1} className="report-statement scroll-mt-24 outline-none focus-visible:ring-2 focus-visible:ring-primary/30"><h3 className="text-center font-display text-[26px]">Notes to the financial statements</h3><div className="mt-7 space-y-6">{notes.map((note) => <div key={note.number}><div className="font-semibold text-[12px]">Note {note.number} — {note.title}</div><p className="mt-2 whitespace-pre-line text-[11px] leading-5 text-muted-foreground">{note.narrative}</p>{note.tables.length ? <div className="mt-3 grid gap-x-4 gap-y-1 text-[10px]" style={{ gridTemplateColumns: showComparatives ? '1fr auto auto' : '1fr auto' }}>{note.tables.map((row) => <Fragment key={`${note.number}-${row.label}`}><span>{row.label}</span><span className="text-right font-mono tabular-nums">{reportMoney(row.current)}</span>{showComparatives ? <span className="text-right font-mono tabular-nums text-muted-foreground">{reportMoney(row.comparative)}</span> : null}</Fragment>)}</div> : null}{note.shareholding ? <ShareholdingTable shareholding={note.shareholding} currency={pack.snapshot.presentationCurrency} /> : null}</div>)}</div><div className="mt-10 border-t border-foreground/20 pt-4 text-[10px] leading-5 text-muted-foreground">Traceability: {pack.snapshot.traceability.postedEntryCount} posted journal entries · {pack.snapshot.traceability.postedLineCount} linked statement lines · {pack.snapshot.traceability.sourceImportCount} source imports in the client workspace.</div><ReportSignatureBlock /></section></article><div className="grid gap-6 xl:grid-cols-2"><ReportNotesEditor notes={notes} onChange={setNotes} showComparatives={showComparatives} currency={pack.snapshot.presentationCurrency} /><ChecklistEditor checklist={checklist} onChange={setChecklist} /></div><SignatoryEditor signatory={signatory} onChange={setSignatory} /></div> : <div className="rounded-lg border border-dashed border-border bg-card/50 px-6 py-14 text-center"><FileSpreadsheet className="mx-auto text-primary" size={24} /><h2 className="mt-4 text-sm font-semibold">Generate a controlled report snapshot</h2><p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">Select a 31 December annual reporting period to derive statements, notes, comparative columns, controls, and ledger traceability from the client’s posted entries.</p></div>}
     <AlertDialog open={pendingDeleteId !== null} onOpenChange={(open) => { if (!open) cancelDeletePack(); }}>
       <AlertDialogContent data-testid="dialog-delete-report-pack">
         <AlertDialogHeader>
@@ -4243,7 +4349,7 @@ function FinancialStatementsPage() {
   </div>;
 }
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;

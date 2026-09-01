@@ -8,4 +8,15 @@
 
 export type GetJournalEntriesParams = {
 clientId?: number;
+status?: 'draft' | 'posted';
+source?: 'manual' | 'statement' | 'system';
+currency?: string;
+search?: string;
+dateFrom?: string;
+dateTo?: string;
+statementLineId?: number;
+sort?: 'date' | 'memo' | 'currency' | 'amount' | 'confidence' | 'status';
+sortDirection?: 'asc' | 'desc';
+limit?: number;
+offset?: number;
 };

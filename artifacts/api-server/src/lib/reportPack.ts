@@ -1,6 +1,13 @@
 import type { accountClassificationsTable, clientsTable, journalEntriesTable } from "@workspace/db";
 import { calculateUaeCorporateTaxSummary } from "./clientChart";
 import {
+  buildEquityStatement,
+  equityMatrixTieOut,
+  isDividendEquityAccount,
+  isShareCapitalEquityAccount,
+  type EquitySlice,
+} from "./equityStatement";
+import {
   buildShareholdingSnapshot,
   formatShareParValue,
   SHARE_CAPITAL_NOTE_NUMBER,
@@ -98,6 +105,8 @@ type AccountBalance = {
   currentCredit: number;
   comparativeDebit: number;
   comparativeCredit: number;
+  preComparativeDebit: number;
+  preComparativeCredit: number;
   currentEntryIds: Set<number>;
   comparativeEntryIds: Set<number>;
   currentLineIds: Set<number>;
@@ -454,14 +463,22 @@ function emptySets() {
   return { entries: new Set<number>(), lines: new Set<number>() };
 }
 
-function accountValue(balance: AccountBalance, period: "current" | "comparative") {
-  const debit = period === "current" ? balance.currentDebit : balance.comparativeDebit;
-  const credit = period === "current" ? balance.currentCredit : balance.comparativeCredit;
+function accountValue(balance: AccountBalance, period: "current" | "comparative" | "preComparative") {
+  const debit = period === "current"
+    ? balance.currentDebit
+    : period === "comparative"
+      ? balance.comparativeDebit
+      : balance.preComparativeDebit;
+  const credit = period === "current"
+    ? balance.currentCredit
+    : period === "comparative"
+      ? balance.comparativeCredit
+      : balance.preComparativeCredit;
   if (balance.meta.kind === "asset" || balance.meta.kind === "expense") return debit - credit;
   return credit - debit;
 }
 
-function sums(items: AccountBalance[], period: "current" | "comparative", filter?: (item: AccountBalance) => boolean) {
+function sums(items: AccountBalance[], period: "current" | "comparative" | "preComparative", filter?: (item: AccountBalance) => boolean) {
   return items.filter((item) => !filter || filter(item)).reduce((total, item) => total + accountValue(item, period), 0);
 }
 
@@ -476,6 +493,20 @@ function accountLine(balance: AccountBalance): ReportAmount {
     balance.currentLineIds,
     balance.comparativeLineIds,
   );
+}
+
+function equitySliceFrom(items: AccountBalance[], period: "current" | "comparative" | "preComparative"): EquitySlice {
+  const equity = items.filter((item) => item.meta.kind === "equity");
+  const shareCapital = equity.filter((item) => isShareCapitalEquityAccount(item.account));
+  const dividends = equity.filter((item) => isDividendEquityAccount(item.account, item.meta.displayName));
+  const otherReserves = equity.filter((item) => !shareCapital.includes(item) && !dividends.includes(item));
+  return {
+    shareCapital: sums(shareCapital, period),
+    otherReserves: sums(otherReserves, period),
+    dividends: sums(dividends, period),
+    netIncome: sums(items.filter((item) => item.meta.kind === "revenue"), period) - sums(items.filter((item) => item.meta.kind === "expense"), period),
+    oci: sums(items.filter((item) => item.meta.kind === "oci"), period),
+  };
 }
 
 function sumSets(balances: AccountBalance[], period: "current" | "comparative") {
@@ -510,8 +541,9 @@ export function buildReportPack(input: {
   const comparativeEntries = input.entries.filter((entry) => between(entry.date, periods.comparativePeriodStart, periods.comparativePeriodEnd));
   const cumulativeCurrentEntries = input.entries.filter((entry) => entry.date <= periods.periodEnd);
   const cumulativeComparativeEntries = input.entries.filter((entry) => entry.date <= periods.comparativePeriodEnd);
+  const preComparativeEntries = input.entries.filter((entry) => entry.date < periods.comparativePeriodStart);
 
-  function add(account: string, amount: number, debit: boolean, entry: Entry, period: "current" | "comparative", cumulative: boolean) {
+  function add(account: string, amount: number, debit: boolean, entry: Entry, period: "current" | "comparative" | "preComparative", cumulative: boolean) {
     const balance = balances.get(account) ?? {
       account,
       meta: metaByAccount.get(account) ?? standardAccountMeta(account),
@@ -519,6 +551,8 @@ export function buildReportPack(input: {
       currentCredit: 0,
       comparativeDebit: 0,
       comparativeCredit: 0,
+      preComparativeDebit: 0,
+      preComparativeCredit: 0,
       currentEntryIds: new Set<number>(),
       comparativeEntryIds: new Set<number>(),
       currentLineIds: new Set<number>(),
@@ -529,11 +563,12 @@ export function buildReportPack(input: {
         if (debit) balance.currentDebit += amount; else balance.currentCredit += amount;
         balance.currentEntryIds.add(entry.id);
         if (entry.statementLineId != null) balance.currentLineIds.add(entry.statementLineId);
-      } else {
+      } else if (period === "comparative") {
         if (debit) balance.comparativeDebit += amount; else balance.comparativeCredit += amount;
         balance.comparativeEntryIds.add(entry.id);
         if (entry.statementLineId != null) balance.comparativeLineIds.add(entry.statementLineId);
-      }
+      } else if (debit) balance.preComparativeDebit += amount;
+      else balance.preComparativeCredit += amount;
     }
     balances.set(account, balance);
   }
@@ -551,6 +586,13 @@ export function buildReportPack(input: {
     for (const line of entryLines(entry, amount)) {
       if (line.debit) add(line.account, line.debit, true, entry, "comparative", true);
       if (line.credit) add(line.account, line.credit, false, entry, "comparative", true);
+    }
+  }
+  for (const entry of preComparativeEntries) {
+    const amount = convertedAmount(entry);
+    for (const line of entryLines(entry, amount)) {
+      if (line.debit) add(line.account, line.debit, true, entry, "preComparative", true);
+      if (line.credit) add(line.account, line.credit, false, entry, "preComparative", true);
     }
   }
 
@@ -628,12 +670,17 @@ export function buildReportPack(input: {
     reportAmount("Total comprehensive income", currentNetIncome + currentOci, comparativeNetIncome + comparativeOci, 1, new Set([...revenueSets.entries, ...expenseSets.entries]), new Set([...comparativeRevenueSets.entries, ...comparativeExpenseSets.entries]), new Set([...revenueSets.lines, ...expenseSets.lines]), new Set([...comparativeRevenueSets.lines, ...comparativeExpenseSets.lines])),
   ];
 
-  const changesInEquity = [
-    reportAmount("Opening retained earnings", comparativeEquity, 0, 1, comparativeEquitySets.entries, new Set(), comparativeEquitySets.lines, new Set()),
-    reportAmount("Profit for the year", currentNetIncome, comparativeNetIncome, 1, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines),
-    reportAmount("Other comprehensive income", currentOci, comparativeOci, 1, new Set(), new Set(), new Set(), new Set()),
-    reportAmount("Closing equity", currentEquity, comparativeEquity, 1, equitySets.entries, comparativeEquitySets.entries, equitySets.lines, comparativeEquitySets.lines),
-  ];
+  const changesInEquity = buildEquityStatement({
+    current: equitySliceFrom(values, "current"),
+    comparative: equitySliceFrom(values, "comparative"),
+    preComparative: equitySliceFrom(values, "preComparative"),
+    currentPeriodStart: periods.periodStart,
+    currentPeriodEnd: periods.periodEnd,
+    comparativePeriodStart: periods.comparativePeriodStart,
+    comparativePeriodEnd: periods.comparativePeriodEnd,
+    includeOci: !isSme,
+  });
+  const equityTie = equityMatrixTieOut(changesInEquity, currentEquity, comparativeEquity);
 
   const cashFlows = [
     reportAmount("Profit for the year", currentNetIncome, comparativeNetIncome, 1, revenueSets.entries, comparativeRevenueSets.entries, revenueSets.lines, comparativeRevenueSets.lines),
@@ -654,9 +701,7 @@ export function buildReportPack(input: {
     : isSme
       ? profitOrLossAndOci.filter((row) => row.label !== "Other comprehensive income" && row.label !== "Total comprehensive income")
       : profitOrLossAndOci;
-  const profileChangesInEquity = isSme
-    ? changesInEquity.filter((row) => row.label !== "Other comprehensive income")
-    : changesInEquity;
+  const profileChangesInEquity = changesInEquity;
   const profileCashFlows = cashFlows;
 
   const relatedPartyBalances = values.filter((item) => item.meta.relatedParty);
@@ -724,6 +769,8 @@ export function buildReportPack(input: {
     liabilitiesAndEquity: currentLiabilities + currentEquity,
     retainedEarningsMovement: currentEquity - comparativeEquity,
     profitAndOci: currentNetIncome + currentOci,
+    equityStatementOk: equityTie.ok,
+    equityStatementDetail: equityTie.detail,
     openingCash,
     cashMovement,
     closingCash: cashCurrent,
@@ -782,6 +829,8 @@ export function buildReportValidation(input: {
   liabilitiesAndEquity: number;
   retainedEarningsMovement: number;
   profitAndOci: number;
+  equityStatementOk?: boolean;
+  equityStatementDetail?: string;
   openingCash: number;
   cashMovement: number;
   closingCash: number;
@@ -797,7 +846,7 @@ export function buildReportValidation(input: {
   const checks: ReportValidation["checks"] = [
     { id: "trial-balance", label: "Trial-balance debits and credits", status: Math.abs(input.totalDebits - input.totalCredits) <= tolerance ? "pass" : "error", detail: `Debits ${input.totalDebits.toFixed(2)}; credits ${input.totalCredits.toFixed(2)}.`, blocking: true },
     { id: "position", label: "Assets equal liabilities and equity", status: Math.abs(input.assets - input.liabilitiesAndEquity) <= tolerance ? "pass" : "error", detail: `Assets ${input.assets.toFixed(2)}; liabilities and equity ${input.liabilitiesAndEquity.toFixed(2)}.`, blocking: true },
-    { id: "retained-earnings", label: "Profit reconciles to retained earnings movement", status: Math.abs(input.retainedEarningsMovement - input.profitAndOci) <= tolerance ? "pass" : "error", detail: `Retained earnings movement ${input.retainedEarningsMovement.toFixed(2)}; profit and OCI ${input.profitAndOci.toFixed(2)}.`, blocking: true },
+    { id: "retained-earnings", label: "Equity movements reconcile to closing equity", status: (input.equityStatementOk ?? Math.abs(input.retainedEarningsMovement - input.profitAndOci) <= tolerance) ? "pass" : "error", detail: input.equityStatementDetail ?? `Retained earnings movement ${input.retainedEarningsMovement.toFixed(2)}; profit and OCI ${input.profitAndOci.toFixed(2)}.`, blocking: true },
     { id: "cash-flow", label: "Opening cash, cash-flow movement and closing cash", status: Math.abs(input.openingCash + input.cashMovement - input.closingCash) <= tolerance ? "pass" : "error", detail: `Opening ${input.openingCash.toFixed(2)} + movement ${input.cashMovement.toFixed(2)} = closing ${input.closingCash.toFixed(2)}.`, blocking: true },
     { id: "note-totals", label: "Statement totals reconcile to notes", status: Math.abs(input.closingCash - input.noteCash) <= tolerance ? "pass" : "error", detail: `Cash statement ${input.closingCash.toFixed(2)}; note 3 ${input.noteCash.toFixed(2)}.`, blocking: true },
     { id: "related-parties", label: "Related-party balances reconcile to due-from/due-to components", status: Math.abs(input.relatedPartyCurrent - input.relatedPartyComponentCurrent) <= tolerance ? "pass" : "error", detail: `Related-party balance ${input.relatedPartyCurrent.toFixed(2)}; component total ${input.relatedPartyComponentCurrent.toFixed(2)}.`, blocking: true },

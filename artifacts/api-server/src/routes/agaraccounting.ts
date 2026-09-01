@@ -103,6 +103,11 @@ import {
   GetLedgerOverviewResponse,
   GetStatementLinesQueryParams,
   GetStatementLinesResponse,
+  GetStatementLinesSummaryQueryParams,
+  GetStatementLinesSummaryResponse,
+  GetJournalEntriesQueryParams,
+  GetJournalEntriesSummaryQueryParams,
+  GetJournalEntriesSummaryResponse,
   LinkStatementLineContactParams,
   LinkStatementLineContactBody,
   LinkStatementLineContactResponse,
@@ -243,6 +248,12 @@ import {
   DETAIL_REQUEST_TTL_MS,
   type RemarkState,
 } from "../lib/statementLineRemarks";
+import {
+  listJournalEntries,
+  listStatementLines,
+  summarizeJournalEntries,
+  summarizeStatementLines,
+} from "../lib/ledgerListQuery";
 import { objectStorageService } from "./storage";
 import {
   delimitedRows,
@@ -1445,7 +1456,7 @@ async function getOwnedClient(req: Request, requestedClientId?: number) {
     .limit(1);
   if (!membership) return null;
   const [client] = await db.select().from(clientsTable).where(eq(clientsTable.id, membership.clientId));
-  if (client) await ensureClientChart(client.id);
+  if (client) await ensureClientChart(client.id, { syncHistoricalAccounts: false });
   return client ?? null;
 }
 
@@ -3244,11 +3255,12 @@ async function statementLineResponse(
   line: typeof statementLinesTable.$inferSelect,
   patterns: Array<typeof classificationPatternsTable.$inferSelect>,
   contactSuggestion?: ContactSuggestion,
-  prefetchedEntry?: { status: string; debitAccount: string; creditAccount: string } | null,
+  prefetchedEntry?: { id?: number; status: string; debitAccount: string; creditAccount: string } | null,
   remark?: RemarkState,
 ) {
   const suggestion = lineSuggestion(line, patterns);
   const [queriedEntry] = prefetchedEntry === undefined ? await db.select({
+    id: journalEntriesTable.id,
     status: journalEntriesTable.status,
     debitAccount: journalEntriesTable.debitAccount,
     creditAccount: journalEntriesTable.creditAccount,
@@ -3312,6 +3324,7 @@ async function statementLineResponse(
     supportingPatternCount: contactAccount ? contactSuggestion?.supportingPatternCount ?? 0 : suggestion.supportingPatternCount,
     journalAccount,
     journalStatus: entry?.status ?? null,
+    journalEntryId: entry && "id" in entry ? entry.id ?? null : null,
     accountConfirmationRequired,
     accountRecommendationState,
     functionalAmount: line.functionalAmount == null ? null : number(line.functionalAmount),
@@ -7978,7 +7991,6 @@ router.get("/clients", async (req, res) => {
   const legacyDemoClientIds = new Set(
     user?.remediatedLegacyClientId != null ? [user.remediatedLegacyClientId] : [],
   );
-  await Promise.all(clients.map((client) => ensureClientChart(client.id)));
   const shareCapitalByClient = await loadShareCapitalClientExtras(clients.map((client) => client.id));
   res.json(clients.map((client) => {
     const legacyDemo = legacyDemoClientIds.has(client.id);
@@ -9478,28 +9490,50 @@ router.get("/agaraccounting/overview", async (req, res) => {
   const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
   const client = await requireOwnedClient(req, res, requestedClientId);
   if (!client) return;
-  const lines = await db.select().from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
-  const pendingReview = lines.filter((line) => line.status !== "posted").length;
-  const postedLines = lines.filter((line) => line.status === "posted");
-  const missingRateLines = postedLines.filter((line) =>
-    normalizeCurrency(line.currency) !== normalizeCurrency(client.functionalCurrency)
-    && line.functionalAmount == null,
-  );
-  const postedAmountFunctional = postedLines.reduce((sum, line) => {
-    if (normalizeCurrency(line.currency) === normalizeCurrency(client.functionalCurrency)) return sum + number(line.amount);
-    return sum + (line.functionalAmount == null ? 0 : number(line.functionalAmount));
-  }, 0);
+  const functionalCurrency = normalizeCurrency(client.functionalCurrency);
+  const [stats] = await db.select({
+    totalLines: sql<number>`count(*)::int`,
+    pendingReview: sql<number>`count(*) filter (where ${statementLinesTable.status} <> 'posted')::int`,
+    postedAmountFunctional: sql<string>`coalesce(sum(case
+      when ${statementLinesTable.status} <> 'posted' then 0
+      when upper(${statementLinesTable.currency}) = ${functionalCurrency} then ${statementLinesTable.amount}
+      else ${statementLinesTable.functionalAmount}
+    end), 0)`,
+    missingRateCount: sql<number>`count(*) filter (where ${statementLinesTable.status} = 'posted'
+      and upper(${statementLinesTable.currency}) <> ${functionalCurrency}
+      and ${statementLinesTable.functionalAmount} is null)::int`,
+  }).from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id));
+  const [journalCountRow] = await db.select({
+    journalCount: sql<number>`count(*)::int`,
+  }).from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id));
+  const currencyRows = await db.selectDistinct({ currency: statementLinesTable.currency })
+    .from(statementLinesTable)
+    .where(eq(statementLinesTable.clientId, client.id))
+    .orderBy(asc(statementLinesTable.currency));
+  const missingRateCurrencyRows = await db.selectDistinct({ currency: statementLinesTable.currency })
+    .from(statementLinesTable)
+    .where(and(
+      eq(statementLinesTable.clientId, client.id),
+      eq(statementLinesTable.status, "posted"),
+      sql`upper(${statementLinesTable.currency}) <> ${functionalCurrency}`,
+      isNull(statementLinesTable.functionalAmount),
+    ))
+    .orderBy(asc(statementLinesTable.currency));
+  const totalLines = Number(stats?.totalLines ?? 0);
+  const pendingReview = Number(stats?.pendingReview ?? 0);
+  const postedAmountFunctional = number(String(stats?.postedAmountFunctional ?? 0));
   const data = GetLedgerOverviewResponse.parse({
     period: client.period,
-    currencies: [...new Set(lines.map((line) => line.currency))],
-    totalLines: lines.length,
+    currencies: currencyRows.map((row) => row.currency),
+    totalLines,
     pendingReview,
     postedAmount: postedAmountFunctional,
-    completionPercent: Math.round(((lines.length - pendingReview) / Math.max(lines.length, 1)) * 100),
-    functionalCurrency: normalizeCurrency(client.functionalCurrency),
+    completionPercent: Math.round(((totalLines - pendingReview) / Math.max(totalLines, 1)) * 100),
+    functionalCurrency,
     postedAmountFunctional,
-    missingRateCount: missingRateLines.length,
-    missingRateCurrencies: [...new Set(missingRateLines.map((line) => line.currency))],
+    missingRateCount: Number(stats?.missingRateCount ?? 0),
+    missingRateCurrencies: missingRateCurrencyRows.map((row) => row.currency),
+    journalCount: Number(journalCountRow?.journalCount ?? 0),
   });
   res.json(data);
 });
@@ -9513,17 +9547,10 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
   const activeAccountNames = await activeClientAccountNames(client.id);
   const workspacePatterns = (await getWorkspacePatterns(currentUserId(req)))
     .filter((pattern) => activeAccountNames.has(pattern.accountSuggestion));
-  const lines = await db.select().from(statementLinesTable).where(and(
-    eq(statementLinesTable.clientId, client.id),
-    parsed.currency ? eq(statementLinesTable.currency, parsed.currency) : undefined,
-    parsed.status === "draft"
-      ? inArray(statementLinesTable.status, [...DRAFT_JOURNAL_STATUSES])
-      : parsed.status ? eq(statementLinesTable.status, parsed.status) : undefined,
-    parsed.direction ? eq(statementLinesTable.direction, parsed.direction) : undefined,
-    parsed.statementImportId != null ? eq(statementLinesTable.statementImportId, parsed.statementImportId) : undefined,
-  )).orderBy(asc(statementLinesTable.date));
+  const lines = await listStatementLines(client.id, parsed);
   const contactLookup = loadContactSuggestionLookup(db, client.id);
   const entries = lines.length ? await db.select({
+    id: journalEntriesTable.id,
     statementLineId: journalEntriesTable.statementLineId,
     status: journalEntriesTable.status,
     debitAccount: journalEntriesTable.debitAccount,
@@ -9542,6 +9569,14 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
     remarks.get(line.id),
   )));
   return res.json(GetStatementLinesResponse.parse(responses));
+});
+
+router.get("/agaraccounting/statement-lines/summary", async (req, res) => {
+  const result = GetStatementLinesSummaryQueryParams.safeParse(req.query);
+  if (!result.success) return res.status(400).json({ error: "Statement line filters are invalid." });
+  const client = await requireOwnedClient(req, res, result.data.clientId);
+  if (!client) return;
+  return res.json(GetStatementLinesSummaryResponse.parse(await summarizeStatementLines(client.id, result.data)));
 });
 
 router.post("/agaraccounting/statement-lines", async (req, res) => {
@@ -10346,11 +10381,20 @@ router.get("/agaraccounting/clients/:clientId/contacts/:id/history", async (req,
 });
 
 router.get("/agaraccounting/journal-entries", async (req, res) => {
-  const requestedClientId = req.query.clientId === undefined ? undefined : Number(req.query.clientId);
-  const client = await requireOwnedClient(req, res, requestedClientId);
+  const result = GetJournalEntriesQueryParams.safeParse(req.query);
+  if (!result.success) return res.status(400).json({ error: "Journal entry filters are invalid." });
+  const client = await requireOwnedClient(req, res, result.data.clientId);
   if (!client) return;
-  const entries = await db.select().from(journalEntriesTable).where(eq(journalEntriesTable.clientId, client.id)).orderBy(asc(journalEntriesTable.date));
-  res.json(GetJournalEntriesResponse.parse(entries.map((entry) => journalEntryResponse(entry))));
+  const entries = await listJournalEntries(client.id, result.data);
+  return res.json(GetJournalEntriesResponse.parse(entries.map((entry) => journalEntryResponse(entry))));
+});
+
+router.get("/agaraccounting/journal-entries/summary", async (req, res) => {
+  const result = GetJournalEntriesSummaryQueryParams.safeParse(req.query);
+  if (!result.success) return res.status(400).json({ error: "Journal entry filters are invalid." });
+  const client = await requireOwnedClient(req, res, result.data.clientId);
+  if (!client) return;
+  return res.json(GetJournalEntriesSummaryResponse.parse(await summarizeJournalEntries(client.id, result.data)));
 });
 
 router.post("/agaraccounting/journal-entries", async (req, res) => {

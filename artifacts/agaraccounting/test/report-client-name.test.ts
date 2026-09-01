@@ -27,3 +27,16 @@ test('uses the client legal name throughout financial statement presentation', a
   assert.match(notes[0]?.narrative ?? '', /Sample Accounting/);
   assert.doesNotMatch(notes[0]?.narrative ?? '', /Global Leisure/);
 });
+
+test('prints a handwritten signature placeholder on each primary statement and the notes', async () => {
+  const source = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.match(source, /function ReportSignatureBlock\(/);
+  assert.match(source, /data-testid="report-signature"/);
+  assert.equal((source.match(/<ReportSignatureBlock \/>/g) ?? []).length, 3);
+  assert.match(source, /function ReportEquityStatement\(/);
+  assert.match(source, /data-testid="report-equity-statement"/);
+  assert.match(source, /<ReportEquitySection /);
+  assert.match(source, /id="report-statement-notes"[\s\S]*<ReportSignatureBlock \/>/);
+  assert.match(css, /\.report-signature-line/);
+});
