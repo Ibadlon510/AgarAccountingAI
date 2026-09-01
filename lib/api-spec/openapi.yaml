@@ -893,6 +893,11 @@ paths:
           in: query
           required: false
           schema: { type: number }
+        - name: bankAccountIds
+          in: query
+          required: false
+          description: Comma-separated bank account IDs for a combined register
+          schema: { type: string }
         - name: search
           in: query
           required: false
@@ -983,6 +988,11 @@ paths:
           in: query
           required: false
           schema: { type: number }
+        - name: bankAccountIds
+          in: query
+          required: false
+          description: Comma-separated bank account IDs for a combined register
+          schema: { type: string }
         - name: search
           in: query
           required: false

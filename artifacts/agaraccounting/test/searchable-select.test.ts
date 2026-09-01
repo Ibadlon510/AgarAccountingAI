@@ -23,3 +23,11 @@ test('expanded statement lines use searchable contact and chart-of-accounts pick
   assert.doesNotMatch(app, /data-testid=\{`select-contact-\$\{line\.id\}`\}/);
   assert.doesNotMatch(app, /data-testid=\{`select-account-suggestion-\$\{line\.id\}`\}/);
 });
+
+test('system journals do not expose manual lifecycle controls', async () => {
+  const styles = await readFile(new URL('../src/index.css', import.meta.url), 'utf8');
+  assert.match(styles, /badge-system-entry-/);
+  assert.match(styles, /button-post-entry-/);
+  assert.match(styles, /button-unpost-entry-/);
+  assert.match(styles, /display:\s*none/);
+});

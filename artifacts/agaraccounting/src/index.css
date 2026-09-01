@@ -340,3 +340,8 @@
   .bank-statement-sheet { break-after: page; page-break-after: always; }
   .report-signature-line { border-bottom-color: #111; }
 }
+
+article:has([data-testid^="badge-system-entry-"]) [data-testid^="button-post-entry-"],
+article:has([data-testid^="badge-system-entry-"]) [data-testid^="button-unpost-entry-"] {
+  display: none;
+}

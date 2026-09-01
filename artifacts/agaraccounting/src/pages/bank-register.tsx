@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useRoute } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { ArrowLeft, CircleAlert, FileText, Landmark, LoaderCircle } from "lucide-react";
 import {
   getGetBankAccountsQueryKey,
@@ -30,6 +30,8 @@ const shortDate = (value: string) => {
     year: "numeric",
   });
 };
+
+const REGISTER_PAGE_SIZE = 200;
 
 export function BankRegisterIndexPage() {
   const { activeClient } = useClientWorkspace();
@@ -161,17 +163,31 @@ export default function BankRegisterDetailPage() {
   const registerLast4 = uniqueAccountNumberLast4(registerAccounts);
   const registerAccountIds = useMemo(() => registerAccounts.map((account) => account.id), [registerAccounts]);
   const lineAccountIds = registerAccountIds.length ? registerAccountIds : [accountId];
-  const linesQuery = useQuery({
-    queryKey: [...getGetStatementLinesQueryKey({ clientId, bankAccountId: lineAccountIds[0] }), "register", lineAccountIds],
-    enabled,
-    queryFn: async ({ signal }) => {
-      const pages = await Promise.all(
-        lineAccountIds.map((id) => getStatementLines({ clientId, bankAccountId: id }, { signal })),
-      );
-      return pages.flat().sort((left, right) => left.date.localeCompare(right.date) || left.id - right.id);
+  const bankAccountIds = lineAccountIds.join(",");
+  const summaryQuery = useGetStatementLinesSummary({ clientId, bankAccountIds }, {
+    query: {
+      queryKey: [...getGetStatementLinesSummaryQueryKey({ clientId, bankAccountIds }), "register"],
+      enabled,
     },
   });
-  const lines = linesQuery.data ?? [];
+  const linesQuery = useInfiniteQuery({
+    queryKey: [...getGetStatementLinesQueryKey({ clientId, bankAccountId: lineAccountIds[0] }), "register", lineAccountIds],
+    enabled,
+    initialPageParam: 0,
+    queryFn: ({ signal, pageParam }) => getStatementLines({
+      clientId,
+      bankAccountIds,
+      sort: "date",
+      sortDirection: "asc",
+      limit: REGISTER_PAGE_SIZE,
+      offset: pageParam,
+    }, { signal }),
+    getNextPageParam: (lastPage, pages) => lastPage.length === REGISTER_PAGE_SIZE
+      ? pages.reduce((count, page) => count + page.length, 0)
+      : undefined,
+  });
+  const lines = linesQuery.data?.pages.flat() ?? [];
+  const totalCount = summaryQuery.data?.totalCount ?? 0;
   const opening = useMemo(
     () => openingBalanceForRegister(importsQuery.data ?? [], registerAccounts),
     [importsQuery.data, registerAccounts],
@@ -202,8 +218,8 @@ export default function BankRegisterDetailPage() {
     );
   }
 
-  const loading = accountsQuery.isLoading || linesQuery.isLoading || importsQuery.isLoading;
-  const error = accountsQuery.isError || linesQuery.isError || importsQuery.isError;
+  const loading = accountsQuery.isLoading || linesQuery.isLoading || importsQuery.isLoading || summaryQuery.isLoading;
+  const error = accountsQuery.isError || linesQuery.isError || importsQuery.isError || summaryQuery.isError;
   const missingAccount = !loading && !error && !canonical;
   const openingFound = opening.value != null;
   const resolvedOpening = openingValue ?? (openingFound ? String(opening.value) : "0");
@@ -247,7 +263,7 @@ export default function BankRegisterDetailPage() {
         <div className="flex flex-col items-center rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-14 text-center" data-testid="state-error">
           <CircleAlert className="mb-3 text-destructive" size={23} />
           <h3 className="text-sm font-semibold">We couldn&apos;t load this register</h3>
-          <button type="button" onClick={() => { void accountsQuery.refetch(); void linesQuery.refetch(); void importsQuery.refetch(); }} className="mt-4 rounded-md bg-card px-3 py-2 text-xs font-semibold shadow-sm hover:bg-muted">
+          <button type="button" onClick={() => { void accountsQuery.refetch(); void linesQuery.refetch(); void importsQuery.refetch(); void summaryQuery.refetch(); }} className="mt-4 rounded-md bg-card px-3 py-2 text-xs font-semibold shadow-sm hover:bg-muted">
             Try again
           </button>
         </div>
@@ -273,25 +289,41 @@ export default function BankRegisterDetailPage() {
       ) : null}
 
       {canonical && lines.length ? (
-        <BankStatementSheet
-          clientName={activeClient?.name ?? "Client"}
-          fileName={`${canonical.bankName || canonical.name} ${canonical.currency}`}
-          section={{
-            id: String(canonical.id),
-            title: registerTitle(canonical),
-            bankName: canonical.bankName ?? null,
-            accountNumberLast4: registerLast4,
-            currency: canonical.currency,
-            parsedOpening: opening.value,
-            lines,
-            sourceNote,
-            kind: "register",
-            openingSource: opening.fileName,
-          }}
-          openingValue={resolvedOpening}
-          openingFound={openingFound}
-          onOpeningChange={setOpeningValue}
-        />
+        <>
+          <BankStatementSheet
+            clientName={activeClient?.name ?? "Client"}
+            fileName={`${canonical.bankName || canonical.name} ${canonical.currency}`}
+            section={{
+              id: String(canonical.id),
+              title: registerTitle(canonical),
+              bankName: canonical.bankName ?? null,
+              accountNumberLast4: registerLast4,
+              currency: canonical.currency,
+              parsedOpening: opening.value,
+              lines,
+              sourceNote,
+              kind: "register",
+              openingSource: opening.fileName,
+            }}
+            openingValue={resolvedOpening}
+            openingFound={openingFound}
+            onOpeningChange={setOpeningValue}
+          />
+          {lines.length < totalCount ? (
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-[11px] text-muted-foreground print:hidden">
+              <span>Showing {lines.length} of {totalCount} transactions</span>
+              <button
+                type="button"
+                data-testid="button-load-more-register-lines"
+                disabled={linesQuery.isFetchingNextPage}
+                onClick={() => void linesQuery.fetchNextPage()}
+                className="rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {linesQuery.isFetchingNextPage ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

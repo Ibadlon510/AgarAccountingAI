@@ -2779,6 +2779,10 @@ status?: string;
 direction?: GetStatementLinesDirection;
 statementImportId?: number;
 bankAccountId?: number;
+/**
+ * Comma-separated bank account IDs for a combined register
+ */
+bankAccountIds?: string;
 search?: string;
 dateFrom?: string;
 dateTo?: string;

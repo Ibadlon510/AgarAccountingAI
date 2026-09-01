@@ -42,7 +42,7 @@ type Journal = {
   statementLineId: number | null;
 };
 
-async function createLine(description: string, date: string, currency: string, amount = 100) {
+async function createLine(description: string, date: string, currency: string, amount = 100, bankAccountId?: number) {
   const result = await request<Line>("/agaraccounting/statement-lines", {
     method: "POST",
     body: JSON.stringify({
@@ -52,6 +52,7 @@ async function createLine(description: string, date: string, currency: string, a
       currency,
       amount,
       direction: "outflow",
+      bankAccountId,
     }),
   });
   assert.equal(result.response.status, 201, JSON.stringify(result.body));
@@ -89,6 +90,46 @@ before(async () => {
   await createLine(`${tag} gamma payroll`, "2026-03-10", "USD", 30);
 });
 
+test("pages a combined bank register in one server-ordered result", async () => {
+  const combinedTag = randomUUID();
+  const firstAccount = await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "Combined operating", bankName: "Combined Bank", currency: "AED" }),
+  });
+  const secondAccount = await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "Combined savings", bankName: "Combined Bank", currency: "AED" }),
+  });
+  assert.equal(firstAccount.response.status, 201);
+  assert.equal(secondAccount.response.status, 201);
+
+  await createLine(`${combinedTag} middle`, "2026-05-02", "AED", 20, firstAccount.body.id);
+  await createLine(`${combinedTag} first`, "2026-05-01", "AED", 10, secondAccount.body.id);
+  await createLine(`${combinedTag} last`, "2026-05-03", "AED", 30, secondAccount.body.id);
+  const bankAccountIds = `${firstAccount.body.id},${secondAccount.body.id}`;
+
+  const summary = await request<{ totalCount: number }>(
+    `/agaraccounting/statement-lines/summary?clientId=${clientId}&bankAccountIds=${bankAccountIds}`,
+  );
+  assert.equal(summary.response.status, 200);
+  assert.equal(summary.body.totalCount, 3);
+
+  const firstPage = await request<Line[]>(
+    `/agaraccounting/statement-lines?clientId=${clientId}&bankAccountIds=${bankAccountIds}&sort=date&sortDirection=asc&limit=2&offset=0`,
+  );
+  assert.equal(firstPage.response.status, 200);
+  assert.deepEqual(firstPage.body.map((line) => line.description), [
+    `${combinedTag} first`,
+    `${combinedTag} middle`,
+  ]);
+
+  const secondPage = await request<Line[]>(
+    `/agaraccounting/statement-lines?clientId=${clientId}&bankAccountIds=${bankAccountIds}&sort=date&sortDirection=asc&limit=2&offset=2`,
+  );
+  assert.equal(secondPage.response.status, 200);
+  assert.deepEqual(secondPage.body.map((line) => line.description), [`${combinedTag} last`]);
+});
+
 after(async () => {
   server?.closeAllConnections();
   await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve());
@@ -111,7 +152,7 @@ test("paginates statement lines and keeps the unbounded list compatible", async 
   assert.equal(next.body.length, 1);
   assert.equal(next.body[0]?.description, `${tag} gamma payroll`);
 
-  const searched = await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}&search=${encodeURIComponent(`${tag} coffee`)}`);
+  const searched = await request<Line[]>(`/agaraccounting/statement-lines?clientId=${clientId}&search=${encodeURIComponent(`${tag} alpha coffee`)}`);
   assert.equal(searched.response.status, 200);
   assert.equal(searched.body.length, 1);
   assert.equal(searched.body[0]?.description, `${tag} alpha coffee`);

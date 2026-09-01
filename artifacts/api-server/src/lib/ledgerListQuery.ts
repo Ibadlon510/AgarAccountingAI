@@ -19,6 +19,7 @@ export type StatementLineListQuery = {
   direction?: "inflow" | "outflow";
   statementImportId?: number;
   bankAccountId?: number;
+  bankAccountIds?: string;
   search?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -28,6 +29,14 @@ export type StatementLineListQuery = {
   limit?: number;
   offset?: number;
 };
+
+function parsedBankAccountIds(value?: string) {
+  if (!value) return [];
+  const ids = [...new Set(value.split(",").map((part) => Number(part.trim())))];
+  return ids.length > 0 && ids.length <= 50 && ids.every((id) => Number.isInteger(id) && id > 0)
+    ? ids
+    : null;
+}
 
 export type JournalEntryListQuery = {
   clientId?: number;
@@ -75,6 +84,7 @@ function awaitingRemarksExists(clientId: number) {
 
 export function statementLineConditions(clientId: number, query: StatementLineListQuery) {
   const search = query.search?.trim();
+  const bankAccountIds = parsedBankAccountIds(query.bankAccountIds);
   return and(
     eq(statementLinesTable.clientId, clientId),
     query.currency ? eq(statementLinesTable.currency, query.currency) : undefined,
@@ -84,6 +94,7 @@ export function statementLineConditions(clientId: number, query: StatementLineLi
     query.direction ? eq(statementLinesTable.direction, query.direction) : undefined,
     query.statementImportId != null ? eq(statementLinesTable.statementImportId, query.statementImportId) : undefined,
     query.bankAccountId != null ? eq(statementLinesTable.bankAccountId, query.bankAccountId) : undefined,
+    bankAccountIds?.length ? inArray(statementLinesTable.bankAccountId, bankAccountIds) : undefined,
     query.dateFrom ? sql`${statementLinesTable.date} >= ${query.dateFrom}` : undefined,
     query.dateTo ? sql`${statementLinesTable.date} <= ${query.dateTo}` : undefined,
     query.remarks === "awaiting" ? and(
@@ -99,6 +110,10 @@ export function statementLineConditions(clientId: number, query: StatementLineLi
       )
       : undefined,
   );
+}
+
+export function hasValidBankAccountIds(query: StatementLineListQuery) {
+  return parsedBankAccountIds(query.bankAccountIds) !== null;
 }
 
 function statementLineOrder(query: StatementLineListQuery) {
@@ -154,7 +169,11 @@ export async function summarizeStatementLines(clientId: number, query: Statement
     db.select({
       unassignedCount: sql<number>`count(*)::int`,
     }).from(statementLinesTable)
-      .where(and(eq(statementLinesTable.clientId, clientId), isNull(statementLinesTable.bankAccountId)))
+      .leftJoin(contactsTable, and(
+        eq(contactsTable.id, statementLinesTable.contactId),
+        eq(contactsTable.clientId, clientId),
+      ))
+      .where(and(conditions, isNull(statementLinesTable.bankAccountId)))
       .then((rows) => rows[0]),
     db.select({
       bankAccountId: statementLinesTable.bankAccountId,
@@ -163,7 +182,11 @@ export async function summarizeStatementLines(clientId: number, query: Statement
       dateTo: sql<string | null>`max(${statementLinesTable.date})`,
       sourceLabels: sql<string[]>`array_remove(array_agg(distinct ${statementLinesTable.source}), null)`,
     }).from(statementLinesTable)
-      .where(and(eq(statementLinesTable.clientId, clientId), isNotNull(statementLinesTable.bankAccountId)))
+      .leftJoin(contactsTable, and(
+        eq(contactsTable.id, statementLinesTable.contactId),
+        eq(contactsTable.clientId, clientId),
+      ))
+      .where(and(conditions, isNotNull(statementLinesTable.bankAccountId)))
       .groupBy(statementLinesTable.bankAccountId),
   ]);
   return {

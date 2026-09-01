@@ -251,9 +251,28 @@ test("saves the share register, posts a replaceable system journal, and warns ab
     { description: "Share capital per client register", account: SHARE_CAPITAL_ACCOUNT_NAME, debit: 0, credit: 200000 },
   ]);
 
+  const blockedUnpost = await request<{ error: string }>(`/agaraccounting/journal-entries/${systemJournal.id}/unpost`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(blockedUnpost.response.status, 409);
+  assert.equal(blockedUnpost.body.error, "System-generated journal entries are managed from their source information.");
+
+  const blockedPostedDelete = await request<{ error: string }>(`/agaraccounting/journal-entries/${systemJournal.id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(blockedPostedDelete.response.status, 409);
+
   await database!.db.update(database!.journalEntriesTable)
     .set({ status: "draft" })
     .where(eq(database!.journalEntriesTable.id, systemJournal.id));
+  const blockedPost = await request<{ error: string }>(`/agaraccounting/journal-entries/${systemJournal.id}/post`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  });
+  assert.equal(blockedPost.response.status, 409);
+  assert.equal(blockedPost.body.error, "System-generated journal entries are managed from their source information.");
   const blockedDelete = await request<{ error: string }>(`/agaraccounting/journal-entries/${systemJournal.id}`, {
     method: "DELETE",
     body: JSON.stringify({ clientId }),

@@ -1512,6 +1512,7 @@ export const GetStatementLinesQueryParams = zod.object({
   "direction": zod.enum(['inflow', 'outflow']).optional(),
   "statementImportId": zod.coerce.number().optional(),
   "bankAccountId": zod.coerce.number().optional(),
+  "bankAccountIds": zod.coerce.string().optional(),
   "search": zod.coerce.string().optional(),
   "dateFrom": zod.coerce.string().optional(),
   "dateTo": zod.coerce.string().optional(),

@@ -249,6 +249,7 @@ import {
   type RemarkState,
 } from "../lib/statementLineRemarks";
 import {
+  hasValidBankAccountIds,
   listJournalEntries,
   listStatementLines,
   summarizeJournalEntries,
@@ -9542,6 +9543,7 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
   const result = GetStatementLinesQueryParams.safeParse(req.query);
   if (!result.success) return res.status(400).json({ error: "Statement line filters are invalid." });
   const parsed = result.data;
+  if (!hasValidBankAccountIds(parsed)) return res.status(400).json({ error: "Bank account filters are invalid." });
   const client = await requireOwnedClient(req, res, parsed.clientId);
   if (!client) return;
   const activeAccountNames = await activeClientAccountNames(client.id);
@@ -9574,6 +9576,7 @@ router.get("/agaraccounting/statement-lines", async (req, res) => {
 router.get("/agaraccounting/statement-lines/summary", async (req, res) => {
   const result = GetStatementLinesSummaryQueryParams.safeParse(req.query);
   if (!result.success) return res.status(400).json({ error: "Statement line filters are invalid." });
+  if (!hasValidBankAccountIds(result.data)) return res.status(400).json({ error: "Bank account filters are invalid." });
   const client = await requireOwnedClient(req, res, result.data.clientId);
   if (!client) return;
   return res.json(GetStatementLinesSummaryResponse.parse(await summarizeStatementLines(client.id, result.data)));
@@ -10579,6 +10582,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         eq(journalEntriesTable.clientId, client.id),
       )).for("update");
       if (!entry) return { kind: "not_found" as const };
+      if (entry.systemSource != null) return { kind: "system_managed" as const };
       if (journalLifecycleStatus(entry.status) !== "draft") return { kind: "not_draft" as const };
 
       if (entry.statementLineId == null) {
@@ -10597,6 +10601,7 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
           eq(journalEntriesTable.id, entry.id),
           eq(journalEntriesTable.clientId, client.id),
+          isNull(journalEntriesTable.systemSource),
           inArray(journalEntriesTable.status, [...DRAFT_JOURNAL_STATUSES]),
         )).returning();
         if (!postedEntry) return { kind: "not_draft" as const };
@@ -10768,6 +10773,10 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
     res.status(404).json({ error: "Journal entry not found for this client" });
     return;
   }
+  if (result.kind === "system_managed") {
+    res.status(409).json({ error: "System-generated journal entries are managed from their source information." });
+    return;
+  }
   if (result.kind === "not_draft") {
     res.status(409).json({ error: "Journal entry must be draft before posting" });
     return;
@@ -10837,12 +10846,14 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
       eq(journalEntriesTable.clientId, client.id),
     )).for("update");
     if (!entry) return { kind: "not_found" as const };
+    if (entry.systemSource != null) return { kind: "system_managed" as const };
     if (entry.status !== "posted") return { kind: "not_posted" as const };
 
     if (entry.statementLineId == null) {
       const [draftEntry] = await tx.update(journalEntriesTable).set({ status: "draft" }).where(and(
         eq(journalEntriesTable.id, entry.id),
         eq(journalEntriesTable.clientId, client.id),
+        isNull(journalEntriesTable.systemSource),
         eq(journalEntriesTable.status, "posted"),
       )).returning();
       if (!draftEntry) return { kind: "not_posted" as const };
@@ -10894,6 +10905,10 @@ router.post("/agaraccounting/journal-entries/:id/unpost", async (req, res) => {
   });
   if (result.kind === "not_found") {
     res.status(404).json({ error: "Journal entry not found for this client" });
+    return;
+  }
+  if (result.kind === "system_managed") {
+    res.status(409).json({ error: "System-generated journal entries are managed from their source information." });
     return;
   }
   if (result.kind === "not_posted") {
