@@ -852,6 +852,59 @@ test("filters statement lines by the created bank account across the client", as
   assert.ok(register.body.every((line) => line.bankAccountId === mashreq.body.id));
 });
 
+test("reconciles only currencies with one unambiguous client bank account", async () => {
+  const clientId = await createClient(`Bank register reconciliation ${randomUUID()}`);
+  const aedPrimary = await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "AED primary", bankName: "Wio Bank", currency: "AED" }),
+  });
+  await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "AED reserve", bankName: "Wio Bank", currency: "AED" }),
+  });
+  const usd = await request<{ id: number }>("/agaraccounting/bank-accounts", {
+    method: "POST",
+    body: JSON.stringify({ clientId, name: "USD operating", bankName: "Wio Bank", currency: "USD" }),
+  });
+  const aedLine = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-01-05",
+      description: "Ambiguous AED receipt",
+      currency: "AED",
+      amount: 100,
+      direction: "inflow",
+    }),
+  });
+  const usdLine = await request<{ id: number }>("/agaraccounting/statement-lines", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId,
+      date: "2026-01-06",
+      description: "Unambiguous USD receipt",
+      currency: "USD",
+      amount: 50,
+      direction: "inflow",
+    }),
+  });
+  assert.equal(aedPrimary.response.status, 201);
+  assert.equal(usd.response.status, 201);
+  assert.equal(aedLine.response.status, 201);
+  assert.equal(usdLine.response.status, 201);
+
+  const reconciled = await request<{ linkedCount: number; remainingUnassignedCount: number }>(
+    "/agaraccounting/statement-lines/reconcile-bank-accounts",
+    { method: "POST", body: JSON.stringify({ clientId }) },
+  );
+  assert.equal(reconciled.response.status, 200);
+  assert.deepEqual(reconciled.body, { linkedCount: 1, remainingUnassignedCount: 1 });
+
+  const loaded = await statementLines(clientId);
+  assert.equal(loaded.find((line) => line.id === aedLine.body.id)?.bankAccountId, null);
+  assert.equal(loaded.find((line) => line.id === usdLine.body.id)?.bankAccountId, usd.body.id);
+});
+
 test("previews and atomically confirms distinct account sections from one statement source", async () => {
   const clientId = await createClient(`Grouped statement ${randomUUID()}`);
   const csv = [

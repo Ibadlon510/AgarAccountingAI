@@ -445,6 +445,16 @@ export interface OrganizationInvitation {
   inviteLink?: string;
 }
 
+export interface Shareholder {
+  id: number;
+  clientId: number;
+  name: string;
+  /** @nullable */
+  nationality?: string | null;
+  numberOfShares: number;
+  sortOrder: number;
+}
+
 /**
  * Configuration state for this workspace. Missing memberships are represented by an empty response.
  */
@@ -542,6 +552,18 @@ export interface ClientInput {
   firmId?: number;
 }
 
+export interface ShareholderInput {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name: string;
+  /** @nullable */
+  nationality?: string | null;
+  /** @minimum 1 */
+  numberOfShares: number;
+}
+
 export interface ClientUpdateInput {
   name: string;
   legalName: string;
@@ -554,25 +576,6 @@ export interface ClientUpdateInput {
   /** @nullable */
   shareCapitalParValue?: number | null;
   shareholders?: ShareholderInput[];
-}
-
-export interface Shareholder {
-  id: number;
-  clientId: number;
-  name: string;
-  /** @nullable */
-  nationality?: string | null;
-  numberOfShares: number;
-  sortOrder: number;
-}
-
-export interface ShareholderInput {
-  /** @minLength 1 */
-  name: string;
-  /** @nullable */
-  nationality?: string | null;
-  /** @minimum 1 */
-  numberOfShares: number;
 }
 
 export type WorkspaceRole = typeof WorkspaceRole[keyof typeof WorkspaceRole];
@@ -1183,6 +1186,37 @@ export interface StatementLine {
   exchangeRateStatus?: string;
   noteSummary: StatementLineNoteSummary;
   pendingClarification: StatementLinePendingClarification | null;
+}
+
+export type StatementLinesSummaryBankAccountsItem = {
+  bankAccountId: number;
+  lineCount: number;
+  /** @nullable */
+  dateFrom?: string | null;
+  /** @nullable */
+  dateTo?: string | null;
+  sourceLabels: string[];
+};
+
+export interface StatementLinesSummary {
+  totalCount: number;
+  currencies: string[];
+  unassignedCount: number;
+  bankAccounts: StatementLinesSummaryBankAccountsItem[];
+}
+
+export interface BankAccountReconciliationInput {
+  clientId: number;
+}
+
+export interface BankAccountReconciliationResult {
+  linkedCount: number;
+  remainingUnassignedCount: number;
+}
+
+export interface JournalEntriesSummary {
+  totalCount: number;
+  currencies: string[];
 }
 
 export interface StatementLineDetailRequestInput {
@@ -2467,15 +2501,6 @@ export type ReportNoteTablesItem = {
   comparative: number;
 };
 
-export interface ReportNote {
-  number: number;
-  title: string;
-  narrative: string;
-  requiresInput: boolean;
-  tables: ReportNoteTablesItem[];
-  shareholding?: ReportShareholding;
-}
-
 export interface ReportShareholdingRow {
   name: string;
   percentage: number;
@@ -2489,6 +2514,15 @@ export interface ReportShareholding {
   authorisedShares: number;
   parValue: number;
   rows: ReportShareholdingRow[];
+}
+
+export interface ReportNote {
+  number: number;
+  title: string;
+  narrative: string;
+  requiresInput: boolean;
+  tables: ReportNoteTablesItem[];
+  shareholding?: ReportShareholding;
 }
 
 export type ReportValidationStatus = typeof ReportValidationStatus[keyof typeof ReportValidationStatus];
@@ -2786,10 +2820,17 @@ bankAccountIds?: string;
 search?: string;
 dateFrom?: string;
 dateTo?: string;
-remarks?: 'awaiting';
-sort?: 'date' | 'description' | 'contact' | 'account' | 'amount' | 'confidence' | 'status';
-sortDirection?: 'asc' | 'desc';
+remarks?: GetStatementLinesRemarks;
+sort?: GetStatementLinesSort;
+sortDirection?: GetStatementLinesSortDirection;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * @minimum 0
+ */
 offset?: number;
 };
 
@@ -2799,6 +2840,66 @@ export type GetStatementLinesDirection = typeof GetStatementLinesDirection[keyof
 export const GetStatementLinesDirection = {
   inflow: 'inflow',
   outflow: 'outflow',
+} as const;
+
+export type GetStatementLinesRemarks = typeof GetStatementLinesRemarks[keyof typeof GetStatementLinesRemarks];
+
+
+export const GetStatementLinesRemarks = {
+  awaiting: 'awaiting',
+} as const;
+
+export type GetStatementLinesSort = typeof GetStatementLinesSort[keyof typeof GetStatementLinesSort];
+
+
+export const GetStatementLinesSort = {
+  date: 'date',
+  description: 'description',
+  contact: 'contact',
+  account: 'account',
+  amount: 'amount',
+  confidence: 'confidence',
+  status: 'status',
+} as const;
+
+export type GetStatementLinesSortDirection = typeof GetStatementLinesSortDirection[keyof typeof GetStatementLinesSortDirection];
+
+
+export const GetStatementLinesSortDirection = {
+  asc: 'asc',
+  desc: 'desc',
+} as const;
+
+export type GetStatementLinesSummaryParams = {
+clientId?: number;
+currency?: string;
+status?: string;
+direction?: GetStatementLinesSummaryDirection;
+statementImportId?: number;
+bankAccountId?: number;
+/**
+ * Comma-separated bank account IDs for a combined register
+ */
+bankAccountIds?: string;
+search?: string;
+dateFrom?: string;
+dateTo?: string;
+remarks?: GetStatementLinesSummaryRemarks;
+};
+
+export type GetStatementLinesSummaryDirection = typeof GetStatementLinesSummaryDirection[keyof typeof GetStatementLinesSummaryDirection];
+
+
+export const GetStatementLinesSummaryDirection = {
+  inflow: 'inflow',
+  outflow: 'outflow',
+} as const;
+
+export type GetStatementLinesSummaryRemarks = typeof GetStatementLinesSummaryRemarks[keyof typeof GetStatementLinesSummaryRemarks];
+
+
+export const GetStatementLinesSummaryRemarks = {
+  awaiting: 'awaiting',
 } as const;
 
 export type ListStatementLineDetailRequestsParams = {
@@ -2835,18 +2936,90 @@ clientId?: number;
 
 export type GetJournalEntriesParams = {
 clientId?: number;
-status?: 'draft' | 'posted';
-source?: 'manual' | 'statement' | 'system';
+status?: GetJournalEntriesStatus;
+source?: GetJournalEntriesSource;
 currency?: string;
 search?: string;
 dateFrom?: string;
 dateTo?: string;
 statementLineId?: number;
-sort?: 'date' | 'memo' | 'currency' | 'amount' | 'confidence' | 'status';
-sortDirection?: 'asc' | 'desc';
+sort?: GetJournalEntriesSort;
+sortDirection?: GetJournalEntriesSortDirection;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * @minimum 0
+ */
 offset?: number;
 };
+
+export type GetJournalEntriesStatus = typeof GetJournalEntriesStatus[keyof typeof GetJournalEntriesStatus];
+
+
+export const GetJournalEntriesStatus = {
+  draft: 'draft',
+  posted: 'posted',
+} as const;
+
+export type GetJournalEntriesSource = typeof GetJournalEntriesSource[keyof typeof GetJournalEntriesSource];
+
+
+export const GetJournalEntriesSource = {
+  manual: 'manual',
+  statement: 'statement',
+  system: 'system',
+} as const;
+
+export type GetJournalEntriesSort = typeof GetJournalEntriesSort[keyof typeof GetJournalEntriesSort];
+
+
+export const GetJournalEntriesSort = {
+  date: 'date',
+  memo: 'memo',
+  currency: 'currency',
+  amount: 'amount',
+  confidence: 'confidence',
+  status: 'status',
+} as const;
+
+export type GetJournalEntriesSortDirection = typeof GetJournalEntriesSortDirection[keyof typeof GetJournalEntriesSortDirection];
+
+
+export const GetJournalEntriesSortDirection = {
+  asc: 'asc',
+  desc: 'desc',
+} as const;
+
+export type GetJournalEntriesSummaryParams = {
+clientId?: number;
+status?: GetJournalEntriesSummaryStatus;
+source?: GetJournalEntriesSummarySource;
+currency?: string;
+search?: string;
+dateFrom?: string;
+dateTo?: string;
+statementLineId?: number;
+};
+
+export type GetJournalEntriesSummaryStatus = typeof GetJournalEntriesSummaryStatus[keyof typeof GetJournalEntriesSummaryStatus];
+
+
+export const GetJournalEntriesSummaryStatus = {
+  draft: 'draft',
+  posted: 'posted',
+} as const;
+
+export type GetJournalEntriesSummarySource = typeof GetJournalEntriesSummarySource[keyof typeof GetJournalEntriesSummarySource];
+
+
+export const GetJournalEntriesSummarySource = {
+  manual: 'manual',
+  statement: 'statement',
+  system: 'system',
+} as const;
 
 export type GetTrialBalanceParams = {
 clientId?: number;

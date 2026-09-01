@@ -36,6 +36,8 @@ import type {
   AuthUserEnvelope,
   BankAccount,
   BankAccountInput,
+  BankAccountReconciliationInput,
+  BankAccountReconciliationResult,
   BeginBrowserLoginParams,
   BulkTransitionAudit,
   Client,
@@ -80,12 +82,14 @@ import type {
   GetExchangeRatesParams,
   GetFinancialStatementsParams,
   GetJournalEntriesParams,
+  GetJournalEntriesSummaryParams,
   GetLedgerOverviewParams,
   GetLedgerflowAccountsParams,
   GetReportPacksParams,
   GetStatementImportsParams,
   GetStatementLineNotesParams,
   GetStatementLinesParams,
+  GetStatementLinesSummaryParams,
   GetTrialBalanceAccountTransactionsParams,
   GetTrialBalanceParams,
   GetUaeCorporateTaxSummaryParams,
@@ -93,6 +97,7 @@ import type {
   HealthStatus,
   ImportExchangeRatesParams,
   InvitationDeliveryError,
+  JournalEntriesSummary,
   JournalEntry,
   JournalEntryInput,
   LedgerOverview,
@@ -131,6 +136,7 @@ import type {
   StatementLineExportInput,
   StatementLineInput,
   StatementLineNotes,
+  StatementLinesSummary,
   SystemAdminClaimResult,
   SystemRate,
   SystemRateClearResult,
@@ -3973,6 +3979,161 @@ export const useCreateStatementLine = <TError = ErrorType<unknown>,
       return useMutation(getCreateStatementLineMutationOptions(options));
     }
 
+export const getReconcileStatementLineBankAccountsUrl = () => {
+
+
+
+
+  return `/api/agaraccounting/statement-lines/reconcile-bank-accounts`
+}
+
+/**
+ * @summary Link unassigned statement lines to unambiguous client bank accounts
+ */
+export const reconcileStatementLineBankAccounts = async (bankAccountReconciliationInput: BankAccountReconciliationInput, options?: Parameters<typeof customFetch>[1]): Promise<BankAccountReconciliationResult> => {
+
+  return customFetch<BankAccountReconciliationResult>(getReconcileStatementLineBankAccountsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(bankAccountReconciliationInput)
+  }
+);}
+
+
+
+
+
+export const getReconcileStatementLineBankAccountsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcileStatementLineBankAccounts>>, TError,{data: BodyType<BankAccountReconciliationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reconcileStatementLineBankAccounts>>, TError,{data: BodyType<BankAccountReconciliationInput>}, TContext> => {
+
+const mutationKey = ['reconcileStatementLineBankAccounts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reconcileStatementLineBankAccounts>>, {data: BodyType<BankAccountReconciliationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  reconcileStatementLineBankAccounts(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReconcileStatementLineBankAccountsMutationResult = NonNullable<Awaited<ReturnType<typeof reconcileStatementLineBankAccounts>>>
+    export type ReconcileStatementLineBankAccountsMutationBody = BodyType<BankAccountReconciliationInput>
+    export type ReconcileStatementLineBankAccountsMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Link unassigned statement lines to unambiguous client bank accounts
+ */
+export const useReconcileStatementLineBankAccounts = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reconcileStatementLineBankAccounts>>, TError,{data: BodyType<BankAccountReconciliationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reconcileStatementLineBankAccounts>>,
+        TError,
+        {data: BodyType<BankAccountReconciliationInput>},
+        TContext
+      > => {
+      return useMutation(getReconcileStatementLineBankAccountsMutationOptions(options));
+    }
+
+export const getGetStatementLinesSummaryUrl = (params?: GetStatementLinesSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/statement-lines/summary?${stringifiedParams}` : `/api/agaraccounting/statement-lines/summary`
+}
+
+/**
+ * @summary Count, currencies, and bank-register rollups for statement lines
+ */
+export const getStatementLinesSummary = async (params?: GetStatementLinesSummaryParams, options?: Parameters<typeof customFetch>[1]): Promise<StatementLinesSummary> => {
+
+  return customFetch<StatementLinesSummary>(getGetStatementLinesSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetStatementLinesSummaryQueryKey = (params?: GetStatementLinesSummaryParams,) => {
+    return [
+    `/api/agaraccounting/statement-lines/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetStatementLinesSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getStatementLinesSummary>>, TError = ErrorType<unknown>>(params?: GetStatementLinesSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStatementLinesSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetStatementLinesSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getStatementLinesSummary>>> = ({ signal }) => getStatementLinesSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getStatementLinesSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetStatementLinesSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getStatementLinesSummary>>>
+export type GetStatementLinesSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Count, currencies, and bank-register rollups for statement lines
+ */
+
+export function useGetStatementLinesSummary<TData = Awaited<ReturnType<typeof getStatementLinesSummary>>, TError = ErrorType<unknown>>(
+ params?: GetStatementLinesSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getStatementLinesSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetStatementLinesSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getExportStatementLinesUrl = () => {
 
 
@@ -6561,6 +6722,90 @@ export const useCreateJournalEntry = <TError = ErrorType<void>,
       > => {
       return useMutation(getCreateJournalEntryMutationOptions(options));
     }
+
+export const getGetJournalEntriesSummaryUrl = (params?: GetJournalEntriesSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/journal-entries/summary?${stringifiedParams}` : `/api/agaraccounting/journal-entries/summary`
+}
+
+/**
+ * @summary Count and currencies for journal entries
+ */
+export const getJournalEntriesSummary = async (params?: GetJournalEntriesSummaryParams, options?: Parameters<typeof customFetch>[1]): Promise<JournalEntriesSummary> => {
+
+  return customFetch<JournalEntriesSummary>(getGetJournalEntriesSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetJournalEntriesSummaryQueryKey = (params?: GetJournalEntriesSummaryParams,) => {
+    return [
+    `/api/agaraccounting/journal-entries/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetJournalEntriesSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getJournalEntriesSummary>>, TError = ErrorType<unknown>>(params?: GetJournalEntriesSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJournalEntriesSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetJournalEntriesSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getJournalEntriesSummary>>> = ({ signal }) => getJournalEntriesSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getJournalEntriesSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetJournalEntriesSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getJournalEntriesSummary>>>
+export type GetJournalEntriesSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Count and currencies for journal entries
+ */
+
+export function useGetJournalEntriesSummary<TData = Awaited<ReturnType<typeof getJournalEntriesSummary>>, TError = ErrorType<unknown>>(
+ params?: GetJournalEntriesSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getJournalEntriesSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetJournalEntriesSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getUpdateJournalEntryUrl = (id: number,) => {
 

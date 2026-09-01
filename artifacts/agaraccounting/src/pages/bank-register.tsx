@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useRoute } from "wouter";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowLeft, CircleAlert, FileText, Landmark, LoaderCircle } from "lucide-react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, CheckCircle2, CircleAlert, FileText, Landmark, LoaderCircle } from "lucide-react";
 import {
   getGetBankAccountsQueryKey,
   getGetStatementImportsQueryKey,
@@ -11,6 +11,7 @@ import {
   useGetBankAccounts,
   useGetStatementImports,
   useGetStatementLinesSummary,
+  useReconcileStatementLineBankAccounts,
 } from "@workspace/api-client-react";
 import { useClientWorkspace } from "@/lib/workspace-context";
 import { BankStatementSheet } from "@/components/bank-statement-sheet";
@@ -50,6 +51,17 @@ export function BankRegisterIndexPage() {
   const unassignedCount = summaryQuery.data?.unassignedCount ?? 0;
   const loading = accountsQuery.isLoading || summaryQuery.isLoading;
   const error = accountsQuery.isError || summaryQuery.isError;
+  const queryClient = useQueryClient();
+  const reconcile = useReconcileStatementLineBankAccounts({
+    mutation: {
+      onSuccess: async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["/api/agaraccounting/statement-lines"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/agaraccounting/statement-lines/summary"] }),
+        ]);
+      },
+    },
+  });
 
   return (
     <div data-testid="bank-register-index">
@@ -126,18 +138,36 @@ export function BankRegisterIndexPage() {
         </div>
       ) : null}
       {unassignedCount ? (
-        <Link
-          href="/statement-lines"
-          data-testid="link-unassigned-register-lines"
-          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border bg-card/50 p-4 hover:bg-muted/40"
-        >
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed border-border bg-card/50 p-4">
           <div>
             <div className="text-sm font-semibold">Unassigned transactions</div>
             <p className="mt-1 text-[11px] text-muted-foreground">
-              {unassignedCount} loaded line{unassignedCount === 1 ? "" : "s"} have no created bank name yet, so they are not in a register. Review them on statement lines or import again with a bank identity.
+              {unassignedCount} loaded line{unassignedCount === 1 ? "" : "s"} are not in a register. Matching links only currencies that have one clear bank account.
             </p>
+            <Link href="/statement-lines" data-testid="link-unassigned-register-lines" className="mt-2 inline-flex text-[11px] font-semibold text-primary underline">
+              Review statement lines
+            </Link>
           </div>
-        </Link>
+          <button
+            type="button"
+            data-testid="button-reconcile-bank-register-lines"
+            disabled={reconcile.isPending}
+            onClick={() => reconcile.mutate({ data: { clientId } })}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {reconcile.isPending ? <LoaderCircle size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+            Link matching transactions
+          </button>
+          {reconcile.isSuccess ? (
+            <p className="w-full text-[11px] text-primary" role="status">
+              Linked {reconcile.data.linkedCount} transaction{reconcile.data.linkedCount === 1 ? "" : "s"}.
+              {reconcile.data.remainingUnassignedCount ? ` ${reconcile.data.remainingUnassignedCount} still need manual review.` : ""}
+            </p>
+          ) : null}
+          {reconcile.isError ? (
+            <p className="w-full text-[11px] text-destructive" role="alert">Transactions could not be linked. Try again.</p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

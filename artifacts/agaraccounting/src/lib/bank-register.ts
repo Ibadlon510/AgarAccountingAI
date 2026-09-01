@@ -198,8 +198,8 @@ export function groupBankRegistersFromSummary<TAccount extends BankRegisterAccou
   rollups: Array<{
     bankAccountId: number;
     lineCount: number;
-    dateFrom: string | null;
-    dateTo: string | null;
+    dateFrom?: string | null;
+    dateTo?: string | null;
     sourceLabels: string[];
   }>,
 ) {

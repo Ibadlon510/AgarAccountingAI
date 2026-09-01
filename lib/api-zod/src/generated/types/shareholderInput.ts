@@ -7,7 +7,10 @@
  */
 
 export interface ShareholderInput {
-  /** @minLength 1 */
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
   name: string;
   /** @nullable */
   nationality?: string | null;

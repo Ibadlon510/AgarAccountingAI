@@ -28,6 +28,8 @@ import {
   CreateWorkspaceInvitationResponse,
   CreateBankAccountBody,
   CreateBankAccountResponse,
+  ReconcileStatementLineBankAccountsBody,
+  ReconcileStatementLineBankAccountsResponse,
   GetLedgerflowAccountsQueryParams,
   GetLedgerflowAccountsResponse,
   CreateLedgerflowAccountBody,
@@ -9637,6 +9639,62 @@ router.post("/agaraccounting/statement-lines", async (req, res) => {
   if (!line) throw new Error("Manual statement line was not created.");
   const contactSuggestion = await resolveContactSuggestion(db, client.id, line.description, line.direction, line.contactId, line);
   return res.status(201).json(CreateStatementLineResponse.parse(await statementLineResponse(line, workspacePatterns, contactSuggestion)));
+});
+
+router.post("/agaraccounting/statement-lines/reconcile-bank-accounts", async (req, res) => {
+  const body = ReconcileStatementLineBankAccountsBody.parse(req.body);
+  const client = await requireOwnedClient(req, res, body.clientId);
+  if (!client) return;
+
+  const result = await db.transaction(async (tx) => {
+    const accounts = await tx.select().from(bankAccountsTable)
+      .where(eq(bankAccountsTable.clientId, client.id));
+    const accountsByCurrency = new Map<string, Array<typeof bankAccountsTable.$inferSelect>>();
+    for (const account of accounts) {
+      const currency = normalizeCurrency(account.currency);
+      accountsByCurrency.set(currency, [...(accountsByCurrency.get(currency) ?? []), account]);
+    }
+
+    const lines = await tx.select().from(statementLinesTable)
+      .where(eq(statementLinesTable.clientId, client.id))
+      .for("update");
+    const occupiedDedupeKeys = new Map(lines.flatMap((line) =>
+      line.importDedupeKey ? [[line.importDedupeKey, line.id] as const] : [],
+    ));
+    let linkedCount = 0;
+
+    for (const line of lines) {
+      if (line.bankAccountId != null) continue;
+      const matchingAccounts = accountsByCurrency.get(normalizeCurrency(line.currency)) ?? [];
+      if (matchingAccounts.length !== 1) continue;
+      const account = matchingAccounts[0];
+      const nextDedupeKey = line.importDedupeKey
+        ? importDedupeKey({ ...line, bankAccountId: account.id })
+        : null;
+      const conflictingLineId = nextDedupeKey ? occupiedDedupeKeys.get(nextDedupeKey) : undefined;
+      if (conflictingLineId != null && conflictingLineId !== line.id) continue;
+
+      const [updated] = await tx.update(statementLinesTable).set({
+        bankAccountId: account.id,
+        importDedupeKey: nextDedupeKey,
+      }).where(and(
+        eq(statementLinesTable.id, line.id),
+        eq(statementLinesTable.clientId, client.id),
+        isNull(statementLinesTable.bankAccountId),
+      )).returning({ id: statementLinesTable.id });
+      if (!updated) continue;
+      if (line.importDedupeKey) occupiedDedupeKeys.delete(line.importDedupeKey);
+      if (nextDedupeKey) occupiedDedupeKeys.set(nextDedupeKey, line.id);
+      linkedCount += 1;
+    }
+
+    return {
+      linkedCount,
+      remainingUnassignedCount: lines.filter((line) => line.bankAccountId == null).length - linkedCount,
+    };
+  });
+
+  return res.json(ReconcileStatementLineBankAccountsResponse.parse(result));
 });
 
 router.post("/agaraccounting/statement-lines/export", async (req, res) => {

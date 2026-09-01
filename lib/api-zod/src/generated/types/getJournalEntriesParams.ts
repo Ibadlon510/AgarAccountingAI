@@ -5,18 +5,29 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GetJournalEntriesSort } from './getJournalEntriesSort';
+import type { GetJournalEntriesSortDirection } from './getJournalEntriesSortDirection';
+import type { GetJournalEntriesSource } from './getJournalEntriesSource';
+import type { GetJournalEntriesStatus } from './getJournalEntriesStatus';
 
 export type GetJournalEntriesParams = {
 clientId?: number;
-status?: 'draft' | 'posted';
-source?: 'manual' | 'statement' | 'system';
+status?: GetJournalEntriesStatus;
+source?: GetJournalEntriesSource;
 currency?: string;
 search?: string;
 dateFrom?: string;
 dateTo?: string;
 statementLineId?: number;
-sort?: 'date' | 'memo' | 'currency' | 'amount' | 'confidence' | 'status';
-sortDirection?: 'asc' | 'desc';
+sort?: GetJournalEntriesSort;
+sortDirection?: GetJournalEntriesSortDirection;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * @minimum 0
+ */
 offset?: number;
 };

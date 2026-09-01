@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { GetStatementLinesDirection } from './getStatementLinesDirection';
+import type { GetStatementLinesRemarks } from './getStatementLinesRemarks';
+import type { GetStatementLinesSort } from './getStatementLinesSort';
+import type { GetStatementLinesSortDirection } from './getStatementLinesSortDirection';
 
 export type GetStatementLinesParams = {
 clientId?: number;
@@ -21,9 +24,16 @@ bankAccountIds?: string;
 search?: string;
 dateFrom?: string;
 dateTo?: string;
-remarks?: 'awaiting';
-sort?: 'date' | 'description' | 'contact' | 'account' | 'amount' | 'confidence' | 'status';
-sortDirection?: 'asc' | 'desc';
+remarks?: GetStatementLinesRemarks;
+sort?: GetStatementLinesSort;
+sortDirection?: GetStatementLinesSortDirection;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * @minimum 0
+ */
 offset?: number;
 };

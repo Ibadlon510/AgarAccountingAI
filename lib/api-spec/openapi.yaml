@@ -958,6 +958,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatementLine"
+  /agaraccounting/statement-lines/reconcile-bank-accounts:
+    post:
+      operationId: reconcileStatementLineBankAccounts
+      tags: [agaraccounting]
+      summary: Link unassigned statement lines to unambiguous client bank accounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankAccountReconciliationInput"
+      responses:
+        "200":
+          description: Bank-account reconciliation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BankAccountReconciliationResult"
   /agaraccounting/statement-lines/summary:
     get:
       operationId: getStatementLinesSummary
@@ -2873,13 +2891,13 @@ components:
         systemRatesEnabled:
           type: boolean
           description: Whether the system catalog may supply a fallback rate for this company.
-        shareCapitalAuthorisedShares: { type: ["integer", "null"] }
+        shareCapitalAuthorisedShares: { type: ["number", "null"] }
         shareCapitalParValue: { type: ["number", "null"] }
         shareholders:
           type: array
           items:
             $ref: "#/components/schemas/Shareholder"
-        shareCapitalJournalId: { type: ["integer", "null"] }
+        shareCapitalJournalId: { type: ["number", "null"] }
         shareCapitalDuplicateWarning: { type: ["string", "null"] }
         legacyDemo:
           type: boolean
@@ -2911,7 +2929,7 @@ components:
         basis: { type: string }
         period: { type: string }
         systemRatesEnabled: { type: boolean }
-        shareCapitalAuthorisedShares: { type: ["integer", "null"] }
+        shareCapitalAuthorisedShares: { type: ["number", "null"] }
         shareCapitalParValue: { type: ["number", "null"] }
         shareholders:
           type: array
@@ -2925,15 +2943,15 @@ components:
         clientId: { type: number }
         name: { type: string }
         nationality: { type: ["string", "null"] }
-        numberOfShares: { type: integer }
-        sortOrder: { type: integer }
+        numberOfShares: { type: number }
+        sortOrder: { type: number }
     ShareholderInput:
       type: object
       required: [name, numberOfShares]
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
         nationality: { type: ["string", "null"] }
-        numberOfShares: { type: integer, minimum: 1 }
+        numberOfShares: { type: number, minimum: 1 }
     WorkspaceRole:
       type: string
       enum: [owner, admin, accountant, bookkeeper]
@@ -3399,6 +3417,17 @@ components:
               sourceLabels:
                 type: array
                 items: { type: string }
+    BankAccountReconciliationInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: { type: number }
+    BankAccountReconciliationResult:
+      type: object
+      required: [linkedCount, remainingUnassignedCount]
+      properties:
+        linkedCount: { type: number }
+        remainingUnassignedCount: { type: number }
     JournalEntriesSummary:
       type: object
       required: [totalCount, currencies]
@@ -3433,7 +3462,7 @@ components:
           minItems: 1
           maxItems: 50
           items: { type: number }
-        recipientEmail: { type: string, format: email, minLength: 3, maxLength: 320 }
+        recipientEmail: { type: string, minLength: 3, maxLength: 320 }
         senderMessage: { type: ["string", "null"], maxLength: 2000 }
     StatementLineDetailRequestRevokeInput:
       type: object
