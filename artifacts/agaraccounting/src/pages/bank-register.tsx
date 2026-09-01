@@ -144,6 +144,16 @@ export function BankRegisterIndexPage() {
                     {` · ${group.lineCount} transaction${group.lineCount === 1 ? "" : "s"}`}
                     {group.sourceLabels.length ? ` · ${group.sourceLabels.length} statement file${group.sourceLabels.length === 1 ? "" : "s"}` : ""}
                   </div>
+                  {group.reconciliationMismatchCount ? (
+                    <div
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1 text-[11px] font-semibold text-destructive"
+                      data-testid={`warning-bank-register-reconciliation-${group.canonicalAccount.id}`}
+                      role="alert"
+                    >
+                      <CircleAlert size={12} />
+                      {group.reconciliationMismatchCount} posted transaction{group.reconciliationMismatchCount === 1 ? "" : "s"} do not match the linked bank journal
+                    </div>
+                  ) : null}
                   {group.dateFrom && group.dateTo ? (
                     <div className="mt-1 text-[11px] text-muted-foreground">
                       {shortDate(group.dateFrom)} to {shortDate(group.dateTo)}
@@ -247,6 +257,8 @@ export default function BankRegisterDetailPage() {
   });
   const lines = linesQuery.data?.pages.flat() ?? [];
   const totalCount = summaryQuery.data?.totalCount ?? 0;
+  const reconciliationMismatchCount = summaryQuery.data?.bankAccounts
+    .reduce((sum, account) => sum + account.reconciliationMismatchCount, 0) ?? 0;
   const opening = useMemo(
     () => openingBalanceForRegister(importsQuery.data ?? [], registerAccounts),
     [importsQuery.data, registerAccounts],
@@ -334,6 +346,25 @@ export default function BankRegisterDetailPage() {
           <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-muted-foreground">
             Switch workspace or import a statement that creates this bank name and currency.
           </p>
+        </div>
+      ) : null}
+      {!loading && !error && reconciliationMismatchCount ? (
+        <div
+          className="mb-5 flex items-start gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-destructive print:hidden"
+          data-testid="warning-bank-register-reconciliation"
+          role="alert"
+        >
+          <CircleAlert className="mt-0.5 shrink-0" size={17} />
+          <div>
+            <p className="text-xs font-semibold">Bank register and posted journals do not reconcile</p>
+            <p className="mt-1 text-[11px] leading-5">
+              {reconciliationMismatchCount} posted transaction{reconciliationMismatchCount === 1 ? "" : "s"} use the wrong Bank / cash side or have no linked journal.
+              Inflows must debit Bank / cash and outflows must credit Bank / cash. Correct the affected journal before generating reports.
+            </p>
+            <Link href="/statement-lines" className="mt-2 inline-flex text-[11px] font-semibold underline">
+              Review statement lines
+            </Link>
+          </div>
         </div>
       ) : null}
       {!loading && !error && canonical && !lines.length ? (

@@ -125,8 +125,8 @@ test("rolls up present-date movement for a register card", () => {
     { id: 1, name: "Operating", bankName: "Mashreq", currency: "AED" },
     { id: 2, name: "Savings", bankName: "Mashreq", currency: "AED" },
   ], [
-    { bankAccountId: 1, lineCount: 4, dateFrom: "2026-01-05", dateTo: "2026-01-31", sourceLabels: ["jan.pdf"], inflowTotal: 1000, outflowTotal: 250 },
-    { bankAccountId: 2, lineCount: 2, dateFrom: "2026-02-03", dateTo: "2026-02-03", sourceLabels: ["feb.pdf"], inflowTotal: 300, outflowTotal: 50 },
+    { bankAccountId: 1, lineCount: 4, dateFrom: "2026-01-05", dateTo: "2026-01-31", sourceLabels: ["jan.pdf"], inflowTotal: 1000, outflowTotal: 250, reconciliationMismatchCount: 1 },
+    { bankAccountId: 2, lineCount: 2, dateFrom: "2026-02-03", dateTo: "2026-02-03", sourceLabels: ["feb.pdf"], inflowTotal: 300, outflowTotal: 50, reconciliationMismatchCount: 2 },
   ]);
 
   const group = groups.find((item) => item.currency === "AED" && item.bankName === "Mashreq");
@@ -134,6 +134,7 @@ test("rolls up present-date movement for a register card", () => {
   assert.equal(group.inflowTotal, 1300);
   assert.equal(group.outflowTotal, 300);
   assert.equal((group.inflowTotal ?? 0) - (group.outflowTotal ?? 0), 1000);
+  assert.equal(group.reconciliationMismatchCount, 3);
 });
 
 test("builds a register href from the created bank account, not the upload", () => {

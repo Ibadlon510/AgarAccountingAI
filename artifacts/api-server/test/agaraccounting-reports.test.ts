@@ -355,6 +355,49 @@ test("normalizes bank credit and debit directions before creating and posting jo
     assert.equal(postedResult.response.status, 200);
     assert.deepEqual(postedResult.body.lines, entry.lines);
   }
+
+  assert.ok(database);
+  const [bankAccount] = await database.db.insert(database.bankAccountsTable).values({
+    clientId,
+    name: "Legacy direction test account",
+    bankName: "Test Bank",
+    accountNumberLast4: "5510",
+    currency: "AED",
+  }).returning();
+  await database.db.update(database.statementLinesTable).set({
+    bankAccountId: bankAccount.id,
+  }).where(eq(database.statementLinesTable.id, receipt.body.id));
+  assert.equal((await request(`/agaraccounting/journal-entries/${receiptEntry.id}/unpost`, {
+    method: "POST",
+    body: JSON.stringify({ clientId }),
+  })).response.status, 200);
+  await database.db.update(database.journalEntriesTable).set({
+    debitAccount: receipt.body.accountSuggestion,
+    creditAccount: "Bank / cash",
+  }).where(eq(database.journalEntriesTable.id, receiptEntry.id));
+
+  const reversedPosting = await request<{ error: string }>(
+    `/agaraccounting/journal-entries/${receiptEntry.id}/post`,
+    {
+      method: "POST",
+      body: JSON.stringify({ clientId }),
+    },
+  );
+  assert.equal(reversedPosting.response.status, 409);
+  assert.match(reversedPosting.body.error, /bank journal is reversed/i);
+
+  await database.db.update(database.journalEntriesTable).set({ status: "posted" })
+    .where(eq(database.journalEntriesTable.id, receiptEntry.id));
+  await database.db.update(database.statementLinesTable).set({ status: "posted" })
+    .where(eq(database.statementLinesTable.id, receipt.body.id));
+  const summary = await request<{
+    bankAccounts: Array<{ bankAccountId: number; reconciliationMismatchCount: number }>;
+  }>(`/agaraccounting/statement-lines/summary?clientId=${clientId}`);
+  assert.equal(summary.response.status, 200);
+  assert.equal(
+    summary.body.bankAccounts.find((item) => item.bankAccountId === bankAccount.id)?.reconciliationMismatchCount,
+    1,
+  );
 });
 
 test("posting can be reversed without rewriting reports or accountability evidence", async () => {

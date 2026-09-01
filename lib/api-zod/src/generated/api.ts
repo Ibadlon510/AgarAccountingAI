@@ -1700,7 +1700,8 @@ export const GetStatementLinesSummaryResponse = zod.object({
   "dateTo": zod.string().nullish(),
   "sourceLabels": zod.array(zod.string()),
   "inflowTotal": zod.number(),
-  "outflowTotal": zod.number()
+  "outflowTotal": zod.number(),
+  "reconciliationMismatchCount": zod.number()
 }))
 })
 

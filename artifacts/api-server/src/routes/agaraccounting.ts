@@ -401,6 +401,15 @@ function isInflowDirection(direction: string) {
   return normalized === "inflow" || normalized === "credit";
 }
 
+function bankMovementMatchesStatementDirection(
+  line: Pick<typeof statementLinesTable.$inferSelect, "direction">,
+  entry: Pick<typeof journalEntriesTable.$inferSelect, "debitAccount" | "creditAccount">,
+) {
+  return isInflowDirection(line.direction)
+    ? entry.debitAccount === "Bank / cash"
+    : entry.creditAccount === "Bank / cash";
+}
+
 function canonicalStatementDirection(direction: string) {
   const normalized = direction.trim().toLowerCase();
   if (normalized === "credit") return "inflow";
@@ -2907,7 +2916,7 @@ class ContactMaterializationError extends Error {}
 
 class JournalPostRollback extends Error {
   constructor(readonly result: {
-    kind: "account_not_found" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "missing_exchange_rate";
+    kind: "account_not_found" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "missing_exchange_rate" | "bank_direction_mismatch";
     entry?: typeof journalEntriesTable.$inferSelect;
     line?: typeof statementLinesTable.$inferSelect;
   }) {
@@ -4999,7 +5008,7 @@ function defaultAICopilotRecommendations(
 type BulkActionType = "bulk_post_entries";
 
 class BulkActionValidationError extends Error {
-  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required") {
+  constructor(readonly kind: "not_found" | "invalid_scope" | "invalid_status" | "missing_exchange_rate" | "stale_contact" | "stale_treatment" | "stale_evidence" | "contact_identification_required" | "bank_direction_mismatch") {
     super(kind);
   }
 }
@@ -7551,6 +7560,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
           || materializedPairs.some(({ line }) => isMissingExchangeRate(line, client.functionalCurrency))) {
           throw new BulkActionValidationError("missing_exchange_rate");
         }
+        if (materializedPairs.some(({ line, entry }) => !bankMovementMatchesStatementDirection(line, entry))) {
+          throw new BulkActionValidationError("bank_direction_mismatch");
+        }
 
         const materializedLines = materializedPairs.map(({ line }) => line);
         let postingLines = materializedLines;
@@ -7628,6 +7640,9 @@ router.post("/agaraccounting/ai-actions/confirm", async (req, res) => {
         }
         if (error.kind === "contact_identification_required") {
           return res.status(409).json({ error: "Identify or explicitly dismiss every unknown customer or supplier before posting the selected entries." });
+        }
+        if (error.kind === "bank_direction_mismatch") {
+          return res.status(409).json({ error: "One or more bank journals are reversed: inflows must debit Bank / cash and outflows must credit Bank / cash. Review the selected entries before posting." });
         }
         return res.status(409).json({ error: "Only draft entries can be bulk posted. Posted entries were rejected." });
       }
@@ -10786,6 +10801,13 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
           line: materialized.line,
         });
       }
+      if (!bankMovementMatchesStatementDirection(materialized.line, materialized.entry)) {
+        throw new JournalPostRollback({
+          kind: "bank_direction_mismatch",
+          entry: materialized.entry,
+          line: materialized.line,
+        });
+      }
 
       const [postedEntry] = await tx.update(journalEntriesTable).set({ status: "posted" }).where(and(
         eq(journalEntriesTable.id, materialized.entry.id),
@@ -10875,6 +10897,12 @@ router.post("/agaraccounting/journal-entries/:id/post", async (req, res) => {
         client.functionalCurrency,
         "posting",
       ),
+    });
+    return;
+  }
+  if (result.kind === "bank_direction_mismatch") {
+    res.status(409).json({
+      error: "This bank journal is reversed. An inflow must debit Bank / cash and an outflow must credit Bank / cash. Correct the journal accounts before posting.",
     });
     return;
   }

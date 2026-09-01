@@ -181,12 +181,30 @@ export async function summarizeStatementLines(clientId: number, query: Statement
       dateFrom: sql<string | null>`min(${statementLinesTable.date})`,
       dateTo: sql<string | null>`max(${statementLinesTable.date})`,
       sourceLabels: sql<string[]>`array_remove(array_agg(distinct ${statementLinesTable.source}), null)`,
-      inflowTotal: sql<string>`coalesce(sum(case when ${statementLinesTable.direction} = 'inflow' and ${statementLinesTable.date} <= to_char(current_date, 'YYYY-MM-DD') then ${statementLinesTable.amount} else 0 end), 0)`,
-      outflowTotal: sql<string>`coalesce(sum(case when ${statementLinesTable.direction} = 'outflow' and ${statementLinesTable.date} <= to_char(current_date, 'YYYY-MM-DD') then ${statementLinesTable.amount} else 0 end), 0)`,
+      inflowTotal: sql<string>`coalesce(sum(case when lower(${statementLinesTable.direction}) in ('inflow', 'credit') and ${statementLinesTable.date} <= to_char(current_date, 'YYYY-MM-DD') then ${statementLinesTable.amount} else 0 end), 0)`,
+      outflowTotal: sql<string>`coalesce(sum(case when lower(${statementLinesTable.direction}) in ('outflow', 'debit') and ${statementLinesTable.date} <= to_char(current_date, 'YYYY-MM-DD') then ${statementLinesTable.amount} else 0 end), 0)`,
+      reconciliationMismatchCount: sql<number>`count(*) filter (
+        where ${statementLinesTable.status} = 'posted'
+        and (
+          ${journalEntriesTable.id} is null
+          or (
+            lower(${statementLinesTable.direction}) in ('inflow', 'credit')
+            and ${journalEntriesTable.debitAccount} <> 'Bank / cash'
+          )
+          or (
+            lower(${statementLinesTable.direction}) in ('outflow', 'debit')
+            and ${journalEntriesTable.creditAccount} <> 'Bank / cash'
+          )
+        )
+      )::int`,
     }).from(statementLinesTable)
       .leftJoin(contactsTable, and(
         eq(contactsTable.id, statementLinesTable.contactId),
         eq(contactsTable.clientId, clientId),
+      ))
+      .leftJoin(journalEntriesTable, and(
+        eq(journalEntriesTable.statementLineId, statementLinesTable.id),
+        eq(journalEntriesTable.clientId, clientId),
       ))
       .where(and(conditions, isNotNull(statementLinesTable.bankAccountId)))
       .groupBy(statementLinesTable.bankAccountId),
@@ -203,6 +221,7 @@ export async function summarizeStatementLines(clientId: number, query: Statement
       sourceLabels: (row.sourceLabels ?? []).filter(Boolean),
       inflowTotal: Number(row.inflowTotal ?? 0),
       outflowTotal: Number(row.outflowTotal ?? 0),
+      reconciliationMismatchCount: Number(row.reconciliationMismatchCount ?? 0),
     }]),
   };
 }

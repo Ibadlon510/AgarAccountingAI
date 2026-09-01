@@ -203,6 +203,7 @@ export function groupBankRegistersFromSummary<TAccount extends BankRegisterAccou
     sourceLabels: string[];
     inflowTotal?: number;
     outflowTotal?: number;
+    reconciliationMismatchCount?: number;
   }>,
 ) {
   const byAccount = new Map(rollups.map((item) => [item.bankAccountId, item]));
@@ -220,6 +221,7 @@ export function groupBankRegistersFromSummary<TAccount extends BankRegisterAccou
       sourceLabels: [...new Set(matched.flatMap((item) => item.sourceLabels))],
       inflowTotal: matched.reduce((sum, item) => sum + (item.inflowTotal ?? 0), 0),
       outflowTotal: matched.reduce((sum, item) => sum + (item.outflowTotal ?? 0), 0),
+      reconciliationMismatchCount: matched.reduce((sum, item) => sum + (item.reconciliationMismatchCount ?? 0), 0),
     };
   });
 }

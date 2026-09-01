@@ -16,4 +16,5 @@ export type StatementLinesSummaryBankAccountsItem = {
   sourceLabels: string[];
   inflowTotal: number;
   outflowTotal: number;
+  reconciliationMismatchCount: number;
 };
