@@ -83,6 +83,21 @@ export type ReportSnapshot = {
   taxSummary: ReturnType<typeof calculateUaeCorporateTaxSummary>;
 };
 
+const noComparativeDataDetail = "No posted ledger data was found in the prior comparable period. This is acceptable for a first reporting year; comparative columns will remain unavailable unless prior-period activity is added.";
+
+export function normalizeReportValidation(previous: ReportValidation): ReportValidation {
+  const checks = previous.checks.map((check) => check.id === "comparatives"
+    ? {
+      ...check,
+      status: check.status === "pass" ? "pass" as const : "warning" as const,
+      blocking: false,
+      detail: check.status === "pass" ? "Prior comparable period contains posted ledger data." : noComparativeDataDetail,
+    }
+    : { ...check });
+  const errorCount = checks.filter((check) => check.blocking && check.status !== "pass").length;
+  return { status: errorCount ? "blocked" : "pass", errorCount, checks };
+}
+
 type Entry = typeof journalEntriesTable.$inferSelect;
 type Classification = typeof accountClassificationsTable.$inferSelect;
 type Client = typeof clientsTable.$inferSelect;
@@ -912,7 +927,7 @@ export function buildReportValidation(input: {
     { id: "note-totals", label: "Statement totals reconcile to notes", status: Math.abs(input.closingCash - input.noteCash) <= tolerance ? "pass" : "error", detail: `Cash statement ${input.closingCash.toFixed(2)}; note 3 ${input.noteCash.toFixed(2)}.`, blocking: true },
     { id: "related-parties", label: "Related-party balances reconcile to due-from/due-to components", status: Math.abs(input.relatedPartyCurrent - input.relatedPartyComponentCurrent) <= tolerance ? "pass" : "error", detail: `Related-party balance ${input.relatedPartyCurrent.toFixed(2)}; component total ${input.relatedPartyComponentCurrent.toFixed(2)}.`, blocking: true },
     { id: "foreign-currency", label: "Foreign-currency conversion coverage", status: input.missingRateEntries.length ? "error" : "pass", detail: input.missingRateEntries.length ? `${input.missingRateEntries.length} posted entry or entries are missing a functional-currency rate.` : "All included posted entries have functional-currency coverage.", blocking: true },
-    { id: "comparatives", label: "Comparative information", status: input.hasComparative ? "pass" : "warning", detail: input.hasComparative ? "Prior comparable period contains posted ledger data." : "No posted ledger data was found in the prior comparable period; comparative columns are visibly zero and cannot support finalization.", blocking: !input.hasComparative },
+    { id: "comparatives", label: "Comparative information", status: input.hasComparative ? "pass" : "warning", detail: input.hasComparative ? "Prior comparable period contains posted ledger data." : noComparativeDataDetail, blocking: false },
     { id: "notes", label: "Required notes and disclosures", status: input.notes.some((note) => note.requiresInput || !note.narrative.trim()) ? "error" : "pass", detail: input.notes.some((note) => note.requiresInput || !note.narrative.trim()) ? "One or more notes still need owner review or disclosure wording." : "System-generated note wording is present for every required disclosure.", blocking: true },
     { id: "ifrs-checklist", label: "IFRS applicability and disclosure checklist", status: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "error" : "pass", detail: input.checklist.some((item) => ["applicable", "requires_accountant_input"].includes(item.status)) ? "One or more IFRS checklist items still need a final applicability decision." : "Checklist items are satisfied, immaterial, or not applicable based on ledger evidence and system defaults.", blocking: true },
   ];
@@ -921,7 +936,7 @@ export function buildReportValidation(input: {
 }
 
 export function finalizationValidation(previous: ReportValidation, notes: ReportNote[], checklist: ReportChecklistItem[]) {
-  const checks = previous.checks.map((check) => ({ ...check }));
+  const checks = normalizeReportValidation(previous).checks;
   const notesCheck = checks.find((check) => check.id === "notes");
   if (notesCheck) {
     notesCheck.status = notes.some((note) => note.requiresInput || !note.narrative.trim()) ? "error" : "pass";

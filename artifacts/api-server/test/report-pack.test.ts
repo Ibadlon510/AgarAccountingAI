@@ -123,7 +123,7 @@ after(async () => {
   await database?.pool.end();
 });
 
-test("blocks a draft pack with missing comparatives and accountant inputs", () => {
+test("keeps missing comparatives as a warning while still blocking accountant inputs", () => {
   const result = buildReportPack({
     client: {
       id: 1,
@@ -156,7 +156,8 @@ test("blocks a draft pack with missing comparatives and accountant inputs", () =
   assert.equal(result.snapshot.traceability.postedEntryCount, 1);
   assert.equal(result.snapshot.cashFlows.find((row) => row.label === "Cash at end of year")?.current, -100);
   assert.equal(result.validation.status, "blocked");
-  assert.equal(result.validation.checks.find((check) => check.id === "comparatives")?.blocking, true);
+  assert.equal(result.validation.checks.find((check) => check.id === "comparatives")?.status, "warning");
+  assert.equal(result.validation.checks.find((check) => check.id === "comparatives")?.blocking, false);
   const validationWithMissingInput = finalizationValidation(
     result.validation,
     result.notes.map((note, index) => index === 0 ? { ...note, requiresInput: true } : note),

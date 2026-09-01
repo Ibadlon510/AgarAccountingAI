@@ -281,6 +281,7 @@ import {
   buildReportPack,
   finalizationValidation,
   inferredClassifications,
+  normalizeReportValidation,
   type ReportChecklistItem,
   type ReportNote,
   type ReportSignatory,
@@ -1177,7 +1178,7 @@ function reportPackResponse(pack: typeof reportPacksTable.$inferSelect) {
     roundingPolicy: pack.roundingPolicy,
     status: pack.status,
     snapshot: pack.snapshot as ReportSnapshot,
-    validation: pack.validation as ReportValidation,
+    validation: normalizeReportValidation(pack.validation as ReportValidation),
     notes: pack.notes as ReportNote[],
     checklist: pack.checklist as ReportChecklistItem[],
     signatory: pack.signatory as ReportSignatory,
@@ -1188,7 +1189,7 @@ function reportPackResponse(pack: typeof reportPacksTable.$inferSelect) {
 }
 
 function reportPackSummary(pack: typeof reportPacksTable.$inferSelect) {
-  const validation = pack.validation as ReportValidation;
+  const validation = normalizeReportValidation(pack.validation as ReportValidation);
   return {
     id: pack.id,
     clientId: pack.clientId,
