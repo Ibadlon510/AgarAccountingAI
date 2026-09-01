@@ -8,11 +8,20 @@ import {
 } from "@workspace/db";
 
 export const SHARE_CAPITAL_ACCOUNT_NAME = "Share capital";
+export const LEGACY_SHARE_CAPITAL_ACCOUNT_NAME = "Share Capital";
+export const SHARE_CAPITAL_ACCOUNT_NAMES = [
+  SHARE_CAPITAL_ACCOUNT_NAME,
+  LEGACY_SHARE_CAPITAL_ACCOUNT_NAME,
+] as const;
 export const DUE_FROM_SHAREHOLDERS_ACCOUNT_NAME = "Due from shareholders";
 export const SHARE_CAPITAL_SYSTEM_SOURCE = "share_capital_register";
 export const SHARE_CAPITAL_NOTE_NUMBER = 8;
 export const SHARE_CAPITAL_DUPLICATE_WARNING =
   "Share capital is now posted from the client register. The books also contain an earlier Share capital journal. Remove or reverse that older entry so Share capital is not duplicated.";
+
+export function isShareCapitalAccountName(accountName: string) {
+  return SHARE_CAPITAL_ACCOUNT_NAMES.includes(accountName as typeof SHARE_CAPITAL_ACCOUNT_NAMES[number]);
+}
 
 export type ShareholdingRowInput = {
   name: string;
@@ -146,7 +155,7 @@ export async function loadShareCapitalClientExtras(
       clientId: journalEntriesTable.clientId,
     }).from(journalEntriesTable).where(and(
       inArray(journalEntriesTable.clientId, clientIds),
-      eq(journalEntriesTable.creditAccount, SHARE_CAPITAL_ACCOUNT_NAME),
+      inArray(journalEntriesTable.creditAccount, [...SHARE_CAPITAL_ACCOUNT_NAMES]),
       eq(journalEntriesTable.status, "posted"),
       or(isNull(journalEntriesTable.systemSource), ne(journalEntriesTable.systemSource, SHARE_CAPITAL_SYSTEM_SOURCE)),
     )),
@@ -198,11 +207,14 @@ async function resolveShareCapitalAccounts(executor: ShareCapitalExecutor, clien
     accountName: accountClassificationsTable.accountName,
   }).from(accountClassificationsTable).where(and(
     eq(accountClassificationsTable.clientId, clientId),
-    inArray(accountClassificationsTable.accountName, [SHARE_CAPITAL_ACCOUNT_NAME, DUE_FROM_SHAREHOLDERS_ACCOUNT_NAME]),
+    inArray(accountClassificationsTable.accountName, [
+      ...SHARE_CAPITAL_ACCOUNT_NAMES,
+      DUE_FROM_SHAREHOLDERS_ACCOUNT_NAME,
+    ]),
     eq(accountClassificationsTable.isActive, true),
   ));
   const debit = accounts.find((account) => account.accountName === DUE_FROM_SHAREHOLDERS_ACCOUNT_NAME);
-  const credit = accounts.find((account) => account.accountName === SHARE_CAPITAL_ACCOUNT_NAME);
+  const credit = accounts.find((account) => isShareCapitalAccountName(account.accountName));
   if (!debit || !credit) {
     throw new Error("Share capital accounts are missing from the client chart.");
   }

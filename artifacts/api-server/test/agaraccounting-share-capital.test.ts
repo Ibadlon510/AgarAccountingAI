@@ -4,7 +4,12 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { after, before, test } from "node:test";
 import { and, eq, inArray } from "drizzle-orm";
-import { SHARE_CAPITAL_ACCOUNT_NAME, SHARE_CAPITAL_DUPLICATE_WARNING, SHARE_CAPITAL_SYSTEM_SOURCE } from "../src/lib/shareCapital";
+import {
+  LEGACY_SHARE_CAPITAL_ACCOUNT_NAME,
+  SHARE_CAPITAL_ACCOUNT_NAME,
+  SHARE_CAPITAL_DUPLICATE_WARNING,
+  SHARE_CAPITAL_SYSTEM_SOURCE,
+} from "../src/lib/shareCapital";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -13,6 +18,7 @@ let primaryUserId = "";
 let secondaryUserId = "";
 let clientId: number | undefined;
 let isolatedClientId: number | undefined;
+let legacyCapitalClientId: number | undefined;
 
 function testDatabaseUrl() {
   const value = process.env.AGARACCOUNTING_TEST_DATABASE_URL;
@@ -110,6 +116,7 @@ after(async () => {
         ...memberships.map((row) => row.clientId),
         ...(clientId ? [clientId] : []),
         ...(isolatedClientId ? [isolatedClientId] : []),
+        ...(legacyCapitalClientId ? [legacyCapitalClientId] : []),
       ])];
       await database.db.update(database.usersTable)
         .set({ starterClientId: null, remediatedLegacyClientId: null })
@@ -313,6 +320,66 @@ test("saves the share register, posts a replaceable system journal, and warns ab
     eq(database!.journalEntriesTable.systemSource, SHARE_CAPITAL_SYSTEM_SOURCE),
   ));
   assert.equal(remaining.length, 0);
+});
+
+test("reuses the legacy Share Capital account without duplicate-code seeding failures", async () => {
+  const created = await request<ClientBody>("/clients", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Legacy share capital ${randomUUID()}`,
+      legalName: "Legacy Share Capital LLC",
+      functionalCurrency: "AED",
+      basis: "IFRS",
+      period: "August 2026",
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  legacyCapitalClientId = created.body.id;
+
+  const [legacyAccount] = await database!.db.update(database!.accountClassificationsTable)
+    .set({
+      accountName: LEGACY_SHARE_CAPITAL_ACCOUNT_NAME,
+      displayName: LEGACY_SHARE_CAPITAL_ACCOUNT_NAME,
+      isSystem: false,
+    })
+    .where(and(
+      eq(database!.accountClassificationsTable.clientId, legacyCapitalClientId),
+      eq(database!.accountClassificationsTable.accountName, SHARE_CAPITAL_ACCOUNT_NAME),
+    ))
+    .returning();
+  assert.equal(legacyAccount.accountCode, "3000");
+
+  const listed = await request<ClientBody[]>("/clients");
+  assert.equal(listed.response.status, 200, JSON.stringify(listed.body));
+  const capitalAccounts = await database!.db.select()
+    .from(database!.accountClassificationsTable)
+    .where(and(
+      eq(database!.accountClassificationsTable.clientId, legacyCapitalClientId),
+      inArray(database!.accountClassificationsTable.accountName, [
+        SHARE_CAPITAL_ACCOUNT_NAME,
+        LEGACY_SHARE_CAPITAL_ACCOUNT_NAME,
+      ]),
+    ));
+  assert.deepEqual(capitalAccounts.map((account) => account.accountName), [LEGACY_SHARE_CAPITAL_ACCOUNT_NAME]);
+
+  const saved = await request<ClientBody>(`/clients/${legacyCapitalClientId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: created.body.name,
+      legalName: created.body.legalName,
+      functionalCurrency: created.body.functionalCurrency,
+      basis: created.body.basis,
+      period: created.body.period,
+      systemRatesEnabled: created.body.systemRatesEnabled,
+      shareCapitalAuthorisedShares: 10,
+      shareCapitalParValue: 100,
+      shareholders: [{ name: "Legacy Owner", nationality: null, numberOfShares: 10 }],
+    }),
+  });
+  assert.equal(saved.response.status, 200, JSON.stringify(saved.body));
+  const journals = await request<JournalEntry[]>(`/agaraccounting/journal-entries?clientId=${legacyCapitalClientId}`);
+  const systemJournal = journals.body.find((entry) => entry.id === saved.body.shareCapitalJournalId);
+  assert.equal(systemJournal?.lines[1]?.account, LEGACY_SHARE_CAPITAL_ACCOUNT_NAME);
 });
 
 test("rejects unauthorized register saves and keeps clients isolated", async () => {

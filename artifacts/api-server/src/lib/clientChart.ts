@@ -7,6 +7,7 @@ import {
   type AccountClassification,
   type JournalEntry,
 } from "@workspace/db";
+import { isShareCapitalAccountName } from "./shareCapital";
 
 export type UaeTaxTreatment =
   | "ordinary_deductible"
@@ -96,17 +97,26 @@ function historicalAccountDefaults(accountName: string, debitNames: Set<string>,
 }
 
 export async function ensureClientChart(clientId: number) {
-  await db.insert(accountClassificationsTable).values(defaultClientChart.map((account) => ({
-    clientId,
-    ...account,
-    oci: account.statementSection === "oci" ? "yes" : "no",
-    relatedPartyCategory: "none",
-    taxCategory: account.taxTreatment,
-    isActive: true,
-    isSystem: true,
-  }))).onConflictDoNothing({
-    target: [accountClassificationsTable.clientId, accountClassificationsTable.accountName],
-  });
+  const existingBeforeSeed = await db.select({
+    accountName: accountClassificationsTable.accountName,
+  }).from(accountClassificationsTable)
+    .where(eq(accountClassificationsTable.clientId, clientId));
+  const existingAccountNames = new Set(existingBeforeSeed.map((account) => account.accountName));
+  const hasExistingAccount = (accountName: string) => existingAccountNames.has(accountName)
+    || (isShareCapitalAccountName(accountName)
+      && [...existingAccountNames].some(isShareCapitalAccountName));
+  const missingDefaults = defaultClientChart.filter((account) => !hasExistingAccount(account.accountName));
+  if (missingDefaults.length) {
+    await db.insert(accountClassificationsTable).values(missingDefaults.map((account) => ({
+      clientId,
+      ...account,
+      oci: account.statementSection === "oci" ? "yes" : "no",
+      relatedPartyCategory: "none",
+      taxCategory: account.taxTreatment,
+      isActive: true,
+      isSystem: true,
+    }))).onConflictDoNothing();
+  }
 
   const [historicalLines, historicalEntries, seededAccounts] = await Promise.all([
     db.select({ accountName: statementLinesTable.accountSuggestion }).from(statementLinesTable)
