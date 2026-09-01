@@ -201,6 +201,8 @@ export function groupBankRegistersFromSummary<TAccount extends BankRegisterAccou
     dateFrom?: string | null;
     dateTo?: string | null;
     sourceLabels: string[];
+    inflowTotal?: number;
+    outflowTotal?: number;
   }>,
 ) {
   const byAccount = new Map(rollups.map((item) => [item.bankAccountId, item]));
@@ -216,6 +218,8 @@ export function groupBankRegistersFromSummary<TAccount extends BankRegisterAccou
       dateFrom: dates[0] ?? null,
       dateTo: dates[dates.length - 1] ?? null,
       sourceLabels: [...new Set(matched.flatMap((item) => item.sourceLabels))],
+      inflowTotal: matched.reduce((sum, item) => sum + (item.inflowTotal ?? 0), 0),
+      outflowTotal: matched.reduce((sum, item) => sum + (item.outflowTotal ?? 0), 0),
     };
   });
 }

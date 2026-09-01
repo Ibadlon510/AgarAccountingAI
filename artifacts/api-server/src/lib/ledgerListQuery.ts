@@ -181,6 +181,8 @@ export async function summarizeStatementLines(clientId: number, query: Statement
       dateFrom: sql<string | null>`min(${statementLinesTable.date})`,
       dateTo: sql<string | null>`max(${statementLinesTable.date})`,
       sourceLabels: sql<string[]>`array_remove(array_agg(distinct ${statementLinesTable.source}), null)`,
+      inflowTotal: sql<string>`coalesce(sum(case when ${statementLinesTable.direction} = 'inflow' and ${statementLinesTable.date} <= to_char(current_date, 'YYYY-MM-DD') then ${statementLinesTable.amount} else 0 end), 0)`,
+      outflowTotal: sql<string>`coalesce(sum(case when ${statementLinesTable.direction} = 'outflow' and ${statementLinesTable.date} <= to_char(current_date, 'YYYY-MM-DD') then ${statementLinesTable.amount} else 0 end), 0)`,
     }).from(statementLinesTable)
       .leftJoin(contactsTable, and(
         eq(contactsTable.id, statementLinesTable.contactId),
@@ -199,6 +201,8 @@ export async function summarizeStatementLines(clientId: number, query: Statement
       dateFrom: row.dateFrom,
       dateTo: row.dateTo,
       sourceLabels: (row.sourceLabels ?? []).filter(Boolean),
+      inflowTotal: Number(row.inflowTotal ?? 0),
+      outflowTotal: Number(row.outflowTotal ?? 0),
     }]),
   };
 }

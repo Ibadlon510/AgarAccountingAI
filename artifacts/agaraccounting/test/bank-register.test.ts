@@ -120,6 +120,22 @@ test("rolls up register cards from summary bank-account counts without loading l
   assert.equal(groups.find((group) => group.canonicalAccount.id === 3)?.lineCount, 1);
 });
 
+test("rolls up present-date movement for a register card", () => {
+  const groups = groupBankRegistersFromSummary([
+    { id: 1, name: "Operating", bankName: "Mashreq", currency: "AED" },
+    { id: 2, name: "Savings", bankName: "Mashreq", currency: "AED" },
+  ], [
+    { bankAccountId: 1, lineCount: 4, dateFrom: "2026-01-05", dateTo: "2026-01-31", sourceLabels: ["jan.pdf"], inflowTotal: 1000, outflowTotal: 250 },
+    { bankAccountId: 2, lineCount: 2, dateFrom: "2026-02-03", dateTo: "2026-02-03", sourceLabels: ["feb.pdf"], inflowTotal: 300, outflowTotal: 50 },
+  ]);
+
+  const group = groups.find((item) => item.currency === "AED" && item.bankName === "Mashreq");
+  assert.ok(group);
+  assert.equal(group.inflowTotal, 1300);
+  assert.equal(group.outflowTotal, 300);
+  assert.equal((group.inflowTotal ?? 0) - (group.outflowTotal ?? 0), 1000);
+});
+
 test("builds a register href from the created bank account, not the upload", () => {
   assert.equal(registerHrefForImport({ bankAccount: { id: 43 } }), "/bank-register/43");
   assert.equal(registerHrefForImport({

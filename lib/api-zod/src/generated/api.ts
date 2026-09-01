@@ -1698,7 +1698,9 @@ export const GetStatementLinesSummaryResponse = zod.object({
   "lineCount": zod.number(),
   "dateFrom": zod.string().nullish(),
   "dateTo": zod.string().nullish(),
-  "sourceLabels": zod.array(zod.string())
+  "sourceLabels": zod.array(zod.string()),
+  "inflowTotal": zod.number(),
+  "outflowTotal": zod.number()
 }))
 })
 

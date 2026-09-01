@@ -3408,7 +3408,7 @@ components:
           type: array
           items:
             type: object
-            required: [bankAccountId, lineCount, sourceLabels]
+            required: [bankAccountId, lineCount, sourceLabels, inflowTotal, outflowTotal]
             properties:
               bankAccountId: { type: number }
               lineCount: { type: number }
@@ -3417,6 +3417,8 @@ components:
               sourceLabels:
                 type: array
                 items: { type: string }
+              inflowTotal: { type: number }
+              outflowTotal: { type: number }
     BankAccountReconciliationInput:
       type: object
       required: [clientId]

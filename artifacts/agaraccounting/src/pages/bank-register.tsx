@@ -32,6 +32,16 @@ const shortDate = (value: string) => {
   });
 };
 
+const money = (value: number, currency: string) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: 2 }).format(value);
+
+const presentDate = () => {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
+};
+
 const REGISTER_PAGE_SIZE = 200;
 
 export function BankRegisterIndexPage() {
@@ -44,13 +54,22 @@ export function BankRegisterIndexPage() {
   const summaryQuery = useGetStatementLinesSummary({ clientId }, {
     query: { queryKey: getGetStatementLinesSummaryQueryKey({ clientId }), enabled },
   });
+  const importsQuery = useGetStatementImports({ clientId }, {
+    query: { queryKey: getGetStatementImportsQueryKey({ clientId }), enabled },
+  });
   const groups = useMemo(
     () => groupBankRegistersFromSummary(accountsQuery.data ?? [], summaryQuery.data?.bankAccounts ?? []),
     [accountsQuery.data, summaryQuery.data],
   );
+  const balanceDate = presentDate();
+  const balances = useMemo(() => new Map(groups.map((group) => {
+    const opening = openingBalanceForRegister(importsQuery.data ?? [], group.accounts);
+    const currentMovement = group.inflowTotal - group.outflowTotal;
+    return [group.key, opening.value == null ? null : opening.value + currentMovement] as const;
+  })), [groups, importsQuery.data]);
   const unassignedCount = summaryQuery.data?.unassignedCount ?? 0;
-  const loading = accountsQuery.isLoading || summaryQuery.isLoading;
-  const error = accountsQuery.isError || summaryQuery.isError;
+  const loading = accountsQuery.isLoading || summaryQuery.isLoading || importsQuery.isLoading;
+  const error = accountsQuery.isError || summaryQuery.isError || importsQuery.isError;
   const queryClient = useQueryClient();
   const reconcile = useReconcileStatementLineBankAccounts({
     mutation: {
@@ -91,7 +110,7 @@ export function BankRegisterIndexPage() {
         <div className="flex flex-col items-center rounded-lg border border-destructive/30 bg-destructive/5 px-6 py-14 text-center" data-testid="state-error">
           <CircleAlert className="mb-3 text-destructive" size={23} />
           <h3 className="text-sm font-semibold">We couldn&apos;t load bank registers</h3>
-          <button type="button" onClick={() => { void accountsQuery.refetch(); void summaryQuery.refetch(); }} className="mt-4 rounded-md bg-card px-3 py-2 text-xs font-semibold shadow-sm hover:bg-muted">
+           <button type="button" onClick={() => { void accountsQuery.refetch(); void summaryQuery.refetch(); void importsQuery.refetch(); }} className="mt-4 rounded-md bg-card px-3 py-2 text-xs font-semibold shadow-sm hover:bg-muted">
             Try again
           </button>
         </div>
@@ -130,6 +149,16 @@ export function BankRegisterIndexPage() {
                       {shortDate(group.dateFrom)} to {shortDate(group.dateTo)}
                     </div>
                   ) : null}
+                   <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[11px]">
+                     <span className="text-muted-foreground">Balance as of {shortDate(balanceDate)}</span>
+                     {balances.get(group.key) == null ? (
+                       <span className="font-semibold text-muted-foreground">Opening balance needed</span>
+                     ) : (
+                       <span className="font-mono font-semibold tabular-nums text-foreground">
+                         {money(balances.get(group.key) ?? 0, group.currency)}
+                       </span>
+                     )}
+                   </div>
                 </div>
                 <span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{group.currency}</span>
               </Link>
@@ -341,7 +370,7 @@ export default function BankRegisterDetailPage() {
           />
           {lines.length < totalCount ? (
             <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 text-[11px] text-muted-foreground print:hidden">
-              <span>Showing {lines.length} of {totalCount} transactions</span>
+               <span>Showing {lines.length} of {totalCount} transactions</span>
               <button
                 type="button"
                 data-testid="button-load-more-register-lines"

@@ -14,4 +14,6 @@ export type StatementLinesSummaryBankAccountsItem = {
   /** @nullable */
   dateTo?: string | null;
   sourceLabels: string[];
+  inflowTotal: number;
+  outflowTotal: number;
 };
