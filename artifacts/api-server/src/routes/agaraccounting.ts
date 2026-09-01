@@ -11333,7 +11333,9 @@ router.get("/agaraccounting/report-packs/:id/pdf", async (req, res) => {
   if (pack.status !== "finalized") {
     return res.status(409).json({ error: "Finalize the reviewed report pack before downloading its PDF." });
   }
-  const pdf = buildReportPdf(pack.snapshot as ReportSnapshot, pack.signatory as ReportSignatory);
+  const validation = normalizeReportValidation(pack.validation as ReportValidation);
+  const showComparatives = validation.checks.find((check) => check.id === "comparatives")?.status === "pass";
+  const pdf = buildReportPdf(pack.snapshot as ReportSnapshot, pack.signatory as ReportSignatory, { showComparatives });
   const filename = `${client.legalName.replace(/[^a-zA-Z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "agaraccounting-ai"}-${calendarDate(pack.periodEnd)}-financial-statements.pdf`;
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

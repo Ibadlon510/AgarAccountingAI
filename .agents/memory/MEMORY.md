@@ -41,3 +41,4 @@
 - [Filtered ledger summaries](filtered-ledger-summaries.md) — every aggregate branch must reuse the active list filters, not only the headline total.
 - [Bank register and journal reconciliation](bank-register-journal-reconciliation.md) — compare normalized statement signs with each linked journal’s Bank / cash movement before investigating opening balances.
 - [First-year comparative reporting](first-year-comparative-reporting.md) — absent prior-period ledger activity is a review warning, not a finalization blocker, when comparative reporting is not applicable.
+- [Report PDF preview parity](report-pdf-preview-parity.md) — downloaded financial statements must match the reviewed preview’s structure and presentation.

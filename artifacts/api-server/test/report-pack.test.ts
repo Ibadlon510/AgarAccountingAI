@@ -11,6 +11,7 @@ import {
   type ReportSnapshot,
 } from "../src/lib/reportPack";
 import { buildReportPdf } from "../src/lib/reportPdf";
+import { PDFParse } from "pdf-parse";
 import { buildShareholdingSnapshot, closePeriodStartDate, formatShareParValue } from "../src/lib/shareCapital";
 
 let server: Server | undefined;
@@ -259,23 +260,32 @@ test("accepts only the report profiles eligible for each basis and annual period
   assert.deepEqual(eligibleReportProfiles("2027-12-31", "US GAAP"), []);
 });
 
-test("brands generated report PDFs as AgarAccounting AI System", () => {
+async function extractReportPdfText(pdf: Buffer) {
+  const parser = new PDFParse({ data: pdf });
+  try {
+    return (await parser.getText()).text;
+  } finally {
+    await parser.destroy();
+  }
+}
+
+test("brands generated report PDFs as AgarAccounting AI System", async () => {
   const { snapshot } = buildProfilePack("IFRS", "IAS 1");
   const pdf = buildReportPdf(snapshot, {
     preparedBy: "Report Preparer",
     reviewedBy: "Report Reviewer",
     authorizedBy: "Report Authorizer",
     authorizationDate: "2027-12-31",
-  }).toString("utf8");
-  assert.match(pdf, /AgarAccounting AI System report snapshot/);
-  assert.match(pdf, /evidence linkage in\)/);
-  assert.match(pdf, /\(AgarAccounting AI System\.\)/);
-  assert.match(pdf, /\(Profile test entity LLC\)/);
-  assert.doesNotMatch(pdf, /\(Profile test entity\)/);
-  assert.equal((pdf.match(/Authorized signatory/g) ?? []).length, 5);
+  });
+  const text = await extractReportPdfText(pdf);
+  assert.match(text, /AGARACCOUNTING AI SYSTEM/);
+  assert.match(text, /Profile test entity LLC/);
+  assert.doesNotMatch(text, /\nProfile test entity\n/);
+  assert.match(text, /Traceability:/);
+  assert.equal((text.match(/AUTHORIZED SIGNATORY/g) ?? []).length, 5);
 });
 
-test("includes only frozen eligible firm attribution in report PDFs", () => {
+test("includes only frozen eligible firm attribution in report PDFs", async () => {
   const { snapshot } = buildProfilePack("IFRS", "IAS 1");
   const signatory = {
     preparedBy: "Report Preparer",
@@ -283,14 +293,14 @@ test("includes only frozen eligible firm attribution in report PDFs", () => {
     authorizedBy: "Report Authorizer",
     authorizationDate: "2027-12-31",
   };
-  const unattributedPdf = buildReportPdf(snapshot, signatory).toString("utf8");
+  const unattributedPdf = await extractReportPdfText(buildReportPdf(snapshot, signatory));
   assert.doesNotMatch(unattributedPdf, /Prepared by firm:/);
 
-  const attributedPdf = buildReportPdf({
+  const attributedPdf = await extractReportPdfText(buildReportPdf({
     ...snapshot,
     firmAttribution: { enabled: true, firmName: "Snapshot Accounting Firm" },
-  }, signatory).toString("utf8");
-  assert.match(attributedPdf, /\(Prepared by firm: Snapshot Accounting Firm\)/);
+  }, signatory));
+  assert.match(attributedPdf, /Prepared by firm: Snapshot Accounting Firm/);
 });
 
 test("keeps SME and IFRS 18 statements, notes, and checklist prompts distinct from IAS 1", () => {
@@ -556,7 +566,7 @@ test("finalized snapshots retain their original profile and cannot be mutated", 
   assert.deepEqual(reloaded.body.snapshot, finalizedSnapshot);
 });
 
-test("builds a Share capital note from the client register", () => {
+test("builds a Share capital note from the client register", async () => {
   assert.equal(closePeriodStartDate("August 2026"), "2026-08-01");
   assert.equal(formatShareParValue(2000), "2000");
   const snapshot = buildShareholdingSnapshot({
@@ -628,12 +638,12 @@ test("builds a Share capital note from the client register", () => {
   const shareCapital = equity?.children?.find((row) => row.label === "Share capital");
   assert.equal(shareCapital?.current, 200000);
   assert.equal(shareCapital?.noteRef, "8");
-  const pdf = buildReportPdf(pack.snapshot, {
+  const pdf = await extractReportPdfText(buildReportPdf(pack.snapshot, {
     preparedBy: "Preparer",
     reviewedBy: "Reviewer",
     authorizedBy: "Authorizer",
     authorizationDate: "2026-12-31",
-  }).toString("utf8");
+  }));
   assert.match(pdf, /Mona Wagdy Ayad Helmy/);
   assert.match(pdf, /80,000/);
 });

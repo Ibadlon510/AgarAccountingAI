@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { buildEquityStatement } from "../src/lib/equityStatement";
 import { buildReportPdf } from "../src/lib/reportPdf";
 import type { ReportSnapshot } from "../src/lib/reportPack";
+import { PDFParse } from "pdf-parse";
 
 const amount = (label: string, current: number) => ({
   label,
@@ -13,7 +14,16 @@ const amount = (label: string, current: number) => ({
   sourceLineIds: [],
 });
 
-test("puts a handwritten signature placeholder on each primary statement and the notes", () => {
+async function extractPdfText(pdf: Buffer) {
+  const parser = new PDFParse({ data: pdf });
+  try {
+    return (await parser.getText()).text;
+  } finally {
+    await parser.destroy();
+  }
+}
+
+test("puts a handwritten signature placeholder on each primary statement and the notes", async () => {
   const snapshot = {
     entityName: "Profile test entity",
     legalName: "Profile test entity LLC",
@@ -35,26 +45,27 @@ test("puts a handwritten signature placeholder on each primary statement and the
     reviewedBy: "Report Reviewer",
     authorizedBy: "Report Authorizer",
     authorizationDate: "2027-12-31",
-  }).toString("utf8");
-  assert.equal((pdf.match(/Authorized signatory/g) ?? []).length, 5);
+  });
+  const text = await extractPdfText(pdf);
+  assert.equal((text.match(/AUTHORIZED SIGNATORY/g) ?? []).length, 5);
   const titles = [
     "Statement of financial position",
-    "Statement of profit or loss",
+    "Statement of profit or loss and other comprehensive income",
     "Statement of changes in equity",
     "Statement of cash flows",
     "Notes to the financial statements",
   ];
   for (const [index, title] of titles.entries()) {
-    const start = pdf.indexOf(title);
+    const start = text.indexOf(title);
     assert.ok(start >= 0, title);
-    const nextTitle = titles[index + 1] ?? "Authorization and source traceability";
-    const end = pdf.indexOf(nextTitle, start + title.length);
-    const slice = pdf.slice(start, end === -1 ? undefined : end);
-    assert.match(slice, /Authorized signatory/, `${title} should include a signature line`);
+    const nextTitle = titles[index + 1];
+    const end = nextTitle ? text.indexOf(nextTitle, start + title.length) : text.length;
+    const slice = text.slice(start, end === -1 ? undefined : end);
+    assert.match(slice, /AUTHORIZED SIGNATORY/, `${title} should include a signature line`);
   }
 });
 
-test("renders the equity matrix columns in the report PDF", () => {
+test("renders the equity matrix columns in the report PDF", async () => {
   const changesInEquity = buildEquityStatement({
     current: { shareCapital: 200000, otherReserves: 0, dividends: 0, netIncome: 80000, oci: 0 },
     comparative: { shareCapital: 200000, otherReserves: 0, dividends: 0, netIncome: 30000, oci: 0 },
@@ -86,14 +97,15 @@ test("renders the equity matrix columns in the report PDF", () => {
     reviewedBy: "Reviewer",
     authorizedBy: "Authorizer",
     authorizationDate: "2026-12-31",
-  }).toString("utf8");
-  const start = pdf.indexOf("Statement of changes in equity");
-  const end = pdf.indexOf("Statement of cash flows", start + 1);
-  const slice = pdf.slice(start, end === -1 ? undefined : end);
+  });
+  const text = await extractPdfText(pdf);
+  const start = text.indexOf("Statement of changes in equity");
+  const end = text.indexOf("Statement of cash flows", start + 1);
+  const slice = text.slice(start, end === -1 ? undefined : end);
   assert.match(slice, /Year ended 31 December 2026/);
-  assert.match(slice, /Share capital/);
-  assert.match(slice, /Retained earnings/);
+  assert.match(slice, /SHARE CAPITAL/);
+  assert.match(slice, /RETAINED EARNINGS/);
   assert.match(slice, /Profit for the year/);
-  assert.match(slice, /Authorized signatory/);
+  assert.match(slice, /AUTHORIZED SIGNATORY/);
   assert.doesNotMatch(slice, /Opening retained earnings/);
 });
