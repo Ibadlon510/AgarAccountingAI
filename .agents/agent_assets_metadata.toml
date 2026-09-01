@@ -28,3 +28,17 @@ mtime_ms = 1788164520947
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:e0084adf-47ef-4138-801e-f77f435ad94e/8db29372-e98c-4058-8e70-85c6e1d995e9/ebe8e215-d0ae-41ca-809c-c9127d47b0f9"
 storage_version_token = "1788164537621928"
 content_type = "text/plain"
+
+[[outputs]]
+id = "5lgeK7oJ_Dm2gH9vtRmsB"
+uri = "file://.agents/outputs/agaraccounting-neon-backup-2026-09-01.dump"
+type = "unspecified"
+title = "AgarAccounting external database backup"
+description = "Full PostgreSQL custom-format backup of the current external Neon database, captured before any database separation or migration changes. Keep this file private because it contains application data."
+logical_id = "597f0110-a7e0-4090-8bb5-eeece6b87283"
+content_hash = "sha256:ced9a96ac758335419243016c842631253c6d05f89c75f3fe0e68b281c560e28"
+size = 288034
+mtime_ms = 1788246487158
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:e0084adf-47ef-4138-801e-f77f435ad94e/597f0110-a7e0-4090-8bb5-eeece6b87283/e08a1158-11f1-4398-9fe3-b2b5d8153a2d"
+storage_version_token = "1788246496529721"
+content_type = "application/octet-stream"
