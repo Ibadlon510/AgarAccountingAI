@@ -18,7 +18,7 @@ export default function EngagementContractSignPage({ token, onSigned }: { token:
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10" data-testid="engagement-contract-sign">
-      <PageHeading eyebrow="Engagement contract" title="Review and sign" description="This is an in-app acknowledgement stored on the engagement. It is not a qualified electronic signature." />
+      <PageHeading eyebrow="Engagement contract" title="Review and sign" description="These terms are between the firm and the client. AgarAccounting AI provides the in-app acknowledgement workflow; it is not a party to the engagement." />
       <QueryState loading={preview.isLoading} error={preview.isError} empty={!contract} onRetry={() => preview.refetch()}>
         {contract && (
           <div className="space-y-5">

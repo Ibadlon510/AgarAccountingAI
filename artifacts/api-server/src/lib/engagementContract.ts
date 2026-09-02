@@ -12,11 +12,11 @@ export type EngagementServiceId = (typeof ENGAGEMENT_SERVICES)[number]["id"];
 
 export const ENGAGEMENT_CONFIRM_TTL_MS = 5 * 24 * 60 * 60 * 1000;
 
-export const DEFAULT_ENGAGEMENT_TERMS = `This terms of engagement records that the accounting firm will provide the listed services for the named client on the agreed dates, transaction volume, and annual revenue for the specified revenue coverage period.
+export const DEFAULT_ENGAGEMENT_TERMS = `These terms of engagement are between the accounting firm identified above and the named client. The accounting firm will provide the listed services on the agreed dates, transaction volume, and annual revenue for the specified revenue coverage period.
 
 The figures for transactions per month and revenue per year, together with the stated revenue coverage period, are the contracted scope. The revenue coverage period is independent of the service period and the client's financial year. These figures are not a live measurement and do not automatically change billing or posting rights.
 
-The client reviews these terms in AgarAccounting AI and acknowledges them by typing their name. That acknowledgement is stored on the engagement. It is not a qualified electronic signature, audit opinion, or statutory filing.
+AgarAccounting AI provides the in-app review and acknowledgement workflow only. The client reviews these terms in the application and acknowledges them by typing their name. That acknowledgement is stored on the engagement. It is not a qualified electronic signature, audit opinion, or statutory filing.
 
 The firm must confirm the engagement within five days of the client acknowledgement. If the firm does not confirm in time, the connection expires and firm access to the client workspace is removed.`;
 
@@ -103,7 +103,7 @@ export function buildEngagementContractPdf(input: EngagementContractTermsInput &
   ctx.fillRect(0, 0, PAGE_WIDTH, 8);
   setFont(ctx, 7.5, "mono", 600);
   ctx.fillStyle = COLORS.muted;
-  ctx.fillText("AGARACCOUNTING AI SYSTEM / ENGAGEMENT ACKNOWLEDGEMENT", MARGIN_X, 48);
+  ctx.fillText("FIRM / CLIENT ENGAGEMENT ACKNOWLEDGEMENT", MARGIN_X, 48);
 
   setFont(ctx, 26, "serif", 500);
   ctx.fillStyle = COLORS.ink;
@@ -111,7 +111,7 @@ export function buildEngagementContractPdf(input: EngagementContractTermsInput &
 
   setFont(ctx, 10, "sans", 400);
   ctx.fillStyle = COLORS.muted;
-  ctx.fillText("In-app acknowledgement stored on the engagement. Not a qualified e-signature.", MARGIN_X, 114);
+  ctx.fillText("Between the firm and client; acknowledgement delivered through AgarAccounting AI.", MARGIN_X, 114);
 
   const rows: Array<[string, string]> = [
     ["Firm", input.firmLegalName],
@@ -201,7 +201,7 @@ export function engagementContractEmail(input: {
     text: [
       `Hello,`,
       ``,
-      `${input.firmName} prepared terms of engagement for ${input.clientName} in AgarAccounting AI.`,
+      `${input.firmName} sent terms of engagement to ${input.clientName}. AgarAccounting AI is providing the secure review and acknowledgement workflow.`,
       ``,
       `Review the agreed services, transaction volume, annual revenue, and its coverage period, then sign in with this email address to acknowledge the terms.`,
       `This is an in-app acknowledgement stored on the engagement. It is not a qualified electronic signature.`,
