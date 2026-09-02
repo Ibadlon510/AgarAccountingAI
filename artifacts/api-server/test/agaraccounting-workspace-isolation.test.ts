@@ -847,6 +847,7 @@ test("does not remediate an exact demo-shaped workspace that is intentionally sh
     ownershipStatus: "company_owned",
     subscriptionLiableParty: "company",
     systemRatesEnabled: true,
+    reportSystemBrandingEnabled: true,
     shareCapitalAuthorisedShares: null,
     shareCapitalParValue: null,
     shareholders: [],

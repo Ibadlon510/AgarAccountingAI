@@ -1162,6 +1162,8 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
   const companyBilling = companyBillingFor(billingQuery.data, activeClient?.id);
   const [, setLocation] = useLocation();
   const [location] = useLocation();
+  const billingBannerFirm = isFirmPracticePath(location) ? firmBilling : undefined;
+  const billingBannerCompany = isFirmPracticePath(location) ? undefined : companyBilling;
   const showFirmNav = showsFirmNavigation(orgContext?.mode, firmBilling?.fullAccess ?? true);
   const showFirmPracticeNav = showFirmNav && isFirmPracticePath(location);
   const showPersistentWall = shouldShowPersistentFirmWall({
@@ -1324,7 +1326,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
            </div>
          </header>
           <StatementAnalysisBanner />
-          <BillingStatusBanner firm={firmBilling} company={companyBilling} />
+          <BillingStatusBanner firm={billingBannerFirm} company={billingBannerCompany} />
          <main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{showPersistentWall ? <FirmSubscribeWall persistent firm={firmBilling} billing={billingQuery.data} /> : children}</div></main>
          {createClientOpen && <AddClientDialog initialMode={createClientMode} onClose={() => { setCreateClientOpen(false); setCreateClientMode(undefined); }} />}
          {settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}

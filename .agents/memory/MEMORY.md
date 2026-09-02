@@ -45,3 +45,4 @@
 - [Bank register and journal reconciliation](bank-register-journal-reconciliation.md) — compare normalized statement signs with each linked journal’s Bank / cash movement before investigating opening balances.
 - [First-year comparative reporting](first-year-comparative-reporting.md) — absent prior-period ledger activity is a review warning, not a finalization blocker, when comparative reporting is not applicable.
 - [Report PDF preview parity](report-pdf-preview-parity.md) — downloaded financial statements must match the reviewed preview’s structure and presentation.
+- [Billing context timers](billing-context-timers.md) — scope Firm and Company trial countdowns to the active route; shared introductory pricing is separate.
