@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 let server: Server | undefined;
 let baseUrl = "";
@@ -39,6 +39,11 @@ const userIds = [
   `engagement-firm-owner-${randomUUID()}`,
   `engagement-unapproved-staff-${randomUUID()}`,
   `engagement-company-owner-${randomUUID()}`,
+  `practice-firm-owner-${randomUUID()}`,
+  `practice-firm-b-${randomUUID()}`,
+  `practice-bookkeeper-${randomUUID()}`,
+  `practice-signer-${randomUUID()}`,
+  `practice-dual-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -144,6 +149,9 @@ after(async () => {
   try {
     if (database) {
       if (clientIds.length) {
+        await database.db.delete(database.engagementContractsTable).where(inArray(database.engagementContractsTable.clientId, clientIds));
+        await database.db.delete(database.organizationInvitationsTable).where(inArray(database.organizationInvitationsTable.clientId, clientIds));
+        await database.db.delete(database.firmCompanyEngagementsTable).where(inArray(database.firmCompanyEngagementsTable.clientId, clientIds));
         await database.db.delete(database.journalEntriesTable).where(inArray(database.journalEntriesTable.clientId, clientIds));
         await database.db.delete(database.statementImportsTable).where(inArray(database.statementImportsTable.clientId, clientIds));
         await database.db.delete(database.statementLinesTable).where(inArray(database.statementLinesTable.clientId, clientIds));
@@ -153,6 +161,7 @@ after(async () => {
         await database.db.delete(database.clientWorkspacesTable).where(inArray(database.clientWorkspacesTable.clientId, clientIds));
         await database.db.delete(database.clientsTable).where(inArray(database.clientsTable.id, clientIds));
       }
+      await database.db.delete(database.organizationInvitationsTable).where(inArray(database.organizationInvitationsTable.invitedByUserId, userIds));
       await database.db.delete(database.exchangeRatesTable).where(inArray(database.exchangeRatesTable.userId, userIds));
       await database.db.delete(database.clientWorkspacesTable).where(inArray(database.clientWorkspacesTable.userId, userIds));
       await database.db.delete(database.usersTable).where(inArray(database.usersTable.id, userIds));
@@ -905,4 +914,182 @@ test("does not remediate a demo workspace after its AI provider is configured", 
   assert.equal(response.response.status, 200);
   assert.equal(response.body.length, 1);
   assert.equal(response.body[0].legacyDemo, false);
+});
+
+test("keeps firm overview and engagement contracts isolated and hides expired actuals", async () => {
+  assert.ok(database);
+  const firmOwnerId = userIds[30];
+  const firmBOwnerId = userIds[31];
+  const bookkeeperId = userIds[32];
+  const signerId = userIds[33];
+  const dualId = userIds[34];
+  const signerEmail = `signer-${randomUUID()}@example.com`;
+  await database.db.insert(database.usersTable).values([
+    { id: firmOwnerId, email: `practice-owner-${randomUUID()}@example.com`, firstName: "Practice", lastName: "Owner", onboardingMode: "firm" },
+    { id: firmBOwnerId, email: `practice-b-${randomUUID()}@example.com`, firstName: "Other", lastName: "Firm", onboardingMode: "firm" },
+    { id: bookkeeperId, email: `practice-books-${randomUUID()}@example.com`, firstName: "Practice", lastName: "Books", onboardingMode: "firm" },
+    { id: signerId, email: signerEmail, firstName: "Client", lastName: "Signer", onboardingMode: "company" },
+    { id: dualId, email: `practice-dual-${randomUUID()}@example.com`, firstName: "Dual", lastName: "Owner", onboardingMode: "both" },
+  ]);
+  const firms = await database.db.insert(database.firmProfilesTable).values([
+    { ownerUserId: firmOwnerId, name: "Practice Firm", legalName: "Practice Firm LLC", profileKind: "accounting_firm" },
+    { ownerUserId: firmBOwnerId, name: "Foreign Firm", legalName: "Foreign Firm LLC", profileKind: "accounting_firm" },
+  ]).returning();
+  await database.db.insert(database.firmMembershipsTable).values([
+    { firmId: firms[0].id, userId: firmOwnerId, role: "owner", status: "active" },
+    { firmId: firms[0].id, userId: bookkeeperId, role: "bookkeeper", status: "active" },
+    { firmId: firms[1].id, userId: firmBOwnerId, role: "owner", status: "active" },
+    { firmId: firms[0].id, userId: dualId, role: "owner", status: "active" },
+  ]);
+  const [personal] = await database.db.insert(database.clientsTable).values({
+    ownerUserId: dualId, ownershipStatus: "company_owned", subscriptionLiableParty: "company",
+    name: "Dual Personal Co", legalName: "Dual Personal Co LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+  }).returning();
+  clientIds.push(personal.id);
+  await database.db.insert(database.clientWorkspacesTable).values({ clientId: personal.id, userId: dualId, role: "owner" });
+
+  const missingTerms = await request<{ error: string }>(`/firms/${firms[0].id}/engagement-onboardings`, firmOwnerId, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "No Volume Client", legalName: "No Volume Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+      services: ["bookkeeping"], startDate: "2026-01-01", termsText: "Terms", signerEmail,
+    }),
+  });
+  assert.equal(missingTerms.response.status, 400);
+
+  const created = await request<{ id: number; clientId: number; inviteLink: string; terms: { agreedTransactionsPerMonth: number; agreedRevenuePerYear: number } }>(`/firms/${firms[0].id}/engagement-onboardings`, firmOwnerId, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Practice Client", legalName: "Practice Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+      services: ["bookkeeping", "journals"], agreedTransactionsPerMonth: 40, agreedRevenuePerYear: 250000,
+      startDate: "2026-01-01", termsText: "Agreed bookkeeping terms.", signerEmail,
+    }),
+  });
+  assert.equal(created.response.status, 201);
+  clientIds.push(created.body.clientId);
+  assert.equal(created.body.terms.agreedTransactionsPerMonth, 40);
+  assert.equal(created.body.terms.agreedRevenuePerYear, 250000);
+  const token = new URL(created.body.inviteLink).searchParams.get("organizationInvite");
+  assert.ok(token);
+
+  const foreignOverview = await request<{ error: string }>(`/agaraccounting/firm-overview?firmId=${firms[0].id}`, firmBOwnerId);
+  assert.equal(foreignOverview.response.status, 403);
+  const dualOverview = await request<{ clients: Array<{ name: string }> }>(`/agaraccounting/firm-overview?firmId=${firms[0].id}`, dualId);
+  assert.equal(dualOverview.response.status, 200);
+  assert.equal(dualOverview.body.clients.some((client) => client.name === "Dual Personal Co"), false);
+
+  const bookkeeperOverview = await request<{ clients: Array<{ id: number }> }>(`/agaraccounting/firm-overview?firmId=${firms[0].id}`, bookkeeperId);
+  assert.equal(bookkeeperOverview.response.status, 200);
+  assert.equal(bookkeeperOverview.body.clients.length, 0);
+
+  const wrongEmail = await request<{ error: string }>(`/organization-invitations/${token}/engagement-contract`, firmOwnerId, {
+    method: "POST", body: JSON.stringify({ signerName: "Wrong Person", accepted: true }),
+  });
+  assert.equal(wrongEmail.response.status, 403);
+
+  const signed = await request<{ id: number; status: string; terms: { agreedTransactionsPerMonth: number } }>(`/organization-invitations/${token}/engagement-contract`, signerId, {
+    method: "POST", body: JSON.stringify({ signerName: "Client Signer", accepted: true }),
+  });
+  assert.equal(signed.response.status, 200);
+  assert.equal(signed.body.status, "signed");
+  assert.equal(signed.body.terms.agreedTransactionsPerMonth, 40);
+
+  await database.db.insert(database.journalEntriesTable).values({
+    clientId: created.body.clientId,
+    date: "2026-08-15",
+    memo: "Draft sale",
+    currency: "AED",
+    status: "draft",
+    confidence: "0.90",
+    debitAccount: "Bank / cash",
+    creditAccount: "Revenue",
+    amount: "1000.00",
+  });
+  await database.db.insert(database.journalEntriesTable).values({
+    clientId: created.body.clientId,
+    date: "2026-08-16",
+    memo: "Posted sale",
+    currency: "AED",
+    status: "posted",
+    confidence: "0.99",
+    debitAccount: "Bank / cash",
+    creditAccount: "Revenue",
+    amount: "5000.00",
+    functionalCurrency: "AED",
+    functionalAmount: "5000.00",
+  });
+
+  const practice = await request<{
+    monthlyPostedJournals: Array<{ postedCount: number }>;
+    ledgerActualsHidden: boolean;
+  }>(`/agaraccounting/firm-clients/${created.body.clientId}/practice-overview?firmId=${firms[0].id}`, firmOwnerId);
+  assert.equal(practice.response.status, 200);
+  assert.equal(practice.body.ledgerActualsHidden, false);
+  assert.equal(practice.body.monthlyPostedJournals.reduce((sum, row) => sum + row.postedCount, 0), 1);
+
+  const confirmed = await request<{ status: string }>(`/engagement-onboardings/${created.body.id}/confirm`, firmOwnerId, { method: "POST" });
+  assert.equal(confirmed.response.status, 200);
+  assert.equal(confirmed.body.status, "confirmed");
+
+  const expiredContract = await request<{ id: number; clientId: number }>(`/firms/${firms[0].id}/engagement-onboardings`, firmOwnerId, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Expiring Client", legalName: "Expiring Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+      services: ["bookkeeping"], agreedTransactionsPerMonth: 10, agreedRevenuePerYear: 10000,
+      startDate: "2026-01-01", termsText: "Expire me.", signerEmail,
+    }),
+  });
+  assert.equal(expiredContract.response.status, 201);
+  clientIds.push(expiredContract.body.clientId);
+  await database.db.update(database.engagementContractsTable)
+    .set({ status: "signed", confirmBy: new Date(Date.now() - 1000) })
+    .where(eq(database.engagementContractsTable.id, expiredContract.body.id));
+  const lateConfirm = await request<{ error: string }>(`/engagement-onboardings/${expiredContract.body.id}/confirm`, firmOwnerId, { method: "POST" });
+  assert.equal(lateConfirm.response.status, 409);
+  const hidden = await request<{ ledgerActualsHidden: boolean }>(`/agaraccounting/firm-clients/${expiredContract.body.clientId}/practice-overview?firmId=${firms[0].id}`, firmOwnerId);
+  assert.equal(hidden.response.status, 200);
+  assert.equal(hidden.body.ledgerActualsHidden, true);
+
+  const foreignPractice = await request<{ error: string }>(`/agaraccounting/firm-clients/${created.body.clientId}/practice-overview?firmId=${firms[1].id}`, firmBOwnerId);
+  assert.equal(foreignPractice.response.status, 403);
+
+  const neverSigned = await request<{ id: number; clientId: number }>(`/firms/${firms[0].id}/engagement-onboardings`, firmOwnerId, {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Unsigned Draft Client", legalName: "Unsigned Draft Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
+      services: ["bookkeeping"], agreedTransactionsPerMonth: 8, agreedRevenuePerYear: 8000,
+      startDate: "2026-01-01", termsText: "Leave as a firm draft.", signerEmail,
+    }),
+  });
+  assert.equal(neverSigned.response.status, 201);
+  clientIds.push(neverSigned.body.clientId);
+  await database.db.update(database.organizationInvitationsTable)
+    .set({ expiresAt: new Date(Date.now() - 1000) })
+    .where(eq(database.organizationInvitationsTable.clientId, neverSigned.body.clientId));
+  const afterUnusedInvite = await request<{
+    clients: Array<{ id: number; name: string; onboardingStatus: string | null }>;
+  }>(`/agaraccounting/firm-overview?firmId=${firms[0].id}`, firmOwnerId);
+  assert.equal(afterUnusedInvite.response.status, 200);
+  const draftRow = afterUnusedInvite.body.clients.find((client) => client.id === neverSigned.body.clientId);
+  assert.ok(draftRow);
+  assert.equal(draftRow.onboardingStatus, "expired");
+  const [firmDraftWorkspace] = await database.db.select({
+    clientId: database.clientWorkspacesTable.clientId,
+  }).from(database.clientWorkspacesTable).where(and(
+    eq(database.clientWorkspacesTable.clientId, neverSigned.body.clientId),
+    eq(database.clientWorkspacesTable.userId, firmOwnerId),
+  ));
+  assert.ok(firmDraftWorkspace);
+  const draftPractice = await request<{ workspaceAccessible: boolean; canResend: boolean; ledgerActualsHidden: boolean }>(
+    `/agaraccounting/firm-clients/${neverSigned.body.clientId}/practice-overview?firmId=${firms[0].id}`,
+    firmOwnerId,
+  );
+  assert.equal(draftPractice.response.status, 200);
+  assert.equal(draftPractice.body.workspaceAccessible, true);
+  assert.equal(draftPractice.body.canResend, true);
+  assert.equal(draftPractice.body.ledgerActualsHidden, true);
+  const resent = await request<{ status: string; inviteLink?: string }>(`/engagement-onboardings/${neverSigned.body.id}/resend`, firmOwnerId, { method: "POST" });
+  assert.equal(resent.response.status, 200);
+  assert.equal(resent.body.status, "sent");
+  assert.ok(resent.body.inviteLink);
 });

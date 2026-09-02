@@ -162,7 +162,7 @@ export const firmCompanyEngagementsTable = pgTable("agaraccounting_firm_company_
 }, (table) => [
   uniqueIndex("agaraccounting_firm_company_engagements_pair_idx").on(table.firmId, table.clientId),
   index("agaraccounting_firm_company_engagements_client_status_idx").on(table.clientId, table.status),
-  check("agaraccounting_firm_company_engagements_status_check", sql`status in ('provisional', 'active', 'revoked')`),
+  check("agaraccounting_firm_company_engagements_status_v2_check", sql`status in ('provisional', 'active', 'revoked', 'expired')`),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
@@ -239,7 +239,7 @@ export const organizationInvitationsTable = pgTable("agaraccounting_organization
 }, (table) => [
   index("agaraccounting_organization_invitations_email_status_idx").on(table.email, table.status),
   index("agaraccounting_organization_invitations_client_idx").on(table.clientId),
-  check("agaraccounting_organization_invitations_kind_check", sql`kind in ('firm_member', 'firm_engagement', 'company_transfer')`),
+  check("agaraccounting_organization_invitations_kind_v2_check", sql`kind in ('firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract')`),
   check("agaraccounting_organization_invitations_role_check", sql`role is null or role in ('admin', 'accountant', 'bookkeeper')`),
   check("agaraccounting_organization_invitations_status_check", sql`status in ('pending', 'accepted', 'revoked', 'expired')`),
   foreignKey({
@@ -261,6 +261,65 @@ export const organizationInvitationsTable = pgTable("agaraccounting_organization
     columns: [table.acceptedUserId],
     foreignColumns: [usersTable.id],
     name: "agaraccounting_organization_invitations_accepter_fk",
+  }),
+]);
+
+export const engagementContractsTable = pgTable("agaraccounting_engagement_contracts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  engagementId: integer("engagement_id").notNull(),
+  firmId: integer("firm_id").notNull(),
+  clientId: integer("client_id").notNull(),
+  invitationId: integer("invitation_id"),
+  status: text("status").notNull().default("draft"),
+  services: jsonb("services").$type<string[]>().notNull(),
+  agreedTransactionsPerMonth: integer("agreed_transactions_per_month").notNull(),
+  agreedRevenuePerYear: numeric("agreed_revenue_per_year", { precision: 14, scale: 2 }).notNull(),
+  agreedRevenueCurrency: varchar("agreed_revenue_currency", { length: 3 }).notNull(),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  endDate: date("end_date", { mode: "string" }),
+  feeNote: text("fee_note"),
+  termsText: text("terms_text").notNull(),
+  firmLegalName: text("firm_legal_name").notNull(),
+  clientLegalName: text("client_legal_name").notNull(),
+  signerEmail: varchar("signer_email").notNull(),
+  signerName: text("signer_name"),
+  signedAt: timestamp("signed_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  confirmBy: timestamp("confirm_by", { withTimezone: true }),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  confirmedByUserId: varchar("confirmed_by_user_id"),
+  pdfObjectPath: text("pdf_object_path"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("agaraccounting_engagement_contracts_engagement_idx").on(table.engagementId),
+  index("agaraccounting_engagement_contracts_firm_status_idx").on(table.firmId, table.status),
+  index("agaraccounting_engagement_contracts_client_idx").on(table.clientId),
+  check("agaraccounting_engagement_contracts_status_check", sql`status in ('draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked')`),
+  foreignKey({
+    columns: [table.engagementId],
+    foreignColumns: [firmCompanyEngagementsTable.id],
+    name: "agaraccounting_engagement_contracts_engagement_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "agaraccounting_engagement_contracts_firm_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "agaraccounting_engagement_contracts_client_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.invitationId],
+    foreignColumns: [organizationInvitationsTable.id],
+    name: "agaraccounting_engagement_contracts_invitation_fk",
+  }),
+  foreignKey({
+    columns: [table.confirmedByUserId],
+    foreignColumns: [usersTable.id],
+    name: "agaraccounting_engagement_contracts_confirmer_fk",
   }),
 ]);
 

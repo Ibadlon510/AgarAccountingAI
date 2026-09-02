@@ -1,6 +1,7 @@
 import { Router, type IRouter, type RequestHandler } from "express";
 import healthRouter from "./health";
 import agaraccountingRouter from "./agaraccounting";
+import firmPracticeRouter from "./firmPractice";
 import storageRouter from "./storage";
 import { feedbackAuthRouter, feedbackPublicRouter } from "./feedback";
 import publicStatementLineRequestsRouter from "./statementLineRequests";
@@ -32,6 +33,7 @@ export function createRouter(
   router.use(authMiddleware);
   router.use(storageRouter);
   router.use(feedbackAuthRouter);
+  router.use(firmPracticeRouter);
   router.use(agaraccountingRouter);
 
   return router;

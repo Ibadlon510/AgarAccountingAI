@@ -196,6 +196,174 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OrganizationContext"
+  /organization-invitations/{token}/engagement-contract:
+    get:
+      operationId: getEngagementContractInvitation
+      tags: [agaraccounting]
+      summary: Preview a firm engagement contract awaiting signature
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Engagement contract preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementContractPreview"
+    post:
+      operationId: signEngagementContractInvitation
+      tags: [agaraccounting]
+      summary: Sign a firm engagement contract in-app
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignEngagementContractInput"
+      responses:
+        "200":
+          description: Engagement contract signed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementOnboarding"
+  /firms/{firmId}/engagement-onboardings:
+    post:
+      operationId: createEngagementOnboarding
+      tags: [agaraccounting]
+      summary: Create and send a firm-initiated client engagement contract
+      parameters:
+        - name: firmId
+          in: path
+          required: true
+          schema: { type: number }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EngagementOnboardingInput"
+      responses:
+        "201":
+          description: Engagement onboarding created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementOnboarding"
+  /engagement-onboardings/{id}:
+    get:
+      operationId: getEngagementOnboarding
+      tags: [agaraccounting]
+      summary: Get a firm engagement onboarding
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Engagement onboarding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementOnboarding"
+  /engagement-onboardings/{id}/confirm:
+    post:
+      operationId: confirmEngagementOnboarding
+      tags: [agaraccounting]
+      summary: Confirm a signed engagement within five days
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Engagement confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementOnboarding"
+  /engagement-onboardings/{id}/revoke:
+    post:
+      operationId: revokeEngagementOnboarding
+      tags: [agaraccounting]
+      summary: Cancel a pending engagement onboarding
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Engagement onboarding revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementOnboarding"
+  /engagement-onboardings/{id}/resend:
+    post:
+      operationId: resendEngagementOnboarding
+      tags: [agaraccounting]
+      summary: Resend an unsigned engagement contract
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Engagement contract resent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EngagementOnboarding"
+  /agaraccounting/firm-overview:
+    get:
+      operationId: getFirmOverview
+      tags: [agaraccounting]
+      summary: Get a firm-scoped practice overview
+      parameters:
+        - name: firmId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Firm practice overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmOverview"
+  /agaraccounting/firm-clients/{clientId}/practice-overview:
+    get:
+      operationId: getFirmClientPracticeOverview
+      tags: [agaraccounting]
+      summary: Get agreed-versus-actual practice metrics for one firm client
+      parameters:
+        - name: clientId
+          in: path
+          required: true
+          schema: { type: number }
+        - name: firmId
+          in: query
+          required: true
+          schema: { type: number }
+      responses:
+        "200":
+          description: Firm client practice overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmClientPracticeOverview"
   /engagements/{id}/nominations:
     post:
       operationId: nominateFirmEngagementMember
@@ -2791,7 +2959,7 @@ components:
         companyName: { type: string }
         status:
           type: string
-          enum: [provisional, active, revoked]
+          enum: [provisional, active, revoked, expired]
         canManageFirm: { type: boolean }
         canManageCompany: { type: boolean }
         members:
@@ -2805,7 +2973,7 @@ components:
         id: { type: number }
         kind:
           type: string
-          enum: [firm_member, firm_engagement, company_transfer]
+          enum: [firm_member, firm_engagement, company_transfer, engagement_contract]
         email: { type: string }
         status:
           type: string
@@ -3321,6 +3489,203 @@ components:
       properties:
         status: { type: string, enum: [active] }
         message: { type: string }
+    EngagementService:
+      type: string
+      enum: [bookkeeping, statement_review, journals, ifrs_pack, uae_tax_estimate]
+    EngagementOnboardingStatus:
+      type: string
+      enum: [draft, sent, signed, confirmed, expired, revoked]
+    EngagementOnboardingInput:
+      type: object
+      required: [name, legalName, functionalCurrency, basis, period, services, agreedTransactionsPerMonth, agreedRevenuePerYear, startDate, termsText, signerEmail]
+      properties:
+        name: { type: string }
+        legalName: { type: string }
+        functionalCurrency: { type: string }
+        basis: { type: string }
+        period: { type: string }
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngagementService"
+        agreedTransactionsPerMonth: { type: number }
+        agreedRevenuePerYear: { type: number }
+        startDate: { type: string, format: date }
+        endDate: { type: ["string", "null"], format: date }
+        feeNote: { type: ["string", "null"] }
+        termsText: { type: string }
+        signerEmail: { type: string }
+    SignEngagementContractInput:
+      type: object
+      required: [signerName, accepted]
+      properties:
+        signerName: { type: string }
+        accepted: { type: boolean }
+    EngagementContractTerms:
+      type: object
+      required: [services, agreedTransactionsPerMonth, agreedRevenuePerYear, agreedRevenueCurrency, startDate, termsText, firmLegalName, clientLegalName]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngagementService"
+        agreedTransactionsPerMonth: { type: number }
+        agreedRevenuePerYear: { type: number }
+        agreedRevenueCurrency: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: ["string", "null"], format: date }
+        feeNote: { type: ["string", "null"] }
+        termsText: { type: string }
+        firmLegalName: { type: string }
+        clientLegalName: { type: string }
+    EngagementOnboarding:
+      type: object
+      required: [id, engagementId, firmId, clientId, clientName, status, terms, signerEmail, inviteExpiresAt]
+      properties:
+        id: { type: number }
+        engagementId: { type: number }
+        firmId: { type: number }
+        clientId: { type: number }
+        clientName: { type: string }
+        status:
+          $ref: "#/components/schemas/EngagementOnboardingStatus"
+        terms:
+          $ref: "#/components/schemas/EngagementContractTerms"
+        signerEmail: { type: string }
+        signerName: { type: ["string", "null"] }
+        signedAt: { type: ["string", "null"], format: date-time }
+        sentAt: { type: ["string", "null"], format: date-time }
+        confirmBy: { type: ["string", "null"], format: date-time }
+        confirmedAt: { type: ["string", "null"], format: date-time }
+        inviteExpiresAt: { type: ["string", "null"], format: date-time }
+        inviteLink: { type: string }
+        pdfBase64: { type: string }
+        emailDeliveryStatus: { type: string, enum: [sent, failed] }
+    EngagementContractPreview:
+      type: object
+      required: [id, firmName, clientName, status, terms, signerEmail]
+      properties:
+        id: { type: number }
+        firmName: { type: string }
+        clientName: { type: string }
+        status:
+          $ref: "#/components/schemas/EngagementOnboardingStatus"
+        terms:
+          $ref: "#/components/schemas/EngagementContractTerms"
+        signerEmail: { type: string }
+        pdfBase64: { type: string }
+    FirmOverviewTotals:
+      type: object
+      required: [clientCount, pendingReviewClients, pendingReviewLines, missingRateClients, awaitingSignatureCount, awaitingConfirmationCount, expiredOnboardingCount, pendingInvitationCount]
+      properties:
+        clientCount: { type: number }
+        pendingReviewClients: { type: number }
+        pendingReviewLines: { type: number }
+        missingRateClients: { type: number }
+        awaitingSignatureCount: { type: number }
+        awaitingConfirmationCount: { type: number }
+        expiredOnboardingCount: { type: number }
+        pendingInvitationCount: { type: number }
+    FirmOverviewClient:
+      type: object
+      required: [id, name, period, ownershipStatus, functionalCurrency, completionPercent, pendingReview, totalLines, journalCount, missingRateCount, postedAmountFunctional, onboardingStatus]
+      properties:
+        id: { type: number }
+        name: { type: string }
+        period: { type: string }
+        ownershipStatus: { type: string }
+        functionalCurrency: { type: string }
+        completionPercent: { type: number }
+        pendingReview: { type: number }
+        totalLines: { type: number }
+        journalCount: { type: number }
+        missingRateCount: { type: number }
+        postedAmountFunctional: { type: number }
+        onboardingStatus:
+          oneOf:
+            - $ref: "#/components/schemas/EngagementOnboardingStatus"
+            - type: "null"
+        engagementStatus: { type: ["string", "null"] }
+        agreedTransactionsPerMonth: { type: ["number", "null"] }
+        agreedRevenuePerYear: { type: ["number", "null"] }
+        agreedRevenueCurrency: { type: ["string", "null"] }
+        onboardingId: { type: ["number", "null"] }
+        confirmBy: { type: ["string", "null"], format: date-time }
+        canResend: { type: boolean }
+    FirmOverviewAttention:
+      type: object
+      required: [kind, label]
+      properties:
+        kind:
+          type: string
+          enum: [pending_review, missing_rates, awaiting_signature, awaiting_confirmation, expired_onboarding, pending_invitation]
+        label: { type: string }
+        clientId: { type: ["number", "null"] }
+        onboardingId: { type: ["number", "null"] }
+    FirmOverview:
+      type: object
+      required: [firmId, firmName, totals, clients, attention]
+      properties:
+        firmId: { type: number }
+        firmName: { type: string }
+        totals:
+          $ref: "#/components/schemas/FirmOverviewTotals"
+        clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmOverviewClient"
+        attention:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmOverviewAttention"
+    FirmClientMonthlyJournals:
+      type: object
+      required: [month, postedCount]
+      properties:
+        month: { type: string }
+        postedCount: { type: number }
+    FirmClientPracticeOverview:
+      type: object
+      required: [clientId, clientName, firmId, ownershipStatus, engagementStatus, onboardingStatus, ledgerActualsHidden, closeSnapshot, monthlyPostedJournals, currentMonthPostedJournals, revenueSource]
+      properties:
+        clientId: { type: number }
+        clientName: { type: string }
+        firmId: { type: number }
+        ownershipStatus: { type: string }
+        engagementStatus: { type: ["string", "null"] }
+        onboardingStatus:
+          oneOf:
+            - $ref: "#/components/schemas/EngagementOnboardingStatus"
+            - type: "null"
+        onboardingId: { type: ["number", "null"] }
+        confirmBy: { type: ["string", "null"], format: date-time }
+        services:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngagementService"
+        startDate: { type: ["string", "null"], format: date }
+        endDate: { type: ["string", "null"], format: date }
+        feeNote: { type: ["string", "null"] }
+        agreedTransactionsPerMonth: { type: ["number", "null"] }
+        agreedRevenuePerYear: { type: ["number", "null"] }
+        agreedRevenueCurrency: { type: ["string", "null"] }
+        signedAt: { type: ["string", "null"], format: date-time }
+        canResend: { type: boolean }
+        workspaceAccessible: { type: boolean }
+        ledgerActualsHidden: { type: boolean }
+        closeSnapshot:
+          $ref: "#/components/schemas/LedgerOverview"
+        monthlyPostedJournals:
+          type: array
+          items:
+            $ref: "#/components/schemas/FirmClientMonthlyJournals"
+        currentMonthPostedJournals: { type: number }
+        actualRevenuePerYear: { type: ["number", "null"] }
+        revenuePeriod: { type: ["string", "null"] }
+        revenueSource:
+          type: string
+          enum: [report_pack, live_statements, unavailable]
+        missingRateCount: { type: number }
     LedgerOverview:
       type: object
       required: [period, currencies, totalLines, pendingReview, postedAmount, completionPercent, functionalCurrency, postedAmountFunctional, missingRateCount, missingRateCurrencies, journalCount]

@@ -13,4 +13,5 @@ export const FirmEngagementStatus = {
   provisional: 'provisional',
   active: 'active',
   revoked: 'revoked',
+  expired: 'expired',
 } as const;

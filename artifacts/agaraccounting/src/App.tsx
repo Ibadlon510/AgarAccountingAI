@@ -4,7 +4,7 @@ import { Link, Redirect, Route, Router as WouterRouter, Switch, useLocation } fr
 import {
   ArrowDownLeft, ArrowRight, BarChart3, BookOpenCheck, Check, ChevronDown, ChevronRight,
   CircleAlert, CircleCheck, CircleHelp, Download, FileCheck2, FileSpreadsheet, FileText, Filter, Landmark,
-  LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
+  Building2, LayoutDashboard, LoaderCircle, LogOut, Menu, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw,
   Mail, RotateCw, Search, Settings2, Sparkles, Table2, Trash2, UploadCloud, UserPlus, Users, X, CalendarDays, Pencil
 } from 'lucide-react';
 import {
@@ -14,8 +14,8 @@ import {
   useArchiveLedgerflowAccount, useCreateClient, useCreateJournalEntry, useCreateLedgerflowAccount, useCreateReportPack, useCreateStatementLine, useDeleteJournalEntry, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetLedgerflowAccounts, useGetReportPack, useGetReportPacks, useGetUaeCorporateTaxSummary,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useDeleteReportPack, useExportStatementLines, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetStatementLinesSummary, useGetJournalEntriesSummary, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useUpdateJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
-  useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteFirmMember, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useNominateFirmEngagementMember, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement,
-  useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts
+  useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement, useGetEngagementContractInvitation,
+  useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts,
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
@@ -37,6 +37,12 @@ import { AssistantFAB } from './components/assistant-fab';
 import FeedbackPage, { FeedbackPublicShell } from './pages/feedback';
 import BankStatementDisplayPage from './pages/bank-statement-display';
 import BankRegisterDetailPage, { BankRegisterIndexPage } from './pages/bank-register';
+import FirmDashboardPage from './pages/firm-dashboard';
+import FirmClientDashboardPage from './pages/firm-client-dashboard';
+import FirmClientOnboardingPage from './pages/firm-client-onboarding';
+import EngagementContractSignPage from './pages/engagement-contract-sign';
+import { FirmEngagementsSection, FirmMembersSection } from '@/components/firm-admin';
+import { landingPathForMode, showsFirmNavigation, isFirmPracticePath } from '@/lib/firm-landing';
 import { registerHrefForImport } from '@/lib/bank-register';
 import { SendForRemarksDialog } from './components/send-for-remarks-dialog';
 import { RemarksLinksSettings } from './components/remarks-links-settings';
@@ -746,112 +752,6 @@ function ClientSettingsPage() {
 }
 
 
-function FirmMembersSection({ firmId, members, invitations }: { firmId: number, members: FirmMembership[], invitations: OrganizationInvitation[] }) {
-  const [email, setEmail] = useState('');
-  const invite = useInviteFirmMember();
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const invited = email;
-    invite.mutate({ id: firmId, data: { email, role: 'accountant' } }, {
-      onSuccess: () => {
-        setEmail('');
-        queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
-        notify.success('Firm member invited', { description: `Invitation sent to ${invited}.` });
-      }
-    });
-  };
-
-  const firmInvitations = invitations.filter(inv => inv.firmId === firmId && inv.kind === 'firm_member');
-
-  return (
-    <section className="rounded-lg border border-card-border bg-card p-5 md:p-6 mt-6">
-      <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Firm Access</div>
-      <h2 className="mt-2 text-base font-semibold">Firm Members</h2>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">Manage accountants and bookkeepers in your firm.</p>
-
-      <form onSubmit={submit} className="mt-5 flex items-end gap-3">
-        <label className="flex-1 text-xs font-medium">Email address<input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder="colleague@firm.com" /></label>
-        <button disabled={invite.isPending} className="h-10 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Invite member</button>
-      </form>
-
-      <div className="mt-5 divide-y rounded-md border border-border">
-        {members.map(m => (
-          <div key={m.userId} className="flex items-center justify-between p-3 text-xs">
-            <div><strong>{m.name}</strong> · {m.email}</div>
-            <div className="font-mono text-[10px] uppercase text-muted-foreground">{m.role}</div>
-          </div>
-        ))}
-        {firmInvitations.map(inv => (
-          <div key={inv.id} className="flex items-center justify-between p-3 text-xs bg-muted/50">
-            <div><strong>{inv.email}</strong> · Invited</div>
-            <div className="font-mono text-[10px] uppercase text-muted-foreground">{inv.status}</div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function FirmEngagementsSection({ engagements }: { engagements: FirmEngagement[] }) {
-  const nominate = useNominateFirmEngagementMember();
-  const revoke = useRevokeFirmEngagement();
-
-  return (
-    <section className="rounded-lg border border-card-border bg-card p-5 md:p-6 mt-6">
-      <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client relationships</div>
-      <h2 className="mt-2 text-base font-semibold">Firm Engagements</h2>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">Companies that have hired your firm for bookkeeping.</p>
-
-      {engagements.length === 0 ? (
-        <p className="mt-4 text-xs text-muted-foreground">No active engagements.</p>
-      ) : (
-        <div className="mt-5 space-y-4">
-          {engagements.map(eng => (
-            <div key={eng.id} className="rounded-md border border-border p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold">{eng.companyName}</h3>
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">{eng.status} engagement</div>
-                </div>
-                {eng.canManageCompany && <button onClick={() => { if(confirm("Revoke engagement?")) revoke.mutate({ id: eng.id }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${eng.companyName} engagement revoked`); } }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke</button>}
-              </div>
-
-              <div className="mt-4 border-t border-border pt-4">
-                <h4 className="text-xs font-semibold">Assigned team</h4>
-                <div className="mt-2 space-y-2">
-                  {eng.members.map(m => (
-                    <div key={m.userId} className="flex items-center justify-between text-[11px]">
-                      <span>{m.name} ({m.email}) - {m.role}</span>
-                      <span className="font-mono text-[9px] uppercase text-muted-foreground">{m.status}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {eng.canManageFirm && eng.status === 'active' && <form className="mt-3 flex gap-2" onSubmit={e => {
-                  e.preventDefault();
-                  const form = new FormData(e.currentTarget);
-                  const nominatedEmail = form.get('email') as string;
-                  nominate.mutate({ id: eng.id, data: { email: nominatedEmail, role: 'bookkeeper' } }, {
-                    onSuccess: () => {
-                      (e.target as HTMLFormElement).reset();
-                      queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
-                      notify.success('Member nominated', { description: `${nominatedEmail} is awaiting company approval.` });
-                    }
-                  });
-                }}>
-                  <input name="email" required type="email" placeholder="Assign firm member by email" className="h-8 flex-1 rounded border border-input bg-background px-2 text-xs" />
-                  <button className="h-8 rounded bg-secondary px-3 text-xs font-semibold text-secondary-foreground hover:bg-secondary/80">Nominate</button>
-                </form>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 function FirmSettingsPage() {
   const orgContext = useOrgContext();
   const firmRateScope = { firmId: orgContext?.firms[0]?.firmId };
@@ -1034,14 +934,14 @@ type AgarAccountingUser = {
   firstName: string | null;
   lastName: string | null;
 };
-function AddClientDialog({ onClose }: { onClose: () => void }) {
+function AddClientDialog({ onClose, initialMode }: { onClose: () => void; initialMode?: "own_company" | "firm_client" }) {
   const { setActiveClientId } = useClientWorkspace();
   const orgContext = useOrgContext();
   const mutation = useCreateClient();
   const [form, setForm] = useState({ name: '', legalName: '', functionalCurrency: 'AED', basis: 'IFRS', period: '' });
 
   const [creationMode, setCreationMode] = useState<'own_company' | 'firm_client'>(
-    orgContext?.mode === 'firm' ? 'firm_client' : 'own_company'
+    initialMode ?? (orgContext?.mode === 'firm' ? 'firm_client' : 'own_company')
   );
   const [firmId, setFirmId] = useState(orgContext?.firms[0]?.firmId ?? 0);
 
@@ -1208,19 +1108,28 @@ function StatementAnalysisBanner() {
     </div>
   </div>;
 }
+const firmNav = [
+  { href: '/firm-dashboard', label: 'Firm dashboard', icon: Building2 },
+  { href: '/firm-settings', label: 'Firm settings', icon: Users },
+];
 function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AgarAccountingUser; onLogout: () => void }) {
   const { activeClient, clients, setActiveClientId } = useClientWorkspace();
+  const orgContext = useOrgContext();
+  const [, setLocation] = useLocation();
   const [location] = useLocation();
+  const showFirmNav = showsFirmNavigation(orgContext?.mode);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [createClientOpen, setCreateClientOpen] = useState(false);
+  const [createClientMode, setCreateClientMode] = useState<"own_company" | "firm_client" | undefined>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.primaryEmailAddress?.emailAddress || 'Account';
   const initials = [user.firstName?.[0], user.lastName?.[0]].filter(Boolean).join('').toUpperCase() || displayName.slice(0, 2).toUpperCase();
-  const current = nav.find((item) => item.href === '/' ? location === '/' : location.startsWith(item.href))?.label ?? 'Close overview';
+  const current = [...(showFirmNav ? firmNav : []), ...nav].find((item) => item.href === '/' ? location === '/' || location === '/user-portal' : location.startsWith(item.href))?.label ?? (isFirmPracticePath(location) ? 'Practice' : 'Close overview');
+  const firmName = orgContext?.firms[0]?.firmName;
   const clientVisitStorageKey = `agaraccounting:frequent-clients:${user.externalId ?? user.id}`;
   const [clientVisitHistory, setClientVisitHistory] = useState<Array<{ id: number; count: number; lastVisited: number }>>(() => {
     try {
@@ -1286,7 +1195,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
   return <AssistantPageContextProvider><div className="min-h-[100dvh] bg-background">
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[78px] items-center border-b border-sidebar-border px-5"><div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center"><img src={brandMarkUrl} alt="" className="size-9 rounded-lg" /></div><div className={`${collapsed ? 'md:hidden' : ''}`}><div className="font-display text-[18px] leading-none tracking-tight text-sidebar-foreground">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/50">Review desk</div></div></div><button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button></div>
-      <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
+      <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}>{showFirmNav && <><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Firm</div><nav className="mb-5 space-y-1">{firmNav.map(({ href, label, icon: Icon }) => { const active = location === href || location.startsWith(`${href}/`); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></>}<div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' || location === '/user-portal' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
        <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>{activeClient ? `${activeClient.basis} / ${activeClient.functionalCurrency}` : '—'}</span><span>{activeClient?.ownershipStatus === 'firm_provisional' ? 'Firm Provisional' : activeClient?.ownershipStatus === 'company_owned' ? 'Company Owned' : activeClient?.period ?? '—'}</span></div></div></div>
     </aside>
        <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}>
@@ -1295,7 +1204,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
              <button data-testid="button-mobile-menu" aria-label="Open navigation" className="rounded-md p-2 hover:bg-muted md:hidden" onClick={() => setMobileOpen(true)}><Menu size={19} /></button>
              <button data-testid="button-collapse-sidebar" aria-label="Toggle sidebar" className="hidden rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground md:block" onClick={() => setCollapsed(!collapsed)}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}</button>
              <div className="hidden h-5 w-px bg-border md:block" />
-             <div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{activeClient?.name ?? 'Client'} / IFRS close</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div>
+             <div><div className="font-mono text-[9px] uppercase tracking-[.18em] text-muted-foreground">{isFirmPracticePath(location) ? `${firmName ?? 'Firm'} / Practice` : `${activeClient?.name ?? 'Client'} / IFRS close`}</div><div className="mt-0.5 text-[13px] font-semibold">{current}</div></div>
            </div>
            <div className="flex items-center gap-2 md:gap-3">
              <div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] text-muted-foreground lg:flex"><span className="size-1.5 rounded-full bg-primary" /> Books are in balance</div>
@@ -1310,7 +1219,12 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                      {visibleClients.map((client) => <button key={client.id} data-testid={`button-client-workspace-${client.id}`} type="button" role="menuitemradio" aria-checked={activeClient?.id === client.id} onClick={() => { setActiveClientId(client.id); setAccountMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${activeClient?.id === client.id ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><span className="min-w-0 truncate font-semibold">{client.name}</span><span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">{client.functionalCurrency}</span></button>)}
                    </div>
                    {clients.length > 5 && <button data-testid="button-view-all-clients" type="button" onClick={() => setShowAllClients((visible) => !visible)} className="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-secondary">{showAllClients ? 'Show frequent clients' : `View all ${clients.length} clients`}</button>}
-                   <button data-testid="button-add-client" type="button" onClick={() => { setCreateClientOpen(true); setAccountMenuOpen(false); }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />Add client</button>
+                   <button data-testid="button-add-client" type="button" onClick={() => {
+                     setAccountMenuOpen(false);
+                     if (showFirmNav) setLocation('/firm-onboard');
+                     else setCreateClientOpen(true);
+                   }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />{showFirmNav ? 'Onboard a client' : 'Add client'}</button>
+                   {orgContext?.mode === 'both' && <button data-testid="button-add-own-company" type="button" onClick={() => { setAccountMenuOpen(false); setCreateClientMode("own_company"); setCreateClientOpen(true); }} className="mt-1 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-primary hover:bg-secondary">Add own company</button>}
                  </div>
                  <Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link>
                  <Link data-testid="link-feedback-account-menu" href="/feedback" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-0.5 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><MessageSquarePlus size={14} className="text-primary" /> Feedback & reviews</Link>
@@ -1321,7 +1235,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
          </header>
           <StatementAnalysisBanner />
          <main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>
-         {createClientOpen && <AddClientDialog onClose={() => setCreateClientOpen(false)} />}
+         {createClientOpen && <AddClientDialog initialMode={createClientMode} onClose={() => { setCreateClientOpen(false); setCreateClientMode(undefined); }} />}
          {settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}
          {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
        </div>
@@ -4358,8 +4272,12 @@ function FinancialStatementsPage() {
     </AlertDialog>
   </div>;
 }
+function HomeRedirect() {
+  const orgContext = useOrgContext();
+  return <Redirect to={landingPathForMode(orgContext?.mode)} />;
+}
 function Router() {
-  return <Switch><Route path="/" component={Home} /><Route path="/user-portal" component={Home} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={HomeRedirect} /><Route path="/user-portal" component={Home} /><Route path="/firm-dashboard" component={FirmDashboardPage} /><Route path="/firm-clients/:id" component={FirmClientDashboardPage} /><Route path="/firm-onboard" component={FirmClientOnboardingPage} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
@@ -4430,7 +4348,7 @@ type CompanyOnboardingUser = {
   primaryEmailAddress: { emailAddress: string } | null;
 };
 
-function CompanyOnboarding({ user, onComplete, onLogout }: { user: CompanyOnboardingUser; onComplete: () => Promise<void> | void; onLogout: () => void }) {
+function CompanyOnboarding({ user, onComplete, onLogout }: { user: CompanyOnboardingUser; onComplete: (mode?: OrganizationMode) => Promise<void> | void; onLogout: () => void }) {
   const [mode, setMode] = useState<'company' | 'firm' | 'both'>('company');
   const create = useCompleteOrganizationOnboarding();
   const updateProfile = useUpdateAgarAccountingAccountProfile();
@@ -4493,7 +4411,7 @@ function CompanyOnboarding({ user, onComplete, onLogout }: { user: CompanyOnboar
           } : {})
         }
       });
-      await onComplete();
+      await onComplete(mode);
     } catch {
       setValidationMessage('We couldn’t save your account details. Check your connection and try again.');
     }
@@ -4566,11 +4484,11 @@ function AgarAccountingApp({ user, profileUser, onLogout }: { user: AgarAccounti
   if (workspaceLoadState === 'failed') return <WorkspaceRecoveryState onRetry={() => { orgQuery.refetch(); clientsQuery.refetch(); }} />;
 
   if (orgContext?.onboardingRequired) {
-    const completeOnboarding = async () => {
+    const completeOnboarding = async (mode?: OrganizationMode) => {
       await queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
       await queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
       setAllowLegacyDemoSelection(false);
-      setLocation('/user-portal');
+      setLocation(landingPathForMode(mode));
     };
     return <CompanyOnboarding user={profileUser} onComplete={completeOnboarding} onLogout={onLogout} />;
   }
@@ -4582,9 +4500,6 @@ function AuthBoundary() {
   const { isLoaded, isSignedIn } = useAuth();
   const { user } = useUser();
   const { signOut } = useClerk();
-  const [location] = useLocation();
-  const inviteToken = new URLSearchParams(window.location.search).get("invite");
-  const orgToken = new URLSearchParams(window.location.search).get("organizationInvite");
   const currentUserId = user ? user.externalId ?? user.id : null;
   const [cacheReadyForUserId, setCacheReadyForUserId] = useState<string | null>(null);
 
@@ -4598,7 +4513,6 @@ function AuthBoundary() {
   if (!isLoaded) return <AuthLoadingState />;
   if (!isSignedIn || !user) return <AccessScreen />;
   if (cacheReadyForUserId !== currentUserId) return <AuthLoadingState label="Preparing your secure workspace" />;
-  if (location === "/" && !inviteToken && !orgToken) return <Redirect to="/user-portal" />;
 
   const handleLogout = () => {
     clearUserScopedState(queryClient);
@@ -4612,11 +4526,12 @@ function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), [location]);
   const workspaceToken = searchParams.get("invite");
   const orgToken = searchParams.get("organizationInvite");
+  const contractPreview = useGetEngagementContractInvitation(orgToken ?? "", { query: { enabled: Boolean(orgToken), retry: false } });
 
   const acceptWorkspace = useAcceptWorkspaceInvitation();
   const acceptOrg = useAcceptOrganizationInvitation();
   const [message, setMessage] = useState("");
-  const clearToken = () => setLocation("/user-portal", { replace: true });
+  const clearToken = () => setLocation("/", { replace: true });
 
   useEffect(() => {
     if (workspaceToken) {
@@ -4632,7 +4547,7 @@ function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
           notify.error(error, { title: 'Workspace invite failed', description: msg, fallback: msg });
         },
       });
-    } else if (orgToken) {
+    } else if (orgToken && contractPreview.isError) {
       acceptOrg.mutate({ token: orgToken }, {
         onSuccess: () => {
           clearToken();
@@ -4647,9 +4562,13 @@ function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
         },
       });
     }
-  }, [workspaceToken, orgToken]);
+  }, [workspaceToken, orgToken, contractPreview.isError]);
 
   if (!workspaceToken && !orgToken) return <>{children}</>;
+  if (orgToken && contractPreview.isLoading) return <AuthLoadingState label="Loading engagement contract" />;
+  if (orgToken && contractPreview.data) {
+    return <EngagementContractSignPage token={orgToken} onSigned={clearToken} />;
+  }
   if (acceptWorkspace.isPending || acceptOrg.isPending) return <AuthLoadingState label="Joining your invited workspace" />;
   if (!message) return <AuthLoadingState label="Joining your invited workspace" />;
 
@@ -4677,6 +4596,10 @@ function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
 }
 
 function AccessScreen() {
+  return <DefaultAccessScreen />;
+}
+
+function DefaultAccessScreen() {
   return <main className="grid min-h-[100dvh] place-items-center bg-background px-5 py-10" data-testid="auth-access-screen"><div className="w-full max-w-[420px]"><div className="rounded-lg border border-card-border bg-card p-7 shadow-md sm:p-9"><div className="flex items-center gap-3"><div className="grid size-10 place-items-center"><img src={brandMarkUrl} alt="" className="size-10 rounded-lg" /></div><div><div className="font-display text-[22px] leading-none tracking-tight">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-muted-foreground">Review desk</div></div></div><div className="mt-10"><div className="font-mono text-[10px] uppercase tracking-[.18em] text-primary">Secure access</div><h1 className="mt-3 font-display text-[36px] leading-[.98] tracking-tight">Your close, ready for review.</h1><p className="mt-4 text-[13px] leading-6 text-muted-foreground">Sign in to open your private bookkeeping review desk. New to AgarAccounting AI System? The same secure flow lets you create an account.</p><Link data-testid="button-login" href="/sign-in" className="focus-ring mt-7 flex h-11 w-full items-center justify-center rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground shadow-sm transition-transform hover:-translate-y-0.5">Sign in or create account</Link><Link data-testid="link-feedback-access-screen" href="/feedback" className="mt-4 flex w-full items-center justify-center gap-1 text-[12px] font-semibold text-primary underline-offset-2 hover:underline">See what others are saying <ArrowRight size={12} /></Link></div></div><p className="mt-5 text-center font-mono text-[9px] uppercase tracking-[.14em] text-muted-foreground/70">Secure session · Human posting control</p></div></main>;
 }
 

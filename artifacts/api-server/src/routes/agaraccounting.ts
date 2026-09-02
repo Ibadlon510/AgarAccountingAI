@@ -1546,7 +1546,7 @@ function organizationInviteLink(req: Request, token: string) {
 
 function organizationInvitationResponse(invitation: typeof organizationInvitationsTable.$inferSelect, inviteLink?: string) {
   return {
-    id: invitation.id, kind: invitation.kind as "firm_member" | "firm_engagement" | "company_transfer",
+    id: invitation.id, kind: invitation.kind as "firm_member" | "firm_engagement" | "company_transfer" | "engagement_contract",
     email: invitation.email, status: invitation.status as "pending" | "accepted" | "revoked" | "expired",
     clientId: invitation.clientId, firmId: invitation.firmId, role: invitation.role,
     expiresAt: invitation.expiresAt, createdAt: invitation.createdAt, ...(inviteLink ? { inviteLink } : {}),
@@ -8331,7 +8331,7 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
   res.json(CompleteOrganizationOnboardingResponse.parse(await organizationContext(userId)));
 });
 
-async function createOrganizationInvitation(req: Request, res: Response, input: { kind: "firm_member" | "firm_engagement" | "company_transfer"; firmId: number | null; clientId: number | null; email: string; role?: string | null }) {
+async function createOrganizationInvitation(req: Request, res: Response, input: { kind: "firm_member" | "firm_engagement" | "company_transfer" | "engagement_contract"; firmId: number | null; clientId: number | null; email: string; role?: string | null }) {
   const token = randomBytes(32).toString("base64url");
   const [invitation] = await db.insert(organizationInvitationsTable).values({
     kind: input.kind, firmId: input.firmId, clientId: input.clientId, email: input.email.trim().toLowerCase(),
@@ -8372,6 +8372,7 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
   const result = await db.transaction(async (tx) => {
     const [invite] = await tx.select().from(organizationInvitationsTable).where(eq(organizationInvitationsTable.tokenHash, tokenHash)).for("update");
     if (!invite || invite.status !== "pending") return "unavailable" as const;
+    if (invite.kind === "engagement_contract") return "sign" as const;
     if (invite.expiresAt <= new Date()) { await tx.update(organizationInvitationsTable).set({ status: "expired" }).where(eq(organizationInvitationsTable.id, invite.id)); return "expired" as const; }
     if (!user?.email || user.email.toLowerCase() !== invite.email.toLowerCase()) return "email" as const;
     if (invite.kind === "firm_member" && invite.firmId) {
@@ -8395,6 +8396,7 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
     await tx.update(organizationInvitationsTable).set({ status: "accepted", acceptedUserId: userId }).where(eq(organizationInvitationsTable.id, invite.id));
     return "ok" as const;
   });
+  if (result === "sign") { res.status(409).json({ error: "Review and sign the engagement contract to continue." }); return; }
   if (result === "email") { res.status(403).json({ error: "Sign in with the email address that received this invitation." }); return; }
   if (result === "firm_admin") { res.status(403).json({ error: "Firm engagement invitations must be accepted by a firm owner or admin." }); return; }
   if (result === "expired") { res.status(410).json({ error: "This invitation has expired." }); return; }
@@ -8411,7 +8413,7 @@ async function engagementResponse(engagementId: number, actorUserId: string) {
     .innerJoin(usersTable, eq(usersTable.id, firmEngagementMembersTable.userId)).where(eq(firmEngagementMembersTable.engagementId, engagementId));
   const [firmMember] = await db.select().from(firmMembershipsTable).where(and(eq(firmMembershipsTable.firmId, row.engagement.firmId), eq(firmMembershipsTable.userId, actorUserId), eq(firmMembershipsTable.status, "active"))).limit(1);
   const [companyMember] = await db.select().from(clientWorkspacesTable).where(and(eq(clientWorkspacesTable.clientId, row.engagement.clientId), eq(clientWorkspacesTable.userId, actorUserId))).limit(1);
-  return { id: row.engagement.id, firmId: row.firm.id, firmName: row.firm.name, clientId: row.client.id, companyName: row.client.name, status: row.engagement.status as "provisional" | "active" | "revoked", canManageFirm: !!firmMember && isManagerRole(firmMember.role), canManageCompany: !!companyMember && isManagerRole(companyMember.role), members: members.map(({ member, user }) => ({ userId: member.userId, name: displayName(user), email: user.email ?? "", role: member.role as "accountant" | "bookkeeper", status: member.status as "nominated" | "approved" | "revoked" })) };
+  return { id: row.engagement.id, firmId: row.firm.id, firmName: row.firm.name, clientId: row.client.id, companyName: row.client.name, status: row.engagement.status as "provisional" | "active" | "revoked" | "expired", canManageFirm: !!firmMember && isManagerRole(firmMember.role), canManageCompany: !!companyMember && isManagerRole(companyMember.role), members: members.map(({ member, user }) => ({ userId: member.userId, name: displayName(user), email: user.email ?? "", role: member.role as "accountant" | "bookkeeper", status: member.status as "nominated" | "approved" | "revoked" })) };
 }
 router.post("/engagements/:id/nominations", async (req, res): Promise<void> => {
   const { id } = NominateFirmEngagementMemberParams.parse(req.params); const body = NominateFirmEngagementMemberBody.parse(req.body);

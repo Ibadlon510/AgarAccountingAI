@@ -396,6 +396,7 @@ export const FirmEngagementStatus = {
   provisional: 'provisional',
   active: 'active',
   revoked: 'revoked',
+  expired: 'expired',
 } as const;
 
 export interface FirmEngagement {
@@ -417,6 +418,7 @@ export const OrganizationInvitationKind = {
   firm_member: 'firm_member',
   firm_engagement: 'firm_engagement',
   company_transfer: 'company_transfer',
+  engagement_contract: 'engagement_contract',
 } as const;
 
 export type OrganizationInvitationStatus = typeof OrganizationInvitationStatus[keyof typeof OrganizationInvitationStatus];

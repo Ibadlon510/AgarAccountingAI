@@ -132,7 +132,7 @@ export const GetOrganizationContextResponse = zod.object({
   "firmName": zod.string(),
   "clientId": zod.number(),
   "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -145,7 +145,7 @@ export const GetOrganizationContextResponse = zod.object({
 })),
   "invitations": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract']),
   "email": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clientId": zod.number().nullish(),
@@ -231,7 +231,7 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "firmName": zod.string(),
   "clientId": zod.number(),
   "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -244,7 +244,7 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
 })),
   "invitations": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract']),
   "email": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clientId": zod.number().nullish(),
@@ -277,7 +277,7 @@ export const InviteFirmMemberBody = zod.object({
 
 export const InviteFirmMemberResponse = zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract']),
   "email": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clientId": zod.number().nullish(),
@@ -310,7 +310,7 @@ export const InviteAccountingFirmBody = zod.object({
 
 export const InviteAccountingFirmResponse = zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract']),
   "email": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clientId": zod.number().nullish(),
@@ -342,7 +342,7 @@ export const InviteCompanyOwnerTransferBody = zod.object({
 
 export const InviteCompanyOwnerTransferResponse = zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract']),
   "email": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clientId": zod.number().nullish(),
@@ -414,7 +414,7 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "firmName": zod.string(),
   "clientId": zod.number(),
   "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -427,7 +427,7 @@ export const AcceptOrganizationInvitationResponse = zod.object({
 })),
   "invitations": zod.array(zod.object({
   "id": zod.number(),
-  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer']),
+  "kind": zod.enum(['firm_member', 'firm_engagement', 'company_transfer', 'engagement_contract']),
   "email": zod.string(),
   "status": zod.enum(['pending', 'accepted', 'revoked', 'expired']),
   "clientId": zod.number().nullish(),
@@ -464,7 +464,7 @@ export const NominateFirmEngagementMemberResponse = zod.object({
   "firmName": zod.string(),
   "clientId": zod.number(),
   "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -491,7 +491,7 @@ export const ApproveFirmEngagementMemberResponse = zod.object({
   "firmName": zod.string(),
   "clientId": zod.number(),
   "companyName": zod.string(),
-  "status": zod.enum(['provisional', 'active', 'revoked']),
+  "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({

@@ -13,4 +13,5 @@ export const OrganizationInvitationKind = {
   firm_member: 'firm_member',
   firm_engagement: 'firm_engagement',
   company_transfer: 'company_transfer',
+  engagement_contract: 'engagement_contract',
 } as const;
