@@ -125,3 +125,51 @@ The figures for transactions per month and revenue per year are the contracted s
 The client reviews these terms in AgarAccounting AI and acknowledges them by typing their name. That acknowledgement is stored on the engagement. It is not a qualified electronic signature, audit opinion, or statutory filing.
 
 The firm must confirm the engagement within five days of the client acknowledgement. If the firm does not confirm in time, the connection expires and firm access to the client workspace is removed.`;
+
+export const FIRM_HOST_SUFFIX = "agaraccounting.com";
+
+export const RESERVED_FIRM_SLUGS = new Set([
+  "www", "api", "app", "admin", "mail", "ftp", "cdn", "staging", "static", "assets",
+  "help", "status", "billing", "clerk", "feedback", "signin", "signup", "sign-in", "sign-up",
+  "www2", "dev", "test", "preview", "support", "docs", "blog",
+]);
+
+export function slugifyFirmName(name: string) {
+  const slug = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return slug.length >= 3 ? slug : "";
+}
+
+export function firmSlugError(slug: string) {
+  if (slug.length < 3 || slug.length > 32) return "Use 3 to 32 letters, numbers, or hyphens.";
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return "Use lowercase letters, numbers, and hyphens only.";
+  if (RESERVED_FIRM_SLUGS.has(slug)) return "That address is reserved. Choose another slug.";
+  return null;
+}
+
+export function publicFirmHost(slug: string, suffix = FIRM_HOST_SUFFIX) {
+  return `${slug}.${suffix}`;
+}
+
+export function firmLandingFallbackPath(slug: string) {
+  return `/f/${slug}`;
+}
+
+export function firmSlugFromHost(hostname: string, suffix = FIRM_HOST_SUFFIX) {
+  const host = hostname.split(":")[0]?.trim().toLowerCase() ?? "";
+  if (!host || host === "localhost" || host === "127.0.0.1") return null;
+  const local = host.match(/^([a-z0-9-]+)\.localhost$/);
+  if (local?.[1] && !RESERVED_FIRM_SLUGS.has(local[1])) return local[1];
+  const root = suffix.toLowerCase();
+  if (host === root || host === `www.${root}`) return null;
+  if (!host.endsWith(`.${root}`)) return null;
+  const slug = host.slice(0, -(root.length + 1));
+  if (!slug || slug.includes(".") || RESERVED_FIRM_SLUGS.has(slug)) return null;
+  return slug;
+}

@@ -18,6 +18,7 @@
 - [Onboarding domain separation](onboarding-domain-separation.md) — register the firm first; collect reporting settings for each client when that client is created.
 - [Firm practice dashboard](firm-practice-dashboard.md) — firm/both land on the practice book; never roll money across clients; pass firmId explicitly; portfolio opens the firm client page.
 - [Firm engagement contracts](firm-engagement-contracts.md) — in-app acknowledgement, five-day firm confirm, agreed volume/revenue frozen on the contract, expired connections hide ledger actuals.
+- [Firm white-label landing](firm-white-label.md) — Firm Pro/trial publishes `{slug}.agaraccounting.com` (and `/f/{slug}`); lapse 404s the page; JPEG/PNG/WebP logo only.
 - [AI import continuity and safety](ai-import-continuity.md) — retain imports across navigation with exact upload identity; only parse bank-provenanced fallback documents.
 - [PDF bank statement extraction](pdf-bank-statement-extraction.md) — recognize bank-provenanced multiline PDF tables deterministically and never let AI replace their complete transaction set.
 - [Firm exchange-rate schedules](firm-exchange-rate-schedules.md) — exchange-rate schedules are firm-owned and shared across that firm’s clients.

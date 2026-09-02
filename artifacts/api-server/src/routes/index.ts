@@ -2,8 +2,11 @@ import { Router, type IRouter, type RequestHandler } from "express";
 import healthRouter from "./health";
 import agaraccountingRouter from "./agaraccounting";
 import firmPracticeRouter from "./firmPractice";
+import billingRouter from "./billing";
+import billingWebhookRouter from "./billingWebhook";
 import storageRouter from "./storage";
 import { feedbackAuthRouter, feedbackPublicRouter } from "./feedback";
+import { firmBrandingAuthRouter, firmBrandingPublicRouter } from "./firmBranding";
 import publicStatementLineRequestsRouter from "./statementLineRequests";
 import { optionalAuth, requireAuth } from "../middlewares/authMiddleware";
 
@@ -30,7 +33,11 @@ export function createRouter(
   router.use(healthRouter);
   router.use(publicFeedback);
   router.use(publicStatementLineRequestsRouter);
+  router.use(billingWebhookRouter);
+  router.use(firmBrandingPublicRouter);
   router.use(authMiddleware);
+  router.use(billingRouter);
+  router.use(firmBrandingAuthRouter);
   router.use(storageRouter);
   router.use(feedbackAuthRouter);
   router.use(firmPracticeRouter);

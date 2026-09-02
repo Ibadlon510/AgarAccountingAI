@@ -17,5 +17,7 @@ export {
   useRevokeStatementLineDetailRequest,
 } from "./statement-line-remarks";
 export * from "./firm-practice";
+export * from "./billing";
+export * from "./firm-branding";
 export { customFetch, setBaseUrl, setAuthTokenGetter } from "./custom-fetch";
 export type { AuthTokenGetter } from "./custom-fetch";

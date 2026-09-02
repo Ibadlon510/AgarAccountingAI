@@ -32,10 +32,16 @@ export const firmProfilesTable = pgTable("agaraccounting_firm_profiles", {
   profileKind: text("profile_kind").notNull().default("accounting_firm"),
   systemRatesEnabled: boolean("system_rates_enabled").notNull().default(true),
   reportAttributionEnabled: boolean("report_attribution_enabled").notNull().default(false),
+  slug: text("slug"),
+  logoObjectPath: text("logo_object_path"),
+  landingHeadline: text("landing_headline"),
+  landingTagline: text("landing_tagline"),
+  landingEnabled: boolean("landing_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   uniqueIndex("agaraccounting_firm_profiles_owner_kind_idx").on(table.ownerUserId, table.profileKind),
+  uniqueIndex("agaraccounting_firm_profiles_slug_uidx").on(table.slug),
   foreignKey({
     columns: [table.ownerUserId],
     foreignColumns: [usersTable.id],
@@ -1028,3 +1034,58 @@ export type FeedbackPost = typeof feedbackPostsTable.$inferSelect;
 export type FeedbackReply = typeof feedbackRepliesTable.$inferSelect;
 export type FeedbackPostLink = typeof feedbackPostLinksTable.$inferSelect;
 export type FeedbackReaction = typeof feedbackReactionsTable.$inferSelect;
+
+export const billingAccountsTable = pgTable("agaraccounting_billing_accounts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  payerType: text("payer_type").notNull(),
+  firmId: integer("firm_id"),
+  clientId: integer("client_id"),
+  stripeCustomerId: text("stripe_customer_id"),
+  email: text("email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  uniqueIndex("agaraccounting_billing_accounts_firm_uidx").on(table.firmId),
+  uniqueIndex("agaraccounting_billing_accounts_client_uidx").on(table.clientId),
+  uniqueIndex("agaraccounting_billing_accounts_stripe_customer_uidx").on(table.stripeCustomerId),
+  index("agaraccounting_billing_accounts_payer_idx").on(table.payerType),
+  check("agaraccounting_billing_accounts_payer_check", sql`payer_type in ('firm', 'company')`),
+  foreignKey({
+    columns: [table.firmId],
+    foreignColumns: [firmProfilesTable.id],
+    name: "agaraccounting_billing_accounts_firm_fk",
+  }).onDelete("cascade"),
+  foreignKey({
+    columns: [table.clientId],
+    foreignColumns: [clientsTable.id],
+    name: "agaraccounting_billing_accounts_client_fk",
+  }).onDelete("cascade"),
+]);
+
+export const billingSubscriptionsTable = pgTable("agaraccounting_billing_subscriptions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  billingAccountId: integer("billing_account_id").notNull(),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripePriceId: text("stripe_price_id"),
+  stripeScheduleId: text("stripe_schedule_id"),
+  planKey: text("plan_key").notNull(),
+  status: text("status").notNull(),
+  trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("agaraccounting_billing_subscriptions_account_idx").on(table.billingAccountId, table.updatedAt),
+  uniqueIndex("agaraccounting_billing_subscriptions_stripe_uidx").on(table.stripeSubscriptionId),
+  check("agaraccounting_billing_subscriptions_plan_check", sql`plan_key in ('firm', 'company_pro', 'company_pro_firm_member')`),
+  check("agaraccounting_billing_subscriptions_status_check", sql`status in ('trialing', 'active', 'past_due', 'canceled', 'lapsed_readonly', 'locked')`),
+  foreignKey({
+    columns: [table.billingAccountId],
+    foreignColumns: [billingAccountsTable.id],
+    name: "agaraccounting_billing_subscriptions_account_fk",
+  }).onDelete("cascade"),
+]);
+
+export type BillingAccount = typeof billingAccountsTable.$inferSelect;
+export type BillingSubscription = typeof billingSubscriptionsTable.$inferSelect;

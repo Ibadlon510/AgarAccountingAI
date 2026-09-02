@@ -20,6 +20,8 @@ tags:
     description: Public feedback board reads and authenticated writes
   - name: public
     description: Token-gated public pages that never grant workspace access
+  - name: billing
+    description: Firm and company subscription billing
 paths:
   /auth/user:
     get:
@@ -80,6 +82,206 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FirmProfile"
+  /billing/me:
+    get:
+      operationId: getBillingMe
+      tags: [billing]
+      summary: Get firm and company billing state, intro catalog, and countdown
+      responses:
+        "200":
+          description: Billing context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingMe"
+  /billing/checkout:
+    post:
+      operationId: createBillingCheckout
+      tags: [billing]
+      summary: Create a Stripe Checkout session for Firm Pro or Company Pro
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingCheckoutInput"
+      responses:
+        "200":
+          description: Checkout URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingRedirect"
+        "400":
+          description: Invalid payer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+        "501":
+          description: Stripe is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+  /billing/portal:
+    post:
+      operationId: createBillingPortal
+      tags: [billing]
+      summary: Open the Stripe customer portal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingPortalInput"
+      responses:
+        "200":
+          description: Portal URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingRedirect"
+        "404":
+          description: No Stripe customer yet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+  /workspace/firm-branding:
+    get:
+      operationId: getFirmBranding
+      tags: [billing]
+      summary: Get the firm's white-label landing settings
+      responses:
+        "200":
+          description: Firm branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmBranding"
+        "404":
+          description: No accounting firm
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+    patch:
+      operationId: updateFirmBranding
+      tags: [billing]
+      summary: Update the firm's white-label slug, copy, and landing toggle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FirmBrandingInput"
+      responses:
+        "200":
+          description: Firm branding saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmBranding"
+        "400":
+          description: Invalid branding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+        "409":
+          description: Slug already taken
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+  /workspace/firm-branding/logo:
+    get:
+      operationId: getFirmBrandingLogo
+      tags: [billing]
+      summary: Stream the firm's saved logo for settings preview
+      responses:
+        "200":
+          description: Logo bytes
+          content:
+            image/png: {}
+            image/jpeg: {}
+            image/webp: {}
+        "404":
+          description: No logo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+    post:
+      operationId: createFirmBrandingLogo
+      tags: [billing]
+      summary: Upload a JPEG, PNG, or WebP logo for the firm landing page
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FirmBrandingLogoInput"
+      responses:
+        "200":
+          description: Logo stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FirmBrandingLogo"
+        "400":
+          description: Invalid image
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+  /public/firm-landing/{slug}:
+    get:
+      operationId: getPublicFirmLanding
+      tags: [public]
+      summary: Public white-label landing for a subscribed or trialing firm
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Public firm landing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicFirmLanding"
+        "404":
+          description: Landing unpublished or unknown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+  /public/firm-landing/{slug}/logo:
+    get:
+      operationId: getPublicFirmLandingLogo
+      tags: [public]
+      summary: Stream the published firm logo
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Logo bytes
+          content:
+            image/png: {}
+            image/jpeg: {}
+            image/webp: {}
+        "404":
+          description: Logo unpublished or unknown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
   /organizations/context:
     get:
       operationId: getOrganizationContext
@@ -3260,6 +3462,9 @@ components:
             statementEvidenceDays: { type: number }
             aiActivityDays: { type: number }
             ledgerDataDescription: { type: string }
+        billingStatus: { type: string }
+        introEndsAt: { type: string, format: date-time }
+        introActive: { type: boolean }
     AICostModelUsage:
       type: object
       required: [provider, model, activityCount, estimatedCostUsd]
@@ -5067,3 +5272,143 @@ components:
         name: { type: string }
         size: { type: number }
         contentType: { type: string }
+    ErrorMessage:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string }
+    BillingPriceQuote:
+      type: object
+      required: [intro, list, current]
+      properties:
+        intro: { type: number }
+        list: { type: number }
+        current: { type: number }
+    BillingPriceCatalog:
+      type: object
+      required: [currency, introActive, introEndsAt, companyPro, companyProFirmMember, firm]
+      properties:
+        currency: { type: string, enum: [AED] }
+        introActive: { type: boolean }
+        introEndsAt: { type: string, format: date-time }
+        companyPro: { $ref: "#/components/schemas/BillingPriceQuote" }
+        companyProFirmMember: { $ref: "#/components/schemas/BillingPriceQuote" }
+        firm: { $ref: "#/components/schemas/BillingPriceQuote" }
+    BillingPlanLimits:
+      type: object
+      required: [name, statementImportsPerMonth, storedEvidenceBytes, aiActivityPerMonth, clientWorkspaces]
+      properties:
+        name: { type: string }
+        statementImportsPerMonth: { type: number }
+        storedEvidenceBytes: { type: number }
+        aiActivityPerMonth: { type: number }
+        clientWorkspaces: { type: number }
+    FirmBilling:
+      type: object
+      required: [payer, firmId, plan, planName, status, fullAccess, writeAccess, readAccess, trialEndsAt, readonlyUntil, lockedAt, limits]
+      properties:
+        payer: { type: string, enum: [firm] }
+        firmId: { type: number }
+        plan: { type: string, enum: [firm] }
+        planName: { type: string }
+        status: { type: string, enum: [trialing, active, past_due, lapsed_readonly, locked] }
+        fullAccess: { type: boolean }
+        writeAccess: { type: boolean }
+        readAccess: { type: boolean }
+        trialEndsAt: { type: ["string", "null"], format: date-time }
+        readonlyUntil: { type: ["string", "null"], format: date-time }
+        lockedAt: { type: ["string", "null"], format: date-time }
+        limits: { $ref: "#/components/schemas/BillingPlanLimits" }
+    CompanyBilling:
+      type: object
+      required: [payer, clientId, plan, planName, status, writeAccess, trialEndsAt, isFirmMember, revenue, revenueThreshold, revenueCurrency, limits]
+      properties:
+        payer: { type: string, enum: [company] }
+        clientId: { type: number }
+        plan: { type: string, enum: [trial, free, pro] }
+        planName: { type: string }
+        status: { type: string, enum: [trialing, pro, free, requires_pro] }
+        writeAccess: { type: boolean }
+        trialEndsAt: { type: ["string", "null"], format: date-time }
+        isFirmMember: { type: boolean }
+        revenue: { type: number }
+        revenueThreshold: { type: number }
+        revenueCurrency: { type: string }
+        limits: { $ref: "#/components/schemas/BillingPlanLimits" }
+    BillingMe:
+      type: object
+      required: [prices, stripeEnabled, firms, companies]
+      properties:
+        prices: { $ref: "#/components/schemas/BillingPriceCatalog" }
+        stripeEnabled: { type: boolean }
+        firms:
+          type: array
+          items: { $ref: "#/components/schemas/FirmBilling" }
+        companies:
+          type: array
+          items: { $ref: "#/components/schemas/CompanyBilling" }
+    BillingCheckoutInput:
+      type: object
+      required: [payerType]
+      properties:
+        payerType: { type: string, enum: [firm, company] }
+        firmId: { type: number }
+        clientId: { type: number }
+    BillingPortalInput:
+      type: object
+      required: [payerType]
+      properties:
+        payerType: { type: string, enum: [firm, company] }
+        firmId: { type: number }
+        clientId: { type: number }
+    BillingRedirect:
+      type: object
+      required: [url]
+      properties:
+        url: { type: ["string", "null"] }
+    FirmBranding:
+      type: object
+      required: [slug, publicHost, pathFallback, logoUrl, landingHeadline, landingTagline, landingEnabled, available, canManage]
+      properties:
+        slug: { type: ["string", "null"] }
+        publicHost: { type: ["string", "null"] }
+        pathFallback: { type: ["string", "null"] }
+        logoUrl: { type: ["string", "null"] }
+        landingHeadline: { type: ["string", "null"] }
+        landingTagline: { type: ["string", "null"] }
+        landingEnabled: { type: boolean }
+        available: { type: boolean }
+        canManage: { type: boolean }
+    FirmBrandingInput:
+      type: object
+      properties:
+        slug: { type: string }
+        landingHeadline: { type: ["string", "null"] }
+        landingTagline: { type: ["string", "null"] }
+        landingEnabled: { type: boolean }
+        logoObjectPath: { type: ["string", "null"] }
+    FirmBrandingLogoInput:
+      type: object
+      required: [fileName, contentType, fileBase64]
+      properties:
+        fileName: { type: string }
+        contentType: { type: string }
+        fileBase64: { type: string }
+    FirmBrandingLogo:
+      type: object
+      required: [logoUrl, objectPath]
+      properties:
+        logoUrl: { type: string }
+        objectPath: { type: string }
+    PublicFirmLanding:
+      type: object
+      required: [slug, name, legalName, headline, tagline, logoUrl, host]
+      properties:
+        slug: { type: string }
+        name: { type: string }
+        legalName: { type: string }
+        headline: { type: string }
+        tagline: { type: ["string", "null"] }
+        logoUrl: { type: ["string", "null"] }
+        host: { type: string }

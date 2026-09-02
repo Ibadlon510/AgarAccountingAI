@@ -238,6 +238,23 @@ import {
   testAIProvider,
 } from "../lib/ai-provider";
 import { EmailDeliveryError, sendDetailRequestEmail, sendWorkspaceInvitationEmail } from "../lib/resend";
+import {
+  billingDenial,
+  currentPriceCatalog,
+  ensureLocalCompanyTrial,
+  ensureLocalFirmTrial,
+  firmManagedWorkspaceCount,
+  INTRO_RATES_END_AT,
+  introRatesActive,
+  isBillingDenial,
+  limitDenial,
+  PLAN_LIMITS,
+  resolveBilling,
+  resolveFirmBilling,
+  type BillingDenial,
+} from "../lib/billing";
+import { syncMemberPrice } from "../lib/stripeBilling";
+import { allocateUniqueSlug } from "./firmBranding";
 import { ObjectNotFoundError } from "../lib/objectStorage";
 import {
   emptyNoteSummary,
@@ -1302,13 +1319,7 @@ async function claimInitialSystemRateAdmin(userId: string) {
   });
 }
 
-const USAGE_PLAN = {
-  name: "Starter",
-  statementImportsPerMonth: 100,
-  storedEvidenceBytes: 5 * 1024 * 1024 * 1024,
-  aiActivityPerMonth: 1000,
-  clientWorkspaces: 5,
-} as const;
+const USAGE_PLAN = PLAN_LIMITS.pro;
 const RETENTION_POLICY = {
   statementEvidenceDays: 365,
   aiActivityDays: 90,
@@ -1473,11 +1484,22 @@ async function getOwnedClient(req: Request, requestedClientId?: number) {
   return client ?? null;
 }
 
+function respondBillingDenial(res: Response, denial: BillingDenial) {
+  res.status(402).json(denial);
+  return null;
+}
+
 async function requireOwnedClient(req: Request, res: Response, requestedClientId?: number) {
   const client = await getOwnedClient(req, requestedClientId);
   if (!client) {
     res.status(403).json({ error: "You do not have access to this client workspace." });
     return null;
+  }
+  const billing = await resolveBilling(client.id);
+  if (billing) {
+    const write = req.method !== "GET" && req.method !== "HEAD";
+    const denial = billingDenial(billing, write ? "write" : "read");
+    if (denial) return respondBillingDenial(res, denial);
   }
   return client;
 }
@@ -5256,6 +5278,11 @@ router.post("/agaraccounting/import-statement", async (req, res) => {
   try {
     const client = await requireOwnedClient(req, res, typeof clientId === "number" ? clientId : undefined);
     if (!client) return;
+    const importBilling = await resolveBilling(client.id);
+    if (importBilling) {
+      const importLimit = await limitDenial(importBilling, "import");
+      if (importLimit) return respondBillingDenial(res, importLimit);
+    }
     const scopedClientId = client.id;
     const contactLookup = loadContactSuggestionLookup(db, scopedClientId);
     if (!req.dbUser || !scopedStatementObjectPath(req.dbUser.id, scopedClientId, objectPath)) {
@@ -7069,6 +7096,11 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
   );
   const client = await requireOwnedClient(req, res, clientId);
   if (!client) return;
+  const aiBilling = await resolveBilling(client.id);
+  if (aiBilling) {
+    const aiLimit = await limitDenial(aiBilling, "ai");
+    if (aiLimit) return respondBillingDenial(res, aiLimit);
+  }
   const existingThread = threadId ? await requireAssistantThread(req, res, threadId) : null;
   if (threadId && !existingThread) return;
   if (existingThread && existingThread.thread.clientId !== client.id) {
@@ -7972,28 +8004,39 @@ router.get("/agaraccounting/usage", async (req, res): Promise<void> => {
       usage: aiCostSummary(completedAICostActivity.filter((activity) => activity.clientId === client.id)),
     }));
   const evidenceBytes = retainedEvidence.reduce((total, item) => total + (item.fileSize ?? 0), 0);
-  const evidenceMetric = usageMetric(evidenceBytes, USAGE_PLAN.storedEvidenceBytes);
+  const firms = await firmMembershipsTableForUser(userId);
+  const accountingFirm = firms.find((item) => item.firm.profileKind === "accounting_firm");
+  const primaryBilling = accountingFirm
+    ? await resolveFirmBilling(accountingFirm.firm.id)
+    : clientIds[0]
+      ? await resolveBilling(clientIds[0])
+      : null;
+  const limits = primaryBilling?.limits ?? USAGE_PLAN;
+  const evidenceMetric = usageMetric(evidenceBytes, limits.storedEvidenceBytes);
 
   res.json(GetAgarAccountingUsageResponse.parse({
-    plan: USAGE_PLAN.name,
+    plan: primaryBilling && "planName" in primaryBilling ? primaryBilling.planName : limits.name,
     asOf: now.toISOString(),
     billingPeriod: {
       label: now.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }),
       startsAt: periodStart.toISOString(),
     },
-    statementImports: usageMetric(importsThisPeriod, USAGE_PLAN.statementImportsPerMonth),
+    statementImports: usageMetric(importsThisPeriod, limits.statementImportsPerMonth),
     storedEvidence: {
       documents: retainedEvidence.length,
       bytes: evidenceBytes,
-      limitBytes: USAGE_PLAN.storedEvidenceBytes,
+      limitBytes: limits.storedEvidenceBytes,
       percentage: evidenceMetric.percentage,
       status: evidenceMetric.status,
     },
-    aiActivity: usageMetric(aiActivityThisPeriod, USAGE_PLAN.aiActivityPerMonth),
+    aiActivity: usageMetric(aiActivityThisPeriod, limits.aiActivityPerMonth),
     aiCost: aiCostSummary(completedAICostActivity),
     clientAiCosts,
-    clientWorkspaces: usageMetric(clientIds.length, USAGE_PLAN.clientWorkspaces),
+    clientWorkspaces: usageMetric(clientIds.length, limits.clientWorkspaces),
     retention: RETENTION_POLICY,
+    billingStatus: primaryBilling && "status" in primaryBilling ? primaryBilling.status : undefined,
+    introEndsAt: INTRO_RATES_END_AT.toISOString(),
+    introActive: introRatesActive(),
   }));
 });
 
@@ -8312,12 +8355,18 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
       if (starter && isPlaceholderStarterWorkspace(starter)) {
         await tx.update(clientsTable).set({ name: body.companyName!.trim(), legalName: body.companyLegalName!.trim(), ownerUserId: userId, firmId: null, ownershipStatus: "company_owned", subscriptionLiableParty: "company", functionalCurrency: body.functionalCurrency ?? starter.functionalCurrency, basis: body.basis ?? starter.basis, period: body.period ?? starter.period }).where(eq(clientsTable.id, starter.id));
         await tx.insert(clientWorkspacesTable).values({ clientId: starter.id, userId, role: "owner" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "owner" } });
+        await ensureLocalCompanyTrial(starter.id, user?.email);
       }
     }
     if (body.mode === "firm" || body.mode === "both") {
-      const [firm] = await tx.insert(firmProfilesTable).values({ ownerUserId: userId, name: body.firmName!.trim(), legalName: body.firmLegalName!.trim(), profileKind: "accounting_firm" })
+      const slug = await allocateUniqueSlug(body.firmName!.trim());
+      const [firm] = await tx.insert(firmProfilesTable).values({ ownerUserId: userId, name: body.firmName!.trim(), legalName: body.firmLegalName!.trim(), profileKind: "accounting_firm", slug })
         .onConflictDoUpdate({ target: [firmProfilesTable.ownerUserId, firmProfilesTable.profileKind], set: { name: body.firmName!.trim(), legalName: body.firmLegalName!.trim() } }).returning();
+      if (!firm.slug) {
+        await tx.update(firmProfilesTable).set({ slug: await allocateUniqueSlug(firm.name, firm.id) }).where(eq(firmProfilesTable.id, firm.id));
+      }
       await tx.insert(firmMembershipsTable).values({ firmId: firm.id, userId, role: "owner" }).onConflictDoUpdate({ target: [firmMembershipsTable.firmId, firmMembershipsTable.userId], set: { role: "owner", status: "active" } });
+      await ensureLocalFirmTrial(firm.id, user?.email);
     }
     if (body.mode === "firm" && starterId) {
       const [starter] = await tx.select().from(clientsTable).where(eq(clientsTable.id, starterId)).limit(1);
@@ -8391,6 +8440,7 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
       if (!client || client.ownershipStatus !== "firm_provisional" || client.firmId !== invite.firmId) return "transfer" as const;
       await tx.update(clientsTable).set({ ownerUserId: userId, ownershipStatus: "company_owned", subscriptionLiableParty: "company", transferredAt: new Date() }).where(eq(clientsTable.id, client.id));
       await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId, role: "owner" }).onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "owner" } });
+      await ensureLocalCompanyTrial(client.id, user.email, { restart: true });
       await tx.update(firmCompanyEngagementsTable).set({ status: "active", acceptedByUserId: userId, acceptedAt: new Date() }).where(and(eq(firmCompanyEngagementsTable.firmId, invite.firmId), eq(firmCompanyEngagementsTable.clientId, client.id)));
     }
     await tx.update(organizationInvitationsTable).set({ status: "accepted", acceptedUserId: userId }).where(eq(organizationInvitationsTable.id, invite.id));
@@ -8470,6 +8520,7 @@ router.delete("/engagements/:id", async (req, res): Promise<void> => {
       else await tx.delete(clientWorkspacesTable).where(and(eq(clientWorkspacesTable.clientId, info.clientId), eq(clientWorkspacesTable.userId, member.userId)));
     }
   });
+  await syncMemberPrice(info.clientId);
   res.sendStatus(204);
 });
 
@@ -8485,6 +8536,12 @@ router.patch("/workspace/firm-profile", async (req, res) => {
   }
   const firm = await getOrCreateFirmProfile(currentUserId(req));
   if (firm.profileKind === "accounting_firm" && !await requireFirmManager(req, res, firm.id)) return;
+  if (firm.profileKind === "accounting_firm") {
+    const firmBilling = await resolveFirmBilling(firm.id);
+    if (firmBilling && !firmBilling.writeAccess) {
+      return respondBillingDenial(res, billingDenial(firmBilling, "write") ?? { code: "firm_readonly", error: "Firm settings are read-only until you subscribe to Firm Pro." });
+    }
+  }
   if (firm.profileKind === "internal_rate_container" && !await requireWorkspaceAdmin(req, res)) return;
   const [saved] = await db.update(firmProfilesTable).set({
     name: parsed.data.name.trim(),
@@ -8507,6 +8564,15 @@ router.post("/clients", async (req, res) => {
     const manageable = firms.find((membership) => membership.firm.id === body.firmId && isManagerRole(membership.role));
     if (!manageable) return res.status(403).json({ error: "Only firm owners or admins can create firm clients." });
     firm = manageable.firm;
+    const firmBilling = await resolveFirmBilling(firm.id);
+    if (!firmBilling || !firmBilling.writeAccess) {
+      return respondBillingDenial(res, {
+        code: firmBilling?.status === "locked" ? "firm_locked" : "firm_lapsed",
+        error: "Subscribe to Firm Pro to create firm-managed clients.",
+      });
+    }
+    const workspaceLimit = await limitDenial(firmBilling, "workspace");
+    if (workspaceLimit) return respondBillingDenial(res, workspaceLimit);
   }
   const { name, legalName } = body;
   const client = await db.transaction(async (tx) => {
@@ -8531,6 +8597,10 @@ router.post("/clients", async (req, res) => {
     return created;
   });
   await ensureClientChart(client.id);
+  if (creationMode === "own_company") {
+    const [actor] = await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, actorUserId)).limit(1);
+    await ensureLocalCompanyTrial(client.id, actor?.email);
+  }
   return res.status(201).json(clientResponse(client));
 });
 

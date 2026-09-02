@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -134,14 +134,4 @@ export function FirmUsageStrip() {
       </div>
     </section>
   );
-}
-
-async function fileAsBase64(file: File) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const chunkSize = 0x6000;
-  let base64 = "";
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    base64 += btoa(String.fromCharCode(...bytes.subarray(index, index + chunkSize)));
-  }
-  return base64;
 }

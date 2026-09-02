@@ -16,6 +16,7 @@ import {
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useUpdateJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
   useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement, useGetEngagementContractInvitation,
   useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts,
+  useGetBillingMe
 } from '@workspace/api-client-react';
 import { getGetStatementImportsQueryKey, useGetStatementImports, useUndoStatementImport } from '@workspace/api-client-react';
 import type {
@@ -40,9 +41,14 @@ import BankRegisterDetailPage, { BankRegisterIndexPage } from './pages/bank-regi
 import FirmDashboardPage from './pages/firm-dashboard';
 import FirmClientDashboardPage from './pages/firm-client-dashboard';
 import FirmClientOnboardingPage from './pages/firm-client-onboarding';
+import FirmSubscribePage from './pages/firm-subscribe';
+import FirmPublicLandingPage from './pages/firm-public-landing';
 import EngagementContractSignPage from './pages/engagement-contract-sign';
+import { FirmWhiteLabelCard } from '@/components/firm-white-label-card';
 import { FirmEngagementsSection, FirmMembersSection } from '@/components/firm-admin';
-import { landingPathForMode, showsFirmNavigation, isFirmPracticePath } from '@/lib/firm-landing';
+import { BillingStatusBanner, CompanyBillingCard, FirmBillingCard, FirmSubscribeWall } from '@/components/billing';
+import { companyBillingFor, primaryFirmBilling } from '@/lib/billing-ui';
+import { landingPathForMode, showsFirmNavigation, isFirmPracticePath, shouldShowPersistentFirmWall, firmSlugFromHost } from '@/lib/firm-landing';
 import { registerHrefForImport } from '@/lib/bank-register';
 import { SendForRemarksDialog } from './components/send-for-remarks-dialog';
 import { RemarksLinksSettings } from './components/remarks-links-settings';
@@ -542,6 +548,12 @@ function ShareCapitalSettingsSection({ client }: { client: Client }) {
 
 function ClientSettingsPage() {
   const { activeClient } = useClientWorkspace();
+  const orgContext = useOrgContext();
+  const billingQuery = useGetBillingMe();
+  const companyBilling = companyBillingFor(billingQuery.data, activeClient?.id);
+  const liableFirmName = activeClient?.subscriptionLiableParty === 'firm'
+    ? (orgContext?.firms.find((firm) => firm.firmId === activeClient.firmId)?.firmName ?? orgContext?.firms[0]?.firmName)
+    : undefined;
   const [, setLocation] = useLocation();
   const mutation = useUpdateClient();
   const rateScope = { clientId: activeClient?.id };
@@ -671,6 +683,7 @@ function ClientSettingsPage() {
         <nav className="mt-2 space-y-1">
           {[
             ['#client-profile', 'Client profile'],
+            ['#billing', 'Billing & plan'],
             ['#share-capital', 'Share capital'],
             ['#firm-access', 'Firm access'],
             ['#bank-accounts', 'Bank accounts'],
@@ -698,6 +711,11 @@ function ClientSettingsPage() {
             <div className="flex justify-end sm:col-span-2"><button data-testid="button-page-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save profile settings'}</button></div>
           </form>
         </section>
+        {billingQuery.data && (companyBilling || liableFirmName) && (
+          <div id="billing" className="scroll-mt-24">
+            <CompanyBillingCard company={companyBilling} billing={billingQuery.data} liableFirmName={liableFirmName} />
+          </div>
+        )}
         <ShareCapitalSettingsSection client={activeClient} />
         <ClientFirmAccessSection clientId={activeClient.id} activeClient={activeClient} />
         {ratePreview && <><section id="exchange-rates" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
@@ -754,6 +772,8 @@ function ClientSettingsPage() {
 
 function FirmSettingsPage() {
   const orgContext = useOrgContext();
+  const billingQuery = useGetBillingMe();
+  const firmBilling = primaryFirmBilling(billingQuery.data, orgContext?.firms[0]?.firmId);
   const firmRateScope = { firmId: orgContext?.firms[0]?.firmId };
   const firmQuery = useGetFirmProfile({ query: { queryKey: getGetFirmProfileQueryKey() } });
   const clientsQuery = useGetClients({ query: { queryKey: getGetClientsQueryKey() } });
@@ -857,6 +877,8 @@ function FirmSettingsPage() {
           <div className="flex justify-end sm:col-span-2"><button data-testid="button-save-firm-settings" disabled={saveFirm.isPending || firmQuery.isLoading} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">{saveFirm.isPending ? 'Saving…' : 'Save firm settings'}</button></div>
         </form>
       </section>
+      {billingQuery.data && firmBilling && <FirmBillingCard firm={firmBilling} billing={billingQuery.data} />}
+      <FirmWhiteLabelCard />
       <section className="rounded-lg border border-card-border bg-card p-5 md:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -1115,9 +1137,18 @@ const firmNav = [
 function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AgarAccountingUser; onLogout: () => void }) {
   const { activeClient, clients, setActiveClientId } = useClientWorkspace();
   const orgContext = useOrgContext();
+  const billingQuery = useGetBillingMe();
+  const firmBilling = primaryFirmBilling(billingQuery.data, orgContext?.firms[0]?.firmId);
+  const companyBilling = companyBillingFor(billingQuery.data, activeClient?.id);
   const [, setLocation] = useLocation();
   const [location] = useLocation();
-  const showFirmNav = showsFirmNavigation(orgContext?.mode);
+  const showFirmNav = showsFirmNavigation(orgContext?.mode, firmBilling?.fullAccess ?? true);
+  const showPersistentWall = shouldShowPersistentFirmWall({
+    path: location,
+    mode: orgContext?.mode,
+    firmStatus: firmBilling?.status,
+    liableParty: activeClient?.subscriptionLiableParty,
+  });
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [createClientOpen, setCreateClientOpen] = useState(false);
@@ -1221,9 +1252,10 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                    {clients.length > 5 && <button data-testid="button-view-all-clients" type="button" onClick={() => setShowAllClients((visible) => !visible)} className="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-secondary">{showAllClients ? 'Show frequent clients' : `View all ${clients.length} clients`}</button>}
                    <button data-testid="button-add-client" type="button" onClick={() => {
                      setAccountMenuOpen(false);
-                     if (showFirmNav) setLocation('/firm-onboard');
+                     if (orgContext?.mode === 'firm' && !firmBilling?.fullAccess) setLocation('/billing/firm');
+                     else if (showFirmNav) setLocation('/firm-onboard');
                      else setCreateClientOpen(true);
-                   }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />{showFirmNav ? 'Onboard a client' : 'Add client'}</button>
+                   }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />{orgContext?.mode === 'firm' && !firmBilling?.fullAccess ? 'Subscribe to Firm Pro' : showFirmNav ? 'Onboard a client' : 'Add client'}</button>
                    {orgContext?.mode === 'both' && <button data-testid="button-add-own-company" type="button" onClick={() => { setAccountMenuOpen(false); setCreateClientMode("own_company"); setCreateClientOpen(true); }} className="mt-1 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-primary hover:bg-secondary">Add own company</button>}
                  </div>
                  <Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link>
@@ -1234,7 +1266,8 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
            </div>
          </header>
           <StatementAnalysisBanner />
-         <main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{children}</div></main>
+          <BillingStatusBanner firm={firmBilling} company={companyBilling} />
+         <main className="mx-auto max-w-[1500px] px-4 py-7 md:px-8 lg:px-10"><div className="page-enter">{showPersistentWall ? <FirmSubscribeWall persistent firm={firmBilling} billing={billingQuery.data} /> : children}</div></main>
          {createClientOpen && <AddClientDialog initialMode={createClientMode} onClose={() => { setCreateClientOpen(false); setCreateClientMode(undefined); }} />}
          {settingsOpen && activeClient && <WorkspaceSettingsDialog client={activeClient} onClose={() => setSettingsOpen(false)} />}
          {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} />}
@@ -4274,10 +4307,12 @@ function FinancialStatementsPage() {
 }
 function HomeRedirect() {
   const orgContext = useOrgContext();
-  return <Redirect to={landingPathForMode(orgContext?.mode)} />;
+  const billingQuery = useGetBillingMe();
+  const firm = primaryFirmBilling(billingQuery.data, orgContext?.firms[0]?.firmId);
+  return <Redirect to={landingPathForMode(orgContext?.mode, firm?.status)} />;
 }
 function Router() {
-  return <Switch><Route path="/" component={HomeRedirect} /><Route path="/user-portal" component={Home} /><Route path="/firm-dashboard" component={FirmDashboardPage} /><Route path="/firm-clients/:id" component={FirmClientDashboardPage} /><Route path="/firm-onboard" component={FirmClientOnboardingPage} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={HomeRedirect} /><Route path="/user-portal" component={Home} /><Route path="/firm-dashboard" component={FirmDashboardPage} /><Route path="/firm-clients/:id" component={FirmClientDashboardPage} /><Route path="/firm-onboard" component={FirmClientOnboardingPage} /><Route path="/billing/firm" component={FirmSubscribePage} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
@@ -4596,6 +4631,8 @@ function AuthRecoveryState({ onRetry }: { onRetry: () => void }) {
 }
 
 function AccessScreen() {
+  const slug = firmSlugFromHost(window.location.hostname);
+  if (slug) return <FirmPublicLandingPage slug={slug} />;
   return <DefaultAccessScreen />;
 }
 
@@ -4650,6 +4687,7 @@ function ClerkProviderWithRoutes() {
         <Route path="/feedback">
           <PublicFeedbackEntry />
         </Route>
+        <Route path="/f/:slug" component={FirmPublicLandingPage} />
         <Route component={AuthBoundary} />
       </Switch>
     </QueryClientProvider>

@@ -58,6 +58,8 @@ import {
   resolveIfrsRevenue,
   visibleFirmClientIds,
 } from "../lib/firmPractice";
+import { assertFirmProductAccess, isBillingDenial, limitDenial } from "../lib/billing";
+import { syncMemberPrice } from "../lib/stripeBilling";
 
 const router: IRouter = Router();
 const WORKSPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -89,6 +91,11 @@ async function requireFirmMembership(req: Request, res: Response, firmId: number
     .limit(1);
   if (!membership) {
     res.status(403).json({ error: "You do not have access to this firm." });
+    return null;
+  }
+  const access = await assertFirmProductAccess(firmId);
+  if (isBillingDenial(access)) {
+    res.status(402).json(access);
     return null;
   }
   return membership;
@@ -357,6 +364,10 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
   if (!isFirmManagerRole(membership.membership.role)) {
     return res.status(403).json({ error: "Only firm owners or admins can onboard clients." });
   }
+  const firmAccess = await assertFirmProductAccess(membership.firm.id);
+  if (isBillingDenial(firmAccess)) return res.status(402).json(firmAccess);
+  const workspaceLimit = await limitDenial(firmAccess, "workspace");
+  if (workspaceLimit) return res.status(402).json(workspaceLimit);
   const services = normalizeEngagementServices(body.data.services);
   if (!services.length) return res.status(400).json({ error: "Select at least one service." });
   if (!Number.isInteger(body.data.agreedTransactionsPerMonth) || body.data.agreedTransactionsPerMonth < 1) {
@@ -490,6 +501,7 @@ router.post("/engagement-onboardings/:id/confirm", async (req, res) => {
     }).where(eq(engagementContractsTable.id, row.contract.id)).returning();
   });
   if (!updated) return res.status(500).json({ error: "The engagement could not be confirmed." });
+  await syncMemberPrice(row.client.id);
   return res.json(ConfirmEngagementOnboardingResponse.parse(await onboardingResponse(updated, row.client.name, { includePdf: true })));
 });
 
