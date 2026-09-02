@@ -23,6 +23,7 @@ const userIds = [
   `billing-white-label-${randomUUID()}`,
   `billing-auth-owner-${randomUUID()}`,
   `billing-auth-outsider-${randomUUID()}`,
+  `billing-dev-simulator-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const firmIds: number[] = [];
@@ -213,6 +214,57 @@ test("starts a firm trial, then read-only, then locks firm-liable reads", async 
     body: JSON.stringify({ payerType: "firm", firmId }),
   });
   assert.equal(checkout.response.status, 501);
+});
+
+test("simulates firm and company subscription states without Stripe", async () => {
+  const userId = userIds[8]!;
+  const onboarded = await onboard(userId, "both");
+  assert.equal(onboarded.response.status, 200);
+  const firmId = onboarded.body.firms[0]?.firmId;
+  const clientId = onboarded.body.companies[0]?.id;
+  assert.ok(firmId);
+  assert.ok(clientId);
+  firmIds.push(firmId);
+  clientIds.push(clientId);
+
+  const activeFirm = await request<{ state: string }>("/billing/dev-simulate", userId, {
+    method: "POST",
+    body: JSON.stringify({ payerType: "firm", firmId, state: "active" }),
+  });
+  assert.equal(activeFirm.response.status, 200);
+  assert.equal(activeFirm.body.state, "active");
+  const proCompany = await request<{ state: string }>("/billing/dev-simulate", userId, {
+    method: "POST",
+    body: JSON.stringify({ payerType: "company", clientId, state: "pro" }),
+  });
+  assert.equal(proCompany.response.status, 200);
+
+  const active = await request<{
+    firms: Array<{ firmId: number; status: string }>;
+    companies: Array<{ clientId: number; status: string; plan: string }>;
+  }>("/billing/me", userId);
+  assert.equal(active.body.firms.find((firm) => firm.firmId === firmId)?.status, "active");
+  assert.equal(active.body.companies.find((company) => company.clientId === clientId)?.status, "pro");
+  assert.equal(active.body.companies.find((company) => company.clientId === clientId)?.plan, "pro");
+
+  const lockedFirm = await request<{ state: string }>("/billing/dev-simulate", userId, {
+    method: "POST",
+    body: JSON.stringify({ payerType: "firm", firmId, state: "locked" }),
+  });
+  assert.equal(lockedFirm.response.status, 200);
+  const freeCompany = await request<{ state: string }>("/billing/dev-simulate", userId, {
+    method: "POST",
+    body: JSON.stringify({ payerType: "company", clientId, state: "free" }),
+  });
+  assert.equal(freeCompany.response.status, 200);
+
+  const inactive = await request<{
+    firms: Array<{ firmId: number; status: string }>;
+    companies: Array<{ clientId: number; status: string; plan: string }>;
+  }>("/billing/me", userId);
+  assert.equal(inactive.body.firms.find((firm) => firm.firmId === firmId)?.status, "locked");
+  assert.equal(inactive.body.companies.find((company) => company.clientId === clientId)?.status, "free");
+  assert.equal(inactive.body.companies.find((company) => company.clientId === clientId)?.plan, "free");
 });
 
 test("gives each company-liable workspace its own 14-day trial, then Free, and locks writes over the revenue threshold", async () => {

@@ -189,6 +189,22 @@ export const CreateBillingPortalResponse = zod.object({
 
 
 /**
+ * @summary Simulate a billing state in development
+ */
+export const SimulateBillingDevBody = zod.object({
+  "payerType": zod.enum(['firm', 'company']),
+  "firmId": zod.number().optional(),
+  "clientId": zod.number().optional(),
+  "state": zod.enum(['trialing', 'active', 'past_due', 'lapsed_readonly', 'locked', 'pro', 'free'])
+})
+
+export const SimulateBillingDevResponse = zod.object({
+  "payerType": zod.enum(['firm', 'company']),
+  "state": zod.enum(['trialing', 'active', 'past_due', 'lapsed_readonly', 'locked', 'pro', 'free'])
+})
+
+
+/**
  * @summary Get the firm's white-label landing settings
  */
 export const GetFirmBrandingResponse = zod.object({

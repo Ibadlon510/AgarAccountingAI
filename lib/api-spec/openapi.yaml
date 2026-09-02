@@ -148,6 +148,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorMessage"
+  /billing/dev-simulate:
+    post:
+      operationId: simulateBillingDev
+      tags: [billing]
+      summary: Simulate a billing state in development
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingDevSimulationInput"
+      responses:
+        "200":
+          description: Simulated billing state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDevSimulationResponse"
+        "404":
+          description: Development-only route
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+        "400":
+          description: Invalid payer or state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
   /workspace/firm-branding:
     get:
       operationId: getFirmBranding
@@ -5394,6 +5424,24 @@ components:
         payerType: { type: string, enum: [firm, company] }
         firmId: { type: number }
         clientId: { type: number }
+    BillingDevSimulationInput:
+      type: object
+      required: [payerType, state]
+      properties:
+        payerType: { type: string, enum: [firm, company] }
+        firmId: { type: number }
+        clientId: { type: number }
+        state:
+          type: string
+          enum: [trialing, active, past_due, lapsed_readonly, locked, pro, free]
+    BillingDevSimulationResponse:
+      type: object
+      required: [payerType, state]
+      properties:
+        payerType: { type: string, enum: [firm, company] }
+        state:
+          type: string
+          enum: [trialing, active, past_due, lapsed_readonly, locked, pro, free]
     BillingRedirect:
       type: object
       required: [url]

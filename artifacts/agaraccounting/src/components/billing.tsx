@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { useCreateBillingCheckout, useCreateBillingPortal, useGetBillingMe, type BillingMe, type CompanyBilling, type FirmBilling } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { getGetBillingMeQueryKey, useCreateBillingCheckout, useCreateBillingPortal, useGetBillingMe, useSimulateBillingDev, type BillingMe, type CompanyBilling, type FirmBilling } from "@workspace/api-client-react";
 import { notify } from "@/lib/notify";
 import { companyStatusLabel, firmStatusLabel, formatAed, remainingIntro } from "@/lib/billing-ui";
 
@@ -51,6 +52,58 @@ function trialCountdown(endsAt: string, now: number) {
   return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
 }
 
+type DevBillingState = "trialing" | "active" | "past_due" | "lapsed_readonly" | "locked" | "pro" | "free";
+
+export function DevBillingSimulator({ payerType, firmId, clientId }: { payerType: "firm" | "company"; firmId?: number; clientId?: number }) {
+  const queryClient = useQueryClient();
+  const simulate = useSimulateBillingDev();
+  const [state, setState] = useState<DevBillingState>(payerType === "firm" ? "trialing" : "pro");
+  if (!import.meta.env.DEV) return null;
+  const options: Array<{ value: DevBillingState; label: string }> = payerType === "firm"
+    ? [
+        { value: "trialing", label: "Trialing" },
+        { value: "active", label: "Active subscription" },
+        { value: "past_due", label: "Past due" },
+        { value: "lapsed_readonly", label: "Lapsed / read-only" },
+        { value: "locked", label: "Locked" },
+      ]
+    : [
+        { value: "trialing", label: "Trialing" },
+        { value: "pro", label: "Company Pro" },
+        { value: "free", label: "Free after trial" },
+      ];
+  return (
+    <div data-testid={`dev-billing-simulator-${payerType}`} className="mt-5 rounded-md border border-dashed border-primary/35 bg-primary/5 p-3">
+      <div className="font-mono text-[10px] uppercase tracking-[.12em] text-primary">Development billing simulator</div>
+      <p className="mt-1 text-[11px] leading-5 text-muted-foreground">Changes local billing state only. No Stripe checkout or charge is created.</p>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="text-[11px] font-medium">
+          State
+          <select value={state} onChange={(event) => setState(event.target.value as DevBillingState)} className="mt-1 block h-9 rounded border border-input bg-background px-2 text-xs">
+            {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={simulate.isPending}
+          onClick={() => simulate.mutate({
+            data: { payerType, ...(firmId ? { firmId } : {}), ...(clientId ? { clientId } : {}), state },
+          }, {
+            onSuccess: async () => {
+              await queryClient.invalidateQueries({ queryKey: getGetBillingMeQueryKey() });
+              notify.success("Development billing state updated", { description: `Simulated ${state.replaceAll("_", " ")}.` });
+            },
+            onError: () => notify.error("Development billing state could not be updated."),
+          })}
+          className="h-9 rounded bg-primary px-3 text-[11px] font-semibold text-primary-foreground disabled:opacity-50"
+        >
+          {simulate.isPending ? "Applying…" : "Apply state"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function FirmBillingCard({ firm, billing }: { firm: FirmBilling; billing: BillingMe }) {
   const checkout = useCreateBillingCheckout();
   const portal = useCreateBillingPortal();
@@ -96,6 +149,7 @@ export function FirmBillingCard({ firm, billing }: { firm: FirmBilling; billing:
           </button>
         )}
       </div>
+      <DevBillingSimulator payerType="firm" firmId={firm.firmId} />
     </section>
   );
 }
@@ -162,6 +216,7 @@ export function CompanyBillingCard({ company, billing, liableFirmName }: { compa
           </button>
         )}
       </div>
+      <DevBillingSimulator payerType="company" clientId={company.clientId} />
     </section>
   );
 }

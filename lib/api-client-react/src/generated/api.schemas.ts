@@ -3197,6 +3197,60 @@ export interface BillingPortalInput {
   clientId?: number;
 }
 
+export type BillingDevSimulationInputPayerType = typeof BillingDevSimulationInputPayerType[keyof typeof BillingDevSimulationInputPayerType];
+
+
+export const BillingDevSimulationInputPayerType = {
+  firm: 'firm',
+  company: 'company',
+} as const;
+
+export type BillingDevSimulationInputState = typeof BillingDevSimulationInputState[keyof typeof BillingDevSimulationInputState];
+
+
+export const BillingDevSimulationInputState = {
+  trialing: 'trialing',
+  active: 'active',
+  past_due: 'past_due',
+  lapsed_readonly: 'lapsed_readonly',
+  locked: 'locked',
+  pro: 'pro',
+  free: 'free',
+} as const;
+
+export interface BillingDevSimulationInput {
+  payerType: BillingDevSimulationInputPayerType;
+  firmId?: number;
+  clientId?: number;
+  state: BillingDevSimulationInputState;
+}
+
+export type BillingDevSimulationResponsePayerType = typeof BillingDevSimulationResponsePayerType[keyof typeof BillingDevSimulationResponsePayerType];
+
+
+export const BillingDevSimulationResponsePayerType = {
+  firm: 'firm',
+  company: 'company',
+} as const;
+
+export type BillingDevSimulationResponseState = typeof BillingDevSimulationResponseState[keyof typeof BillingDevSimulationResponseState];
+
+
+export const BillingDevSimulationResponseState = {
+  trialing: 'trialing',
+  active: 'active',
+  past_due: 'past_due',
+  lapsed_readonly: 'lapsed_readonly',
+  locked: 'locked',
+  pro: 'pro',
+  free: 'free',
+} as const;
+
+export interface BillingDevSimulationResponse {
+  payerType: BillingDevSimulationResponsePayerType;
+  state: BillingDevSimulationResponseState;
+}
+
 export interface BillingRedirect {
   /** @nullable */
   url: string | null;

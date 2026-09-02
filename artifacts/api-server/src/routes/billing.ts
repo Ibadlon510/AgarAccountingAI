@@ -1,14 +1,17 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   CreateBillingCheckoutBody,
   CreateBillingCheckoutResponse,
   CreateBillingPortalBody,
   CreateBillingPortalResponse,
   GetBillingMeResponse,
+  SimulateBillingDevBody,
+  SimulateBillingDevResponse,
 } from "@workspace/api-zod";
 import {
   billingAccountsTable,
+  billingSubscriptionsTable,
   clientWorkspacesTable,
   clientsTable,
   db,
@@ -19,6 +22,7 @@ import {
   currentPriceCatalog,
   ensureLocalCompanyTrial,
   ensureLocalFirmTrial,
+  ensureBillingAccount,
   resolveBilling,
   resolveCompanyBilling,
   resolveFirmBilling,
@@ -169,6 +173,78 @@ router.post("/billing/portal", async (req, res) => {
     body.payerType === "firm" ? `${origin}/firm-settings` : `${origin}/client-settings`,
   );
   return res.json(CreateBillingPortalResponse.parse({ url: session.url }));
+});
+
+router.post("/billing/dev-simulate", async (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(404).json({ error: "Development billing simulation is disabled." });
+  }
+  const parsed = SimulateBillingDevBody.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Choose a valid billing state and workspace." });
+  const body = parsed.data;
+  const firmStates = ["trialing", "active", "past_due", "lapsed_readonly", "locked"] as const;
+  const companyStates = ["trialing", "pro", "free"] as const;
+  if (body.payerType === "firm") {
+    if (!body.firmId || !firmStates.includes(body.state as typeof firmStates[number])) {
+      return res.status(400).json({ error: "Choose a valid firm billing state." });
+    }
+    if (!await requireFirmManager(req, res, body.firmId)) return;
+  } else {
+    if (!body.clientId || !companyStates.includes(body.state as typeof companyStates[number])) {
+      return res.status(400).json({ error: "Choose a valid company billing state." });
+    }
+    if (!await requireCompanyBillingManager(req, res, body.clientId)) return;
+  }
+
+  const account = await ensureBillingAccount({
+    payerType: body.payerType,
+    firmId: body.payerType === "firm" ? body.firmId : undefined,
+    clientId: body.payerType === "company" ? body.clientId : undefined,
+    email: req.dbUser?.email,
+  });
+  const [existing] = await db.select().from(billingSubscriptionsTable)
+    .where(eq(billingSubscriptionsTable.billingAccountId, account.id))
+    .orderBy(desc(billingSubscriptionsTable.updatedAt), desc(billingSubscriptionsTable.id))
+    .limit(1);
+  const now = new Date();
+  const day = 24 * 60 * 60 * 1000;
+  const isFirm = body.payerType === "firm";
+  const isActive = body.state === "active" || body.state === "past_due" || body.state === "pro";
+  const planKey = isFirm
+    ? "firm"
+    : "company_pro";
+  const status = body.state === "trialing"
+    ? "trialing"
+    : body.state === "past_due"
+      ? "past_due"
+      : isActive
+        ? "active"
+        : "canceled";
+  const trialEndsAt = body.state === "lapsed_readonly"
+    ? new Date(now.getTime() - day)
+    : body.state === "locked" || body.state === "free"
+      ? new Date(now.getTime() - 60 * day)
+      : new Date(now.getTime() + (isFirm ? 15 : 14) * day);
+  const stripeSubscriptionId = isActive ? `dev_sub_${body.payerType}_${account.id}` : null;
+  const stripePriceId = isActive ? `dev_price_${planKey}` : null;
+  const values = {
+    stripeSubscriptionId,
+    stripePriceId,
+    stripeScheduleId: null,
+    planKey,
+    status,
+    trialEndsAt,
+    currentPeriodEnd: isActive ? new Date(now.getTime() + 30 * day) : null,
+    cancelAtPeriodEnd: false,
+    sourceEventCreatedAt: null,
+    updatedAt: now,
+  } as const;
+  if (existing) {
+    await db.update(billingSubscriptionsTable).set(values).where(eq(billingSubscriptionsTable.id, existing.id));
+  } else {
+    await db.insert(billingSubscriptionsTable).values({ billingAccountId: account.id, ...values });
+  }
+  return res.json(SimulateBillingDevResponse.parse({ payerType: body.payerType, state: body.state }));
 });
 
 export default router;

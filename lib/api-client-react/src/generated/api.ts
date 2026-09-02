@@ -40,6 +40,8 @@ import type {
   BankAccountReconciliationResult,
   BeginBrowserLoginParams,
   BillingCheckoutInput,
+  BillingDevSimulationInput,
+  BillingDevSimulationResponse,
   BillingMe,
   BillingPortalInput,
   BillingRedirect,
@@ -719,6 +721,77 @@ export const useCreateBillingPortal = <TError = ErrorType<ErrorMessage>,
         TContext
       > => {
       return useMutation(getCreateBillingPortalMutationOptions(options));
+    }
+
+export const getSimulateBillingDevUrl = () => {
+
+
+
+
+  return `/api/billing/dev-simulate`
+}
+
+/**
+ * @summary Simulate a billing state in development
+ */
+export const simulateBillingDev = async (billingDevSimulationInput: BillingDevSimulationInput, options?: Parameters<typeof customFetch>[1]): Promise<BillingDevSimulationResponse> => {
+
+  return customFetch<BillingDevSimulationResponse>(getSimulateBillingDevUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingDevSimulationInput)
+  }
+);}
+
+
+
+
+
+export const getSimulateBillingDevMutationOptions = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof simulateBillingDev>>, TError,{data: BodyType<BillingDevSimulationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof simulateBillingDev>>, TError,{data: BodyType<BillingDevSimulationInput>}, TContext> => {
+
+const mutationKey = ['simulateBillingDev'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof simulateBillingDev>>, {data: BodyType<BillingDevSimulationInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  simulateBillingDev(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SimulateBillingDevMutationResult = NonNullable<Awaited<ReturnType<typeof simulateBillingDev>>>
+    export type SimulateBillingDevMutationBody = BodyType<BillingDevSimulationInput>
+    export type SimulateBillingDevMutationError = ErrorType<ErrorMessage>
+
+    /**
+ * @summary Simulate a billing state in development
+ */
+export const useSimulateBillingDev = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof simulateBillingDev>>, TError,{data: BodyType<BillingDevSimulationInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof simulateBillingDev>>,
+        TError,
+        {data: BodyType<BillingDevSimulationInput>},
+        TContext
+      > => {
+      return useMutation(getSimulateBillingDevMutationOptions(options));
     }
 
 export const getGetFirmBrandingUrl = () => {
