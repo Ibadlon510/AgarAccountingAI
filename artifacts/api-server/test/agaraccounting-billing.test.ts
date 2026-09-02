@@ -323,7 +323,7 @@ test("derives dual mode from active firm and company memberships instead of a st
   userIds.push(staleModeUserId);
 
   const companyOnboarding = await onboard(staleModeUserId, "company");
-  assert.equal(companyOnboarding.response.status, 201);
+  assert.equal(companyOnboarding.response.status, 200);
   const clientId = companyOnboarding.body.companies[0]?.id;
   assert.ok(clientId);
   clientIds.push(clientId);

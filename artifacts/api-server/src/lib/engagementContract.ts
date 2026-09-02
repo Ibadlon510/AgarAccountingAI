@@ -210,6 +210,36 @@ export function engagementContractEmail(input: {
   };
 }
 
+export function firmEngagementInvitationEmail(input: {
+  clientName: string;
+  firmName: string;
+  inviteLink: string;
+  expiresAt: Date;
+}) {
+  const expires = input.expiresAt.toLocaleString("en-US", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "UTC",
+  });
+  return {
+    subject: `${input.clientName} invited ${input.firmName} in AgarAccounting AI`,
+    text: [
+      "Hello,",
+      "",
+      `${input.clientName} invited ${input.firmName} to become its accounting firm in AgarAccounting AI.`,
+      "",
+      "Accept this invitation using your registered firm administrator email. After accepting, complete the engagement onboarding in the firm Clients page to define services and terms.",
+      "The firm-client connection remains provisional until the client acknowledges those terms and the firm confirms the engagement.",
+      "",
+      `This invitation expires on ${expires} UTC.`,
+      "Use the secure link below:",
+      input.inviteLink,
+      "",
+      "If you were not expecting this invitation, you can ignore this email.",
+    ].join("\n"),
+  };
+}
+
 export function canResendEngagementContract(status: string, signedAt: Date | null | undefined) {
   return status === "sent" || (status === "expired" && !signedAt);
 }

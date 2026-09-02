@@ -368,6 +368,7 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
   if (isBillingDenial(firmAccess)) return res.status(402).json(firmAccess);
   const workspaceLimit = await limitDenial(firmAccess, "workspace");
   if (workspaceLimit) return res.status(402).json(workspaceLimit);
+  const existingClientId = body.data.clientId ?? null;
   const services = normalizeEngagementServices(body.data.services);
   if (!services.length) return res.status(400).json({ error: "Select at least one service." });
   if (!Number.isInteger(body.data.agreedTransactionsPerMonth) || body.data.agreedTransactionsPerMonth < 1) {
@@ -376,30 +377,54 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
   if (!Number.isFinite(body.data.agreedRevenuePerYear) || body.data.agreedRevenuePerYear <= 0) {
     return res.status(400).json({ error: "Agreed revenue per year must be greater than zero." });
   }
-  const signerEmail = body.data.signerEmail.trim().toLowerCase();
+  let existingClient: typeof clientsTable.$inferSelect | null = null;
+  let existingEngagement: typeof firmCompanyEngagementsTable.$inferSelect | null = null;
+  let signerEmail = body.data.signerEmail?.trim().toLowerCase() ?? "";
+  if (existingClientId) {
+    [existingClient] = await db.select().from(clientsTable).where(eq(clientsTable.id, existingClientId)).limit(1);
+    [existingEngagement] = await db.select().from(firmCompanyEngagementsTable).where(and(
+      eq(firmCompanyEngagementsTable.firmId, membership.firm.id),
+      eq(firmCompanyEngagementsTable.clientId, existingClientId),
+      eq(firmCompanyEngagementsTable.status, "provisional"),
+    )).limit(1);
+    if (!existingClient || !existingEngagement || existingClient.ownershipStatus !== "company_owned") {
+      return res.status(409).json({ error: "This client is not awaiting onboarding for this firm." });
+    }
+    const [existingContract] = await db.select({ id: engagementContractsTable.id }).from(engagementContractsTable)
+      .where(eq(engagementContractsTable.engagementId, existingEngagement.id)).limit(1);
+    if (existingContract) return res.status(409).json({ error: "Onboarding has already started for this client." });
+    const [owner] = existingClient.ownerUserId
+      ? await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, existingClient.ownerUserId)).limit(1)
+      : [];
+    signerEmail = owner?.email?.trim().toLowerCase() ?? "";
+  } else if (!body.data.name?.trim() || !body.data.legalName?.trim() || !body.data.functionalCurrency?.trim() || !body.data.basis?.trim() || !body.data.period?.trim()) {
+    return res.status(400).json({ error: "Enter the client identity and reporting settings." });
+  }
   if (!signerEmail.includes("@")) return res.status(400).json({ error: "Enter the client signer email." });
   const actorUserId = currentUserId(req);
   const token = randomBytes(32).toString("base64url");
   const created = await db.transaction(async (tx) => {
-    const [client] = await tx.insert(clientsTable).values({
+    const client = existingClient ?? (await tx.insert(clientsTable).values({
       firmId: membership.firm.id,
       rateProfileId: membership.firm.id,
       ownerUserId: null,
       ownershipStatus: "firm_provisional",
       subscriptionLiableParty: "firm",
-      name: body.data.name.trim(),
-      legalName: body.data.legalName.trim(),
-      functionalCurrency: body.data.functionalCurrency.trim().toUpperCase() || "AED",
-      basis: body.data.basis.trim() || "IFRS",
-      period: body.data.period.trim(),
-    }).returning();
-    await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId: actorUserId, role: "admin" });
-    const [engagement] = await tx.insert(firmCompanyEngagementsTable).values({
+      name: body.data.name!.trim(),
+      legalName: body.data.legalName!.trim(),
+      functionalCurrency: body.data.functionalCurrency!.trim().toUpperCase() || "AED",
+      basis: body.data.basis!.trim() || "IFRS",
+      period: body.data.period!.trim(),
+    }).returning())[0];
+    if (!existingClient) {
+      await tx.insert(clientWorkspacesTable).values({ clientId: client.id, userId: actorUserId, role: "admin" });
+    }
+    const engagement = existingEngagement ?? (await tx.insert(firmCompanyEngagementsTable).values({
       firmId: membership.firm.id,
       clientId: client.id,
       status: "provisional",
       invitedByUserId: actorUserId,
-    }).returning();
+    }).returning())[0];
     const [invitation] = await tx.insert(organizationInvitationsTable).values({
       kind: "engagement_contract",
       firmId: membership.firm.id,
@@ -495,6 +520,7 @@ router.post("/engagement-onboardings/:id/confirm", async (req, res) => {
       acceptedAt: new Date(),
       revokedAt: null,
     }).where(eq(firmCompanyEngagementsTable.id, row.contract.engagementId));
+    await tx.update(clientsTable).set({ rateProfileId: row.contract.firmId }).where(eq(clientsTable.id, row.client.id));
     return tx.update(engagementContractsTable).set({
       status: "confirmed",
       confirmedAt: new Date(),

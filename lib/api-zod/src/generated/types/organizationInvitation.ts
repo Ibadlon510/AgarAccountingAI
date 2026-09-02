@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { OrganizationInvitationEmailDeliveryStatus } from './organizationInvitationEmailDeliveryStatus';
 import type { OrganizationInvitationKind } from './organizationInvitationKind';
 import type { OrganizationInvitationStatus } from './organizationInvitationStatus';
 
@@ -22,4 +23,5 @@ export interface OrganizationInvitation {
   expiresAt: Date;
   createdAt: Date;
   inviteLink?: string;
+  emailDeliveryStatus?: OrganizationInvitationEmailDeliveryStatus;
 }

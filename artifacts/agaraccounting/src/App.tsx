@@ -301,6 +301,7 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
 
   const [email, setEmail] = useState('');
   const [firmId, setFirmId] = useState('');
+  const [firmInviteLink, setFirmInviteLink] = useState('');
   const [transferEmail, setTransferEmail] = useState('');
 
   const engagement = orgContext?.engagements?.find(e => e.clientId === clientId);
@@ -310,11 +311,16 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
     inviteFirm.mutate({ id: clientId, data: { email, firmId: Number(firmId), role: 'admin' } }, {
-      onSuccess: () => {
+      onSuccess: (invitation) => {
         const invited = email;
         setEmail('');
+        setFirmInviteLink(invitation.emailDeliveryStatus === 'failed' ? invitation.inviteLink ?? '' : '');
         queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
-        notify.success('Firm invitation sent', { description: `${invited} will receive access to this company.` });
+        notify.success(invitation.emailDeliveryStatus === 'failed' ? 'Firm invitation created' : 'Firm invitation sent', {
+          description: invitation.emailDeliveryStatus === 'failed'
+            ? `Email could not be delivered to ${invited}. Copy the secure link below.`
+            : `${invited} must accept and complete engagement onboarding before firm access becomes active.`,
+        });
       }
     });
   };
@@ -360,11 +366,19 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
       ) : null}
 
       {canManageCompany && !engagement && activeClient.ownershipStatus !== 'firm_provisional' && (
-        <form onSubmit={handleInvite} className="mt-5 grid items-end gap-3 sm:grid-cols-[1fr_9rem_auto]">
-          <label className="flex-1 text-xs font-medium">Accounting firm administrator email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder="admin@firm.com" /></label>
-          <label className="text-xs font-medium">Firm ID<input required min="1" type="number" value={firmId} onChange={e => setFirmId(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
-          <button disabled={inviteFirm.isPending} className="h-10 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Invite firm</button>
-        </form>
+        <>
+          <form onSubmit={handleInvite} className="mt-5 grid items-end gap-3 sm:grid-cols-[1fr_9rem_auto]">
+            <label className="flex-1 text-xs font-medium">Accounting firm administrator email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder="admin@firm.com" /></label>
+            <label className="text-xs font-medium">Firm ID<input required min="1" type="number" value={firmId} onChange={e => setFirmId(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+            <button disabled={inviteFirm.isPending} className="h-10 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Invite firm</button>
+          </form>
+          {firmInviteLink && (
+            <div className="mt-3 rounded-md border border-amber-300/50 bg-amber-50/70 p-3 dark:bg-amber-950/20">
+              <p className="text-[11px] font-semibold">Email delivery failed. Share this secure invitation link with the registered firm administrator.</p>
+              <input data-testid="input-firm-invite-link" readOnly value={firmInviteLink} className="mt-2 h-9 w-full rounded border border-input bg-background px-2 font-mono text-[10px]" />
+            </div>
+          )}
+        </>
       )}
 
       {firmInvites && firmInvites.length > 0 && !engagement && (
@@ -4586,6 +4600,7 @@ function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), [location]);
   const workspaceToken = searchParams.get("invite");
   const orgToken = searchParams.get("organizationInvite");
+  const onboardingClientId = Number(searchParams.get("onboardingClientId") ?? 0);
   const contractPreview = useGetEngagementContractInvitation(orgToken ?? "", { query: { queryKey: getGetEngagementContractInvitationQueryKey(orgToken ?? ""), enabled: Boolean(orgToken), retry: false } });
 
   const acceptWorkspace = useAcceptWorkspaceInvitation();
@@ -4610,7 +4625,8 @@ function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
     } else if (orgToken && contractPreview.isError) {
       acceptOrg.mutate({ token: orgToken }, {
         onSuccess: () => {
-          clearToken();
+          if (onboardingClientId > 0) setLocation(`/firm-onboard?clientId=${onboardingClientId}`, { replace: true });
+          else clearToken();
           queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetClientsQueryKey() });
           notify.success('Organization invitation accepted');

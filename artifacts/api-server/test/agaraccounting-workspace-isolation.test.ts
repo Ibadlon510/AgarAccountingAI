@@ -431,16 +431,59 @@ test("binds invitations and firm-created clients to the explicitly selected firm
   ]).returning();
   await database.db.insert(database.firmMembershipsTable).values(firms.map((firm) => ({ firmId: firm.id, userId: firmAdminId, role: "owner", status: "active" })));
 
-  const invited = await request<{ inviteLink: string }>(`/companies/${company.id}/firm-invitations`, companyUserId, {
+  const originalNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
+  process.env.AGARACCOUNTING_EMAIL_TEST_MODE = "success";
+  const invited = await request<{ inviteLink: string; emailDeliveryStatus: string }>(`/companies/${company.id}/firm-invitations`, companyUserId, {
     method: "POST", body: JSON.stringify({ email, firmId: firms[1].id, role: "admin" }),
   });
   assert.equal(invited.response.status, 201);
+  assert.equal(invited.body.emailDeliveryStatus, "sent");
   const token = new URL(invited.body.inviteLink).searchParams.get("organizationInvite");
   assert.ok(token);
   const accepted = await request(`/organization-invitations/${token}/accept`, firmAdminId, { method: "POST" });
   assert.equal(accepted.response.status, 200);
   const engagements = await database.db.select().from(database.firmCompanyEngagementsTable).where(eq(database.firmCompanyEngagementsTable.clientId, company.id));
   assert.deepEqual(engagements.map(({ firmId }) => firmId), [firms[1].id]);
+  assert.equal(engagements[0]?.status, "provisional");
+
+  const overview = await request<{ clients: Array<{ id: number; engagementStatus: string; onboardingStatus: string | null }> }>(`/agaraccounting/firm-overview?firmId=${firms[1].id}`, firmAdminId);
+  assert.equal(overview.response.status, 200);
+  const invitedClient = overview.body.clients.find(({ id }) => id === company.id);
+  assert.equal(invitedClient?.engagementStatus, "provisional");
+  assert.equal(invitedClient?.onboardingStatus, null);
+
+  const onboarding = await request<{ id: number; clientId: number; inviteLink: string; signerEmail: string }>(`/firms/${firms[1].id}/engagement-onboardings`, firmAdminId, {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: company.id,
+      services: ["bookkeeping"],
+      agreedTransactionsPerMonth: 80,
+      agreedRevenuePerYear: 450000,
+      startDate: "2026-09-01",
+      termsText: "The client invited the firm and both parties must complete onboarding.",
+    }),
+  });
+  delete process.env.AGARACCOUNTING_EMAIL_TEST_MODE;
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalNodeEnv;
+  assert.equal(onboarding.response.status, 201);
+  assert.equal(onboarding.body.clientId, company.id);
+  const [companyOwner] = await database.db.select({ email: database.usersTable.email }).from(database.usersTable).where(eq(database.usersTable.id, companyUserId));
+  assert.equal(onboarding.body.signerEmail, companyOwner?.email);
+  const contractToken = new URL(onboarding.body.inviteLink).searchParams.get("organizationInvite");
+  assert.ok(contractToken);
+  const signed = await request<{ status: string }>(`/organization-invitations/${contractToken}/engagement-contract`, companyUserId, {
+    method: "POST",
+    body: JSON.stringify({ signerName: "Company Owner", accepted: true }),
+  });
+  assert.equal(signed.response.status, 200);
+  assert.equal(signed.body.status, "signed");
+  const confirmed = await request<{ status: string }>(`/engagement-onboardings/${onboarding.body.id}/confirm`, firmAdminId, { method: "POST" });
+  assert.equal(confirmed.response.status, 200);
+  assert.equal(confirmed.body.status, "confirmed");
+  const [activeEngagement] = await database.db.select().from(database.firmCompanyEngagementsTable).where(eq(database.firmCompanyEngagementsTable.clientId, company.id));
+  assert.equal(activeEngagement?.status, "active");
 
   const created = await request<{ id: number }>("/clients", firmAdminId, {
     method: "POST", body: JSON.stringify({ name: "Explicit Firm Client", legalName: "Explicit Firm Client LLC", creationMode: "firm_client", firmId: firms[0].id }),

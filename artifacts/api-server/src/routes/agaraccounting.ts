@@ -238,6 +238,7 @@ import {
   testAIProvider,
 } from "../lib/ai-provider";
 import { EmailDeliveryError, sendDetailRequestEmail, sendWorkspaceInvitationEmail } from "../lib/resend";
+import { firmEngagementInvitationEmail } from "../lib/engagementContract";
 import {
   billingDenial,
   currentPriceCatalog,
@@ -1566,12 +1567,19 @@ function organizationInviteLink(req: Request, token: string) {
   return `${protocol}://${host}/?organizationInvite=${encodeURIComponent(token)}`;
 }
 
-function organizationInvitationResponse(invitation: typeof organizationInvitationsTable.$inferSelect, inviteLink?: string) {
+function organizationInvitationResponse(
+  invitation: typeof organizationInvitationsTable.$inferSelect,
+  inviteLink?: string,
+  emailDeliveryStatus?: "sent" | "failed",
+) {
   return {
     id: invitation.id, kind: invitation.kind as "firm_member" | "firm_engagement" | "company_transfer" | "engagement_contract",
     email: invitation.email, status: invitation.status as "pending" | "accepted" | "revoked" | "expired",
     clientId: invitation.clientId, firmId: invitation.firmId, role: invitation.role,
-    expiresAt: invitation.expiresAt, createdAt: invitation.createdAt, ...(inviteLink ? { inviteLink } : {}),
+    expiresAt: invitation.expiresAt,
+    createdAt: invitation.createdAt,
+    ...(inviteLink ? { inviteLink } : {}),
+    ...(emailDeliveryStatus ? { emailDeliveryStatus } : {}),
   };
 }
 
@@ -8391,30 +8399,60 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
   res.json(CompleteOrganizationOnboardingResponse.parse(await organizationContext(userId)));
 });
 
-async function createOrganizationInvitation(req: Request, res: Response, input: { kind: "firm_member" | "firm_engagement" | "company_transfer" | "engagement_contract"; firmId: number | null; clientId: number | null; email: string; role?: string | null }) {
+async function createOrganizationInvitation(req: Request, input: { kind: "firm_member" | "firm_engagement" | "company_transfer" | "engagement_contract"; firmId: number | null; clientId: number | null; email: string; role?: string | null }) {
   const token = randomBytes(32).toString("base64url");
   const [invitation] = await db.insert(organizationInvitationsTable).values({
     kind: input.kind, firmId: input.firmId, clientId: input.clientId, email: input.email.trim().toLowerCase(),
     role: input.role ?? null, invitedByUserId: currentUserId(req), tokenHash: createHash("sha256").update(token).digest("hex"),
     expiresAt: new Date(Date.now() + WORKSPACE_INVITATION_TTL_MS),
   }).returning();
-  res.status(201).json(organizationInvitationResponse(invitation, organizationInviteLink(req, token)));
+  return { invitation, inviteLink: organizationInviteLink(req, token) };
 }
 
 router.post("/firms/:id/invitations", async (req, res) => {
   const { id } = InviteFirmMemberParams.parse(req.params); const body = InviteFirmMemberBody.parse(req.body);
   if (!await requireFirmManager(req, res, id)) return;
-  await createOrganizationInvitation(req, res, { kind: "firm_member", firmId: id, clientId: null, email: body.email, role: body.role ?? "accountant" });
+  const created = await createOrganizationInvitation(req, { kind: "firm_member", firmId: id, clientId: null, email: body.email, role: body.role ?? "accountant" });
+  res.status(201).json(organizationInvitationResponse(created.invitation, created.inviteLink));
 });
 router.post("/companies/:id/firm-invitations", async (req, res) => {
   const { id } = InviteAccountingFirmParams.parse(req.params); const body = InviteAccountingFirmBody.parse(req.body);
   if (!await requireClientAdmin(req, res, id)) return;
-  const [targetFirm] = await db.select({ id: firmProfilesTable.id }).from(firmProfilesTable)
+  const [targetFirm] = await db.select({ id: firmProfilesTable.id, name: firmProfilesTable.name }).from(firmProfilesTable)
     .innerJoin(firmMembershipsTable, eq(firmMembershipsTable.firmId, firmProfilesTable.id))
     .innerJoin(usersTable, eq(usersTable.id, firmMembershipsTable.userId))
     .where(and(eq(firmProfilesTable.id, body.firmId), eq(firmProfilesTable.profileKind, "accounting_firm"), eq(usersTable.email, body.email.trim().toLowerCase()), eq(firmMembershipsTable.status, "active"), inArray(firmMembershipsTable.role, ["owner", "admin"]))).limit(1);
   if (!targetFirm) { res.status(400).json({ error: "Select a firm managed by the invited administrator." }); return; }
-  await createOrganizationInvitation(req, res, { kind: "firm_engagement", firmId: targetFirm.id, clientId: id, email: body.email, role: body.role ?? "admin" });
+  const [client] = await db.select({ name: clientsTable.name }).from(clientsTable).where(eq(clientsTable.id, id)).limit(1);
+  if (!client) { res.status(404).json({ error: "Company not found." }); return; }
+  const [existingEngagement] = await db.select({ id: firmCompanyEngagementsTable.id }).from(firmCompanyEngagementsTable).where(and(
+    eq(firmCompanyEngagementsTable.firmId, targetFirm.id),
+    eq(firmCompanyEngagementsTable.clientId, id),
+    inArray(firmCompanyEngagementsTable.status, ["provisional", "active"]),
+  )).limit(1);
+  if (existingEngagement) { res.status(409).json({ error: "This firm already has an active or pending engagement with the company." }); return; }
+  const [pendingInvitation] = await db.select({ id: organizationInvitationsTable.id }).from(organizationInvitationsTable).where(and(
+    eq(organizationInvitationsTable.kind, "firm_engagement"),
+    eq(organizationInvitationsTable.firmId, targetFirm.id),
+    eq(organizationInvitationsTable.clientId, id),
+    eq(organizationInvitationsTable.status, "pending"),
+  )).limit(1);
+  if (pendingInvitation) { res.status(409).json({ error: "An invitation to this firm is already pending." }); return; }
+  const created = await createOrganizationInvitation(req, { kind: "firm_engagement", firmId: targetFirm.id, clientId: id, email: body.email, role: body.role ?? "admin" });
+  const inviteLink = `${created.inviteLink}&onboardingClientId=${id}`;
+  const email = firmEngagementInvitationEmail({
+    clientName: client.name,
+    firmName: targetFirm.name,
+    inviteLink,
+    expiresAt: created.invitation.expiresAt,
+  });
+  let emailDeliveryStatus: "sent" | "failed" = "sent";
+  try {
+    await sendWorkspaceInvitationEmail({ to: body.email.trim().toLowerCase(), subject: email.subject, text: email.text });
+  } catch {
+    emailDeliveryStatus = "failed";
+  }
+  res.status(201).json(organizationInvitationResponse(created.invitation, inviteLink, emailDeliveryStatus));
 });
 router.post("/companies/:id/transfer-invitations", async (req, res) => {
   const { id } = InviteCompanyOwnerTransferParams.parse(req.params); const body = InviteCompanyOwnerTransferBody.parse(req.body);
@@ -8422,7 +8460,8 @@ router.post("/companies/:id/transfer-invitations", async (req, res) => {
   if (!client) { res.status(404).json({ error: "Company not found." }); return; }
   if (!client.firmId || client.ownershipStatus !== "firm_provisional") { res.status(409).json({ error: "Only provisional firm-created companies can be transferred." }); return; }
   if (!await requireFirmManager(req, res, client.firmId)) return;
-  await createOrganizationInvitation(req, res, { kind: "company_transfer", firmId: client.firmId, clientId: id, email: body.email });
+  const created = await createOrganizationInvitation(req, { kind: "company_transfer", firmId: client.firmId, clientId: id, email: body.email });
+  res.status(201).json(organizationInvitationResponse(created.invitation, created.inviteLink));
 });
 
 router.post("/organization-invitations/:token/accept", async (req, res): Promise<void> => {
@@ -8444,8 +8483,7 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
     } else if (invite.kind === "firm_engagement" && invite.clientId && invite.firmId) {
       const [firmMember] = await tx.select().from(firmMembershipsTable).where(and(eq(firmMembershipsTable.firmId, invite.firmId), eq(firmMembershipsTable.userId, userId), eq(firmMembershipsTable.status, "active"), inArray(firmMembershipsTable.role, ["owner", "admin"]))).limit(1);
       if (!firmMember) return "firm_admin" as const;
-      await tx.insert(firmCompanyEngagementsTable).values({ firmId: firmMember.firmId, clientId: invite.clientId, status: "active", invitedByUserId: invite.invitedByUserId, acceptedByUserId: userId, acceptedAt: new Date() }).onConflictDoUpdate({ target: [firmCompanyEngagementsTable.firmId, firmCompanyEngagementsTable.clientId], set: { status: "active", acceptedByUserId: userId, acceptedAt: new Date(), revokedAt: null } });
-      await tx.update(clientsTable).set({ rateProfileId: firmMember.firmId }).where(eq(clientsTable.id, invite.clientId));
+      await tx.insert(firmCompanyEngagementsTable).values({ firmId: firmMember.firmId, clientId: invite.clientId, status: "provisional", invitedByUserId: invite.invitedByUserId, acceptedByUserId: userId, acceptedAt: new Date() }).onConflictDoUpdate({ target: [firmCompanyEngagementsTable.firmId, firmCompanyEngagementsTable.clientId], set: { status: "provisional", acceptedByUserId: userId, acceptedAt: new Date(), revokedAt: null } });
     } else if (invite.kind === "company_transfer" && invite.clientId && invite.firmId) {
       const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, invite.clientId)).for("update");
       if (!client || client.ownershipStatus !== "firm_provisional" || client.firmId !== invite.firmId) return "transfer" as const;

@@ -219,6 +219,7 @@ export * from './mobileTokenExchangeRequest';
 export * from './mobileTokenExchangeSuccess';
 export * from './organizationContext';
 export * from './organizationInvitation';
+export * from './organizationInvitationEmailDeliveryStatus';
 export * from './organizationInvitationKind';
 export * from './organizationInvitationStatus';
 export * from './organizationInviteInput';

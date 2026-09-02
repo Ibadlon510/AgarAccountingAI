@@ -67,6 +67,7 @@ export default function FirmClientsPage() {
                         <th className="px-2 py-2">Posted</th>
                         <th className="px-2 py-2">Agreed volume</th>
                         <th className="px-2 py-2">Agreed revenue</th>
+                        <th className="px-2 py-2">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -80,6 +81,11 @@ export default function FirmClientsPage() {
                           <td className="px-2 py-3">{money(client.postedAmountFunctional, client.functionalCurrency)}</td>
                           <td className="px-2 py-3">{client.agreedTransactionsPerMonth ?? "—"} / month</td>
                           <td className="px-2 py-3">{client.agreedRevenuePerYear != null ? money(client.agreedRevenuePerYear, client.agreedRevenueCurrency ?? client.functionalCurrency) : "—"}</td>
+                          <td className="px-2 py-3">
+                            {client.engagementStatus === "provisional" && !client.onboardingId
+                              ? <Link href={`/firm-onboard?clientId=${client.id}`} onClick={(event) => event.stopPropagation()} className="text-[11px] font-semibold text-primary">Complete onboarding</Link>
+                              : <span className="text-muted-foreground">Open</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

@@ -338,7 +338,8 @@ export const GetOrganizationContextResponse = zod.object({
   "role": zod.string().nullish(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
 }))
 })
 
@@ -437,7 +438,8 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "role": zod.string().nullish(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
 }))
 })
 
@@ -470,7 +472,8 @@ export const InviteFirmMemberResponse = zod.object({
   "role": zod.string().nullish(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
 })
 
 
@@ -503,7 +506,8 @@ export const InviteAccountingFirmResponse = zod.object({
   "role": zod.string().nullish(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
 })
 
 
@@ -535,7 +539,8 @@ export const InviteCompanyOwnerTransferResponse = zod.object({
   "role": zod.string().nullish(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
 })
 
 
@@ -620,7 +625,8 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "role": zod.string().nullish(),
   "expiresAt": zod.coerce.date(),
   "createdAt": zod.coerce.date(),
-  "inviteLink": zod.string().optional()
+  "inviteLink": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
 }))
 })
 
@@ -706,11 +712,12 @@ export const CreateEngagementOnboardingParams = zod.object({
 })
 
 export const CreateEngagementOnboardingBody = zod.object({
-  "name": zod.string(),
-  "legalName": zod.string(),
-  "functionalCurrency": zod.string(),
-  "basis": zod.string(),
-  "period": zod.string(),
+  "clientId": zod.number().optional().describe('Existing client that invited this firm and is awaiting engagement onboarding.'),
+  "name": zod.string().optional(),
+  "legalName": zod.string().optional(),
+  "functionalCurrency": zod.string().optional(),
+  "basis": zod.string().optional(),
+  "period": zod.string().optional(),
   "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
   "agreedTransactionsPerMonth": zod.number(),
   "agreedRevenuePerYear": zod.number(),
@@ -718,7 +725,7 @@ export const CreateEngagementOnboardingBody = zod.object({
   "endDate": zod.coerce.date().nullish(),
   "feeNote": zod.string().nullish(),
   "termsText": zod.string(),
-  "signerEmail": zod.string()
+  "signerEmail": zod.string().optional()
 })
 
 export const CreateEngagementOnboardingResponse = zod.object({

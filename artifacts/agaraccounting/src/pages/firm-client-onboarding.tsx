@@ -15,11 +15,18 @@ export default function FirmClientOnboardingPage() {
   const firmBilling = primaryFirmBilling(billingQuery.data, firm?.firmId);
   const firmProfile = useGetFirmProfile({ query: { queryKey: getGetFirmProfileQueryKey(), enabled: Boolean(firm) } });
   const [, setLocation] = useLocation();
+  const existingClientId = Number(new URLSearchParams(window.location.search).get("clientId") ?? 0);
+  const invitedEngagement = orgContext?.engagements.find((engagement) =>
+    engagement.clientId === existingClientId
+    && engagement.firmId === firm?.firmId
+    && engagement.status === "provisional"
+    && engagement.canManageFirm
+  );
   const queryClient = useQueryClient();
   const create = useCreateEngagementOnboarding();
   const [step, setStep] = useState<"form" | "preview">("form");
   const [form, setForm] = useState({
-    name: "",
+    name: invitedEngagement?.companyName ?? "",
     legalName: "",
     functionalCurrency: "AED",
     basis: "IFRS",
@@ -59,6 +66,7 @@ export default function FirmClientOnboardingPage() {
       firmId: firm.firmId,
       data: {
         ...form,
+        clientId: invitedEngagement?.clientId,
         agreedTransactionsPerMonth: Number(form.agreedTransactionsPerMonth),
         agreedRevenuePerYear: Number(form.agreedRevenuePerYear),
         endDate: form.endDate || null,
@@ -87,14 +95,20 @@ export default function FirmClientOnboardingPage() {
       <form onSubmit={submit} className="mx-auto max-w-3xl space-y-6">
         {step === "form" ? (
           <>
-            <section className="rounded-lg border border-card-border bg-card p-5 grid gap-4 sm:grid-cols-2">
+              {invitedEngagement ? (
+                <section className="rounded-lg border border-primary/20 bg-primary/5 p-5">
+                  <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client invitation accepted</div>
+                  <h2 className="mt-2 text-base font-semibold">{invitedEngagement.companyName}</h2>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">Define the engagement terms below. The contract will be sent to the client’s registered owner email, and access remains provisional until signing and firm confirmation.</p>
+                </section>
+              ) : <section className="rounded-lg border border-card-border bg-card p-5 grid gap-4 sm:grid-cols-2">
               <h2 className="text-sm font-semibold sm:col-span-2">Client identity</h2>
               <label className="text-xs font-medium">Client name<input required data-testid="input-onboard-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium">Legal name<input required data-testid="input-onboard-legal-name" value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium">Functional currency<select value={form.functionalCurrency} onChange={(event) => setForm({ ...form, functionalCurrency: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="AED">AED</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option></select></label>
               <label className="text-xs font-medium">Reporting basis<select value={form.basis} onChange={(event) => setForm({ ...form, basis: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label>
               <label className="text-xs font-medium sm:col-span-2">Close period<input required data-testid="input-onboard-period" type="month" value={periodToMonthInput(form.period)} onChange={(event) => setForm({ ...form, period: monthInputToPeriod(event.target.value) })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
-            </section>
+              </section>}
             <section className="rounded-lg border border-card-border bg-card p-5 space-y-3">
               <h2 className="text-sm font-semibold">Services</h2>
               <div className="flex flex-wrap gap-2">
@@ -114,7 +128,9 @@ export default function FirmClientOnboardingPage() {
               <label className="text-xs font-medium">End date<input type="date" value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium sm:col-span-2">Fee note<input value={form.feeNote} onChange={(event) => setForm({ ...form, feeNote: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium sm:col-span-2">Terms<textarea required data-testid="input-onboard-terms" rows={8} value={form.termsText} onChange={(event) => setForm({ ...form, termsText: event.target.value })} className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></label>
-              <label className="text-xs font-medium sm:col-span-2">Signer email<input required type="email" data-testid="input-onboard-signer" value={form.signerEmail} onChange={(event) => setForm({ ...form, signerEmail: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+              {invitedEngagement
+                ? <p className="text-xs text-muted-foreground sm:col-span-2">Signer: the client’s registered owner email</p>
+                : <label className="text-xs font-medium sm:col-span-2">Signer email<input required type="email" data-testid="input-onboard-signer" value={form.signerEmail} onChange={(event) => setForm({ ...form, signerEmail: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>}
             </section>
           </>
         ) : (
@@ -129,7 +145,7 @@ export default function FirmClientOnboardingPage() {
               <div>Revenue / year: {form.agreedRevenuePerYear} {form.functionalCurrency}</div>
               <div>Dates: {form.startDate}{form.endDate ? ` → ${form.endDate}` : " · ongoing"}</div>
               <div className="sm:col-span-2">Fee: {form.feeNote || "As agreed separately"}</div>
-              <div className="sm:col-span-2">Signer: {form.signerEmail}</div>
+              <div className="sm:col-span-2">Signer: {invitedEngagement ? "Client’s registered owner email" : form.signerEmail}</div>
             </dl>
             <div>
               <div className="text-[11px] font-semibold">Terms</div>

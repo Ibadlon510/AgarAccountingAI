@@ -3,7 +3,7 @@ name: Firm engagement contracts
 description: In-app engagement onboarding, signature, and five-day firm confirmation.
 ---
 
-Firm-initiated client onboarding is a contract flow, not the one-step `firm_client` create dialog. First-run `CompanyOnboarding` stays account/firm identity only.
+Firm/client onboarding is a contract flow, not a one-step relationship activation. First-run `CompanyOnboarding` stays account/firm identity only.
 
 **Why:** A provisional engagement without terms, signature, or firm confirmation is not an active connection. The parties need a frozen snapshot of services, agreed transactions/month, and agreed revenue/year.
 
@@ -17,5 +17,7 @@ Firm-initiated client onboarding is a contract flow, not the one-step `firm_clie
 - If the firm does not confirm: expire contract + engagement and remove firm workspace memberships. The client keeps the company.
 - If the client never signs: expire the invite/contract and leave the workspace as a firm draft. Resend rotates the invite token, restores `sent` / `provisional`, and emails a new link.
 - Send the signer an email with the signing link. If email delivery fails, keep the contract and show a copyable link.
+- A client invitation to a registered firm creates only a provisional engagement after the firm accepts. The firm must then define the engagement, the client signs, and the firm confirms before activation.
+- Reject duplicate pending invitations and invitations for an already provisional or active firm/client pair; accepting a new invite must never downgrade an active engagement.
 - Persist the contract PDF at send and again at sign. After confirm, serve the stored snapshot.
 - Nominations and rate-profile binding stay gated on `status === "active"`.

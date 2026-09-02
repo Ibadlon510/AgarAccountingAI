@@ -3186,6 +3186,7 @@ components:
         expiresAt: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         inviteLink: { type: string }
+        emailDeliveryStatus: { type: string, enum: [sent, failed] }
     OrganizationContext:
       type: object
       required: [onboardingRequired, mode, firms, firmMembers, companies, managedCompanyIds, engagements, invitations]
@@ -3702,8 +3703,11 @@ components:
       enum: [draft, sent, signed, confirmed, expired, revoked]
     EngagementOnboardingInput:
       type: object
-      required: [name, legalName, functionalCurrency, basis, period, services, agreedTransactionsPerMonth, agreedRevenuePerYear, startDate, termsText, signerEmail]
+      required: [services, agreedTransactionsPerMonth, agreedRevenuePerYear, startDate, termsText]
       properties:
+        clientId:
+          type: number
+          description: Existing client that invited this firm and is awaiting engagement onboarding.
         name: { type: string }
         legalName: { type: string }
         functionalCurrency: { type: string }

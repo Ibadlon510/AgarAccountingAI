@@ -431,6 +431,14 @@ export const OrganizationInvitationStatus = {
   expired: 'expired',
 } as const;
 
+export type OrganizationInvitationEmailDeliveryStatus = typeof OrganizationInvitationEmailDeliveryStatus[keyof typeof OrganizationInvitationEmailDeliveryStatus];
+
+
+export const OrganizationInvitationEmailDeliveryStatus = {
+  sent: 'sent',
+  failed: 'failed',
+} as const;
+
 export interface OrganizationInvitation {
   id: number;
   kind: OrganizationInvitationKind;
@@ -445,6 +453,7 @@ export interface OrganizationInvitation {
   expiresAt: string;
   createdAt: string;
   inviteLink?: string;
+  emailDeliveryStatus?: OrganizationInvitationEmailDeliveryStatus;
 }
 
 export interface Shareholder {
@@ -1018,11 +1027,13 @@ export const EngagementOnboardingStatus = {
 } as const;
 
 export interface EngagementOnboardingInput {
-  name: string;
-  legalName: string;
-  functionalCurrency: string;
-  basis: string;
-  period: string;
+  /** Existing client that invited this firm and is awaiting engagement onboarding. */
+  clientId?: number;
+  name?: string;
+  legalName?: string;
+  functionalCurrency?: string;
+  basis?: string;
+  period?: string;
   services: EngagementService[];
   agreedTransactionsPerMonth: number;
   agreedRevenuePerYear: number;
@@ -1032,7 +1043,7 @@ export interface EngagementOnboardingInput {
   /** @nullable */
   feeNote?: string | null;
   termsText: string;
-  signerEmail: string;
+  signerEmail?: string;
 }
 
 export interface SignEngagementContractInput {
