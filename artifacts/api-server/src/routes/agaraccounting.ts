@@ -8298,8 +8298,12 @@ async function organizationContext(userId: string) {
     eq(organizationInvitationsTable.invitedByUserId, userId), eq(organizationInvitationsTable.status, "pending"),
   ));
   const configured = memberships.some(({ client }) => !isPlaceholderStarterWorkspace(client)) || activeFirms.length > 0;
-  const mode = user?.onboardingMode as "company" | "firm" | "both" | null ?? (configured
-    ? (memberships.length && activeFirms.length ? "both" : activeFirms.length ? "firm" : "company") : null);
+  // Memberships are the current authorization truth. A persisted onboarding
+  // choice can become stale when an existing company user later registers or
+  // joins an accounting firm, which previously hid the practice navigation.
+  const mode = configured
+    ? (memberships.length && activeFirms.length ? "both" : activeFirms.length ? "firm" : "company")
+    : (user?.onboardingMode as "company" | "firm" | "both" | null);
   return {
     onboardingRequired: !configured,
     mode,

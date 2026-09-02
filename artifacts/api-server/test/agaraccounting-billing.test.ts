@@ -317,6 +317,38 @@ test("lets a dual-mode user keep company-owned books after the firm locks", asyn
   assert.equal(ownBooks.response.status, 200);
 });
 
+test("derives dual mode from active firm and company memberships instead of a stale onboarding choice", async () => {
+  assert.ok(database);
+  const staleModeUserId = `billing-stale-mode-${randomUUID()}`;
+  userIds.push(staleModeUserId);
+
+  const companyOnboarding = await onboard(staleModeUserId, "company");
+  assert.equal(companyOnboarding.response.status, 201);
+  const clientId = companyOnboarding.body.companies[0]?.id;
+  assert.ok(clientId);
+  clientIds.push(clientId);
+
+  const [firm] = await database.db.insert(database.firmProfilesTable).values({
+    ownerUserId: staleModeUserId,
+    name: "Later Registered Firm",
+    legalName: "Later Registered Firm LLC",
+    profileKind: "accounting_firm",
+  }).returning();
+  assert.ok(firm);
+  firmIds.push(firm.id);
+  await database.db.insert(database.firmMembershipsTable).values({
+    firmId: firm.id,
+    userId: staleModeUserId,
+    role: "owner",
+    status: "active",
+  });
+
+  const context = await request<{ mode: string; firms: Array<{ firmId: number }> }>("/organizations/context", staleModeUserId);
+  assert.equal(context.response.status, 200);
+  assert.equal(context.body.mode, "both");
+  assert.equal(context.body.firms[0]?.firmId, firm.id);
+});
+
 test("starts a fresh 14-day company trial when liability transfers to the company", async () => {
   assert.ok(database);
   const firmUser = userIds[3]!;
