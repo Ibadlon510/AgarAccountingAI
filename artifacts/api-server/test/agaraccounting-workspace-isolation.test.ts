@@ -44,6 +44,10 @@ const userIds = [
   `practice-bookkeeper-${randomUUID()}`,
   `practice-signer-${randomUUID()}`,
   `practice-dual-${randomUUID()}`,
+  `legacy-owned-company-${randomUUID()}`,
+  `legacy-owned-member-${randomUUID()}`,
+  `legacy-owned-firm-${randomUUID()}`,
+  `legacy-owned-engagement-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const legacyDemoRows = [
@@ -597,6 +601,69 @@ test("hides engagement metadata from firm staff until company approval", async (
   assert.deepEqual(context.body.engagements, []);
   const staffClients = await request<Array<{ id: number }>>("/clients", staffId);
   clientIds.push(...staffClients.body.map(({ id }) => id));
+});
+
+test("repairs only a sole legacy company owner and leaves shared, linked, or engaged workspaces unchanged", async () => {
+  assert.ok(database);
+  const ownerId = userIds[35];
+  const memberId = userIds[36];
+  const firmOwnerId = userIds[37];
+  const engagedOwnerId = userIds[38];
+  await database.db.insert(database.usersTable).values([
+    { id: ownerId },
+    { id: memberId },
+    { id: firmOwnerId },
+    { id: engagedOwnerId },
+  ]);
+  const [soleCompany, sharedCompany, linkedCompany, engagedCompany] = await database.db.insert(database.clientsTable).values([
+    { name: "Legacy sole company", legalName: "Legacy sole company LLC", ownershipStatus: "company_owned", subscriptionLiableParty: "company" },
+    { name: "Legacy shared company", legalName: "Legacy shared company LLC", ownershipStatus: "company_owned", subscriptionLiableParty: "company" },
+    { name: "Legacy linked company", legalName: "Legacy linked company LLC", ownershipStatus: "company_owned", subscriptionLiableParty: "company" },
+    { name: "Legacy engaged company", legalName: "Legacy engaged company LLC", ownershipStatus: "company_owned", subscriptionLiableParty: "company" },
+  ]).returning();
+  clientIds.push(soleCompany.id, sharedCompany.id, linkedCompany.id, engagedCompany.id);
+  const [firm] = await database.db.insert(database.firmProfilesTable).values({
+    ownerUserId: firmOwnerId,
+    name: "Legacy company firm",
+    legalName: "Legacy company firm LLC",
+    profileKind: "accounting_firm",
+  }).returning();
+  await database.db.insert(database.clientWorkspacesTable).values([
+    { clientId: soleCompany.id, userId: ownerId, role: "admin" },
+    { clientId: sharedCompany.id, userId: ownerId, role: "admin" },
+    { clientId: sharedCompany.id, userId: memberId, role: "bookkeeper" },
+    { clientId: linkedCompany.id, userId: ownerId, role: "admin" },
+    { clientId: engagedCompany.id, userId: engagedOwnerId, role: "admin" },
+  ]);
+  await database.db.update(database.clientsTable)
+    .set({ firmId: firm.id })
+    .where(eq(database.clientsTable.id, linkedCompany.id));
+  await database.db.insert(database.firmCompanyEngagementsTable).values({
+    firmId: firm.id,
+    clientId: engagedCompany.id,
+    status: "provisional",
+    invitedByUserId: firmOwnerId,
+  });
+
+  const firstContext = await request<{
+    companies: Array<{ id: number; ownerUserId: string | null }>;
+  }>("/organizations/context", ownerId);
+  assert.equal(firstContext.response.status, 200);
+  assert.equal(firstContext.body.companies.find(({ id }) => id === soleCompany.id)?.ownerUserId, ownerId);
+  assert.equal(firstContext.body.companies.find(({ id }) => id === sharedCompany.id)?.ownerUserId, null);
+  assert.equal(firstContext.body.companies.find(({ id }) => id === linkedCompany.id)?.ownerUserId, null);
+
+  const [storedSole, storedShared, storedLinked, storedEngaged] = await database.db.select({
+    id: database.clientsTable.id,
+    ownerUserId: database.clientsTable.ownerUserId,
+  }).from(database.clientsTable).where(inArray(database.clientsTable.id, [
+    soleCompany.id, sharedCompany.id, linkedCompany.id, engagedCompany.id,
+  ]));
+  const owners = new Map([storedSole, storedShared, storedLinked, storedEngaged].map((client) => [client.id, client.ownerUserId]));
+  assert.equal(owners.get(soleCompany.id), ownerId);
+  assert.equal(owners.get(sharedCompany.id), null);
+  assert.equal(owners.get(linkedCompany.id), null);
+  assert.equal(owners.get(engagedCompany.id), null);
 });
 
 test("persists onboarding identity before configuring the owner's starter workspace", async () => {

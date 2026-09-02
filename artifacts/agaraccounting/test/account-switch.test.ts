@@ -9,6 +9,7 @@ import {
 import {
   clearUserScopedState,
   getActiveWorkspaceStorageKey,
+  getCompanySwitcherWorkspaces,
   getWorkspaceLoadState,
   requiresWorkspaceOnboarding,
   selectWorkspaceForSession,
@@ -107,6 +108,25 @@ test('defaults a remediated account away from saved demo data but allows an expl
   assert.equal(selectWorkspaceForSession(workspaces, 10, false)?.id, 20);
   assert.equal(selectWorkspaceForSession(workspaces, 10, true)?.id, 10);
   assert.equal(selectWorkspaceForSession(workspaces, 20, false)?.id, 20);
+});
+
+test('keeps owned companies in the switcher until firm onboarding creates an engagement', () => {
+  const company = {
+    id: 10,
+    legacyDemo: false,
+    ownerUserId: 'company-owner',
+    subscriptionLiableParty: 'company',
+    firmId: null,
+  };
+
+  assert.deepEqual(
+    getCompanySwitcherWorkspaces([company], 'company-owner', new Set()),
+    [company],
+  );
+  assert.deepEqual(
+    getCompanySwitcherWorkspaces([company], 'company-owner', new Set([company.id])),
+    [],
+  );
 });
 
 test('keeps missing, failed, and ready workspace states distinct', () => {

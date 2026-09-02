@@ -1435,10 +1435,53 @@ function aiCostSummary(activity: UsageAICostActivity[]) {
 }
 
 async function getUserClientIds(userId: string) {
+  await repairLegacyCompanyOwnership(userId);
   const memberships = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
     .where(eq(clientWorkspacesTable.userId, userId));
   return [...new Set(memberships.map((membership) => membership.clientId))];
+}
+
+async function repairLegacyCompanyOwnership(userId: string) {
+  await db.transaction(async (tx) => {
+    const candidates = await tx.select({ clientId: clientsTable.id })
+      .from(clientWorkspacesTable)
+      .innerJoin(clientsTable, eq(clientsTable.id, clientWorkspacesTable.clientId))
+      .where(and(
+        eq(clientWorkspacesTable.userId, userId),
+        inArray(clientWorkspacesTable.role, ["owner", "admin"]),
+        isNull(clientsTable.ownerUserId),
+        eq(clientsTable.ownershipStatus, "company_owned"),
+        eq(clientsTable.subscriptionLiableParty, "company"),
+        isNull(clientsTable.firmId),
+      ));
+
+    for (const candidate of candidates) {
+      const members = await tx.select({
+        userId: clientWorkspacesTable.userId,
+        role: clientWorkspacesTable.role,
+      }).from(clientWorkspacesTable)
+        .where(eq(clientWorkspacesTable.clientId, candidate.clientId))
+        .limit(2);
+      if (members.length !== 1 || members[0]?.userId !== userId || !isManagerRole(members[0].role)) continue;
+
+      const [engagement] = await tx.select({ id: firmCompanyEngagementsTable.id })
+        .from(firmCompanyEngagementsTable)
+        .where(eq(firmCompanyEngagementsTable.clientId, candidate.clientId))
+        .limit(1);
+      if (engagement) continue;
+
+      await tx.update(clientsTable)
+        .set({ ownerUserId: userId })
+        .where(and(
+          eq(clientsTable.id, candidate.clientId),
+          isNull(clientsTable.ownerUserId),
+          eq(clientsTable.ownershipStatus, "company_owned"),
+          eq(clientsTable.subscriptionLiableParty, "company"),
+          isNull(clientsTable.firmId),
+        ));
+    }
+  });
 }
 
 async function purgeExpiredWorkspaceEvidence(clientIds: number[]) {
@@ -8250,6 +8293,7 @@ router.patch("/agaraccounting/account-profile", async (req, res): Promise<void> 
 });
 
 async function organizationContext(userId: string) {
+  await repairLegacyCompanyOwnership(userId);
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   const memberships = await db.select({ client: clientsTable, role: clientWorkspacesTable.role }).from(clientWorkspacesTable)
     .innerJoin(clientsTable, eq(clientsTable.id, clientWorkspacesTable.clientId))

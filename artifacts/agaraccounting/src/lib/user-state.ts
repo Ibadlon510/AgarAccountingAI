@@ -12,6 +12,25 @@ export type WorkspaceSelection = {
 
 export type WorkspaceState = 'starter' | 'configured' | 'legacy_demo';
 
+export type CompanySwitcherWorkspace = WorkspaceSelection & {
+  ownerUserId?: string | null;
+  subscriptionLiableParty?: string;
+  firmId?: number | null;
+};
+
+export function getCompanySwitcherWorkspaces<T extends CompanySwitcherWorkspace>(
+  workspaces: readonly T[],
+  userId: string,
+  engagedClientIds: ReadonlySet<number>,
+) {
+  return workspaces.filter((workspace) =>
+    workspace.ownerUserId === userId
+    && workspace.subscriptionLiableParty === 'company'
+    && workspace.firmId == null
+    && !engagedClientIds.has(workspace.id)
+  );
+}
+
 export function selectWorkspaceForSession<T extends WorkspaceSelection>(
   workspaces: T[],
   savedWorkspaceId: number | null,

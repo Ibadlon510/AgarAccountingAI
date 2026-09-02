@@ -59,7 +59,7 @@ import { ClerkProvider, SignIn, SignUp, useAuth, useClerk, useUser } from '@cler
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { shadcn } from '@clerk/themes';
 import { useUpload } from '@workspace/object-storage-web';
-import { clearUserScopedState, getActiveWorkspaceStorageKey, getWorkspaceLoadState, requiresWorkspaceOnboarding, selectWorkspaceForSession } from './lib/user-state';
+import { clearUserScopedState, getActiveWorkspaceStorageKey, getCompanySwitcherWorkspaces, getWorkspaceLoadState, requiresWorkspaceOnboarding, selectWorkspaceForSession } from './lib/user-state';
 import { appendUniqueStatementFiles, findNextStatementQueueIndex, type StatementImportQueueItem } from './lib/statement-import-queue';
 import { buildSystemNoteDrafts, hydrateChecklistDefaults } from './lib/system-note-drafts';
 import { ClientContext, OrgContext, useClientWorkspace, useOrgContext } from './lib/workspace-context';
@@ -1205,12 +1205,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
         .filter((engagement) => engagement.status === 'provisional' || engagement.status === 'active')
         .map((engagement) => engagement.clientId),
     );
-    return clients.filter((client) =>
-      client.ownerUserId === currentUserId
-      && client.subscriptionLiableParty === 'company'
-      && client.firmId == null
-      && !engagedClientIds.has(client.id)
-    );
+    return getCompanySwitcherWorkspaces(clients, currentUserId, engagedClientIds);
   }, [clients, currentUserId, orgContext?.engagements]);
   const rankedClients = useMemo(() => {
     const visitByClient = new Map(clientVisitHistory.map((entry) => [entry.id, entry]));
