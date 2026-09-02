@@ -79,9 +79,14 @@ export default function FirmClientDashboardPage() {
         eyebrow={`${firm?.firmName ?? "Firm"} · Practice`}
         title={data?.clientName ?? "Client engagement"}
         description="How this engagement is tracking against the signed terms."
-        action={data?.workspaceAccessible ? (
-          <button data-testid="button-open-close-desk" onClick={() => { setActiveClientId(data.clientId); setLocation("/user-portal"); }} className="inline-flex items-center rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">Open close desk</button>
-        ) : <Link href="/firm-dashboard" className="text-xs font-semibold text-primary">Back to firm dashboard</Link>}
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href="/firm-dashboard" data-testid="link-back-to-firm-dashboard" className="text-xs font-semibold text-primary">Back to firm dashboard</Link>
+            {data?.workspaceAccessible && (
+              <button data-testid="button-open-close-desk" onClick={() => { setActiveClientId(data.clientId); setLocation("/user-portal"); }} className="inline-flex items-center rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground">Open close desk</button>
+            )}
+          </div>
+        }
       />
       <QueryState loading={query.isLoading} error={query.isError} empty={!data} onRetry={() => query.refetch()}>
         {data && (
