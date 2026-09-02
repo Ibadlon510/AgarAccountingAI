@@ -1132,6 +1132,7 @@ function StatementAnalysisBanner() {
 }
 const firmNav = [
   { href: '/firm-dashboard', label: 'Firm dashboard', icon: Building2 },
+  { href: '/firm-onboard', label: 'Onboard a client', icon: UserPlus },
   { href: '/firm-settings', label: 'Firm settings', icon: Users },
 ];
 function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AgarAccountingUser; onLogout: () => void }) {
@@ -1143,6 +1144,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
   const [, setLocation] = useLocation();
   const [location] = useLocation();
   const showFirmNav = showsFirmNavigation(orgContext?.mode, firmBilling?.fullAccess ?? true);
+  const showFirmPracticeNav = showFirmNav && isFirmPracticePath(location);
   const showPersistentWall = shouldShowPersistentFirmWall({
     path: location,
     mode: orgContext?.mode,
@@ -1226,7 +1228,29 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
   return <AssistantPageContextProvider><div className="min-h-[100dvh] bg-background">
     <aside className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform duration-300 md:translate-x-0 ${collapsed ? 'md:w-[76px]' : ''} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[78px] items-center border-b border-sidebar-border px-5"><div className="flex min-w-0 items-center gap-3"><div className="grid size-9 shrink-0 place-items-center"><img src={brandMarkUrl} alt="" className="size-9 rounded-lg" /></div><div className={`${collapsed ? 'md:hidden' : ''}`}><div className="font-display text-[18px] leading-none tracking-tight text-sidebar-foreground">AgarAccounting AI</div><div className="mt-1 font-mono text-[9px] uppercase tracking-[.2em] text-sidebar-foreground/50">Review desk</div></div></div><button aria-label="Close navigation" data-testid="button-close-navigation" className="ml-auto rounded-md p-1.5 text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground md:hidden" onClick={() => setMobileOpen(false)}><X size={17} /></button></div>
-      <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}>{showFirmNav && <><div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Firm</div><nav className="mb-5 space-y-1">{firmNav.map(({ href, label, icon: Icon }) => { const active = location === href || location.startsWith(`${href}/`); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></>}<div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div><nav className="space-y-1">{nav.map(({ href, label, icon: Icon }) => { const active = href === '/' ? location === '/' || location === '/user-portal' : location.startsWith(href); return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>; })}</nav></div>
+       <div className={`px-3 pt-6 ${collapsed ? 'md:px-2' : ''}`}>
+         {showFirmPracticeNav ? (
+           <>
+             <div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Firm</div>
+             <nav className="space-y-1">
+               {firmNav.map(({ href, label, icon: Icon }) => {
+                 const active = location === href || location.startsWith(`${href}/`);
+                 return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>;
+               })}
+             </nav>
+           </>
+         ) : (
+           <>
+             <div className={`mb-3 px-3 font-mono text-[9px] font-medium uppercase tracking-[.18em] text-sidebar-foreground/40 ${collapsed ? 'md:hidden' : ''}`}>Workspace</div>
+             <nav className="space-y-1">
+               {nav.map(({ href, label, icon: Icon }) => {
+                 const active = href === '/' ? location === '/' || location === '/user-portal' : location.startsWith(href);
+                 return <Link key={href} href={href} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setMobileOpen(false)} className={`group flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-medium transition-colors ${active ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm' : 'text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-foreground'} ${collapsed ? 'md:justify-center md:px-0' : ''}`}><Icon size={17} strokeWidth={active ? 2.2 : 1.8} /><span className={collapsed ? 'md:hidden' : ''}>{label}</span>{active && !collapsed && <ChevronRight className="ml-auto" size={14} />}</Link>;
+               })}
+             </nav>
+           </>
+         )}
+       </div>
        <div className={`mt-auto border-t border-sidebar-border p-4 ${collapsed ? 'md:px-2' : ''}`}><div className={`rounded-md border border-sidebar-border bg-sidebar-accent/40 p-3 ${collapsed ? 'md:hidden' : ''}`}><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-1.5 rounded-full bg-sidebar-primary" /> {activeClient?.name ?? 'Client workspace'}</div><div className="mt-2 flex items-center justify-between font-mono text-[10px] text-sidebar-foreground/55"><span>{activeClient ? `${activeClient.basis} / ${activeClient.functionalCurrency}` : '—'}</span><span>{activeClient?.ownershipStatus === 'firm_provisional' ? 'Firm Provisional' : activeClient?.ownershipStatus === 'company_owned' ? 'Company Owned' : activeClient?.period ?? '—'}</span></div></div></div>
     </aside>
        <div className={`min-h-[100dvh] transition-[padding] duration-300 ${collapsed ? 'md:pl-[76px]' : 'md:pl-[248px]'}`}>
