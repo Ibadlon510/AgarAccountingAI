@@ -27,7 +27,7 @@ export default function FirmClientOnboardingPage() {
   const invitedEngagement = orgContext?.engagements.find((engagement) =>
     engagement.clientId === existingClientId
     && engagement.firmId === firm?.firmId
-    && engagement.status === "provisional"
+    && (engagement.status === "provisional" || engagement.status === "active")
     && engagement.canManageFirm
   );
   const queryClient = useQueryClient();
@@ -108,9 +108,9 @@ export default function FirmClientOnboardingPage() {
           <>
               {invitedEngagement ? (
                 <section className="rounded-lg border border-primary/20 bg-primary/5 p-5">
-                  <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client invitation accepted</div>
+                  <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client workspace connected</div>
                   <h2 className="mt-2 text-base font-semibold">{invitedEngagement.companyName}</h2>
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">Define the engagement terms below. The contract will be sent to the client’s registered owner email, and access remains provisional until signing and firm confirmation.</p>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">The firm connection is active. Define the engagement terms below to complete onboarding and send the contract to the client’s registered owner email.</p>
                 </section>
               ) : <section className="rounded-lg border border-card-border bg-card p-5 grid gap-4 sm:grid-cols-2">
               <h2 className="text-sm font-semibold sm:col-span-2">Client identity</h2>

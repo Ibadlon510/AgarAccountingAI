@@ -236,6 +236,13 @@ export interface UaeCorporateTaxSummary {
 
 export interface FirmProfile {
   id: number;
+  /**
+     * Public random identifier used by companies to invite this firm.
+     * @minLength 8
+     * @maxLength 8
+     * @pattern ^[A-Z0-9]{8}$
+     */
+  firmCode: string;
   name: string;
   legalName: string;
   /** Whether the system catalog may supply a fallback rate for this firm's clients. */
@@ -334,7 +341,12 @@ export interface FirmEngagementInviteInput {
      * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
      */
   email: string;
-  firmId: number;
+  /**
+     * @minLength 8
+     * @maxLength 8
+     * @pattern ^[A-Za-z0-9]{8}$
+     */
+  firmCode: string;
   role?: FirmEngagementInviteInputRole;
 }
 
@@ -399,6 +411,21 @@ export const FirmEngagementStatus = {
   expired: 'expired',
 } as const;
 
+/**
+ * @nullable
+ */
+export type FirmEngagementOnboardingStatus = typeof FirmEngagementOnboardingStatus[keyof typeof FirmEngagementOnboardingStatus] | null;
+
+
+export const FirmEngagementOnboardingStatus = {
+  draft: 'draft',
+  sent: 'sent',
+  signed: 'signed',
+  confirmed: 'confirmed',
+  expired: 'expired',
+  revoked: 'revoked',
+} as const;
+
 export interface FirmEngagement {
   id: number;
   firmId: number;
@@ -406,6 +433,8 @@ export interface FirmEngagement {
   clientId: number;
   companyName: string;
   status: FirmEngagementStatus;
+  /** @nullable */
+  onboardingStatus: FirmEngagementOnboardingStatus;
   canManageFirm: boolean;
   canManageCompany: boolean;
   members: FirmEngagementMember[];

@@ -3,9 +3,9 @@ name: Firm engagement contracts
 description: In-app engagement onboarding, signature, and five-day firm confirmation.
 ---
 
-Firm/client onboarding is a contract flow, not a one-step relationship activation. First-run `CompanyOnboarding` stays account/firm identity only.
+Firm/client onboarding is a contract flow that runs alongside an already established relationship. First-run `CompanyOnboarding` stays account/firm identity only.
 
-**Why:** A provisional engagement without terms, signature, or firm confirmation is not an active connection. The parties need a frozen snapshot of services, agreed transactions/month, and agreed revenue/year.
+**Why:** Firms need immediate working access when a client is added or a firm invitation is accepted, while still retaining a frozen snapshot of services, agreed transactions/month, and agreed revenue/year once onboarding is completed.
 
 **How to apply:**
 - Store contracts in `agaraccounting_engagement_contracts`, not by overloading engagements.
@@ -18,12 +18,13 @@ Firm/client onboarding is a contract flow, not a one-step relationship activatio
 **How to apply:** Keep legal wording, PDF headings, and invitation copy firm/client-facing, and describe AgarAccounting AI only as the delivery or acknowledgement tool.
 - Invitation kind is `engagement_contract`. Accepting that invite without signing returns 409.
 - Client signs in-app (typed name + checkbox + server timestamp). This is an acknowledgement stored on the engagement, not a qualified e-signature.
-- After sign, the signer becomes company owner. The engagement stays **not** `active` until the firm confirms.
-- `confirmBy = signedAt + 5 days`. Owner/admin confirm activates the engagement. Lazy-expire on overview, sign, and confirm.
-- If the firm does not confirm: expire contract + engagement and remove firm workspace memberships. The client keeps the company.
-- If the client never signs: expire the invite/contract and leave the workspace as a firm draft. Resend rotates the invite token, restores `sent` / `provisional`, and emails a new link.
+- Adding a firm client or accepting a registered-firm invitation establishes an active engagement immediately; incomplete onboarding is shown as `Pending onboarding`.
+- After sign, the signer becomes company owner. Firm confirmation completes the contract record but is not an access boundary.
+- `confirmBy = signedAt + 5 days`. Owner/admin confirmation marks the onboarding contract confirmed. Lazy-expire on overview, sign, and confirm.
+- If signing or confirmation expires, expire only the invitation/contract. Keep the active firm connection and workspace access until someone explicitly revokes the engagement.
+- Resend rotates the invite token and restores the contract to `sent` without downgrading the active engagement.
 - Send the signer an email with the signing link. If email delivery fails, keep the contract and show a copyable link.
-- A client invitation to a registered firm creates only a provisional engagement after the firm accepts. The firm must then define the engagement, the client signs, and the firm confirms before activation.
+- A client invitation to a registered firm creates an active engagement after the firm accepts. The firm can complete onboarding afterward.
 - Reject duplicate pending invitations and invitations for an already provisional or active firm/client pair; accepting a new invite must never downgrade an active engagement.
 - Persist the contract PDF at send and again at sign. After confirm, serve the stored snapshot.
-- Nominations and rate-profile binding stay gated on `status === "active"`.
+- Nominations and rate-profile binding stay gated on `status === "active"`; onboarding status does not gate either.

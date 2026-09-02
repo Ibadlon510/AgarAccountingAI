@@ -26,6 +26,7 @@ export const sessionsTable = pgTable(
 
 export const firmProfilesTable = pgTable("agaraccounting_firm_profiles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  firmCode: varchar("firm_code", { length: 8 }),
   ownerUserId: varchar("owner_user_id").notNull(),
   name: text("name").notNull(),
   legalName: text("legal_name").notNull(),
@@ -41,6 +42,7 @@ export const firmProfilesTable = pgTable("agaraccounting_firm_profiles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   uniqueIndex("agaraccounting_firm_profiles_owner_kind_idx").on(table.ownerUserId, table.profileKind),
+  uniqueIndex("agaraccounting_firm_profiles_firm_code_uidx").on(table.firmCode),
   uniqueIndex("agaraccounting_firm_profiles_slug_uidx").on(table.slug),
   foreignKey({
     columns: [table.ownerUserId],

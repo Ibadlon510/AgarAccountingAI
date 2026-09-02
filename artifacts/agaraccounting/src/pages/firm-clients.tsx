@@ -82,7 +82,7 @@ export default function FirmClientsPage() {
                           <td className="px-2 py-3">{client.agreedTransactionsPerMonth ?? "—"} / month</td>
                           <td className="px-2 py-3">{client.agreedRevenuePerYear != null ? <>{money(client.agreedRevenuePerYear, client.agreedRevenueCurrency ?? client.functionalCurrency)}<div className="font-normal text-muted-foreground">{client.revenueCoverageStartDate && client.revenueCoverageEndDate ? `${client.revenueCoverageStartDate.slice(0, 10)} → ${client.revenueCoverageEndDate.slice(0, 10)}` : "Coverage not specified"}</div></> : "—"}</td>
                           <td className="px-2 py-3">
-                            {client.engagementStatus === "provisional" && !client.onboardingId
+                            {(client.engagementStatus === "provisional" || client.engagementStatus === "active") && !client.onboardingId
                               ? <Link href={`/firm-onboard?clientId=${client.id}`} onClick={(event) => event.stopPropagation()} className="text-[11px] font-semibold text-primary">Complete onboarding</Link>
                               : <span className="text-muted-foreground">Open</span>}
                           </td>

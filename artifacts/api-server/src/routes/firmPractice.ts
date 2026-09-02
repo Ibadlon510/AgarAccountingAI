@@ -319,7 +319,7 @@ router.get("/agaraccounting/firm-clients/:clientId/practice-overview", async (re
     eq(firmCompanyEngagementsTable.firmId, membership.firm.id),
     eq(firmCompanyEngagementsTable.clientId, client.id),
   )).limit(1);
-  const hidden = contract?.status === "expired" || engagement?.status === "expired";
+  const hidden = engagement?.status === "expired";
   const [workspace] = await db.select({ clientId: clientWorkspacesTable.clientId })
     .from(clientWorkspacesTable)
     .where(and(eq(clientWorkspacesTable.clientId, client.id), eq(clientWorkspacesTable.userId, currentUserId(req))))
@@ -394,18 +394,20 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
     [existingEngagement] = await db.select().from(firmCompanyEngagementsTable).where(and(
       eq(firmCompanyEngagementsTable.firmId, membership.firm.id),
       eq(firmCompanyEngagementsTable.clientId, existingClientId),
-      eq(firmCompanyEngagementsTable.status, "provisional"),
+      inArray(firmCompanyEngagementsTable.status, ["provisional", "active"]),
     )).limit(1);
-    if (!existingClient || !existingEngagement || existingClient.ownershipStatus !== "company_owned") {
+    if (!existingClient || !existingEngagement || !["company_owned", "firm_provisional"].includes(existingClient.ownershipStatus)) {
       return res.status(409).json({ error: "This client is not awaiting onboarding for this firm." });
     }
     const [existingContract] = await db.select({ id: engagementContractsTable.id }).from(engagementContractsTable)
       .where(eq(engagementContractsTable.engagementId, existingEngagement.id)).limit(1);
     if (existingContract) return res.status(409).json({ error: "Onboarding has already started for this client." });
-    const [owner] = existingClient.ownerUserId
-      ? await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, existingClient.ownerUserId)).limit(1)
-      : [];
-    signerEmail = owner?.email?.trim().toLowerCase() ?? "";
+    if (existingClient.ownershipStatus === "company_owned") {
+      const [owner] = existingClient.ownerUserId
+        ? await db.select({ email: usersTable.email }).from(usersTable).where(eq(usersTable.id, existingClient.ownerUserId)).limit(1)
+        : [];
+      signerEmail = owner?.email?.trim().toLowerCase() ?? "";
+    }
   } else if (!body.data.name?.trim() || !body.data.legalName?.trim() || !body.data.functionalCurrency?.trim() || !body.data.basis?.trim() || !body.data.period?.trim()) {
     return res.status(400).json({ error: "Enter the client identity and reporting settings." });
   }
@@ -431,8 +433,10 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
     const engagement = existingEngagement ?? (await tx.insert(firmCompanyEngagementsTable).values({
       firmId: membership.firm.id,
       clientId: client.id,
-      status: "provisional",
+      status: "active",
       invitedByUserId: actorUserId,
+      acceptedByUserId: actorUserId,
+      acceptedAt: new Date(),
     }).returning())[0];
     const [invitation] = await tx.insert(organizationInvitationsTable).values({
       kind: "engagement_contract",
@@ -563,8 +567,6 @@ router.post("/engagement-onboardings/:id/revoke", async (req, res) => {
       await tx.update(organizationInvitationsTable).set({ status: "revoked" })
         .where(and(eq(organizationInvitationsTable.id, row.contract.invitationId), eq(organizationInvitationsTable.status, "pending")));
     }
-    await tx.update(firmCompanyEngagementsTable).set({ status: "revoked", revokedAt: new Date() })
-      .where(eq(firmCompanyEngagementsTable.id, row.contract.engagementId));
     return tx.update(engagementContractsTable).set({ status: "revoked" })
       .where(eq(engagementContractsTable.id, row.contract.id)).returning();
   });
@@ -612,8 +614,6 @@ router.post("/engagement-onboardings/:id/resend", async (req, res) => {
     const invitation = row.invitation
       ? (await tx.update(organizationInvitationsTable).set(invitationValues).where(eq(organizationInvitationsTable.id, row.invitation.id)).returning())[0]
       : (await tx.insert(organizationInvitationsTable).values(invitationValues).returning())[0];
-    await tx.update(firmCompanyEngagementsTable).set({ status: "provisional", revokedAt: null })
-      .where(eq(firmCompanyEngagementsTable.id, row.contract.engagementId));
     const [contract] = await tx.update(engagementContractsTable).set({
       status: "sent",
       invitationId: invitation.id,

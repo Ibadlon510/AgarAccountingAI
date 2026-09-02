@@ -205,6 +205,7 @@ import {
   clientsTable,
   db,
   exchangeRatesTable,
+  engagementContractsTable,
   firmProfilesTable,
   firmMembershipsTable,
   firmCompanyEngagementsTable,
@@ -1551,6 +1552,42 @@ async function requireOwnedClient(req: Request, res: Response, requestedClientId
 
 type WorkspaceRole = "owner" | "admin" | "accountant" | "bookkeeper";
 const isManagerRole = (role: string) => role === "owner" || role === "admin";
+const FIRM_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function randomFirmCode() {
+  const bytes = randomBytes(8);
+  return Array.from(bytes, (byte) => FIRM_CODE_ALPHABET[byte % FIRM_CODE_ALPHABET.length]).join("");
+}
+
+async function allocateFirmCode() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const firmCode = randomFirmCode();
+    const [existing] = await db.select({ id: firmProfilesTable.id })
+      .from(firmProfilesTable)
+      .where(eq(firmProfilesTable.firmCode, firmCode))
+      .limit(1);
+    if (!existing) return firmCode;
+  }
+  throw new Error("Unable to allocate a unique firm ID.");
+}
+
+async function ensureFirmCode(firm: typeof firmProfilesTable.$inferSelect) {
+  if (firm.firmCode) return firm;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      const [saved] = await db.update(firmProfilesTable)
+        .set({ firmCode: await allocateFirmCode() })
+        .where(and(eq(firmProfilesTable.id, firm.id), isNull(firmProfilesTable.firmCode)))
+        .returning();
+      if (saved) return saved;
+      const [current] = await db.select().from(firmProfilesTable).where(eq(firmProfilesTable.id, firm.id)).limit(1);
+      if (current?.firmCode) return current;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "23505") throw error;
+    }
+  }
+  throw new Error("Unable to assign a unique firm ID.");
+}
 
 function clientSummary(client: typeof clientsTable.$inferSelect) {
   return { id: client.id, name: client.name };
@@ -1559,6 +1596,7 @@ function clientSummary(client: typeof clientsTable.$inferSelect) {
 function firmProfileResponse(firm: typeof firmProfilesTable.$inferSelect) {
   return {
     id: firm.id,
+    firmCode: firm.firmCode,
     name: firm.name,
     legalName: firm.legalName,
     systemRatesEnabled: firm.systemRatesEnabled,
@@ -1631,7 +1669,7 @@ async function getOrCreateFirmProfile(userId: string) {
   const [membership] = await db.select({ firm: firmProfilesTable }).from(firmMembershipsTable)
     .innerJoin(firmProfilesTable, eq(firmProfilesTable.id, firmMembershipsTable.firmId))
     .where(and(eq(firmMembershipsTable.userId, userId), eq(firmMembershipsTable.status, "active"))).limit(1);
-  if (membership) return membership.firm;
+  if (membership) return ensureFirmCode(membership.firm);
   let [firm] = await db.select().from(firmProfilesTable)
     .where(and(eq(firmProfilesTable.ownerUserId, userId), eq(firmProfilesTable.profileKind, "accounting_firm")))
     .limit(1);
@@ -1642,7 +1680,7 @@ async function getOrCreateFirmProfile(userId: string) {
     eq(exchangeRatesTable.userId, userId),
     isNull(exchangeRatesTable.firmId),
   ));
-  return firm;
+  return ensureFirmCode(firm);
 }
 
 async function getOrCreateInternalRateProfile(userId: string) {
@@ -1652,6 +1690,7 @@ async function getOrCreateInternalRateProfile(userId: string) {
   )).limit(1);
   if (!profile) {
     [profile] = await db.insert(firmProfilesTable).values({
+      firmCode: await allocateFirmCode(),
       ownerUserId: userId,
       name: "Internal rate container",
       legalName: "Company-owned exchange-rate schedule",
@@ -8343,6 +8382,15 @@ async function organizationContext(userId: string) {
     .innerJoin(clientsTable, eq(clientsTable.id, firmCompanyEngagementsTable.clientId))
     .where(engagementScopes.length === 1 ? engagementScopes[0] : or(...engagementScopes)) : [];
   const engagementIds = engagements.map(({ engagement }) => engagement.id);
+  const engagementContracts = engagementIds.length ? await db.select().from(engagementContractsTable)
+    .where(inArray(engagementContractsTable.engagementId, engagementIds))
+    .orderBy(desc(engagementContractsTable.id)) : [];
+  const onboardingStatusByEngagement = new Map<number, string>();
+  for (const contract of engagementContracts) {
+    if (!onboardingStatusByEngagement.has(contract.engagementId)) {
+      onboardingStatusByEngagement.set(contract.engagementId, contract.status);
+    }
+  }
   const engagementMembers = engagementIds.length ? await db.select({
     member: firmEngagementMembersTable, user: usersTable,
   }).from(firmEngagementMembersTable).innerJoin(usersTable, eq(usersTable.id, firmEngagementMembersTable.userId))
@@ -8379,7 +8427,9 @@ async function organizationContext(userId: string) {
       const canManageCompany = memberships.some(({ client: own, role }) => own.id === client.id && isManagerRole(role));
       return {
         id: engagement.id, firmId: firm.id, firmName: firm.name, clientId: client.id, companyName: client.name,
-        status: engagement.status as "provisional" | "active" | "revoked", canManageFirm, canManageCompany,
+        status: engagement.status as "provisional" | "active" | "revoked" | "expired",
+        onboardingStatus: onboardingStatusByEngagement.get(engagement.id) ?? null,
+        canManageFirm, canManageCompany,
         members: engagementMembers.filter(({ member }) =>
           member.engagementId === engagement.id && (canManageFirm || canManageCompany || (member.userId === userId && member.status === "approved"))
         ).map(({ member, user: memberUser }) => ({
@@ -8423,8 +8473,9 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
     }
     if (body.mode === "firm" || body.mode === "both") {
       const slug = await allocateUniqueSlug(body.firmName!.trim());
-      const [firm] = await tx.insert(firmProfilesTable).values({ ownerUserId: userId, name: body.firmName!.trim(), legalName: body.firmLegalName!.trim(), profileKind: "accounting_firm", slug })
-        .onConflictDoUpdate({ target: [firmProfilesTable.ownerUserId, firmProfilesTable.profileKind], set: { name: body.firmName!.trim(), legalName: body.firmLegalName!.trim() } }).returning();
+      const firmCode = await allocateFirmCode();
+      const [firm] = await tx.insert(firmProfilesTable).values({ firmCode, ownerUserId: userId, name: body.firmName!.trim(), legalName: body.firmLegalName!.trim(), profileKind: "accounting_firm", slug })
+        .onConflictDoUpdate({ target: [firmProfilesTable.ownerUserId, firmProfilesTable.profileKind], set: { name: body.firmName!.trim(), legalName: body.firmLegalName!.trim(), firmCode: sql`coalesce(${firmProfilesTable.firmCode}, ${firmCode})` } }).returning();
       if (!firm.slug) {
         await tx.update(firmProfilesTable).set({ slug: await allocateUniqueSlug(firm.name, firm.id) }).where(eq(firmProfilesTable.id, firm.id));
       }
@@ -8466,7 +8517,7 @@ router.post("/companies/:id/firm-invitations", async (req, res) => {
   const [targetFirm] = await db.select({ id: firmProfilesTable.id, name: firmProfilesTable.name }).from(firmProfilesTable)
     .innerJoin(firmMembershipsTable, eq(firmMembershipsTable.firmId, firmProfilesTable.id))
     .innerJoin(usersTable, eq(usersTable.id, firmMembershipsTable.userId))
-    .where(and(eq(firmProfilesTable.id, body.firmId), eq(firmProfilesTable.profileKind, "accounting_firm"), eq(usersTable.email, body.email.trim().toLowerCase()), eq(firmMembershipsTable.status, "active"), inArray(firmMembershipsTable.role, ["owner", "admin"]))).limit(1);
+    .where(and(eq(firmProfilesTable.firmCode, body.firmCode.toUpperCase()), eq(firmProfilesTable.profileKind, "accounting_firm"), eq(usersTable.email, body.email.trim().toLowerCase()), eq(firmMembershipsTable.status, "active"), inArray(firmMembershipsTable.role, ["owner", "admin"]))).limit(1);
   if (!targetFirm) { res.status(400).json({ error: "Select a firm managed by the invited administrator." }); return; }
   const [client] = await db.select({ name: clientsTable.name }).from(clientsTable).where(eq(clientsTable.id, id)).limit(1);
   if (!client) { res.status(404).json({ error: "Company not found." }); return; }
@@ -8528,7 +8579,9 @@ router.post("/organization-invitations/:token/accept", async (req, res): Promise
     } else if (invite.kind === "firm_engagement" && invite.clientId && invite.firmId) {
       const [firmMember] = await tx.select().from(firmMembershipsTable).where(and(eq(firmMembershipsTable.firmId, invite.firmId), eq(firmMembershipsTable.userId, userId), eq(firmMembershipsTable.status, "active"), inArray(firmMembershipsTable.role, ["owner", "admin"]))).limit(1);
       if (!firmMember) return "firm_admin" as const;
-      await tx.insert(firmCompanyEngagementsTable).values({ firmId: firmMember.firmId, clientId: invite.clientId, status: "provisional", invitedByUserId: invite.invitedByUserId, acceptedByUserId: userId, acceptedAt: new Date() }).onConflictDoUpdate({ target: [firmCompanyEngagementsTable.firmId, firmCompanyEngagementsTable.clientId], set: { status: "provisional", acceptedByUserId: userId, acceptedAt: new Date(), revokedAt: null } });
+      await tx.insert(firmCompanyEngagementsTable).values({ firmId: firmMember.firmId, clientId: invite.clientId, status: "active", invitedByUserId: invite.invitedByUserId, acceptedByUserId: userId, acceptedAt: new Date() }).onConflictDoUpdate({ target: [firmCompanyEngagementsTable.firmId, firmCompanyEngagementsTable.clientId], set: { status: "active", acceptedByUserId: userId, acceptedAt: new Date(), revokedAt: null } });
+      await tx.insert(clientWorkspacesTable).values({ clientId: invite.clientId, userId, role: "admin" })
+        .onConflictDoUpdate({ target: [clientWorkspacesTable.clientId, clientWorkspacesTable.userId], set: { role: "admin" } });
     } else if (invite.kind === "company_transfer" && invite.clientId && invite.firmId) {
       const [client] = await tx.select().from(clientsTable).where(eq(clientsTable.id, invite.clientId)).for("update");
       if (!client || client.ownershipStatus !== "firm_provisional" || client.firmId !== invite.firmId) return "transfer" as const;
@@ -8686,7 +8739,7 @@ router.post("/clients", async (req, res) => {
       .returning();
     await tx.insert(clientWorkspacesTable).values({ clientId: created.id, userId: actorUserId, role: creationMode === "own_company" ? "owner" : "admin" });
     if (firm) await tx.insert(firmCompanyEngagementsTable).values({
-      firmId: firm.id, clientId: created.id, status: "provisional", invitedByUserId: actorUserId,
+      firmId: firm.id, clientId: created.id, status: "active", invitedByUserId: actorUserId, acceptedByUserId: actorUserId, acceptedAt: new Date(),
     });
     return created;
   });

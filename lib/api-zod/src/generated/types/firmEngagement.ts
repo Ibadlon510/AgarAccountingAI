@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { FirmEngagementMember } from './firmEngagementMember';
+import type { FirmEngagementOnboardingStatus } from './firmEngagementOnboardingStatus';
 import type { FirmEngagementStatus } from './firmEngagementStatus';
 
 export interface FirmEngagement {
@@ -15,6 +16,8 @@ export interface FirmEngagement {
   clientId: number;
   companyName: string;
   status: FirmEngagementStatus;
+  /** @nullable */
+  onboardingStatus: FirmEngagementOnboardingStatus;
   canManageFirm: boolean;
   canManageCompany: boolean;
   members: FirmEngagementMember[];

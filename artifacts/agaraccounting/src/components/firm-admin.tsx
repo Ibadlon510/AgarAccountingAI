@@ -73,7 +73,10 @@ export function FirmEngagementsSection({ engagements }: { engagements: FirmEngag
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-sm font-semibold">{engagement.companyName}</h3>
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">{engagement.status} engagement</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[.1em] text-muted-foreground">
+                    <span>{engagement.status} engagement</span>
+                    {engagement.status === "active" && engagement.onboardingStatus !== "confirmed" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Pending onboarding</span>}
+                  </div>
                 </div>
                 {engagement.canManageCompany && (
                   <button onClick={() => { if (confirm("Revoke engagement?")) revoke.mutate({ id: engagement.id }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${engagement.companyName} engagement revoked`); } }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke</button>

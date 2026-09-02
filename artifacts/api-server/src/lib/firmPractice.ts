@@ -51,17 +51,13 @@ export async function expireStaleEngagementContracts(now = new Date()) {
     const signatureWindowClosed = contract.status === "sent" && inviteExpired && (inviteExpired.status !== "pending" || inviteExpired.expiresAt <= now);
     const confirmWindowClosed = contract.status === "signed" && contract.confirmBy != null && contract.confirmBy <= now;
     if (!signatureWindowClosed && !confirmWindowClosed) continue;
-    await expireEngagementContract(contract.id, contract.clientId, contract.firmId, contract.status === "signed");
+    await expireEngagementContract(contract.id);
   }
 }
 
-async function expireEngagementContract(contractId: number, clientId: number, firmId: number, removeFirmAccess: boolean) {
+async function expireEngagementContract(contractId: number) {
   await db.transaction(async (tx) => {
     await tx.update(engagementContractsTable).set({ status: "expired" }).where(eq(engagementContractsTable.id, contractId));
-    await tx.update(firmCompanyEngagementsTable).set({ status: "expired", revokedAt: new Date() }).where(and(
-      eq(firmCompanyEngagementsTable.clientId, clientId),
-      eq(firmCompanyEngagementsTable.firmId, firmId),
-    ));
     const invitation = await tx.select({ id: engagementContractsTable.invitationId })
       .from(engagementContractsTable)
       .where(eq(engagementContractsTable.id, contractId))
@@ -69,19 +65,6 @@ async function expireEngagementContract(contractId: number, clientId: number, fi
     if (invitation[0]?.id) {
       await tx.update(organizationInvitationsTable).set({ status: "expired" })
         .where(and(eq(organizationInvitationsTable.id, invitation[0].id), eq(organizationInvitationsTable.status, "pending")));
-    }
-    if (removeFirmAccess) {
-      const firmUsers = await tx.select({ userId: firmMembershipsTable.userId })
-        .from(firmMembershipsTable)
-        .where(and(eq(firmMembershipsTable.firmId, firmId), eq(firmMembershipsTable.status, "active")));
-      const userIds = firmUsers.map((row) => row.userId);
-      if (userIds.length) {
-        await tx.delete(clientWorkspacesTable).where(and(
-          eq(clientWorkspacesTable.clientId, clientId),
-          inArray(clientWorkspacesTable.userId, userIds),
-          sql`${clientWorkspacesTable.role} <> 'owner'`,
-        ));
-      }
     }
   });
 }

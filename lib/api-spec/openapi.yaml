@@ -3057,9 +3057,15 @@ components:
             $ref: "#/components/schemas/UaeCorporateTaxAdjustment"
     FirmProfile:
       type: object
-      required: [id, name, legalName, systemRatesEnabled, reportAttributionEnabled]
+      required: [id, firmCode, name, legalName, systemRatesEnabled, reportAttributionEnabled]
       properties:
         id: { type: number }
+        firmCode:
+          type: string
+          minLength: 8
+          maxLength: 8
+          pattern: "^[A-Z0-9]{8}$"
+          description: Public random identifier used by companies to invite this firm.
         name: { type: string }
         legalName: { type: string }
         systemRatesEnabled:
@@ -3112,10 +3118,14 @@ components:
           enum: [admin, accountant, bookkeeper]
     FirmEngagementInviteInput:
       type: object
-      required: [email, firmId]
+      required: [email, firmCode]
       properties:
         email: { type: string, minLength: 3, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
-        firmId: { type: number }
+        firmCode:
+          type: string
+          minLength: 8
+          maxLength: 8
+          pattern: "^[A-Za-z0-9]{8}$"
         role:
           type: string
           enum: [admin]
@@ -3152,7 +3162,7 @@ components:
           enum: [nominated, approved, revoked]
     FirmEngagement:
       type: object
-      required: [id, firmId, firmName, clientId, companyName, status, canManageFirm, canManageCompany, members]
+      required: [id, firmId, firmName, clientId, companyName, status, onboardingStatus, canManageFirm, canManageCompany, members]
       properties:
         id: { type: number }
         firmId: { type: number }
@@ -3162,6 +3172,9 @@ components:
         status:
           type: string
           enum: [provisional, active, revoked, expired]
+        onboardingStatus:
+          type: ["string", "null"]
+          enum: [draft, sent, signed, confirmed, expired, revoked, null]
         canManageFirm: { type: boolean }
         canManageCompany: { type: boolean }
         members:

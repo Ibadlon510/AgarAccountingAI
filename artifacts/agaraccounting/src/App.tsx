@@ -27,7 +27,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { ShareholdingTable } from '@/components/shareholding-table';
 import { Toaster } from '@/components/ui/toaster';
 import { Toaster as SonnerToaster } from '@/components/ui/sonner';
-import { TooltipProvider } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { notify, readErrorMessage, isErrorHandled, markErrorHandled } from '@/lib/notify';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -124,6 +124,18 @@ const queryClient = new QueryClient({
 });
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const brandMarkUrl = `${basePath}/mark.svg`;
+function FirmIdHelpTooltip({ children }: { children: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" aria-label="Firm ID help" className="ml-1 inline-flex align-middle text-muted-foreground hover:text-foreground">
+          <CircleHelp size={13} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-left">{children}</TooltipContent>
+    </Tooltip>
+  );
+}
 const nav = [
   { href: '/', label: 'Close overview', icon: LayoutDashboard },
   { href: '/import-statement', label: 'Import statement', icon: UploadCloud },
@@ -311,7 +323,7 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault();
-    inviteFirm.mutate({ id: clientId, data: { email, firmId: Number(firmId), role: 'admin' } }, {
+    inviteFirm.mutate({ id: clientId, data: { email, firmCode: firmId.trim().toUpperCase(), role: 'admin' } }, {
       onSuccess: (invitation) => {
         const invited = email;
         setEmail('');
@@ -370,7 +382,7 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
         <>
           <form onSubmit={handleInvite} className="mt-5 grid items-end gap-3 sm:grid-cols-[1fr_9rem_auto]">
             <label className="flex-1 text-xs font-medium">Accounting firm administrator email<input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" placeholder="admin@firm.com" /></label>
-            <label className="text-xs font-medium">Firm ID<input required min="1" type="number" value={firmId} onChange={e => setFirmId(e.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /><span className="mt-1 block text-[10px] font-normal leading-4 text-muted-foreground">Ask the firm administrator for the ID shown in Firm Settings.</span></label>
+            <label className="text-xs font-medium">Firm ID <FirmIdHelpTooltip>Ask the firm administrator for the 8-character ID shown in Firm Settings.</FirmIdHelpTooltip><input required minLength={8} maxLength={8} pattern="[A-Za-z0-9]{8}" autoCapitalize="characters" value={firmId} onChange={e => setFirmId(e.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase())} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm uppercase tracking-wider" placeholder="AB12CD34" /></label>
             <button disabled={inviteFirm.isPending} className="h-10 rounded-md bg-primary px-4 text-xs font-semibold text-primary-foreground disabled:opacity-50">Invite firm</button>
           </form>
           {firmInviteLink && (
@@ -398,7 +410,7 @@ function ClientFirmAccessSection({ clientId, activeClient }: { clientId: number,
           <div className="flex justify-between items-start">
             <div>
               <h3 className="text-sm font-semibold">{engagement.firmName}</h3>
-              <div className="font-mono text-[10px] uppercase text-muted-foreground mt-1">{engagement.status}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-muted-foreground"><span>{engagement.status}</span>{engagement.status === 'active' && engagement.onboardingStatus !== 'confirmed' && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">Pending onboarding</span>}</div>
             </div>
             {engagement.canManageCompany && <button onClick={() => { if(confirm("Revoke this firm's access to your company?")) revokeEngagement.mutate({ id: engagement.id }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetOrganizationContextQueryKey() }); notify.success(`${engagement.firmName} access revoked`); } }); }} className="text-[11px] font-semibold text-destructive hover:underline">Revoke Firm Access</button>}
           </div>
@@ -891,7 +903,7 @@ function FirmSettingsPage() {
         <form onSubmit={(event) => { event.preventDefault(); saveFirm.mutate({ data: form }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetFirmProfileQueryKey() }) }); }} className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="text-xs font-medium">Firm name<input data-testid="input-firm-name" required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
           <label className="text-xs font-medium">Legal firm name<input data-testid="input-firm-legal-name" required value={form.legalName} onChange={(event) => setForm({ ...form, legalName: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
-           {firmQuery.data && <div data-testid="firm-id-display" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs sm:col-span-2"><span className="font-medium">Firm ID</span><span className="ml-2 font-mono font-semibold">{firmQuery.data.id}</span><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Share this ID with a company owner who wants to invite your firm.</span></div>}
+           {firmQuery.data && <div data-testid="firm-id-display" className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs sm:col-span-2"><span className="font-medium">Firm ID</span><span className="ml-2 font-mono font-semibold tracking-wider">{firmQuery.data.firmCode}</span><FirmIdHelpTooltip>Share this 8-character ID with a company owner who wants to invite your firm.</FirmIdHelpTooltip></div>}
           <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-system-rates" type="checkbox" checked={form.systemRatesEnabled} onChange={(event) => setForm({ ...form, systemRatesEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Allow system exchange-rate fallback</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Firm and client schedules remain authoritative. Disable this to keep every client on firm-controlled rates only.</span></span></label>
           <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-firm-report-attribution" type="checkbox" checked={form.reportAttributionEnabled} onChange={(event) => setForm({ ...form, reportAttributionEnabled: event.target.checked })} className="mt-0.5" /><span><strong>Show firm name on generated reports</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">New report packs for active firm engagements will show the firm name on the browser cover and final PDF. Existing snapshots never change.</span></span></label>
           <div className="rounded-md bg-muted px-3 py-2 text-xs sm:col-span-2">Account owner: <strong>{user?.fullName || user?.primaryEmailAddress?.emailAddress || 'Loading profile…'}</strong></div>

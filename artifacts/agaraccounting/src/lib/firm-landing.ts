@@ -108,6 +108,7 @@ export function ownershipLabel(status: string | null | undefined) {
 }
 
 export function practiceStatusLabel(onboardingStatus: string | null | undefined, engagementStatus: string | null | undefined) {
+  if (engagementStatus === "active" && onboardingStatus !== "confirmed") return "Pending onboarding";
   return onboardingStatusLabel(onboardingStatus) ?? engagementStatusLabel(engagementStatus) ?? "No contract";
 }
 

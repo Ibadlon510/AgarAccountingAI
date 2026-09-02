@@ -44,8 +44,16 @@ export const UpdateAgarAccountingAccountProfileResponse = zod.object({
 /**
  * @summary Get the bookkeeping firm's shared profile
  */
+export const getFirmProfileResponseFirmCodeMin = 8;
+export const getFirmProfileResponseFirmCodeMax = 8;
+
+
+export const getFirmProfileResponseFirmCodeRegExp = new RegExp('^[A-Z0-9]{8}$');
+
+
 export const GetFirmProfileResponse = zod.object({
   "id": zod.number(),
+  "firmCode": zod.string().min(getFirmProfileResponseFirmCodeMin).max(getFirmProfileResponseFirmCodeMax).regex(getFirmProfileResponseFirmCodeRegExp).describe('Public random identifier used by companies to invite this firm.'),
   "name": zod.string(),
   "legalName": zod.string(),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this firm\'s clients.'),
@@ -67,8 +75,16 @@ export const UpdateFirmProfileBody = zod.object({
   "reportAttributionEnabled": zod.boolean().optional()
 })
 
+export const updateFirmProfileResponseFirmCodeMin = 8;
+export const updateFirmProfileResponseFirmCodeMax = 8;
+
+
+export const updateFirmProfileResponseFirmCodeRegExp = new RegExp('^[A-Z0-9]{8}$');
+
+
 export const UpdateFirmProfileResponse = zod.object({
   "id": zod.number(),
+  "firmCode": zod.string().min(updateFirmProfileResponseFirmCodeMin).max(updateFirmProfileResponseFirmCodeMax).regex(updateFirmProfileResponseFirmCodeRegExp).describe('Public random identifier used by companies to invite this firm.'),
   "name": zod.string(),
   "legalName": zod.string(),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this firm\'s clients.'),
@@ -319,6 +335,7 @@ export const GetOrganizationContextResponse = zod.object({
   "clientId": zod.number(),
   "companyName": zod.string(),
   "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
+  "onboardingStatus": zod.union([zod.literal('draft'),zod.literal('sent'),zod.literal('signed'),zod.literal('confirmed'),zod.literal('expired'),zod.literal('revoked'),zod.literal(null)]).nullable(),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -420,6 +437,7 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "clientId": zod.number(),
   "companyName": zod.string(),
   "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
+  "onboardingStatus": zod.union([zod.literal('draft'),zod.literal('sent'),zod.literal('signed'),zod.literal('confirmed'),zod.literal('expired'),zod.literal('revoked'),zod.literal(null)]).nullable(),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -490,11 +508,16 @@ export const inviteAccountingFirmBodyEmailMin = 3;
 
 
 export const inviteAccountingFirmBodyEmailRegExp = new RegExp('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$');
+export const inviteAccountingFirmBodyFirmCodeMin = 8;
+export const inviteAccountingFirmBodyFirmCodeMax = 8;
+
+
+export const inviteAccountingFirmBodyFirmCodeRegExp = new RegExp('^[A-Za-z0-9]{8}$');
 
 
 export const InviteAccountingFirmBody = zod.object({
   "email": zod.string().min(inviteAccountingFirmBodyEmailMin).regex(inviteAccountingFirmBodyEmailRegExp),
-  "firmId": zod.number(),
+  "firmCode": zod.string().min(inviteAccountingFirmBodyFirmCodeMin).max(inviteAccountingFirmBodyFirmCodeMax).regex(inviteAccountingFirmBodyFirmCodeRegExp),
   "role": zod.enum(['admin']).optional()
 })
 
@@ -608,6 +631,7 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "clientId": zod.number(),
   "companyName": zod.string(),
   "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
+  "onboardingStatus": zod.union([zod.literal('draft'),zod.literal('sent'),zod.literal('signed'),zod.literal('confirmed'),zod.literal('expired'),zod.literal('revoked'),zod.literal(null)]).nullable(),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -1070,6 +1094,7 @@ export const NominateFirmEngagementMemberResponse = zod.object({
   "clientId": zod.number(),
   "companyName": zod.string(),
   "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
+  "onboardingStatus": zod.union([zod.literal('draft'),zod.literal('sent'),zod.literal('signed'),zod.literal('confirmed'),zod.literal('expired'),zod.literal('revoked'),zod.literal(null)]).nullable(),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({
@@ -1097,6 +1122,7 @@ export const ApproveFirmEngagementMemberResponse = zod.object({
   "clientId": zod.number(),
   "companyName": zod.string(),
   "status": zod.enum(['provisional', 'active', 'revoked', 'expired']),
+  "onboardingStatus": zod.union([zod.literal('draft'),zod.literal('sent'),zod.literal('signed'),zod.literal('confirmed'),zod.literal('expired'),zod.literal('revoked'),zod.literal(null)]).nullable(),
   "canManageFirm": zod.boolean(),
   "canManageCompany": zod.boolean(),
   "members": zod.array(zod.object({

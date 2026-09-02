@@ -8,6 +8,13 @@
 
 export interface FirmProfile {
   id: number;
+  /**
+     * Public random identifier used by companies to invite this firm.
+     * @minLength 8
+     * @maxLength 8
+     * @pattern ^[A-Z0-9]{8}$
+     */
+  firmCode: string;
   name: string;
   legalName: string;
   /** Whether the system catalog may supply a fallback rate for this firm's clients. */

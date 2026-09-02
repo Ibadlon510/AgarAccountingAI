@@ -13,6 +13,11 @@ export interface FirmEngagementInviteInput {
      * @pattern ^[^@\s]+@[^@\s]+\.[^@\s]+$
      */
   email: string;
-  firmId: number;
+  /**
+     * @minLength 8
+     * @maxLength 8
+     * @pattern ^[A-Za-z0-9]{8}$
+     */
+  firmCode: string;
   role?: FirmEngagementInviteInputRole;
 }
