@@ -53,7 +53,7 @@ defaultBucketID = "replit-objstore-a04995c7-f5b6-43d7-8d75-880c6133ccff"
 [userenv]
 
 [userenv.production]
-AGARACCOUNTING_PUBLIC_URL = "https://ai-financial-statements.replit.app"
+AGARACCOUNTING_PUBLIC_URL = "https://agaraccounting.com"
 
 [userenv.shared]
 RESEND_FROM_EMAIL = "noreply@agaraccounting.com"
