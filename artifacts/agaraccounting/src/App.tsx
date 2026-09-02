@@ -45,6 +45,7 @@ import FirmClientOnboardingPage from './pages/firm-client-onboarding';
 import FirmSubscribePage from './pages/firm-subscribe';
 import FirmPublicLandingPage from './pages/firm-public-landing';
 import EngagementContractSignPage from './pages/engagement-contract-sign';
+import PricingPage from './pages/pricing';
 import { FirmWhiteLabelCard } from '@/components/firm-white-label-card';
 import { FirmEngagementsSection, FirmMembersSection } from '@/components/firm-admin';
 import { BillingStatusBanner, CompanyBillingCard, FirmBillingCard, FirmSubscribeWall } from '@/components/billing';
@@ -763,7 +764,7 @@ function ClientSettingsPage() {
           <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-md bg-secondary text-primary"><Landmark size={18} /></div><div><div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Evidence sources</div><h2 className="mt-2 text-base font-semibold">Connected bank accounts</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">Accounts are detected from imported statements and kept separate per client. Open the register to see every loaded file for that currency and bank name.</p></div></div>
           <div className="mt-5 overflow-hidden rounded-lg border border-border">{bankAccountsQuery.isLoading ? <div className="p-5 text-xs text-muted-foreground">Loading connected accounts…</div> : bankAccountsQuery.data?.length ? <div className="divide-y divide-border">{bankAccountsQuery.data.map((account) => <div data-testid={`row-page-bank-account-${account.id}`} key={account.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><div className="text-xs font-semibold">{account.name}</div><div className="mt-1 text-[11px] text-muted-foreground">{account.bankName || 'Bank not identified'}{account.accountNumberLast4 ? ` · ending ${account.accountNumberLast4}` : ''}</div></div><div className="flex items-center gap-3"><Link href={`/bank-register/${account.id}`} data-testid={`link-open-bank-register-${account.id}`} className="text-[11px] font-semibold text-primary underline">Open register</Link><span className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[10px] text-primary">{account.currency}</span></div></div>)}</div> : <div data-testid="state-page-bank-accounts-empty" className="p-5 text-xs text-muted-foreground">No bank accounts detected yet. They will appear here after a statement import identifies an account.</div>}</div>
         </section>
-        <RemarksLinksSettings clientId={activeClient.id} clientName={activeClient.name} />
+        <RemarksLinksSettings clientId={activeClient.id} />
         {false && <WorkspaceUsageSection />}
         <div id="ai-connection" className="scroll-mt-24 rounded-lg border border-card-border bg-card p-5 md:p-6">
           <AIProviderSettingsPanel clientId={activeClient.id} />
@@ -4700,7 +4701,7 @@ function DefaultAccessScreen() {
 
 function SignInPage() {
   const redirectTarget = safePostAuthRedirect(new URLSearchParams(window.location.search).get("redirect_url"));
-  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={redirectTarget} fallbackRedirectUrl={redirectTarget} /></div>;
+  return <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-background px-4 py-8"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} forceRedirectUrl={redirectTarget} fallbackRedirectUrl={redirectTarget} /><Link href="/pricing" data-testid="link-login-pricing" className="text-xs font-semibold text-primary underline-offset-2 hover:underline">View pricing</Link></div>;
 }
 function SignUpPage() {
   const redirectTarget = safePostAuthRedirect(new URLSearchParams(window.location.search).get("redirect_url"));
@@ -4745,6 +4746,7 @@ function ClerkProviderWithRoutes() {
         <Route path="/feedback">
           <PublicFeedbackEntry />
         </Route>
+        <Route path="/pricing" component={PricingPage} />
         <Route path="/f/:slug" component={FirmPublicLandingPage} />
         <Route component={AuthBoundary} />
       </Switch>

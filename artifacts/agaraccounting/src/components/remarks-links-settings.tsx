@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Copy, Link2, Plus } from 'lucide-react';
+import { Copy, Link2 } from 'lucide-react';
 import {
   getGetStatementLinesQueryKey,
   useRevokeStatementLineDetailRequest,
@@ -9,7 +8,6 @@ import {
   getGetStatementLineDetailRequestsQueryKey,
   useGetStatementLineDetailRequests,
 } from '@workspace/api-client-react/statement-line-remarks';
-import { SendForRemarksDialog } from '@/components/send-for-remarks-dialog';
 import { notify, readErrorMessage } from '@/lib/notify';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -26,11 +24,10 @@ function statusTone(status: StatementLineDetailRequest['status']) {
     : 'bg-muted text-muted-foreground';
 }
 
-export function RemarksLinksSettings({ clientId, clientName }: { clientId: number; clientName: string }) {
+export function RemarksLinksSettings({ clientId }: { clientId: number }) {
   const queryClient = useQueryClient();
   const list = useGetStatementLineDetailRequests(clientId);
   const revoke = useRevokeStatementLineDetailRequest();
-  const [createOpen, setCreateOpen] = useState(false);
 
   const copyLink = async (url: string) => {
     try {
@@ -66,24 +63,16 @@ export function RemarksLinksSettings({ clientId, clientName }: { clientId: numbe
             <div className="font-mono text-[10px] uppercase tracking-[.15em] text-primary">Client remarks</div>
             <h2 className="mt-2 text-base font-semibold">Remarks links</h2>
             <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Create a public 3-day link for draft statement lines. Active links accept remarks until they expire or you deactivate them. Posted lines stay on the link as posted and cannot receive new remarks.
+              Public 3-day links are created from selected draft statement lines. Active links accept remarks until they expire or you deactivate them. Posted lines stay on the link as posted and cannot receive new remarks.
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          data-testid="button-create-remarks-link"
-          onClick={() => setCreateOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
-        >
-          <Plus size={13} /> Create remarks link
-        </button>
       </div>
       <div className="mt-5 overflow-hidden rounded-lg border border-border">
         {list.isLoading && <p className="p-4 text-xs text-muted-foreground">Loading remarks links…</p>}
         {list.isError && <p className="p-4 text-xs text-destructive">Remarks links could not be loaded.</p>}
         {!list.isLoading && !list.isError && (list.data?.length ?? 0) === 0 && (
-          <p data-testid="state-remarks-links-empty" className="p-4 text-xs text-muted-foreground">No remarks links yet. Create one to email a 3-day public page for selected draft lines.</p>
+          <p data-testid="state-remarks-links-empty" className="p-4 text-xs text-muted-foreground">No remarks links yet. Select draft lines in Statement Lines and choose Send for remarks to create one.</p>
         )}
         {list.data?.map((request) => (
           <article key={request.id} data-testid={`row-remarks-link-${request.id}`} className="border-b border-border p-4 last:border-b-0">
@@ -139,16 +128,6 @@ export function RemarksLinksSettings({ clientId, clientName }: { clientId: numbe
           </article>
         ))}
       </div>
-      {createOpen && (
-        <SendForRemarksDialog
-          clientId={clientId}
-          clientName={clientName}
-          lines={[]}
-          allowLinePicker
-          onClose={() => setCreateOpen(false)}
-          onSent={() => setCreateOpen(false)}
-        />
-      )}
     </section>
   );
 }
