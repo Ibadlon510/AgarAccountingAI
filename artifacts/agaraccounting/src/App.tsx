@@ -1191,9 +1191,19 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
     }
   });
   const [showAllClients, setShowAllClients] = useState(false);
+  const currentUserId = user.externalId ?? user.id;
+  const switcherClients = useMemo(() => {
+    const engagedClientIds = new Set((orgContext?.engagements ?? []).map((engagement) => engagement.clientId));
+    return clients.filter((client) =>
+      client.ownerUserId === currentUserId
+      && client.subscriptionLiableParty === 'company'
+      && client.firmId == null
+      && !engagedClientIds.has(client.id)
+    );
+  }, [clients, currentUserId, orgContext?.engagements]);
   const rankedClients = useMemo(() => {
     const visitByClient = new Map(clientVisitHistory.map((entry) => [entry.id, entry]));
-    return [...clients].sort((left, right) => {
+    return [...switcherClients].sort((left, right) => {
       const leftVisit = visitByClient.get(left.id);
       const rightVisit = visitByClient.get(right.id);
       if (leftVisit && rightVisit) return rightVisit.count - leftVisit.count || rightVisit.lastVisited - leftVisit.lastVisited;
@@ -1201,14 +1211,14 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
       if (rightVisit) return 1;
       return 0;
     });
-  }, [clients, clientVisitHistory]);
+  }, [switcherClients, clientVisitHistory]);
   const frequentClients = useMemo(() => {
     const topClients = rankedClients.slice(0, 5);
-    if (activeClient && !topClients.some((client) => client.id === activeClient.id)) {
+    if (activeClient && switcherClients.some((client) => client.id === activeClient.id) && !topClients.some((client) => client.id === activeClient.id)) {
       return [activeClient, ...topClients.slice(0, 4)];
     }
     return topClients;
-  }, [activeClient, rankedClients]);
+  }, [activeClient, rankedClients, switcherClients]);
   const visibleClients = showAllClients ? rankedClients : frequentClients;
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -1284,11 +1294,12 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                {accountMenuOpen && <div role="menu" aria-label="Account menu" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1.5 shadow-xl">
                  <div className="border-b border-border px-3 py-2.5"><div className="truncate text-xs font-semibold">{displayName}</div><div className="mt-0.5 truncate text-[10px] text-muted-foreground">{user.primaryEmailAddress?.emailAddress ?? 'Account owner'}</div></div>
                  <div className="border-b border-border px-3 py-3">
-                   <div className="flex items-center justify-between"><div className="text-[10px] font-mono uppercase tracking-[.14em] text-muted-foreground">{showAllClients ? 'All client workspaces' : 'Frequent clients'}</div><div className="text-[10px] text-muted-foreground">{clients.length} total</div></div>
+                    <div className="flex items-center justify-between"><div className="text-[10px] font-mono uppercase tracking-[.14em] text-muted-foreground">{showAllClients ? 'Your companies' : 'Frequent companies'}</div><div className="text-[10px] text-muted-foreground">{switcherClients.length} total</div></div>
                    <div className={`mt-2 space-y-1 ${showAllClients ? 'max-h-56 overflow-y-auto pr-1' : ''}`} role="group" aria-label={showAllClients ? 'All clients' : 'Frequently visited clients'}>
-                     {visibleClients.map((client) => <button key={client.id} data-testid={`button-client-workspace-${client.id}`} type="button" role="menuitemradio" aria-checked={activeClient?.id === client.id} onClick={() => { setActiveClientId(client.id); setAccountMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${activeClient?.id === client.id ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><span className="min-w-0 truncate font-semibold">{client.name}</span><span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">{client.functionalCurrency}</span></button>)}
+                      {visibleClients.map((client) => <button key={client.id} data-testid={`button-client-workspace-${client.id}`} type="button" role="menuitemradio" aria-checked={activeClient?.id === client.id} onClick={() => { setActiveClientId(client.id); setAccountMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${activeClient?.id === client.id ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><span className="min-w-0 truncate font-semibold">{client.name}</span><span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">{client.functionalCurrency}</span></button>)}
+                      {!visibleClients.length && <p data-testid="state-account-menu-no-companies" className="rounded-md bg-muted/50 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground">Firm client books are available from the Firm dashboard.</p>}
                    </div>
-                   {clients.length > 5 && <button data-testid="button-view-all-clients" type="button" onClick={() => setShowAllClients((visible) => !visible)} className="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-secondary">{showAllClients ? 'Show frequent clients' : `View all ${clients.length} clients`}</button>}
+                    {switcherClients.length > 5 && <button data-testid="button-view-all-clients" type="button" onClick={() => setShowAllClients((visible) => !visible)} className="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-secondary">{showAllClients ? 'Show frequent companies' : `View all ${switcherClients.length} companies`}</button>}
                    <button data-testid="button-add-client" type="button" onClick={() => {
                      setAccountMenuOpen(false);
                      if (orgContext?.mode === 'firm' && !firmBilling?.fullAccess) setLocation('/billing/firm');
@@ -1297,7 +1308,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                    }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />{orgContext?.mode === 'firm' && !firmBilling?.fullAccess ? 'Subscribe to Firm Pro' : showFirmNav ? 'View clients' : 'Add client'}</button>
                    {orgContext?.mode === 'both' && <button data-testid="button-add-own-company" type="button" onClick={() => { setAccountMenuOpen(false); setCreateClientMode("own_company"); setCreateClientOpen(true); }} className="mt-1 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-primary hover:bg-secondary">Add own company</button>}
                  </div>
-                 <Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link>
+                  {orgContext?.firms.length ? <Link data-testid="link-firm-dashboard-account-menu" href="/firm-dashboard" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Building2 size={14} className="text-primary" /> Firm dashboard</Link> : null}
                  <Link data-testid="link-feedback-account-menu" href="/feedback" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-0.5 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><MessageSquarePlus size={14} className="text-primary" /> Feedback & reviews</Link>
                  <button data-testid="button-logout" type="button" role="menuitem" onClick={onLogout} className="mt-0.5 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground"><LogOut size={14} /> Sign out</button>
                </div>}

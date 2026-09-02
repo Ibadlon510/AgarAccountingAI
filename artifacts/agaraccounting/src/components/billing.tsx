@@ -38,6 +38,19 @@ async function openBillingUrl(url: string | null | undefined) {
   window.location.assign(url);
 }
 
+function trialCountdown(endsAt: string, now: number) {
+  const end = new Date(endsAt).getTime();
+  if (!Number.isFinite(end)) return "end date unavailable";
+  const remainingMs = end - now;
+  if (remainingMs <= 0) return "ending now";
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+}
+
 export function FirmBillingCard({ firm, billing }: { firm: FirmBilling; billing: BillingMe }) {
   const checkout = useCreateBillingCheckout();
   const portal = useCreateBillingPortal();
@@ -192,23 +205,32 @@ export function BillingStatusBanner({
   firm?: FirmBilling;
   company?: CompanyBilling;
 }) {
+  const hasTrial = Boolean(
+    (firm?.status === "trialing" && firm.trialEndsAt)
+    || (company?.status === "trialing" && company.trialEndsAt),
+  );
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasTrial) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [hasTrial]);
+
   const messages: string[] = [];
-  const now = Date.now();
   const daysUntil = (iso: string | null | undefined) => {
     if (!iso) return null;
     return Math.ceil((new Date(iso).getTime() - now) / (24 * 60 * 60 * 1000));
   };
-  const firmDays = daysUntil(firm?.trialEndsAt);
-  if (firm?.status === "trialing" && firmDays != null && firmDays <= 5) {
-    messages.push(`Firm trial ends in ${Math.max(0, firmDays)} day${firmDays === 1 ? "" : "s"}. Subscribe to keep the practice open.`);
+  if (firm?.status === "trialing" && firm.trialEndsAt) {
+    messages.push(`Firm trial: ${trialCountdown(firm.trialEndsAt, now)} remaining. Subscribe to keep the practice open.`);
   }
   if (firm?.status === "lapsed_readonly") {
     const lockDays = daysUntil(firm.lockedAt);
     messages.push(`Firm Pro has lapsed. Existing books are read-only${lockDays != null ? ` for ${Math.max(0, lockDays)} more day${lockDays === 1 ? "" : "s"}` : ""}.`);
   }
-  const companyDays = daysUntil(company?.trialEndsAt);
-  if (company?.status === "trialing" && companyDays != null && companyDays <= 5) {
-    messages.push(`This workspace trial ends in ${Math.max(0, companyDays)} day${companyDays === 1 ? "" : "s"}, then Free limits apply.`);
+  if (company?.status === "trialing" && company.trialEndsAt) {
+    messages.push(`Company trial: ${trialCountdown(company.trialEndsAt, now)} remaining. Free limits apply after the trial.`);
   }
   if (company?.status === "requires_pro") {
     messages.push(`Posted revenue has reached the Company Pro threshold. Upgrade this workspace to keep importing, posting, and using AI.`);
