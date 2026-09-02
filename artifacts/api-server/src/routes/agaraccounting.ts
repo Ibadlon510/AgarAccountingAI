@@ -7099,7 +7099,10 @@ router.post("/agaraccounting/ai-chat", async (req, res) => {
   const aiBilling = await resolveBilling(client.id);
   if (aiBilling) {
     const aiLimit = await limitDenial(aiBilling, "ai");
-    if (aiLimit) return respondBillingDenial(res, aiLimit);
+    if (aiLimit) {
+      respondBillingDenial(res, aiLimit);
+      return;
+    }
   }
   const existingThread = threadId ? await requireAssistantThread(req, res, threadId) : null;
   if (threadId && !existingThread) return;

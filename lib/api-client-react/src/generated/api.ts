@@ -39,6 +39,10 @@ import type {
   BankAccountReconciliationInput,
   BankAccountReconciliationResult,
   BeginBrowserLoginParams,
+  BillingCheckoutInput,
+  BillingMe,
+  BillingPortalInput,
+  BillingRedirect,
   BulkTransitionAudit,
   Client,
   ClientInput,
@@ -52,6 +56,10 @@ import type {
   ContactUpdate,
   CreateExchangeRateParams,
   DeleteJournalEntryInput,
+  EngagementContractPreview,
+  EngagementOnboarding,
+  EngagementOnboardingInput,
+  ErrorMessage,
   ExchangeRate,
   ExchangeRateImportInput,
   ExchangeRateImportResult,
@@ -69,9 +77,15 @@ import type {
   FeedbackReply,
   FeedbackReplyInput,
   FinancialStatements,
+  FirmBranding,
+  FirmBrandingInput,
+  FirmBrandingLogo,
+  FirmBrandingLogoInput,
+  FirmClientPracticeOverview,
   FirmEngagement,
   FirmEngagementInviteInput,
   FirmNominationInput,
+  FirmOverview,
   FirmProfile,
   FirmProfileInput,
   GetAgarAccountingAIConversationsParams,
@@ -81,6 +95,8 @@ import type {
   GetContactsParams,
   GetExchangeRatesParams,
   GetFinancialStatementsParams,
+  GetFirmClientPracticeOverviewParams,
+  GetFirmOverviewParams,
   GetJournalEntriesParams,
   GetJournalEntriesSummaryParams,
   GetLedgerOverviewParams,
@@ -116,6 +132,7 @@ import type {
   OrganizationInviteInput,
   OrganizationOnboardingInput,
   PostJournalEntryInput,
+  PublicFirmLanding,
   PublicStatementLine,
   PublicStatementLineRemarkInput,
   PublicStatementLineRequest,
@@ -123,6 +140,7 @@ import type {
   ReportPackInput,
   ReportPackSummary,
   ReportPackUpdate,
+  SignEngagementContractInput,
   StatementImport,
   StatementImportInput,
   StatementImportResult,
@@ -483,6 +501,675 @@ export const useUpdateFirmProfile = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUpdateFirmProfileMutationOptions(options));
     }
+
+export const getGetBillingMeUrl = () => {
+
+
+
+
+  return `/api/billing/me`
+}
+
+/**
+ * @summary Get firm and company billing state, intro catalog, and countdown
+ */
+export const getBillingMe = async ( options?: Parameters<typeof customFetch>[1]): Promise<BillingMe> => {
+
+  return customFetch<BillingMe>(getGetBillingMeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBillingMeQueryKey = () => {
+    return [
+    `/api/billing/me`
+    ] as const;
+    }
+
+
+export const getGetBillingMeQueryOptions = <TData = Awaited<ReturnType<typeof getBillingMe>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBillingMeQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBillingMe>>> = ({ signal }) => getBillingMe({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBillingMe>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBillingMeQueryResult = NonNullable<Awaited<ReturnType<typeof getBillingMe>>>
+export type GetBillingMeQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get firm and company billing state, intro catalog, and countdown
+ */
+
+export function useGetBillingMe<TData = Awaited<ReturnType<typeof getBillingMe>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBillingMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBillingMeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateBillingCheckoutUrl = () => {
+
+
+
+
+  return `/api/billing/checkout`
+}
+
+/**
+ * @summary Create a Stripe Checkout session for Firm Pro or Company Pro
+ */
+export const createBillingCheckout = async (billingCheckoutInput: BillingCheckoutInput, options?: Parameters<typeof customFetch>[1]): Promise<BillingRedirect> => {
+
+  return customFetch<BillingRedirect>(getCreateBillingCheckoutUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingCheckoutInput)
+  }
+);}
+
+
+
+
+
+export const getCreateBillingCheckoutMutationOptions = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingCheckout>>, TError,{data: BodyType<BillingCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBillingCheckout>>, TError,{data: BodyType<BillingCheckoutInput>}, TContext> => {
+
+const mutationKey = ['createBillingCheckout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBillingCheckout>>, {data: BodyType<BillingCheckoutInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createBillingCheckout(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBillingCheckoutMutationResult = NonNullable<Awaited<ReturnType<typeof createBillingCheckout>>>
+    export type CreateBillingCheckoutMutationBody = BodyType<BillingCheckoutInput>
+    export type CreateBillingCheckoutMutationError = ErrorType<ErrorMessage>
+
+    /**
+ * @summary Create a Stripe Checkout session for Firm Pro or Company Pro
+ */
+export const useCreateBillingCheckout = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingCheckout>>, TError,{data: BodyType<BillingCheckoutInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBillingCheckout>>,
+        TError,
+        {data: BodyType<BillingCheckoutInput>},
+        TContext
+      > => {
+      return useMutation(getCreateBillingCheckoutMutationOptions(options));
+    }
+
+export const getCreateBillingPortalUrl = () => {
+
+
+
+
+  return `/api/billing/portal`
+}
+
+/**
+ * @summary Open the Stripe customer portal
+ */
+export const createBillingPortal = async (billingPortalInput: BillingPortalInput, options?: Parameters<typeof customFetch>[1]): Promise<BillingRedirect> => {
+
+  return customFetch<BillingRedirect>(getCreateBillingPortalUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(billingPortalInput)
+  }
+);}
+
+
+
+
+
+export const getCreateBillingPortalMutationOptions = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<BillingPortalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<BillingPortalInput>}, TContext> => {
+
+const mutationKey = ['createBillingPortal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createBillingPortal>>, {data: BodyType<BillingPortalInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createBillingPortal(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateBillingPortalMutationResult = NonNullable<Awaited<ReturnType<typeof createBillingPortal>>>
+    export type CreateBillingPortalMutationBody = BodyType<BillingPortalInput>
+    export type CreateBillingPortalMutationError = ErrorType<ErrorMessage>
+
+    /**
+ * @summary Open the Stripe customer portal
+ */
+export const useCreateBillingPortal = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createBillingPortal>>, TError,{data: BodyType<BillingPortalInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createBillingPortal>>,
+        TError,
+        {data: BodyType<BillingPortalInput>},
+        TContext
+      > => {
+      return useMutation(getCreateBillingPortalMutationOptions(options));
+    }
+
+export const getGetFirmBrandingUrl = () => {
+
+
+
+
+  return `/api/workspace/firm-branding`
+}
+
+/**
+ * @summary Get the firm's white-label landing settings
+ */
+export const getFirmBranding = async ( options?: Parameters<typeof customFetch>[1]): Promise<FirmBranding> => {
+
+  return customFetch<FirmBranding>(getGetFirmBrandingUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirmBrandingQueryKey = () => {
+    return [
+    `/api/workspace/firm-branding`
+    ] as const;
+    }
+
+
+export const getGetFirmBrandingQueryOptions = <TData = Awaited<ReturnType<typeof getFirmBranding>>, TError = ErrorType<ErrorMessage>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmBranding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirmBrandingQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirmBranding>>> = ({ signal }) => getFirmBranding({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirmBranding>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirmBrandingQueryResult = NonNullable<Awaited<ReturnType<typeof getFirmBranding>>>
+export type GetFirmBrandingQueryError = ErrorType<ErrorMessage>
+
+
+/**
+ * @summary Get the firm's white-label landing settings
+ */
+
+export function useGetFirmBranding<TData = Awaited<ReturnType<typeof getFirmBranding>>, TError = ErrorType<ErrorMessage>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmBranding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirmBrandingQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateFirmBrandingUrl = () => {
+
+
+
+
+  return `/api/workspace/firm-branding`
+}
+
+/**
+ * @summary Update the firm's white-label slug, copy, and landing toggle
+ */
+export const updateFirmBranding = async (firmBrandingInput: FirmBrandingInput, options?: Parameters<typeof customFetch>[1]): Promise<FirmBranding> => {
+
+  return customFetch<FirmBranding>(getUpdateFirmBrandingUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(firmBrandingInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateFirmBrandingMutationOptions = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFirmBranding>>, TError,{data: BodyType<FirmBrandingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateFirmBranding>>, TError,{data: BodyType<FirmBrandingInput>}, TContext> => {
+
+const mutationKey = ['updateFirmBranding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateFirmBranding>>, {data: BodyType<FirmBrandingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateFirmBranding(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateFirmBrandingMutationResult = NonNullable<Awaited<ReturnType<typeof updateFirmBranding>>>
+    export type UpdateFirmBrandingMutationBody = BodyType<FirmBrandingInput>
+    export type UpdateFirmBrandingMutationError = ErrorType<ErrorMessage>
+
+    /**
+ * @summary Update the firm's white-label slug, copy, and landing toggle
+ */
+export const useUpdateFirmBranding = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFirmBranding>>, TError,{data: BodyType<FirmBrandingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateFirmBranding>>,
+        TError,
+        {data: BodyType<FirmBrandingInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateFirmBrandingMutationOptions(options));
+    }
+
+export const getGetFirmBrandingLogoUrl = () => {
+
+
+
+
+  return `/api/workspace/firm-branding/logo`
+}
+
+/**
+ * @summary Stream the firm's saved logo for settings preview
+ */
+export const getFirmBrandingLogo = async ( options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetFirmBrandingLogoUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirmBrandingLogoQueryKey = () => {
+    return [
+    `/api/workspace/firm-branding/logo`
+    ] as const;
+    }
+
+
+export const getGetFirmBrandingLogoQueryOptions = <TData = Awaited<ReturnType<typeof getFirmBrandingLogo>>, TError = ErrorType<ErrorMessage>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmBrandingLogo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirmBrandingLogoQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirmBrandingLogo>>> = ({ signal }) => getFirmBrandingLogo({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirmBrandingLogo>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirmBrandingLogoQueryResult = NonNullable<Awaited<ReturnType<typeof getFirmBrandingLogo>>>
+export type GetFirmBrandingLogoQueryError = ErrorType<ErrorMessage>
+
+
+/**
+ * @summary Stream the firm's saved logo for settings preview
+ */
+
+export function useGetFirmBrandingLogo<TData = Awaited<ReturnType<typeof getFirmBrandingLogo>>, TError = ErrorType<ErrorMessage>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmBrandingLogo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirmBrandingLogoQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateFirmBrandingLogoUrl = () => {
+
+
+
+
+  return `/api/workspace/firm-branding/logo`
+}
+
+/**
+ * @summary Upload a JPEG, PNG, or WebP logo for the firm landing page
+ */
+export const createFirmBrandingLogo = async (firmBrandingLogoInput: FirmBrandingLogoInput, options?: Parameters<typeof customFetch>[1]): Promise<FirmBrandingLogo> => {
+
+  return customFetch<FirmBrandingLogo>(getCreateFirmBrandingLogoUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(firmBrandingLogoInput)
+  }
+);}
+
+
+
+
+
+export const getCreateFirmBrandingLogoMutationOptions = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createFirmBrandingLogo>>, TError,{data: BodyType<FirmBrandingLogoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createFirmBrandingLogo>>, TError,{data: BodyType<FirmBrandingLogoInput>}, TContext> => {
+
+const mutationKey = ['createFirmBrandingLogo'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createFirmBrandingLogo>>, {data: BodyType<FirmBrandingLogoInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createFirmBrandingLogo(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateFirmBrandingLogoMutationResult = NonNullable<Awaited<ReturnType<typeof createFirmBrandingLogo>>>
+    export type CreateFirmBrandingLogoMutationBody = BodyType<FirmBrandingLogoInput>
+    export type CreateFirmBrandingLogoMutationError = ErrorType<ErrorMessage>
+
+    /**
+ * @summary Upload a JPEG, PNG, or WebP logo for the firm landing page
+ */
+export const useCreateFirmBrandingLogo = <TError = ErrorType<ErrorMessage>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createFirmBrandingLogo>>, TError,{data: BodyType<FirmBrandingLogoInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createFirmBrandingLogo>>,
+        TError,
+        {data: BodyType<FirmBrandingLogoInput>},
+        TContext
+      > => {
+      return useMutation(getCreateFirmBrandingLogoMutationOptions(options));
+    }
+
+export const getGetPublicFirmLandingUrl = (slug: string,) => {
+
+
+
+
+  return `/api/public/firm-landing/${slug}`
+}
+
+/**
+ * @summary Public white-label landing for a subscribed or trialing firm
+ */
+export const getPublicFirmLanding = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<PublicFirmLanding> => {
+
+  return customFetch<PublicFirmLanding>(getGetPublicFirmLandingUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicFirmLandingQueryKey = (slug: string,) => {
+    return [
+    `/api/public/firm-landing/${slug}`
+    ] as const;
+    }
+
+
+export const getGetPublicFirmLandingQueryOptions = <TData = Awaited<ReturnType<typeof getPublicFirmLanding>>, TError = ErrorType<ErrorMessage>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicFirmLanding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicFirmLandingQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicFirmLanding>>> = ({ signal }) => getPublicFirmLanding(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicFirmLanding>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicFirmLandingQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicFirmLanding>>>
+export type GetPublicFirmLandingQueryError = ErrorType<ErrorMessage>
+
+
+/**
+ * @summary Public white-label landing for a subscribed or trialing firm
+ */
+
+export function useGetPublicFirmLanding<TData = Awaited<ReturnType<typeof getPublicFirmLanding>>, TError = ErrorType<ErrorMessage>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicFirmLanding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicFirmLandingQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPublicFirmLandingLogoUrl = (slug: string,) => {
+
+
+
+
+  return `/api/public/firm-landing/${slug}/logo`
+}
+
+/**
+ * @summary Stream the published firm logo
+ */
+export const getPublicFirmLandingLogo = async (slug: string, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetPublicFirmLandingLogoUrl(slug),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicFirmLandingLogoQueryKey = (slug: string,) => {
+    return [
+    `/api/public/firm-landing/${slug}/logo`
+    ] as const;
+    }
+
+
+export const getGetPublicFirmLandingLogoQueryOptions = <TData = Awaited<ReturnType<typeof getPublicFirmLandingLogo>>, TError = ErrorType<ErrorMessage>>(slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicFirmLandingLogo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicFirmLandingLogoQueryKey(slug);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicFirmLandingLogo>>> = ({ signal }) => getPublicFirmLandingLogo(slug, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: slug !== null && slug !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicFirmLandingLogo>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPublicFirmLandingLogoQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicFirmLandingLogo>>>
+export type GetPublicFirmLandingLogoQueryError = ErrorType<ErrorMessage>
+
+
+/**
+ * @summary Stream the published firm logo
+ */
+
+export function useGetPublicFirmLandingLogo<TData = Awaited<ReturnType<typeof getPublicFirmLandingLogo>>, TError = ErrorType<ErrorMessage>>(
+ slug: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPublicFirmLandingLogo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPublicFirmLandingLogoQueryOptions(slug,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetOrganizationContextUrl = () => {
 
@@ -918,6 +1605,690 @@ export const useAcceptOrganizationInvitation = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getAcceptOrganizationInvitationMutationOptions(options));
     }
+
+export const getGetEngagementContractInvitationUrl = (token: string,) => {
+
+
+
+
+  return `/api/organization-invitations/${token}/engagement-contract`
+}
+
+/**
+ * @summary Preview a firm engagement contract awaiting signature
+ */
+export const getEngagementContractInvitation = async (token: string, options?: Parameters<typeof customFetch>[1]): Promise<EngagementContractPreview> => {
+
+  return customFetch<EngagementContractPreview>(getGetEngagementContractInvitationUrl(token),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEngagementContractInvitationQueryKey = (token: string,) => {
+    return [
+    `/api/organization-invitations/${token}/engagement-contract`
+    ] as const;
+    }
+
+
+export const getGetEngagementContractInvitationQueryOptions = <TData = Awaited<ReturnType<typeof getEngagementContractInvitation>>, TError = ErrorType<unknown>>(token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEngagementContractInvitation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEngagementContractInvitationQueryKey(token);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEngagementContractInvitation>>> = ({ signal }) => getEngagementContractInvitation(token, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: token !== null && token !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEngagementContractInvitation>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEngagementContractInvitationQueryResult = NonNullable<Awaited<ReturnType<typeof getEngagementContractInvitation>>>
+export type GetEngagementContractInvitationQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Preview a firm engagement contract awaiting signature
+ */
+
+export function useGetEngagementContractInvitation<TData = Awaited<ReturnType<typeof getEngagementContractInvitation>>, TError = ErrorType<unknown>>(
+ token: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEngagementContractInvitation>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEngagementContractInvitationQueryOptions(token,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSignEngagementContractInvitationUrl = (token: string,) => {
+
+
+
+
+  return `/api/organization-invitations/${token}/engagement-contract`
+}
+
+/**
+ * @summary Sign a firm engagement contract in-app
+ */
+export const signEngagementContractInvitation = async (token: string,
+    signEngagementContractInput: SignEngagementContractInput, options?: Parameters<typeof customFetch>[1]): Promise<EngagementOnboarding> => {
+
+  return customFetch<EngagementOnboarding>(getSignEngagementContractInvitationUrl(token),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(signEngagementContractInput)
+  }
+);}
+
+
+
+
+
+export const getSignEngagementContractInvitationMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signEngagementContractInvitation>>, TError,{token: string;data: BodyType<SignEngagementContractInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof signEngagementContractInvitation>>, TError,{token: string;data: BodyType<SignEngagementContractInput>}, TContext> => {
+
+const mutationKey = ['signEngagementContractInvitation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof signEngagementContractInvitation>>, {token: string;data: BodyType<SignEngagementContractInput>}> = (props) => {
+          const {token,data} = props ?? {};
+
+          return  signEngagementContractInvitation(token,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SignEngagementContractInvitationMutationResult = NonNullable<Awaited<ReturnType<typeof signEngagementContractInvitation>>>
+    export type SignEngagementContractInvitationMutationBody = BodyType<SignEngagementContractInput>
+    export type SignEngagementContractInvitationMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Sign a firm engagement contract in-app
+ */
+export const useSignEngagementContractInvitation = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof signEngagementContractInvitation>>, TError,{token: string;data: BodyType<SignEngagementContractInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof signEngagementContractInvitation>>,
+        TError,
+        {token: string;data: BodyType<SignEngagementContractInput>},
+        TContext
+      > => {
+      return useMutation(getSignEngagementContractInvitationMutationOptions(options));
+    }
+
+export const getCreateEngagementOnboardingUrl = (firmId: number,) => {
+
+
+
+
+  return `/api/firms/${firmId}/engagement-onboardings`
+}
+
+/**
+ * @summary Create and send a firm-initiated client engagement contract
+ */
+export const createEngagementOnboarding = async (firmId: number,
+    engagementOnboardingInput: EngagementOnboardingInput, options?: Parameters<typeof customFetch>[1]): Promise<EngagementOnboarding> => {
+
+  return customFetch<EngagementOnboarding>(getCreateEngagementOnboardingUrl(firmId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(engagementOnboardingInput)
+  }
+);}
+
+
+
+
+
+export const getCreateEngagementOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createEngagementOnboarding>>, TError,{firmId: number;data: BodyType<EngagementOnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createEngagementOnboarding>>, TError,{firmId: number;data: BodyType<EngagementOnboardingInput>}, TContext> => {
+
+const mutationKey = ['createEngagementOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createEngagementOnboarding>>, {firmId: number;data: BodyType<EngagementOnboardingInput>}> = (props) => {
+          const {firmId,data} = props ?? {};
+
+          return  createEngagementOnboarding(firmId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateEngagementOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof createEngagementOnboarding>>>
+    export type CreateEngagementOnboardingMutationBody = BodyType<EngagementOnboardingInput>
+    export type CreateEngagementOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Create and send a firm-initiated client engagement contract
+ */
+export const useCreateEngagementOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createEngagementOnboarding>>, TError,{firmId: number;data: BodyType<EngagementOnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createEngagementOnboarding>>,
+        TError,
+        {firmId: number;data: BodyType<EngagementOnboardingInput>},
+        TContext
+      > => {
+      return useMutation(getCreateEngagementOnboardingMutationOptions(options));
+    }
+
+export const getGetEngagementOnboardingUrl = (id: number,) => {
+
+
+
+
+  return `/api/engagement-onboardings/${id}`
+}
+
+/**
+ * @summary Get a firm engagement onboarding
+ */
+export const getEngagementOnboarding = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<EngagementOnboarding> => {
+
+  return customFetch<EngagementOnboarding>(getGetEngagementOnboardingUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEngagementOnboardingQueryKey = (id: number,) => {
+    return [
+    `/api/engagement-onboardings/${id}`
+    ] as const;
+    }
+
+
+export const getGetEngagementOnboardingQueryOptions = <TData = Awaited<ReturnType<typeof getEngagementOnboarding>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEngagementOnboarding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEngagementOnboardingQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEngagementOnboarding>>> = ({ signal }) => getEngagementOnboarding(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEngagementOnboarding>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEngagementOnboardingQueryResult = NonNullable<Awaited<ReturnType<typeof getEngagementOnboarding>>>
+export type GetEngagementOnboardingQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a firm engagement onboarding
+ */
+
+export function useGetEngagementOnboarding<TData = Awaited<ReturnType<typeof getEngagementOnboarding>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEngagementOnboarding>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEngagementOnboardingQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getConfirmEngagementOnboardingUrl = (id: number,) => {
+
+
+
+
+  return `/api/engagement-onboardings/${id}/confirm`
+}
+
+/**
+ * @summary Confirm a signed engagement within five days
+ */
+export const confirmEngagementOnboarding = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<EngagementOnboarding> => {
+
+  return customFetch<EngagementOnboarding>(getConfirmEngagementOnboardingUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getConfirmEngagementOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmEngagementOnboarding>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmEngagementOnboarding>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['confirmEngagementOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmEngagementOnboarding>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  confirmEngagementOnboarding(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmEngagementOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof confirmEngagementOnboarding>>>
+
+    export type ConfirmEngagementOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Confirm a signed engagement within five days
+ */
+export const useConfirmEngagementOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmEngagementOnboarding>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmEngagementOnboarding>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getConfirmEngagementOnboardingMutationOptions(options));
+    }
+
+export const getRevokeEngagementOnboardingUrl = (id: number,) => {
+
+
+
+
+  return `/api/engagement-onboardings/${id}/revoke`
+}
+
+/**
+ * @summary Cancel a pending engagement onboarding
+ */
+export const revokeEngagementOnboarding = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<EngagementOnboarding> => {
+
+  return customFetch<EngagementOnboarding>(getRevokeEngagementOnboardingUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRevokeEngagementOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeEngagementOnboarding>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeEngagementOnboarding>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['revokeEngagementOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeEngagementOnboarding>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  revokeEngagementOnboarding(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeEngagementOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof revokeEngagementOnboarding>>>
+
+    export type RevokeEngagementOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Cancel a pending engagement onboarding
+ */
+export const useRevokeEngagementOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeEngagementOnboarding>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeEngagementOnboarding>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRevokeEngagementOnboardingMutationOptions(options));
+    }
+
+export const getResendEngagementOnboardingUrl = (id: number,) => {
+
+
+
+
+  return `/api/engagement-onboardings/${id}/resend`
+}
+
+/**
+ * @summary Resend an unsigned engagement contract
+ */
+export const resendEngagementOnboarding = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<EngagementOnboarding> => {
+
+  return customFetch<EngagementOnboarding>(getResendEngagementOnboardingUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getResendEngagementOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendEngagementOnboarding>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resendEngagementOnboarding>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resendEngagementOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resendEngagementOnboarding>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resendEngagementOnboarding(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResendEngagementOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof resendEngagementOnboarding>>>
+
+    export type ResendEngagementOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Resend an unsigned engagement contract
+ */
+export const useResendEngagementOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resendEngagementOnboarding>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resendEngagementOnboarding>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResendEngagementOnboardingMutationOptions(options));
+    }
+
+export const getGetFirmOverviewUrl = (params: GetFirmOverviewParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/firm-overview?${stringifiedParams}` : `/api/agaraccounting/firm-overview`
+}
+
+/**
+ * @summary Get a firm-scoped practice overview
+ */
+export const getFirmOverview = async (params: GetFirmOverviewParams, options?: Parameters<typeof customFetch>[1]): Promise<FirmOverview> => {
+
+  return customFetch<FirmOverview>(getGetFirmOverviewUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirmOverviewQueryKey = (params?: GetFirmOverviewParams,) => {
+    return [
+    `/api/agaraccounting/firm-overview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetFirmOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getFirmOverview>>, TError = ErrorType<unknown>>(params: GetFirmOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirmOverviewQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirmOverview>>> = ({ signal }) => getFirmOverview(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirmOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirmOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof getFirmOverview>>>
+export type GetFirmOverviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get a firm-scoped practice overview
+ */
+
+export function useGetFirmOverview<TData = Awaited<ReturnType<typeof getFirmOverview>>, TError = ErrorType<unknown>>(
+ params: GetFirmOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirmOverviewQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetFirmClientPracticeOverviewUrl = (clientId: number,
+    params: GetFirmClientPracticeOverviewParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/agaraccounting/firm-clients/${clientId}/practice-overview?${stringifiedParams}` : `/api/agaraccounting/firm-clients/${clientId}/practice-overview`
+}
+
+/**
+ * @summary Get agreed-versus-actual practice metrics for one firm client
+ */
+export const getFirmClientPracticeOverview = async (clientId: number,
+    params: GetFirmClientPracticeOverviewParams, options?: Parameters<typeof customFetch>[1]): Promise<FirmClientPracticeOverview> => {
+
+  return customFetch<FirmClientPracticeOverview>(getGetFirmClientPracticeOverviewUrl(clientId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFirmClientPracticeOverviewQueryKey = (clientId: number,
+    params?: GetFirmClientPracticeOverviewParams,) => {
+    return [
+    `/api/agaraccounting/firm-clients/${clientId}/practice-overview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetFirmClientPracticeOverviewQueryOptions = <TData = Awaited<ReturnType<typeof getFirmClientPracticeOverview>>, TError = ErrorType<unknown>>(clientId: number,
+    params: GetFirmClientPracticeOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmClientPracticeOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFirmClientPracticeOverviewQueryKey(clientId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFirmClientPracticeOverview>>> = ({ signal }) => getFirmClientPracticeOverview(clientId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: clientId !== null && clientId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFirmClientPracticeOverview>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFirmClientPracticeOverviewQueryResult = NonNullable<Awaited<ReturnType<typeof getFirmClientPracticeOverview>>>
+export type GetFirmClientPracticeOverviewQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get agreed-versus-actual practice metrics for one firm client
+ */
+
+export function useGetFirmClientPracticeOverview<TData = Awaited<ReturnType<typeof getFirmClientPracticeOverview>>, TError = ErrorType<unknown>>(
+ clientId: number,
+    params: GetFirmClientPracticeOverviewParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFirmClientPracticeOverview>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFirmClientPracticeOverviewQueryOptions(clientId,params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getNominateFirmEngagementMemberUrl = (id: number,) => {
 

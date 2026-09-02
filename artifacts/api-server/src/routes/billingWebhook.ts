@@ -35,10 +35,10 @@ router.post("/billing/webhooks/stripe", async (req, res) => {
         await applyStripeSubscription(await retrieveSubscription(subscriptionId));
       }
     }
-    res.json({ received: true });
+    return res.json({ received: true });
   } catch (error) {
     logger.error({ err: error }, "Stripe webhook rejected");
-    res.status(400).json({ error: "Stripe webhook could not be verified." });
+    return res.status(400).json({ error: "Stripe webhook could not be verified." });
   }
 });
 

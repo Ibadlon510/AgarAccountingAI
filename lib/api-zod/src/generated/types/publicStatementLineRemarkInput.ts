@@ -13,5 +13,5 @@ export interface PublicStatementLineRemarkInput {
      */
   noteText: string;
   /** @maxItems 5 */
-  files?: unknown[];
+  files?: Blob[];
 }

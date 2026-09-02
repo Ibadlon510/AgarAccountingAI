@@ -77,6 +77,191 @@ export const UpdateFirmProfileResponse = zod.object({
 
 
 /**
+ * @summary Get firm and company billing state, intro catalog, and countdown
+ */
+export const GetBillingMeResponse = zod.object({
+  "prices": zod.object({
+  "currency": zod.enum(['AED']),
+  "introActive": zod.boolean(),
+  "introEndsAt": zod.coerce.date(),
+  "companyPro": zod.object({
+  "intro": zod.number(),
+  "list": zod.number(),
+  "current": zod.number()
+}),
+  "companyProFirmMember": zod.object({
+  "intro": zod.number(),
+  "list": zod.number(),
+  "current": zod.number()
+}),
+  "firm": zod.object({
+  "intro": zod.number(),
+  "list": zod.number(),
+  "current": zod.number()
+})
+}),
+  "stripeEnabled": zod.boolean(),
+  "firms": zod.array(zod.object({
+  "payer": zod.enum(['firm']),
+  "firmId": zod.number(),
+  "plan": zod.enum(['firm']),
+  "planName": zod.string(),
+  "status": zod.enum(['trialing', 'active', 'past_due', 'lapsed_readonly', 'locked']),
+  "fullAccess": zod.boolean(),
+  "writeAccess": zod.boolean(),
+  "readAccess": zod.boolean(),
+  "trialEndsAt": zod.coerce.date().nullable(),
+  "readonlyUntil": zod.coerce.date().nullable(),
+  "lockedAt": zod.coerce.date().nullable(),
+  "limits": zod.object({
+  "name": zod.string(),
+  "statementImportsPerMonth": zod.number(),
+  "storedEvidenceBytes": zod.number(),
+  "aiActivityPerMonth": zod.number(),
+  "clientWorkspaces": zod.number()
+})
+})),
+  "companies": zod.array(zod.object({
+  "payer": zod.enum(['company']),
+  "clientId": zod.number(),
+  "plan": zod.enum(['trial', 'free', 'pro']),
+  "planName": zod.string(),
+  "status": zod.enum(['trialing', 'pro', 'free', 'requires_pro']),
+  "writeAccess": zod.boolean(),
+  "trialEndsAt": zod.coerce.date().nullable(),
+  "isFirmMember": zod.boolean(),
+  "revenue": zod.number(),
+  "revenueThreshold": zod.number(),
+  "revenueCurrency": zod.string(),
+  "limits": zod.object({
+  "name": zod.string(),
+  "statementImportsPerMonth": zod.number(),
+  "storedEvidenceBytes": zod.number(),
+  "aiActivityPerMonth": zod.number(),
+  "clientWorkspaces": zod.number()
+})
+}))
+})
+
+
+/**
+ * @summary Create a Stripe Checkout session for Firm Pro or Company Pro
+ */
+export const CreateBillingCheckoutBody = zod.object({
+  "payerType": zod.enum(['firm', 'company']),
+  "firmId": zod.number().optional(),
+  "clientId": zod.number().optional()
+})
+
+export const CreateBillingCheckoutResponse = zod.object({
+  "url": zod.string().nullable()
+})
+
+
+/**
+ * @summary Open the Stripe customer portal
+ */
+export const CreateBillingPortalBody = zod.object({
+  "payerType": zod.enum(['firm', 'company']),
+  "firmId": zod.number().optional(),
+  "clientId": zod.number().optional()
+})
+
+export const CreateBillingPortalResponse = zod.object({
+  "url": zod.string().nullable()
+})
+
+
+/**
+ * @summary Get the firm's white-label landing settings
+ */
+export const GetFirmBrandingResponse = zod.object({
+  "slug": zod.string().nullable(),
+  "publicHost": zod.string().nullable(),
+  "pathFallback": zod.string().nullable(),
+  "logoUrl": zod.string().nullable(),
+  "landingHeadline": zod.string().nullable(),
+  "landingTagline": zod.string().nullable(),
+  "landingEnabled": zod.boolean(),
+  "available": zod.boolean(),
+  "canManage": zod.boolean()
+})
+
+
+/**
+ * @summary Update the firm's white-label slug, copy, and landing toggle
+ */
+export const UpdateFirmBrandingBody = zod.object({
+  "slug": zod.string().optional(),
+  "landingHeadline": zod.string().nullish(),
+  "landingTagline": zod.string().nullish(),
+  "landingEnabled": zod.boolean().optional(),
+  "logoObjectPath": zod.string().nullish()
+})
+
+export const UpdateFirmBrandingResponse = zod.object({
+  "slug": zod.string().nullable(),
+  "publicHost": zod.string().nullable(),
+  "pathFallback": zod.string().nullable(),
+  "logoUrl": zod.string().nullable(),
+  "landingHeadline": zod.string().nullable(),
+  "landingTagline": zod.string().nullable(),
+  "landingEnabled": zod.boolean(),
+  "available": zod.boolean(),
+  "canManage": zod.boolean()
+})
+
+
+/**
+ * @summary Stream the firm's saved logo for settings preview
+ */
+export const GetFirmBrandingLogoResponse = zod.unknown()
+
+
+/**
+ * @summary Upload a JPEG, PNG, or WebP logo for the firm landing page
+ */
+export const CreateFirmBrandingLogoBody = zod.object({
+  "fileName": zod.string(),
+  "contentType": zod.string(),
+  "fileBase64": zod.string()
+})
+
+export const CreateFirmBrandingLogoResponse = zod.object({
+  "logoUrl": zod.string(),
+  "objectPath": zod.string()
+})
+
+
+/**
+ * @summary Public white-label landing for a subscribed or trialing firm
+ */
+export const GetPublicFirmLandingParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+export const GetPublicFirmLandingResponse = zod.object({
+  "slug": zod.string(),
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "headline": zod.string(),
+  "tagline": zod.string().nullable(),
+  "logoUrl": zod.string().nullable(),
+  "host": zod.string()
+})
+
+
+/**
+ * @summary Stream the published firm logo
+ */
+export const GetPublicFirmLandingLogoParams = zod.object({
+  "slug": zod.coerce.string()
+})
+
+export const GetPublicFirmLandingLogoResponse = zod.unknown()
+
+
+/**
  * @summary Get the authenticated user's company and accounting-firm context
  */
 export const GetOrganizationContextResponse = zod.object({
@@ -437,6 +622,396 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "createdAt": zod.coerce.date(),
   "inviteLink": zod.string().optional()
 }))
+})
+
+
+/**
+ * @summary Preview a firm engagement contract awaiting signature
+ */
+export const GetEngagementContractInvitationParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const GetEngagementContractInvitationResponse = zod.object({
+  "id": zod.number(),
+  "firmName": zod.string(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "pdfBase64": zod.string().optional()
+})
+
+
+/**
+ * @summary Sign a firm engagement contract in-app
+ */
+export const SignEngagementContractInvitationParams = zod.object({
+  "token": zod.coerce.string()
+})
+
+export const SignEngagementContractInvitationBody = zod.object({
+  "signerName": zod.string(),
+  "accepted": zod.boolean()
+})
+
+export const SignEngagementContractInvitationResponse = zod.object({
+  "id": zod.number(),
+  "engagementId": zod.number(),
+  "firmId": zod.number(),
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "signerName": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "confirmedAt": zod.coerce.date().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullable(),
+  "inviteLink": zod.string().optional(),
+  "pdfBase64": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
+})
+
+
+/**
+ * @summary Create and send a firm-initiated client engagement contract
+ */
+export const CreateEngagementOnboardingParams = zod.object({
+  "firmId": zod.coerce.number()
+})
+
+export const CreateEngagementOnboardingBody = zod.object({
+  "name": zod.string(),
+  "legalName": zod.string(),
+  "functionalCurrency": zod.string(),
+  "basis": zod.string(),
+  "period": zod.string(),
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "signerEmail": zod.string()
+})
+
+export const CreateEngagementOnboardingResponse = zod.object({
+  "id": zod.number(),
+  "engagementId": zod.number(),
+  "firmId": zod.number(),
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "signerName": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "confirmedAt": zod.coerce.date().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullable(),
+  "inviteLink": zod.string().optional(),
+  "pdfBase64": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
+})
+
+
+/**
+ * @summary Get a firm engagement onboarding
+ */
+export const GetEngagementOnboardingParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetEngagementOnboardingResponse = zod.object({
+  "id": zod.number(),
+  "engagementId": zod.number(),
+  "firmId": zod.number(),
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "signerName": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "confirmedAt": zod.coerce.date().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullable(),
+  "inviteLink": zod.string().optional(),
+  "pdfBase64": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
+})
+
+
+/**
+ * @summary Confirm a signed engagement within five days
+ */
+export const ConfirmEngagementOnboardingParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ConfirmEngagementOnboardingResponse = zod.object({
+  "id": zod.number(),
+  "engagementId": zod.number(),
+  "firmId": zod.number(),
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "signerName": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "confirmedAt": zod.coerce.date().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullable(),
+  "inviteLink": zod.string().optional(),
+  "pdfBase64": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
+})
+
+
+/**
+ * @summary Cancel a pending engagement onboarding
+ */
+export const RevokeEngagementOnboardingParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RevokeEngagementOnboardingResponse = zod.object({
+  "id": zod.number(),
+  "engagementId": zod.number(),
+  "firmId": zod.number(),
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "signerName": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "confirmedAt": zod.coerce.date().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullable(),
+  "inviteLink": zod.string().optional(),
+  "pdfBase64": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
+})
+
+
+/**
+ * @summary Resend an unsigned engagement contract
+ */
+export const ResendEngagementOnboardingParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResendEngagementOnboardingResponse = zod.object({
+  "id": zod.number(),
+  "engagementId": zod.number(),
+  "firmId": zod.number(),
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "status": zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),
+  "terms": zod.object({
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])),
+  "agreedTransactionsPerMonth": zod.number(),
+  "agreedRevenuePerYear": zod.number(),
+  "agreedRevenueCurrency": zod.string(),
+  "startDate": zod.coerce.date(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "termsText": zod.string(),
+  "firmLegalName": zod.string(),
+  "clientLegalName": zod.string()
+}),
+  "signerEmail": zod.string(),
+  "signerName": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "sentAt": zod.coerce.date().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "confirmedAt": zod.coerce.date().nullish(),
+  "inviteExpiresAt": zod.coerce.date().nullable(),
+  "inviteLink": zod.string().optional(),
+  "pdfBase64": zod.string().optional(),
+  "emailDeliveryStatus": zod.enum(['sent', 'failed']).optional()
+})
+
+
+/**
+ * @summary Get a firm-scoped practice overview
+ */
+export const GetFirmOverviewQueryParams = zod.object({
+  "firmId": zod.coerce.number()
+})
+
+export const GetFirmOverviewResponse = zod.object({
+  "firmId": zod.number(),
+  "firmName": zod.string(),
+  "totals": zod.object({
+  "clientCount": zod.number(),
+  "pendingReviewClients": zod.number(),
+  "pendingReviewLines": zod.number(),
+  "missingRateClients": zod.number(),
+  "awaitingSignatureCount": zod.number(),
+  "awaitingConfirmationCount": zod.number(),
+  "expiredOnboardingCount": zod.number(),
+  "pendingInvitationCount": zod.number()
+}),
+  "clients": zod.array(zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "period": zod.string(),
+  "ownershipStatus": zod.string(),
+  "functionalCurrency": zod.string(),
+  "completionPercent": zod.number(),
+  "pendingReview": zod.number(),
+  "totalLines": zod.number(),
+  "journalCount": zod.number(),
+  "missingRateCount": zod.number(),
+  "postedAmountFunctional": zod.number(),
+  "onboardingStatus": zod.union([zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),zod.null()]),
+  "engagementStatus": zod.string().nullish(),
+  "agreedTransactionsPerMonth": zod.number().nullish(),
+  "agreedRevenuePerYear": zod.number().nullish(),
+  "agreedRevenueCurrency": zod.string().nullish(),
+  "onboardingId": zod.number().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "canResend": zod.boolean().optional()
+})),
+  "attention": zod.array(zod.object({
+  "kind": zod.enum(['pending_review', 'missing_rates', 'awaiting_signature', 'awaiting_confirmation', 'expired_onboarding', 'pending_invitation']),
+  "label": zod.string(),
+  "clientId": zod.number().nullish(),
+  "onboardingId": zod.number().nullish()
+}))
+})
+
+
+/**
+ * @summary Get agreed-versus-actual practice metrics for one firm client
+ */
+export const GetFirmClientPracticeOverviewParams = zod.object({
+  "clientId": zod.coerce.number()
+})
+
+export const GetFirmClientPracticeOverviewQueryParams = zod.object({
+  "firmId": zod.coerce.number()
+})
+
+export const GetFirmClientPracticeOverviewResponse = zod.object({
+  "clientId": zod.number(),
+  "clientName": zod.string(),
+  "firmId": zod.number(),
+  "ownershipStatus": zod.string(),
+  "engagementStatus": zod.string().nullable(),
+  "onboardingStatus": zod.union([zod.enum(['draft', 'sent', 'signed', 'confirmed', 'expired', 'revoked']),zod.null()]),
+  "onboardingId": zod.number().nullish(),
+  "confirmBy": zod.coerce.date().nullish(),
+  "services": zod.array(zod.enum(['bookkeeping', 'statement_review', 'journals', 'ifrs_pack', 'uae_tax_estimate'])).optional(),
+  "startDate": zod.coerce.date().nullish(),
+  "endDate": zod.coerce.date().nullish(),
+  "feeNote": zod.string().nullish(),
+  "agreedTransactionsPerMonth": zod.number().nullish(),
+  "agreedRevenuePerYear": zod.number().nullish(),
+  "agreedRevenueCurrency": zod.string().nullish(),
+  "signedAt": zod.coerce.date().nullish(),
+  "canResend": zod.boolean().optional(),
+  "workspaceAccessible": zod.boolean().optional(),
+  "ledgerActualsHidden": zod.boolean(),
+  "closeSnapshot": zod.object({
+  "period": zod.string(),
+  "currencies": zod.array(zod.string()),
+  "totalLines": zod.number(),
+  "pendingReview": zod.number(),
+  "postedAmount": zod.number(),
+  "completionPercent": zod.number(),
+  "functionalCurrency": zod.string(),
+  "postedAmountFunctional": zod.number(),
+  "missingRateCount": zod.number(),
+  "missingRateCurrencies": zod.array(zod.string()),
+  "journalCount": zod.number()
+}),
+  "monthlyPostedJournals": zod.array(zod.object({
+  "month": zod.string(),
+  "postedCount": zod.number()
+})),
+  "currentMonthPostedJournals": zod.number(),
+  "actualRevenuePerYear": zod.number().nullish(),
+  "revenuePeriod": zod.string().nullish(),
+  "revenueSource": zod.enum(['report_pack', 'live_statements', 'unavailable']),
+  "missingRateCount": zod.number().optional()
 })
 
 
@@ -968,7 +1543,10 @@ export const GetAgarAccountingUsageResponse = zod.object({
   "statementEvidenceDays": zod.number(),
   "aiActivityDays": zod.number(),
   "ledgerDataDescription": zod.string()
-})
+}),
+  "billingStatus": zod.string().optional(),
+  "introEndsAt": zod.coerce.date().optional(),
+  "introActive": zod.boolean().optional()
 })
 
 
@@ -1926,7 +2504,7 @@ export const submitPublicStatementLineDetailsBodyFilesMax = 5;
 
 export const SubmitPublicStatementLineDetailsBody = zod.object({
   "noteText": zod.string().min(1).max(submitPublicStatementLineDetailsBodyNoteTextMax),
-  "files": zod.array(zod.unknown()).max(submitPublicStatementLineDetailsBodyFilesMax).optional()
+  "files": zod.array(zod.instanceof(File)).max(submitPublicStatementLineDetailsBodyFilesMax).optional()
 })
 
 export const SubmitPublicStatementLineDetailsResponse = zod.object({

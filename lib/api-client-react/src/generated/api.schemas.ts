@@ -764,6 +764,9 @@ export interface WorkspaceUsage {
   clientAiCosts: ClientAICostUsage[];
   clientWorkspaces: UsageMetric;
   retention: WorkspaceUsageRetention;
+  billingStatus?: string;
+  introEndsAt?: string;
+  introActive?: boolean;
 }
 
 export interface ExchangeRate {
@@ -991,6 +994,193 @@ export interface SystemAdminClaimResult {
   message: string;
 }
 
+export type EngagementService = typeof EngagementService[keyof typeof EngagementService];
+
+
+export const EngagementService = {
+  bookkeeping: 'bookkeeping',
+  statement_review: 'statement_review',
+  journals: 'journals',
+  ifrs_pack: 'ifrs_pack',
+  uae_tax_estimate: 'uae_tax_estimate',
+} as const;
+
+export type EngagementOnboardingStatus = typeof EngagementOnboardingStatus[keyof typeof EngagementOnboardingStatus];
+
+
+export const EngagementOnboardingStatus = {
+  draft: 'draft',
+  sent: 'sent',
+  signed: 'signed',
+  confirmed: 'confirmed',
+  expired: 'expired',
+  revoked: 'revoked',
+} as const;
+
+export interface EngagementOnboardingInput {
+  name: string;
+  legalName: string;
+  functionalCurrency: string;
+  basis: string;
+  period: string;
+  services: EngagementService[];
+  agreedTransactionsPerMonth: number;
+  agreedRevenuePerYear: number;
+  startDate: string;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  feeNote?: string | null;
+  termsText: string;
+  signerEmail: string;
+}
+
+export interface SignEngagementContractInput {
+  signerName: string;
+  accepted: boolean;
+}
+
+export interface EngagementContractTerms {
+  services: EngagementService[];
+  agreedTransactionsPerMonth: number;
+  agreedRevenuePerYear: number;
+  agreedRevenueCurrency: string;
+  startDate: string;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  feeNote?: string | null;
+  termsText: string;
+  firmLegalName: string;
+  clientLegalName: string;
+}
+
+export type EngagementOnboardingEmailDeliveryStatus = typeof EngagementOnboardingEmailDeliveryStatus[keyof typeof EngagementOnboardingEmailDeliveryStatus];
+
+
+export const EngagementOnboardingEmailDeliveryStatus = {
+  sent: 'sent',
+  failed: 'failed',
+} as const;
+
+export interface EngagementOnboarding {
+  id: number;
+  engagementId: number;
+  firmId: number;
+  clientId: number;
+  clientName: string;
+  status: EngagementOnboardingStatus;
+  terms: EngagementContractTerms;
+  signerEmail: string;
+  /** @nullable */
+  signerName?: string | null;
+  /** @nullable */
+  signedAt?: string | null;
+  /** @nullable */
+  sentAt?: string | null;
+  /** @nullable */
+  confirmBy?: string | null;
+  /** @nullable */
+  confirmedAt?: string | null;
+  /** @nullable */
+  inviteExpiresAt: string | null;
+  inviteLink?: string;
+  pdfBase64?: string;
+  emailDeliveryStatus?: EngagementOnboardingEmailDeliveryStatus;
+}
+
+export interface EngagementContractPreview {
+  id: number;
+  firmName: string;
+  clientName: string;
+  status: EngagementOnboardingStatus;
+  terms: EngagementContractTerms;
+  signerEmail: string;
+  pdfBase64?: string;
+}
+
+export interface FirmOverviewTotals {
+  clientCount: number;
+  pendingReviewClients: number;
+  pendingReviewLines: number;
+  missingRateClients: number;
+  awaitingSignatureCount: number;
+  awaitingConfirmationCount: number;
+  expiredOnboardingCount: number;
+  pendingInvitationCount: number;
+}
+
+export interface FirmOverviewClient {
+  id: number;
+  name: string;
+  period: string;
+  ownershipStatus: string;
+  functionalCurrency: string;
+  completionPercent: number;
+  pendingReview: number;
+  totalLines: number;
+  journalCount: number;
+  missingRateCount: number;
+  postedAmountFunctional: number;
+  onboardingStatus: EngagementOnboardingStatus | null;
+  /** @nullable */
+  engagementStatus?: string | null;
+  /** @nullable */
+  agreedTransactionsPerMonth?: number | null;
+  /** @nullable */
+  agreedRevenuePerYear?: number | null;
+  /** @nullable */
+  agreedRevenueCurrency?: string | null;
+  /** @nullable */
+  onboardingId?: number | null;
+  /** @nullable */
+  confirmBy?: string | null;
+  canResend?: boolean;
+}
+
+export type FirmOverviewAttentionKind = typeof FirmOverviewAttentionKind[keyof typeof FirmOverviewAttentionKind];
+
+
+export const FirmOverviewAttentionKind = {
+  pending_review: 'pending_review',
+  missing_rates: 'missing_rates',
+  awaiting_signature: 'awaiting_signature',
+  awaiting_confirmation: 'awaiting_confirmation',
+  expired_onboarding: 'expired_onboarding',
+  pending_invitation: 'pending_invitation',
+} as const;
+
+export interface FirmOverviewAttention {
+  kind: FirmOverviewAttentionKind;
+  label: string;
+  /** @nullable */
+  clientId?: number | null;
+  /** @nullable */
+  onboardingId?: number | null;
+}
+
+export interface FirmOverview {
+  firmId: number;
+  firmName: string;
+  totals: FirmOverviewTotals;
+  clients: FirmOverviewClient[];
+  attention: FirmOverviewAttention[];
+}
+
+export interface FirmClientMonthlyJournals {
+  month: string;
+  postedCount: number;
+}
+
+export type FirmClientPracticeOverviewRevenueSource = typeof FirmClientPracticeOverviewRevenueSource[keyof typeof FirmClientPracticeOverviewRevenueSource];
+
+
+export const FirmClientPracticeOverviewRevenueSource = {
+  report_pack: 'report_pack',
+  live_statements: 'live_statements',
+  unavailable: 'unavailable',
+} as const;
+
 export interface LedgerOverview {
   period: string;
   currencies: string[];
@@ -1003,6 +1193,47 @@ export interface LedgerOverview {
   missingRateCount: number;
   missingRateCurrencies: string[];
   journalCount: number;
+}
+
+export interface FirmClientPracticeOverview {
+  clientId: number;
+  clientName: string;
+  firmId: number;
+  ownershipStatus: string;
+  /** @nullable */
+  engagementStatus: string | null;
+  onboardingStatus: EngagementOnboardingStatus | null;
+  /** @nullable */
+  onboardingId?: number | null;
+  /** @nullable */
+  confirmBy?: string | null;
+  services?: EngagementService[];
+  /** @nullable */
+  startDate?: string | null;
+  /** @nullable */
+  endDate?: string | null;
+  /** @nullable */
+  feeNote?: string | null;
+  /** @nullable */
+  agreedTransactionsPerMonth?: number | null;
+  /** @nullable */
+  agreedRevenuePerYear?: number | null;
+  /** @nullable */
+  agreedRevenueCurrency?: string | null;
+  /** @nullable */
+  signedAt?: string | null;
+  canResend?: boolean;
+  workspaceAccessible?: boolean;
+  ledgerActualsHidden: boolean;
+  closeSnapshot: LedgerOverview;
+  monthlyPostedJournals: FirmClientMonthlyJournals[];
+  currentMonthPostedJournals: number;
+  /** @nullable */
+  actualRevenuePerYear?: number | null;
+  /** @nullable */
+  revenuePeriod?: string | null;
+  revenueSource: FirmClientPracticeOverviewRevenueSource;
+  missingRateCount?: number;
 }
 
 /**
@@ -2752,6 +2983,218 @@ export interface FeedbackImageUploadRequest {
   contentType: string;
 }
 
+export interface ErrorMessage {
+  error: string;
+  code?: string;
+}
+
+export interface BillingPriceQuote {
+  intro: number;
+  list: number;
+  current: number;
+}
+
+export type BillingPriceCatalogCurrency = typeof BillingPriceCatalogCurrency[keyof typeof BillingPriceCatalogCurrency];
+
+
+export const BillingPriceCatalogCurrency = {
+  AED: 'AED',
+} as const;
+
+export interface BillingPriceCatalog {
+  currency: BillingPriceCatalogCurrency;
+  introActive: boolean;
+  introEndsAt: string;
+  companyPro: BillingPriceQuote;
+  companyProFirmMember: BillingPriceQuote;
+  firm: BillingPriceQuote;
+}
+
+export interface BillingPlanLimits {
+  name: string;
+  statementImportsPerMonth: number;
+  storedEvidenceBytes: number;
+  aiActivityPerMonth: number;
+  clientWorkspaces: number;
+}
+
+export type FirmBillingPayer = typeof FirmBillingPayer[keyof typeof FirmBillingPayer];
+
+
+export const FirmBillingPayer = {
+  firm: 'firm',
+} as const;
+
+export type FirmBillingPlan = typeof FirmBillingPlan[keyof typeof FirmBillingPlan];
+
+
+export const FirmBillingPlan = {
+  firm: 'firm',
+} as const;
+
+export type FirmBillingStatus = typeof FirmBillingStatus[keyof typeof FirmBillingStatus];
+
+
+export const FirmBillingStatus = {
+  trialing: 'trialing',
+  active: 'active',
+  past_due: 'past_due',
+  lapsed_readonly: 'lapsed_readonly',
+  locked: 'locked',
+} as const;
+
+export interface FirmBilling {
+  payer: FirmBillingPayer;
+  firmId: number;
+  plan: FirmBillingPlan;
+  planName: string;
+  status: FirmBillingStatus;
+  fullAccess: boolean;
+  writeAccess: boolean;
+  readAccess: boolean;
+  /** @nullable */
+  trialEndsAt: string | null;
+  /** @nullable */
+  readonlyUntil: string | null;
+  /** @nullable */
+  lockedAt: string | null;
+  limits: BillingPlanLimits;
+}
+
+export type CompanyBillingPayer = typeof CompanyBillingPayer[keyof typeof CompanyBillingPayer];
+
+
+export const CompanyBillingPayer = {
+  company: 'company',
+} as const;
+
+export type CompanyBillingPlan = typeof CompanyBillingPlan[keyof typeof CompanyBillingPlan];
+
+
+export const CompanyBillingPlan = {
+  trial: 'trial',
+  free: 'free',
+  pro: 'pro',
+} as const;
+
+export type CompanyBillingStatus = typeof CompanyBillingStatus[keyof typeof CompanyBillingStatus];
+
+
+export const CompanyBillingStatus = {
+  trialing: 'trialing',
+  pro: 'pro',
+  free: 'free',
+  requires_pro: 'requires_pro',
+} as const;
+
+export interface CompanyBilling {
+  payer: CompanyBillingPayer;
+  clientId: number;
+  plan: CompanyBillingPlan;
+  planName: string;
+  status: CompanyBillingStatus;
+  writeAccess: boolean;
+  /** @nullable */
+  trialEndsAt: string | null;
+  isFirmMember: boolean;
+  revenue: number;
+  revenueThreshold: number;
+  revenueCurrency: string;
+  limits: BillingPlanLimits;
+}
+
+export interface BillingMe {
+  prices: BillingPriceCatalog;
+  stripeEnabled: boolean;
+  firms: FirmBilling[];
+  companies: CompanyBilling[];
+}
+
+export type BillingCheckoutInputPayerType = typeof BillingCheckoutInputPayerType[keyof typeof BillingCheckoutInputPayerType];
+
+
+export const BillingCheckoutInputPayerType = {
+  firm: 'firm',
+  company: 'company',
+} as const;
+
+export interface BillingCheckoutInput {
+  payerType: BillingCheckoutInputPayerType;
+  firmId?: number;
+  clientId?: number;
+}
+
+export type BillingPortalInputPayerType = typeof BillingPortalInputPayerType[keyof typeof BillingPortalInputPayerType];
+
+
+export const BillingPortalInputPayerType = {
+  firm: 'firm',
+  company: 'company',
+} as const;
+
+export interface BillingPortalInput {
+  payerType: BillingPortalInputPayerType;
+  firmId?: number;
+  clientId?: number;
+}
+
+export interface BillingRedirect {
+  /** @nullable */
+  url: string | null;
+}
+
+export interface FirmBranding {
+  /** @nullable */
+  slug: string | null;
+  /** @nullable */
+  publicHost: string | null;
+  /** @nullable */
+  pathFallback: string | null;
+  /** @nullable */
+  logoUrl: string | null;
+  /** @nullable */
+  landingHeadline: string | null;
+  /** @nullable */
+  landingTagline: string | null;
+  landingEnabled: boolean;
+  available: boolean;
+  canManage: boolean;
+}
+
+export interface FirmBrandingInput {
+  slug?: string;
+  /** @nullable */
+  landingHeadline?: string | null;
+  /** @nullable */
+  landingTagline?: string | null;
+  landingEnabled?: boolean;
+  /** @nullable */
+  logoObjectPath?: string | null;
+}
+
+export interface FirmBrandingLogoInput {
+  fileName: string;
+  contentType: string;
+  fileBase64: string;
+}
+
+export interface FirmBrandingLogo {
+  logoUrl: string;
+  objectPath: string;
+}
+
+export interface PublicFirmLanding {
+  slug: string;
+  name: string;
+  legalName: string;
+  headline: string;
+  /** @nullable */
+  tagline: string | null;
+  /** @nullable */
+  logoUrl: string | null;
+  host: string;
+}
+
 /**
  * Company ledger whose persisted rate profile is being managed.
  */
@@ -2761,6 +3204,14 @@ export type RateScopeClientIdParameter = number;
  * Accounting firm whose shared rate profile is being managed.
  */
 export type RateScopeFirmIdParameter = number;
+
+export type GetFirmOverviewParams = {
+firmId: number;
+};
+
+export type GetFirmClientPracticeOverviewParams = {
+firmId: number;
+};
 
 export type BeginBrowserLoginParams = {
 returnTo?: string;
@@ -3062,3 +3513,4 @@ export type GetUaeCorporateTaxSummaryParams = {
 clientId: number;
 period?: string;
 };
+

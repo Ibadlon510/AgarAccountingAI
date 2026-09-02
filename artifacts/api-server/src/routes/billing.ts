@@ -128,7 +128,7 @@ router.post("/billing/portal", async (req, res) => {
     account.stripeCustomerId,
     body.payerType === "firm" ? `${origin}/firm-settings` : `${origin}/client-settings`,
   );
-  res.json(CreateBillingPortalResponse.parse({ url: session.url }));
+  return res.json(CreateBillingPortalResponse.parse({ url: session.url }));
 });
 
 export default router;

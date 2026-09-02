@@ -23,4 +23,7 @@ export interface WorkspaceUsage {
   clientAiCosts: ClientAICostUsage[];
   clientWorkspaces: UsageMetric;
   retention: WorkspaceUsageRetention;
+  billingStatus?: string;
+  introEndsAt?: Date;
+  introActive?: boolean;
 }
