@@ -25,6 +25,8 @@ export interface Client {
   subscriptionLiableParty: SubscriptionLiableParty;
   /** Whether the system catalog may supply a fallback rate for this company. */
   systemRatesEnabled: boolean;
+  /** Whether newly generated report snapshots include the AgarAccounting AI System name. */
+  reportSystemBrandingEnabled: boolean;
   /** @nullable */
   shareCapitalAuthorisedShares?: number | null;
   /** @nullable */

@@ -285,6 +285,23 @@ test("brands generated report PDFs as AgarAccounting AI System", async () => {
   assert.equal((text.match(/AUTHORIZED SIGNATORY/g) ?? []).length, 5);
 });
 
+test("omits AgarAccounting AI System from unbranded Company Pro report PDFs", async () => {
+  const { snapshot } = buildProfilePack("IFRS", "IAS 1");
+  const pdf = buildReportPdf({
+    ...snapshot,
+    systemBrandingEnabled: false,
+  }, {
+    preparedBy: "Report Preparer",
+    reviewedBy: "Report Reviewer",
+    authorizedBy: "Report Authorizer",
+    authorizationDate: "2027-12-31",
+  });
+  const text = await extractReportPdfText(pdf);
+  assert.doesNotMatch(text, /AGARACCOUNTING AI SYSTEM/i);
+  assert.match(text, /Profile test entity LLC/);
+  assert.match(text, /Traceability:/);
+});
+
 test("includes only frozen eligible firm attribution in report PDFs", async () => {
   const { snapshot } = buildProfilePack("IFRS", "IAS 1");
   const signatory = {

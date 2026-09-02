@@ -86,6 +86,7 @@ export const clientsTable = pgTable("agaraccounting_clients", {
   basis: text("basis").notNull().default("IFRS"),
   period: text("period").notNull().default("August 2026"),
   systemRatesEnabled: boolean("system_rates_enabled").notNull().default(true),
+  reportSystemBrandingEnabled: boolean("report_system_branding_enabled").notNull().default(true),
   shareCapitalAuthorisedShares: integer("share_capital_authorised_shares"),
   shareCapitalParValue: numeric("share_capital_par_value", { precision: 14, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),

@@ -19,6 +19,8 @@ export interface ReportSnapshot {
   presentationCurrency: string;
   reportingBasis: string;
   presentationProfile: string;
+  /** Frozen choice controlling whether the generated report displays AgarAccounting AI System branding. */
+  systemBrandingEnabled?: boolean;
   firmAttribution?: ReportFirmAttribution;
   statementOfFinancialPosition: ReportAmount[];
   profitOrLossAndOci: ReportAmount[];

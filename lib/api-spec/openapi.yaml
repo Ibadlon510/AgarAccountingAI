@@ -3247,7 +3247,7 @@ components:
         - status
     Client:
       type: object
-      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty, systemRatesEnabled, shareholders]
+      required: [id, name, legalName, functionalCurrency, basis, period, legacyDemo, workspaceState, ownershipStatus, subscriptionLiableParty, systemRatesEnabled, reportSystemBrandingEnabled, shareholders]
       properties:
         id: { type: number }
         name: { type: string }
@@ -3262,6 +3262,9 @@ components:
         systemRatesEnabled:
           type: boolean
           description: Whether the system catalog may supply a fallback rate for this company.
+        reportSystemBrandingEnabled:
+          type: boolean
+          description: Whether newly generated report snapshots include the AgarAccounting AI System name.
         shareCapitalAuthorisedShares: { type: ["number", "null"] }
         shareCapitalParValue: { type: ["number", "null"] }
         shareholders:
@@ -3300,6 +3303,7 @@ components:
         basis: { type: string }
         period: { type: string }
         systemRatesEnabled: { type: boolean }
+        reportSystemBrandingEnabled: { type: boolean }
         shareCapitalAuthorisedShares: { type: ["number", "null"] }
         shareCapitalParValue: { type: ["number", "null"] }
         shareholders:
@@ -5134,6 +5138,9 @@ components:
         presentationCurrency: { type: string }
         reportingBasis: { type: string }
         presentationProfile: { type: string }
+        systemBrandingEnabled:
+          type: boolean
+          description: Frozen choice controlling whether the generated report displays AgarAccounting AI System branding.
         firmAttribution:
           $ref: "#/components/schemas/ReportFirmAttribution"
         statementOfFinancialPosition:

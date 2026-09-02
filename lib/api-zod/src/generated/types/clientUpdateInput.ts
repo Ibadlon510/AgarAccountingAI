@@ -14,6 +14,7 @@ export interface ClientUpdateInput {
   basis: string;
   period: string;
   systemRatesEnabled?: boolean;
+  reportSystemBrandingEnabled?: boolean;
   /** @nullable */
   shareCapitalAuthorisedShares?: number | null;
   /** @nullable */

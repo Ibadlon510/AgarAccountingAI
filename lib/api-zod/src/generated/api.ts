@@ -295,6 +295,7 @@ export const GetOrganizationContextResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "reportSystemBrandingEnabled": zod.boolean().describe('Whether newly generated report snapshots include the AgarAccounting AI System name.'),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -395,6 +396,7 @@ export const CompleteOrganizationOnboardingResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "reportSystemBrandingEnabled": zod.boolean().describe('Whether newly generated report snapshots include the AgarAccounting AI System name.'),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -582,6 +584,7 @@ export const AcceptOrganizationInvitationResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "reportSystemBrandingEnabled": zod.boolean().describe('Whether newly generated report snapshots include the AgarAccounting AI System name.'),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -1201,6 +1204,7 @@ export const GetClientsResponseItem = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "reportSystemBrandingEnabled": zod.boolean().describe('Whether newly generated report snapshots include the AgarAccounting AI System name.'),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -1244,6 +1248,7 @@ export const CreateClientResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "reportSystemBrandingEnabled": zod.boolean().describe('Whether newly generated report snapshots include the AgarAccounting AI System name.'),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -1280,6 +1285,7 @@ export const UpdateClientBody = zod.object({
   "basis": zod.string(),
   "period": zod.string(),
   "systemRatesEnabled": zod.boolean().optional(),
+  "reportSystemBrandingEnabled": zod.boolean().optional(),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -1301,6 +1307,7 @@ export const UpdateClientResponse = zod.object({
   "ownershipStatus": zod.enum(['company_owned', 'firm_provisional']),
   "subscriptionLiableParty": zod.enum(['company', 'firm']),
   "systemRatesEnabled": zod.boolean().describe('Whether the system catalog may supply a fallback rate for this company.'),
+  "reportSystemBrandingEnabled": zod.boolean().describe('Whether newly generated report snapshots include the AgarAccounting AI System name.'),
   "shareCapitalAuthorisedShares": zod.number().nullish(),
   "shareCapitalParValue": zod.number().nullish(),
   "shareholders": zod.array(zod.object({
@@ -4248,6 +4255,7 @@ export const CreateReportPackResponse = zod.object({
   "presentationCurrency": zod.string(),
   "reportingBasis": zod.string(),
   "presentationProfile": zod.string(),
+  "systemBrandingEnabled": zod.boolean().optional().describe('Frozen choice controlling whether the generated report displays AgarAccounting AI System branding.'),
   "firmAttribution": zod.object({
   "enabled": zod.boolean(),
   "firmName": zod.string().nullable()
@@ -4424,6 +4432,7 @@ export const GetReportPackResponse = zod.object({
   "presentationCurrency": zod.string(),
   "reportingBasis": zod.string(),
   "presentationProfile": zod.string(),
+  "systemBrandingEnabled": zod.boolean().optional().describe('Frozen choice controlling whether the generated report displays AgarAccounting AI System branding.'),
   "firmAttribution": zod.object({
   "enabled": zod.boolean(),
   "firmName": zod.string().nullable()
@@ -4639,6 +4648,7 @@ export const UpdateReportPackResponse = zod.object({
   "presentationCurrency": zod.string(),
   "reportingBasis": zod.string(),
   "presentationProfile": zod.string(),
+  "systemBrandingEnabled": zod.boolean().optional().describe('Frozen choice controlling whether the generated report displays AgarAccounting AI System branding.'),
   "firmAttribution": zod.object({
   "enabled": zod.boolean(),
   "firmName": zod.string().nullable()

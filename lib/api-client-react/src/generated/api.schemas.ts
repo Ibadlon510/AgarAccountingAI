@@ -493,6 +493,8 @@ export interface Client {
   subscriptionLiableParty: SubscriptionLiableParty;
   /** Whether the system catalog may supply a fallback rate for this company. */
   systemRatesEnabled: boolean;
+  /** Whether newly generated report snapshots include the AgarAccounting AI System name. */
+  reportSystemBrandingEnabled: boolean;
   /** @nullable */
   shareCapitalAuthorisedShares?: number | null;
   /** @nullable */
@@ -582,6 +584,7 @@ export interface ClientUpdateInput {
   basis: string;
   period: string;
   systemRatesEnabled?: boolean;
+  reportSystemBrandingEnabled?: boolean;
   /** @nullable */
   shareCapitalAuthorisedShares?: number | null;
   /** @nullable */
@@ -2863,6 +2866,8 @@ export interface ReportSnapshot {
   presentationCurrency: string;
   reportingBasis: string;
   presentationProfile: string;
+  /** Frozen choice controlling whether the generated report displays AgarAccounting AI System branding. */
+  systemBrandingEnabled?: boolean;
   firmAttribution?: ReportFirmAttribution;
   statementOfFinancialPosition: ReportAmount[];
   profitOrLossAndOci: ReportAmount[];

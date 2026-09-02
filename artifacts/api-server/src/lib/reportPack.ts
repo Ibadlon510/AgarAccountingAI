@@ -73,6 +73,7 @@ export type ReportSnapshot = {
   presentationCurrency: string;
   reportingBasis: string;
   presentationProfile: string;
+  systemBrandingEnabled?: boolean;
   firmAttribution?: ReportFirmAttribution;
   statementOfFinancialPosition: ReportAmount[];
   profitOrLossAndOci: ReportAmount[];
@@ -570,6 +571,7 @@ export function buildReportPack(input: {
   roundingPolicy: string;
   sourceImportCount: number;
   missingRateEntries: Entry[];
+  systemBrandingEnabled?: boolean;
   firmAttribution?: ReportFirmAttribution;
   shareholders?: ShareholdingRowInput[];
   bankAccounts?: BankAccountInput[];
@@ -867,6 +869,7 @@ export function buildReportPack(input: {
     presentationCurrency: input.presentationCurrency,
     reportingBasis: input.reportingBasis,
     presentationProfile: input.presentationProfile,
+    systemBrandingEnabled: input.systemBrandingEnabled ?? true,
     firmAttribution: input.firmAttribution ?? { enabled: false, firmName: null },
     statementOfFinancialPosition: profileStatementOfFinancialPosition,
     profitOrLossAndOci: profileProfitOrLossAndOci,

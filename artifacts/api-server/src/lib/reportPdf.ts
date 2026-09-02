@@ -94,12 +94,12 @@ function drawWrappedText(ctx: PdfContext, text: string, x: number, y: number, ma
   return y + (lines.length * lineHeight);
 }
 
-function drawFooter(ctx: PdfContext, pageNumber: number, legalName: string) {
+function drawFooter(ctx: PdfContext, pageNumber: number, legalName: string, systemBrandingEnabled = true) {
   line(ctx, MARGIN_X, 805, PAGE_WIDTH - MARGIN_X, 805, COLORS.rule);
   setFont(ctx, 7.5, "sans", 400);
   ctx.fillStyle = COLORS.muted;
   ctx.fillText(legalName, MARGIN_X, 821);
-  const label = `AgarAccounting AI System · ${pageNumber}`;
+  const label = systemBrandingEnabled ? `AgarAccounting AI System · ${pageNumber}` : `${pageNumber}`;
   ctx.fillText(label, PAGE_WIDTH - MARGIN_X - ctx.measureText(label).width, 821);
 }
 
@@ -149,6 +149,7 @@ function drawStatementPage(
   rows: ReportAmount[],
   currency: string,
   showComparatives: boolean,
+  systemBrandingEnabled = true,
 ) {
   const ctx = startPage(document);
   drawPageHeading(ctx, title, `${currency} · ${showComparatives ? "Current year / comparative year" : "Current year"}`);
@@ -188,7 +189,7 @@ function drawStatementPage(
     y += height;
   }
   drawSignature(ctx, Math.max(690, y + 54));
-  drawFooter(ctx, pageNumber, legalName);
+  drawFooter(ctx, pageNumber, legalName, systemBrandingEnabled);
   document.endPage();
 }
 
@@ -259,7 +260,7 @@ function drawEquityPage(
     y += 25;
   }
   drawSignature(ctx, Math.max(690, y + 30));
-  drawFooter(ctx, pageNumber, snapshot.legalName);
+  drawFooter(ctx, pageNumber, snapshot.legalName, snapshot.systemBrandingEnabled !== false);
   document.endPage();
 }
 
@@ -360,7 +361,7 @@ function drawNotesPages(
   for (const note of snapshot.notes) {
     const required = noteHeight(note, ctx, showComparatives);
     if (y + required > 665) {
-      drawFooter(ctx, pageNumber, snapshot.legalName);
+      drawFooter(ctx, pageNumber, snapshot.legalName, snapshot.systemBrandingEnabled !== false);
       document.endPage();
       pageNumber += 1;
       ctx = startPage(document);
@@ -371,7 +372,7 @@ function drawNotesPages(
   }
 
   if (y + 125 > 760) {
-    drawFooter(ctx, pageNumber, snapshot.legalName);
+    drawFooter(ctx, pageNumber, snapshot.legalName, snapshot.systemBrandingEnabled !== false);
     document.endPage();
     pageNumber += 1;
     ctx = startPage(document);
@@ -384,7 +385,7 @@ function drawNotesPages(
   const traceability = `Traceability: ${snapshot.traceability.postedEntryCount} posted journal entries · ${snapshot.traceability.postedLineCount} linked statement lines · ${snapshot.traceability.sourceImportCount} source imports in the client workspace.`;
   y = drawWrappedText(ctx, traceability, MARGIN_X, y + 18, CONTENT_WIDTH, 12) + 16;
   drawSignature(ctx, Math.max(y + 28, 690));
-  drawFooter(ctx, pageNumber, snapshot.legalName);
+  drawFooter(ctx, pageNumber, snapshot.legalName, snapshot.systemBrandingEnabled !== false);
   document.endPage();
   return pageNumber;
 }
@@ -395,11 +396,12 @@ export function buildReportPdf(
   options: { showComparatives?: boolean } = {},
 ) {
   const showComparatives = options.showComparatives ?? true;
+  const systemBrandingEnabled = snapshot.systemBrandingEnabled !== false;
   const document = new PDFDocument({
     title: `${snapshot.legalName} financial statements`,
-    author: "AgarAccounting AI System",
+    author: systemBrandingEnabled ? "AgarAccounting AI System" : snapshot.legalName,
     subject: `Financial statements for the year ended ${snapshot.periodEnd}`,
-    creator: "AgarAccounting AI System",
+    creator: systemBrandingEnabled ? "AgarAccounting AI System" : snapshot.legalName,
     keywords: "financial statements, accounting, IFRS",
   });
 
@@ -407,9 +409,11 @@ export function buildReportPdf(
   const cover = startPage(document);
   cover.fillStyle = COLORS.primary;
   cover.fillRect(0, 0, PAGE_WIDTH, 8);
-  setFont(cover, 7.5, "mono", 600);
-  cover.fillStyle = COLORS.muted;
-  cover.fillText("AGARACCOUNTING AI SYSTEM / GENERATED ACCOUNTING OUTPUT", MARGIN_X, 64);
+  if (systemBrandingEnabled) {
+    setFont(cover, 7.5, "mono", 600);
+    cover.fillStyle = COLORS.muted;
+    cover.fillText("AGARACCOUNTING AI SYSTEM / GENERATED ACCOUNTING OUTPUT", MARGIN_X, 64);
+  }
   setFont(cover, 37, "serif", 500);
   cover.fillStyle = COLORS.ink;
   drawWrappedText(cover, snapshot.legalName, MARGIN_X, 174, CONTENT_WIDTH, 43);
@@ -435,17 +439,17 @@ export function buildReportPdf(
   setFont(cover, 8.2, "sans", 400);
   const disclaimer = `Prepared under ${snapshot.reportingBasis} using the ${snapshot.presentationProfile} presentation profile. This document is generated accounting output for human review. It is not an audit opinion, statutory filing, tax return, or assurance conclusion.`;
   drawWrappedText(cover, disclaimer, MARGIN_X, 713, CONTENT_WIDTH, 13);
-  drawFooter(cover, pageNumber, snapshot.legalName);
+  drawFooter(cover, pageNumber, snapshot.legalName, systemBrandingEnabled);
   document.endPage();
 
   pageNumber += 1;
-  drawStatementPage(document, pageNumber, snapshot.legalName, "Statement of financial position", snapshot.statementOfFinancialPosition, snapshot.presentationCurrency, showComparatives);
+  drawStatementPage(document, pageNumber, snapshot.legalName, "Statement of financial position", snapshot.statementOfFinancialPosition, snapshot.presentationCurrency, showComparatives, systemBrandingEnabled);
   pageNumber += 1;
-  drawStatementPage(document, pageNumber, snapshot.legalName, "Statement of profit or loss and other comprehensive income", snapshot.profitOrLossAndOci, snapshot.presentationCurrency, showComparatives);
+  drawStatementPage(document, pageNumber, snapshot.legalName, "Statement of profit or loss and other comprehensive income", snapshot.profitOrLossAndOci, snapshot.presentationCurrency, showComparatives, systemBrandingEnabled);
   pageNumber += 1;
   drawEquityPage(document, pageNumber, snapshot, showComparatives);
   pageNumber += 1;
-  drawStatementPage(document, pageNumber, snapshot.legalName, "Statement of cash flows — indirect method", snapshot.cashFlows, snapshot.presentationCurrency, showComparatives);
+  drawStatementPage(document, pageNumber, snapshot.legalName, "Statement of cash flows — indirect method", snapshot.cashFlows, snapshot.presentationCurrency, showComparatives, systemBrandingEnabled);
   pageNumber += 1;
   drawNotesPages(document, pageNumber, snapshot, showComparatives);
 

@@ -478,6 +478,7 @@ function clientResponse(
     ownershipStatus: client.ownershipStatus as "company_owned" | "firm_provisional",
     subscriptionLiableParty: client.subscriptionLiableParty as "company" | "firm",
     systemRatesEnabled: client.systemRatesEnabled,
+    reportSystemBrandingEnabled: client.reportSystemBrandingEnabled,
     shareCapitalAuthorisedShares: capital.shareCapitalAuthorisedShares,
     shareCapitalParValue: capital.shareCapitalParValue,
     shareholders: shareCapital?.shareholders ?? [],
@@ -8661,7 +8662,15 @@ router.patch("/clients/:id", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
   }
-  const body = {
+  const body: {
+    name: string;
+    legalName: string;
+    functionalCurrency: string;
+    basis: string;
+    period: string;
+    systemRatesEnabled: boolean | undefined;
+    reportSystemBrandingEnabled?: boolean;
+  } = {
     name: parsed.data.name.trim(),
     legalName: parsed.data.legalName.trim(),
     functionalCurrency: parsed.data.functionalCurrency.trim(),
@@ -8669,8 +8678,20 @@ router.patch("/clients/:id", async (req, res) => {
     period: parsed.data.period.trim(),
     systemRatesEnabled: parsed.data.systemRatesEnabled,
   };
+  if ("reportSystemBrandingEnabled" in parsed.data) {
+    body.reportSystemBrandingEnabled = parsed.data.reportSystemBrandingEnabled;
+  }
   if ([body.name, body.legalName, body.functionalCurrency, body.basis, body.period].some((value) => !value)) {
     return res.status(400).json({ error: "Complete the client identity and reporting settings before saving." });
+  }
+  if (body.reportSystemBrandingEnabled === false) {
+    const billing = await resolveBilling(id);
+    if (billing?.payer !== "company" || billing.plan !== "pro") {
+      return res.status(403).json({
+        code: "requires_pro",
+        error: "Removing AgarAccounting AI System branding requires a Company Pro subscription.",
+      });
+    }
   }
   const shareCapitalTouched = "shareCapitalAuthorisedShares" in parsed.data
     || "shareCapitalParValue" in parsed.data
@@ -11336,6 +11357,8 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
     }).from(statementLinesTable).where(eq(statementLinesTable.clientId, client.id)),
   ]);
   const shareCapitalExtras = (await loadShareCapitalClientExtras([client.id])).get(client.id);
+  const reportBilling = await resolveBilling(client.id);
+  const mayRemoveSystemBranding = reportBilling?.payer === "company" && reportBilling.plan === "pro";
   const generated = buildReportPack({
     client,
     entries: convertedEntries,
@@ -11347,6 +11370,7 @@ router.post("/agaraccounting/report-packs", async (req, res) => {
     roundingPolicy: body.roundingPolicy ?? "Nearest whole unit",
     sourceImportCount: sourceImports.length,
     missingRateEntries,
+    systemBrandingEnabled: client.reportSystemBrandingEnabled || !mayRemoveSystemBranding,
     firmAttribution: await resolveReportAttribution(req, client.id),
     shareholders: shareCapitalExtras?.shareholders.map((row) => ({
       name: row.name,

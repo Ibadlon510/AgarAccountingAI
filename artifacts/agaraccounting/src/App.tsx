@@ -586,6 +586,7 @@ function ClientSettingsPage() {
     basis: activeClient?.basis ?? 'IFRS',
     period: activeClient?.period ?? '',
     systemRatesEnabled: activeClient?.systemRatesEnabled ?? true,
+    reportSystemBrandingEnabled: activeClient?.reportSystemBrandingEnabled ?? true,
   });
   const [editingRateId, setEditingRateId] = useState<number | null>(null);
   const [rateForm, setRateForm] = useState({ sourceCurrency: 'USD', functionalCurrency: activeClient?.functionalCurrency ?? 'AED', effectiveDate: '2026-08-01', rate: '', source: 'Manual', note: '' });
@@ -593,6 +594,8 @@ function ClientSettingsPage() {
   const [rateImportNotice, setRateImportNotice] = useState('');
   const [ratePreview, setRatePreview] = useState<ExchangeRateParseResult | null>(null);
   const [saved, setSaved] = useState(false);
+  const canRemoveReportBranding = activeClient?.subscriptionLiableParty === 'company'
+    && companyBilling?.plan === 'pro';
 
   if (!activeClient) return <WorkspaceRecoveryState onRetry={() => setLocation('/')} />;
 
@@ -722,6 +725,7 @@ function ClientSettingsPage() {
             <label className="block text-xs font-medium">Reporting basis<select data-testid="select-page-settings-basis" value={form.basis} onChange={(event) => update('basis', event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary"><option value="IFRS">IFRS</option><option value="IFRS for SMEs">IFRS for SMEs</option></select></label>
             <label className="block text-xs font-medium sm:col-span-2">Close period<input data-testid="input-page-settings-period" type="month" required value={periodToMonthInput(form.period)} onChange={(event) => update('period', monthInputToPeriod(event.target.value))} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus:border-primary" /></label>
             <label className="flex items-start gap-3 rounded-md border border-border bg-muted/40 p-3 text-xs sm:col-span-2"><input data-testid="checkbox-page-settings-system-rates" type="checkbox" checked={form.systemRatesEnabled} onChange={(event) => setForm((current) => ({ ...current, systemRatesEnabled: event.target.checked }))} className="mt-0.5" /><span><strong>Use system exchange rates as a fallback</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">Client and firm schedules remain higher priority. Turn this off to require an explicit client or firm rate.</span></span></label>
+            <label className={`flex items-start gap-3 rounded-md border border-border p-3 text-xs sm:col-span-2 ${canRemoveReportBranding ? 'bg-muted/40' : 'bg-muted/20 opacity-70'}`}><input data-testid="checkbox-page-settings-remove-report-branding" type="checkbox" checked={!form.reportSystemBrandingEnabled} disabled={!canRemoveReportBranding} onChange={(event) => setForm((current) => ({ ...current, reportSystemBrandingEnabled: !event.target.checked }))} className="mt-0.5" /><span><strong>Remove AgarAccounting AI System name from generated reports</strong><span className="mt-1 block text-[11px] leading-5 text-muted-foreground">{canRemoveReportBranding ? 'Applies to new browser report snapshots and PDFs, including PDF author and creator metadata. Existing snapshots never change.' : 'Available only when this company has a Company Pro subscription. Firm subscriptions do not unlock this setting.'}</span></span></label>
             {(mutation.isError || saved) && <p data-testid={saved ? 'status-page-settings-saved' : 'status-page-settings-error'} className={`text-xs sm:col-span-2 ${saved ? 'text-primary' : 'text-destructive'}`}>{saved ? 'Workspace settings saved.' : 'Settings could not be saved. Check the details and try again.'}</p>}
             <div className="flex justify-end sm:col-span-2"><button data-testid="button-page-save-workspace-settings" disabled={mutation.isPending} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? 'Saving…' : 'Save profile settings'}</button></div>
           </form>
@@ -1193,7 +1197,11 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
   const [showAllClients, setShowAllClients] = useState(false);
   const currentUserId = user.externalId ?? user.id;
   const switcherClients = useMemo(() => {
-    const engagedClientIds = new Set((orgContext?.engagements ?? []).map((engagement) => engagement.clientId));
+    const engagedClientIds = new Set(
+      (orgContext?.engagements ?? [])
+        .filter((engagement) => engagement.status === 'provisional' || engagement.status === 'active')
+        .map((engagement) => engagement.clientId),
+    );
     return clients.filter((client) =>
       client.ownerUserId === currentUserId
       && client.subscriptionLiableParty === 'company'
@@ -1294,10 +1302,10 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                {accountMenuOpen && <div role="menu" aria-label="Account menu" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-72 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card p-1.5 shadow-xl">
                  <div className="border-b border-border px-3 py-2.5"><div className="truncate text-xs font-semibold">{displayName}</div><div className="mt-0.5 truncate text-[10px] text-muted-foreground">{user.primaryEmailAddress?.emailAddress ?? 'Account owner'}</div></div>
                  <div className="border-b border-border px-3 py-3">
-                    <div className="flex items-center justify-between"><div className="text-[10px] font-mono uppercase tracking-[.14em] text-muted-foreground">{showAllClients ? 'Your companies' : 'Frequent companies'}</div><div className="text-[10px] text-muted-foreground">{switcherClients.length} total</div></div>
-                   <div className={`mt-2 space-y-1 ${showAllClients ? 'max-h-56 overflow-y-auto pr-1' : ''}`} role="group" aria-label={showAllClients ? 'All clients' : 'Frequently visited clients'}>
-                      {visibleClients.map((client) => <button key={client.id} data-testid={`button-client-workspace-${client.id}`} type="button" role="menuitemradio" aria-checked={activeClient?.id === client.id} onClick={() => { setActiveClientId(client.id); setAccountMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${activeClient?.id === client.id ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><span className="min-w-0 truncate font-semibold">{client.name}</span><span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">{client.functionalCurrency}</span></button>)}
-                      {!visibleClients.length && <p data-testid="state-account-menu-no-companies" className="rounded-md bg-muted/50 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground">Firm client books are available from the Firm dashboard.</p>}
+                    <div className="flex items-center justify-between"><div className="text-[10px] font-mono uppercase tracking-[.14em] text-muted-foreground">Your own companies</div><div className="text-[10px] text-muted-foreground">{switcherClients.length} total</div></div>
+                    <div className={`mt-2 space-y-1 ${showAllClients ? 'max-h-56 overflow-y-auto pr-1' : ''}`} role="group" aria-label="Your own companies">
+                      {visibleClients.map((client) => <button key={client.id} data-testid={`button-client-workspace-${client.id}`} type="button" role="menuitemradio" aria-checked={activeClient?.id === client.id} onClick={() => { setActiveClientId(client.id); setLocation('/'); setAccountMenuOpen(false); }} className={`flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors ${activeClient?.id === client.id && !isFirmPracticePath(location) ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}><span className="min-w-0 truncate font-semibold">{client.name}</span><span className="ml-2 shrink-0 font-mono text-[9px] text-muted-foreground">{client.functionalCurrency}</span></button>)}
+                      {!visibleClients.length && <p data-testid="state-account-menu-no-companies" className="rounded-md bg-muted/50 px-2.5 py-2 text-[11px] leading-5 text-muted-foreground">No standalone companies. Firm client books stay in the Firm dashboard.</p>}
                    </div>
                     {switcherClients.length > 5 && <button data-testid="button-view-all-clients" type="button" onClick={() => setShowAllClients((visible) => !visible)} className="mt-2 w-full rounded-md px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-secondary">{showAllClients ? 'Show frequent companies' : `View all ${switcherClients.length} companies`}</button>}
                    <button data-testid="button-add-client" type="button" onClick={() => {
