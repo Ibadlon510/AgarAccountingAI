@@ -20,6 +20,7 @@ export function isFirmSubscribePath(path: string) {
 
 export function isFirmPracticePath(path: string) {
   return path === "/firm-dashboard"
+    || path === "/firm-clients"
     || path.startsWith("/firm-clients/")
     || path === "/firm-settings"
     || path === "/firm-onboard"

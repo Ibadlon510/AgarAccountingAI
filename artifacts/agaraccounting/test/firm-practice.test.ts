@@ -52,6 +52,7 @@ test("hides the Firm nav group after the trial unless Firm Pro is active", () =>
 
 test("treats firm dashboard, client, settings, onboard, and subscribe routes as practice paths", () => {
   assert.equal(isFirmPracticePath("/firm-dashboard"), true);
+  assert.equal(isFirmPracticePath("/firm-clients"), true);
   assert.equal(isFirmPracticePath("/firm-clients/42"), true);
   assert.equal(isFirmPracticePath("/firm-settings"), true);
   assert.equal(isFirmPracticePath("/firm-onboard"), true);

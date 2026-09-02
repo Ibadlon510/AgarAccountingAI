@@ -39,6 +39,7 @@ import FeedbackPage, { FeedbackPublicShell } from './pages/feedback';
 import BankStatementDisplayPage from './pages/bank-statement-display';
 import BankRegisterDetailPage, { BankRegisterIndexPage } from './pages/bank-register';
 import FirmDashboardPage from './pages/firm-dashboard';
+import FirmClientsPage from './pages/firm-clients';
 import FirmClientDashboardPage from './pages/firm-client-dashboard';
 import FirmClientOnboardingPage from './pages/firm-client-onboarding';
 import FirmSubscribePage from './pages/firm-subscribe';
@@ -1132,7 +1133,7 @@ function StatementAnalysisBanner() {
 }
 const firmNav = [
   { href: '/firm-dashboard', label: 'Firm dashboard', icon: Building2 },
-  { href: '/firm-onboard', label: 'Onboard a client', icon: UserPlus },
+  { href: '/firm-clients', label: 'Clients', icon: Users },
   { href: '/firm-settings', label: 'Firm settings', icon: Users },
 ];
 function Shell({ children, user, onLogout }: { children: React.ReactNode; user: AgarAccountingUser; onLogout: () => void }) {
@@ -1279,7 +1280,7 @@ function Shell({ children, user, onLogout }: { children: React.ReactNode; user: 
                      if (orgContext?.mode === 'firm' && !firmBilling?.fullAccess) setLocation('/billing/firm');
                      else if (showFirmNav) setLocation('/firm-onboard');
                      else setCreateClientOpen(true);
-                   }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />{orgContext?.mode === 'firm' && !firmBilling?.fullAccess ? 'Subscribe to Firm Pro' : showFirmNav ? 'Onboard a client' : 'Add client'}</button>
+                   }} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"><Plus size={14} />{orgContext?.mode === 'firm' && !firmBilling?.fullAccess ? 'Subscribe to Firm Pro' : showFirmNav ? 'View clients' : 'Add client'}</button>
                    {orgContext?.mode === 'both' && <button data-testid="button-add-own-company" type="button" onClick={() => { setAccountMenuOpen(false); setCreateClientMode("own_company"); setCreateClientOpen(true); }} className="mt-1 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-primary hover:bg-secondary">Add own company</button>}
                  </div>
                  <Link data-testid="link-firm-settings-account-menu" href="/firm-settings" role="menuitem" onClick={() => setAccountMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold text-foreground hover:bg-muted"><Users size={14} className="text-primary" /> Firm settings</Link>
@@ -4336,7 +4337,7 @@ function HomeRedirect() {
   return <Redirect to={landingPathForMode(orgContext?.mode, firm?.status)} />;
 }
 function Router() {
-  return <Switch><Route path="/" component={HomeRedirect} /><Route path="/user-portal" component={Home} /><Route path="/firm-dashboard" component={FirmDashboardPage} /><Route path="/firm-clients/:id" component={FirmClientDashboardPage} /><Route path="/firm-onboard" component={FirmClientOnboardingPage} /><Route path="/billing/firm" component={FirmSubscribePage} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
+  return <Switch><Route path="/" component={HomeRedirect} /><Route path="/user-portal" component={Home} /><Route path="/firm-dashboard" component={FirmDashboardPage} /><Route path="/firm-clients" component={FirmClientsPage} /><Route path="/firm-clients/:id" component={FirmClientDashboardPage} /><Route path="/firm-onboard" component={FirmClientOnboardingPage} /><Route path="/billing/firm" component={FirmSubscribePage} /><Route path="/import-statement/:id" component={BankStatementDisplayPage} /><Route path="/import-statement" component={ImportStatementPage} /><Route path="/bank-register/:id" component={BankRegisterDetailPage} /><Route path="/bank-register" component={BankRegisterIndexPage} /><Route path="/statement-lines" component={StatementLinesPage} /><Route path="/contacts" component={ContactsPage} /><Route path="/journal-entries" component={JournalEntriesPage} /><Route path="/trial-balance" component={TrialBalancePage} /><Route path="/financial-statements" component={FinancialStatementsPage} /><Route path="/firm-settings" component={FirmSettingsPage} /><Route path="/client-settings" component={ClientSettingsPage} /><Route path="/workspace-settings" component={ClientSettingsPage} /><Route component={NotFound} /></Switch>;
 }
 function NotFound() {
   return <div className="grid min-h-[65vh] place-items-center text-center"><div><div className="font-mono text-[10px] uppercase tracking-[.2em] text-primary">AgarAccounting AI System / 404</div><h1 className="mt-3 font-display text-4xl">This page is not in the close.</h1><Link href="/" data-testid="link-back-overview" className="mt-5 inline-flex items-center gap-2 text-xs font-semibold text-primary hover:underline">Return to overview <ArrowRight size={14} /></Link></div></div>;
