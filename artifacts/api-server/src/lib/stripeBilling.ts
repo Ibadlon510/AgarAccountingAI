@@ -3,7 +3,6 @@ import { and, desc, eq } from "drizzle-orm";
 import { billingAccountsTable, billingSubscriptionsTable, db } from "@workspace/db";
 import {
   INTRO_RATES_END_AT,
-  introRatesActive,
   isCompanyFirmMember,
   resolveCheckoutPrice,
   stripePriceEnv,
@@ -20,6 +19,15 @@ type StripeSubscription = {
   items: { data: Array<{ id: string; price: { id: string }; current_period_end?: number }> };
   metadata?: Record<string, string>;
 };
+
+export type StripeEvent = {
+  id: string;
+  created: number;
+  type: string;
+  data: { object: Record<string, unknown> };
+};
+
+export const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
 
 type StripeCheckoutSession = {
   id: string;
@@ -71,6 +79,67 @@ export function planKeyFromPriceId(priceId: string | null | undefined): "firm" |
   return "company_pro";
 }
 
+export function listPriceForIntroPrice(priceId: string | null | undefined) {
+  if (!priceId) return null;
+  if (priceId === process.env.STRIPE_FIRM_INTRO_PRICE_ID) return process.env.STRIPE_FIRM_PRICE_ID ?? null;
+  if (priceId === process.env.STRIPE_COMPANY_PRO_FIRM_MEMBER_INTRO_PRICE_ID) {
+    return process.env.STRIPE_COMPANY_PRO_FIRM_MEMBER_PRICE_ID ?? null;
+  }
+  if (priceId === process.env.STRIPE_COMPANY_PRO_INTRO_PRICE_ID) return process.env.STRIPE_COMPANY_PRO_PRICE_ID ?? null;
+  return null;
+}
+
+export function introListSchedulePlan(priceId: string, now = new Date()) {
+  const listPriceId = listPriceForIntroPrice(priceId);
+  const cutoff = Math.floor(INTRO_RATES_END_AT.getTime() / 1000);
+  if (!listPriceId || listPriceId === priceId || Math.floor(now.getTime() / 1000) >= cutoff) return null;
+  return { introPriceId: priceId, listPriceId, cutoff };
+}
+
+export async function ensureIntroListSchedule(subscription: StripeSubscription, now = new Date()) {
+  const priceId = subscription.items.data[0]?.price.id;
+  if (!priceId) return null;
+  const plan = introListSchedulePlan(priceId, now);
+  if (!plan) return null;
+  const [local] = await db.select().from(billingSubscriptionsTable)
+    .where(eq(billingSubscriptionsTable.stripeSubscriptionId, subscription.id))
+    .limit(1);
+  if (!local) return null;
+
+  let scheduleId = local.stripeScheduleId;
+  let start = Math.floor(now.getTime() / 1000);
+  if (scheduleId) {
+    const schedule = await stripeRequest<{ phases: Array<{ start_date: number }> }>(`/subscription_schedules/${scheduleId}`);
+    start = schedule.phases[0]?.start_date ?? start;
+  } else {
+    const schedule = await stripeRequest<{ id: string; phases: Array<{ start_date: number }> }>("/subscription_schedules", {
+      method: "POST",
+      body: new URLSearchParams({ from_subscription: subscription.id }),
+    });
+    scheduleId = schedule.id;
+    start = schedule.phases[0]?.start_date ?? start;
+    await db.update(billingSubscriptionsTable)
+      .set({ stripeScheduleId: scheduleId })
+      .where(eq(billingSubscriptionsTable.id, local.id));
+  }
+  await stripeRequest(`/subscription_schedules/${scheduleId}`, {
+    method: "POST",
+    body: new URLSearchParams({
+      "phases[0][items][0][price]": plan.introPriceId,
+      "phases[0][items][0][quantity]": "1",
+      "phases[0][start_date]": String(start),
+      "phases[0][end_date]": String(plan.cutoff),
+      "phases[1][items][0][price]": plan.listPriceId,
+      "phases[1][items][0][quantity]": "1",
+      "phases[1][start_date]": String(plan.cutoff),
+    }),
+  });
+  await db.update(billingSubscriptionsTable)
+    .set({ stripeScheduleId: scheduleId })
+    .where(eq(billingSubscriptionsTable.id, local.id));
+  return scheduleId;
+}
+
 export async function createCheckoutSession(input: {
   payerType: "firm" | "company";
   firmId?: number | null;
@@ -85,7 +154,6 @@ export async function createCheckoutSession(input: {
   });
   const kind = checkout.kind;
   const priceId = checkout.priceId;
-  const listPriceId = checkout.listPriceId;
   if (!priceId) throw new Error("Stripe price IDs are not configured.");
 
   const [existing] = input.payerType === "firm" && input.firmId
@@ -117,29 +185,9 @@ export async function createCheckoutSession(input: {
 
   const session = await stripeRequest<StripeCheckoutSession>("/checkout/sessions", { method: "POST", body });
   const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
-  if (subscriptionId && introRatesActive() && listPriceId && listPriceId !== priceId) {
+  if (subscriptionId) {
     const subscription = await stripeRequest<StripeSubscription>(`/subscriptions/${subscriptionId}`);
-    const schedule = await stripeRequest<{ id: string; phases: Array<{ start_date: number }> }>("/subscription_schedules", {
-      method: "POST",
-      body: new URLSearchParams({ from_subscription: subscription.id }),
-    });
-    const start = String(schedule.phases[0]?.start_date ?? Math.floor(Date.now() / 1000));
-    const end = String(Math.floor(INTRO_RATES_END_AT.getTime() / 1000));
-    await stripeRequest(`/subscription_schedules/${schedule.id}`, {
-      method: "POST",
-      body: new URLSearchParams({
-        "phases[0][items][0][price]": priceId,
-        "phases[0][items][0][quantity]": "1",
-        "phases[0][start_date]": start,
-        "phases[0][end_date]": end,
-        "phases[1][items][0][price]": listPriceId,
-        "phases[1][items][0][quantity]": "1",
-        "phases[1][start_date]": end,
-      }),
-    });
-    await db.update(billingSubscriptionsTable)
-      .set({ stripeScheduleId: schedule.id })
-      .where(eq(billingSubscriptionsTable.stripeSubscriptionId, subscription.id));
+    await applyStripeSubscription(subscription);
   }
   return session;
 }
@@ -181,7 +229,7 @@ export async function syncMemberPrice(clientId: number) {
       proration_behavior: "create_prorations",
     }),
   });
-  return upsertStripeSubscription({
+  const updated = await upsertStripeSubscription({
     payerType: "company",
     clientId,
     email: account.email,
@@ -191,9 +239,12 @@ export async function syncMemberPrice(clientId: number) {
     planKey: member ? "company_pro_firm_member" : "company_pro",
     status: remote.status === "active" || remote.status === "trialing" || remote.status === "past_due" ? remote.status : "canceled",
   });
+  remote.items.data[0]!.price.id = targetPrice;
+  await ensureIntroListSchedule(remote);
+  return updated;
 }
 
-export async function applyStripeSubscription(subscription: StripeSubscription) {
+export async function applyStripeSubscription(subscription: StripeSubscription, sourceEventCreatedAt?: Date | null) {
   const metadata = subscription.metadata ?? {};
   const payerType = metadata.liableParty === "firm" ? "firm" : "company";
   const firmId = metadata.firmId ? Number(metadata.firmId) : null;
@@ -203,7 +254,7 @@ export async function applyStripeSubscription(subscription: StripeSubscription) 
     ? subscription.status
     : "canceled";
   const periodEnd = subscription.current_period_end ?? subscription.items.data[0]?.current_period_end ?? null;
-  return upsertStripeSubscription({
+  const local = await upsertStripeSubscription({
     payerType,
     firmId,
     clientId,
@@ -215,25 +266,47 @@ export async function applyStripeSubscription(subscription: StripeSubscription) 
     trialEndsAt: subscription.trial_end ? new Date(subscription.trial_end * 1000) : null,
     currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    sourceEventCreatedAt,
   });
+  if (!sourceEventCreatedAt || !local.sourceEventCreatedAt || sourceEventCreatedAt >= local.sourceEventCreatedAt) {
+    await ensureIntroListSchedule(subscription);
+  }
+  return local;
 }
 
-export async function constructStripeEvent(rawBody: Buffer, signature: string) {
+export async function constructStripeEvent(rawBody: Buffer, signature: string, now = new Date()) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) throw new Error("Stripe webhook is not configured.");
-  const parts = Object.fromEntries(signature.split(",").map((item) => {
+  const parts = signature.split(",").map((item) => {
     const [key, ...rest] = item.split("=");
     return [key, rest.join("=")];
-  }));
-  const timestamp = parts.t;
-  const expected = parts.v1;
-  if (!timestamp || !expected) throw new Error("Invalid Stripe signature.");
+  });
+  const timestamp = parts.find(([key]) => key === "t")?.[1];
+  const candidates = parts.filter(([key]) => key === "v1").map(([, value]) => value);
+  if (!timestamp || !candidates.length || !/^\d+$/.test(timestamp)) throw new Error("Invalid Stripe signature.");
+  const signedAt = Number(timestamp);
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+  if (Math.abs(nowSeconds - signedAt) > STRIPE_WEBHOOK_TOLERANCE_SECONDS) {
+    throw new Error("Stripe signature timestamp is outside the allowed tolerance.");
+  }
   const signed = `${timestamp}.${rawBody.toString("utf8")}`;
   const digest = createHmac("sha256", secret).update(signed).digest("hex");
   const left = Buffer.from(digest);
-  const right = Buffer.from(expected);
-  if (left.length !== right.length || !timingSafeEqual(left, right)) {
+  const matches = candidates.some((candidate) => {
+    const right = Buffer.from(candidate);
+    return left.length === right.length && timingSafeEqual(left, right);
+  });
+  if (!matches) {
     throw new Error("Stripe signature mismatch.");
   }
-  return JSON.parse(rawBody.toString("utf8")) as { type: string; data: { object: Record<string, unknown> } };
+  const event = JSON.parse(rawBody.toString("utf8")) as Partial<StripeEvent>;
+  if (
+    typeof event.id !== "string"
+    || typeof event.created !== "number"
+    || !Number.isInteger(event.created)
+    || typeof event.type !== "string"
+    || !event.data
+    || typeof event.data.object !== "object"
+  ) throw new Error("Invalid Stripe event envelope.");
+  return event as StripeEvent;
 }

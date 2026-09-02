@@ -47,7 +47,7 @@ export default function EngagementContractSignPage({ token, onSigned }: { token:
               });
             }}>
               <label className="block text-xs font-medium">Typed legal name<input required data-testid="input-contract-signer-name" value={signerName} onChange={(event) => setSignerName(event.target.value)} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
-              <label className="flex items-start gap-2 text-xs"><input data-testid="checkbox-contract-accept" type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /><span>I agree to these terms of engagement.</span></label>
+              <label className="flex items-start gap-2 text-xs"><input required data-testid="checkbox-contract-accept" type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} /><span>I agree to these terms of engagement.</span></label>
               <button data-testid="button-sign-engagement-contract" disabled={sign.isPending || contract.status !== "sent"} className="rounded-md bg-primary px-4 py-2.5 text-xs font-semibold text-primary-foreground disabled:opacity-50">{sign.isPending ? "Signing…" : "Sign contract"}</button>
             </form>
           </div>

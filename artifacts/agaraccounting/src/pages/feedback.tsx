@@ -11,20 +11,22 @@ import {
   X,
 } from "lucide-react";
 import {
-  FEEDBACK_EMOJI_LABELS,
-  FEEDBACK_EMOJI_ORDER,
   requestFeedbackImageUploadUrl,
   useCreateFeedbackPost,
   useCreateFeedbackReply,
   useGetFeedbackPost,
-  useListFeedbackPostsInfinite,
-  useToggleFeedbackPostReaction,
-  useToggleFeedbackReplyReaction,
   type FeedbackEmoji,
   type FeedbackPost,
   type FeedbackReactionSummary,
   type FeedbackReply,
 } from "@workspace/api-client-react";
+import {
+  FEEDBACK_EMOJI_LABELS,
+  FEEDBACK_EMOJI_ORDER,
+  useListFeedbackPostsInfinite,
+  useToggleFeedbackPostReaction,
+  useToggleFeedbackReplyReaction,
+} from "@workspace/api-client-react/feedback";
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 const brandMarkUrl = `${basePath}/mark.svg`;

@@ -1050,6 +1050,11 @@ export const billingAccountsTable = pgTable("agaraccounting_billing_accounts", {
   uniqueIndex("agaraccounting_billing_accounts_stripe_customer_uidx").on(table.stripeCustomerId),
   index("agaraccounting_billing_accounts_payer_idx").on(table.payerType),
   check("agaraccounting_billing_accounts_payer_check", sql`payer_type in ('firm', 'company')`),
+  check(
+    "agaraccounting_billing_accounts_payer_target_check",
+    sql`(payer_type = 'firm' and firm_id is not null and client_id is null)
+      or (payer_type = 'company' and client_id is not null and firm_id is null)`,
+  ),
   foreignKey({
     columns: [table.firmId],
     foreignColumns: [firmProfilesTable.id],
@@ -1073,6 +1078,7 @@ export const billingSubscriptionsTable = pgTable("agaraccounting_billing_subscri
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+  sourceEventCreatedAt: timestamp("source_event_created_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
@@ -1087,5 +1093,16 @@ export const billingSubscriptionsTable = pgTable("agaraccounting_billing_subscri
   }).onDelete("cascade"),
 ]);
 
+export const billingWebhookEventsTable = pgTable("agaraccounting_billing_webhook_events", {
+  eventId: text("event_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  stripeCreatedAt: timestamp("stripe_created_at", { withTimezone: true }).notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (table) => [
+  index("agaraccounting_billing_webhook_events_created_idx").on(table.stripeCreatedAt),
+]);
+
 export type BillingAccount = typeof billingAccountsTable.$inferSelect;
 export type BillingSubscription = typeof billingSubscriptionsTable.$inferSelect;
+export type BillingWebhookEvent = typeof billingWebhookEventsTable.$inferSelect;

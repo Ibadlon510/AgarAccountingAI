@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useCreateBillingCheckout, useCreateBillingPortal, useGetBillingMe, type BillingMe, type CompanyBillingState, type FirmBillingState } from "@workspace/api-client-react";
+import { useCreateBillingCheckout, useCreateBillingPortal, useGetBillingMe, type BillingMe, type CompanyBilling, type FirmBilling } from "@workspace/api-client-react";
 import { notify } from "@/lib/notify";
 import { companyStatusLabel, firmStatusLabel, formatAed, remainingIntro } from "@/lib/billing-ui";
 
@@ -38,7 +38,7 @@ async function openBillingUrl(url: string | null | undefined) {
   window.location.assign(url);
 }
 
-export function FirmBillingCard({ firm, billing }: { firm: FirmBillingState; billing: BillingMe }) {
+export function FirmBillingCard({ firm, billing }: { firm: FirmBilling; billing: BillingMe }) {
   const checkout = useCreateBillingCheckout();
   const portal = useCreateBillingPortal();
   const quote = billing.prices.firm;
@@ -59,7 +59,7 @@ export function FirmBillingCard({ firm, billing }: { firm: FirmBillingState; bil
             data-testid="button-subscribe-firm-pro"
             type="button"
             disabled={checkout.isPending || !billing.stripeEnabled}
-            onClick={() => checkout.mutate({ payerType: "firm", firmId: firm.firmId }, {
+            onClick={() => checkout.mutate({ data: { payerType: "firm", firmId: firm.firmId } }, {
               onSuccess: (result) => void openBillingUrl(result.url),
               onError: () => notify.error("Firm Pro checkout could not be started."),
             })}
@@ -73,7 +73,7 @@ export function FirmBillingCard({ firm, billing }: { firm: FirmBillingState; bil
             data-testid="button-manage-firm-billing"
             type="button"
             disabled={portal.isPending}
-            onClick={() => portal.mutate({ payerType: "firm", firmId: firm.firmId }, {
+            onClick={() => portal.mutate({ data: { payerType: "firm", firmId: firm.firmId } }, {
               onSuccess: (result) => void openBillingUrl(result.url),
               onError: () => notify.error("The billing portal could not be opened."),
             })}
@@ -87,7 +87,7 @@ export function FirmBillingCard({ firm, billing }: { firm: FirmBillingState; bil
   );
 }
 
-export function CompanyBillingCard({ company, billing, liableFirmName }: { company?: CompanyBillingState; billing: BillingMe; liableFirmName?: string }) {
+export function CompanyBillingCard({ company, billing, liableFirmName }: { company?: CompanyBilling; billing: BillingMe; liableFirmName?: string }) {
   const checkout = useCreateBillingCheckout();
   const portal = useCreateBillingPortal();
   if (liableFirmName) {
@@ -125,7 +125,7 @@ export function CompanyBillingCard({ company, billing, liableFirmName }: { compa
             data-testid="button-upgrade-company-pro"
             type="button"
             disabled={checkout.isPending || !billing.stripeEnabled}
-            onClick={() => checkout.mutate({ payerType: "company", clientId: company.clientId }, {
+            onClick={() => checkout.mutate({ data: { payerType: "company", clientId: company.clientId } }, {
               onSuccess: (result) => void openBillingUrl(result.url),
               onError: () => notify.error("Company Pro checkout could not be started."),
             })}
@@ -139,7 +139,7 @@ export function CompanyBillingCard({ company, billing, liableFirmName }: { compa
             data-testid="button-manage-company-billing"
             type="button"
             disabled={portal.isPending}
-            onClick={() => portal.mutate({ payerType: "company", clientId: company.clientId }, {
+            onClick={() => portal.mutate({ data: { payerType: "company", clientId: company.clientId } }, {
               onSuccess: (result) => void openBillingUrl(result.url),
               onError: () => notify.error("The billing portal could not be opened."),
             })}
@@ -153,7 +153,7 @@ export function CompanyBillingCard({ company, billing, liableFirmName }: { compa
   );
 }
 
-export function FirmSubscribeWall({ persistent, firm, billing }: { persistent: boolean; firm?: FirmBillingState; billing?: BillingMe }) {
+export function FirmSubscribeWall({ persistent, firm, billing }: { persistent: boolean; firm?: FirmBilling; billing?: BillingMe }) {
   const checkout = useCreateBillingCheckout();
   const quote = billing?.prices.firm;
   return (
@@ -172,7 +172,7 @@ export function FirmSubscribeWall({ persistent, firm, billing }: { persistent: b
           data-testid="button-wall-subscribe-firm"
           type="button"
           disabled={checkout.isPending || !billing?.stripeEnabled || !firm}
-          onClick={() => firm && checkout.mutate({ payerType: "firm", firmId: firm.firmId }, {
+          onClick={() => firm && checkout.mutate({ data: { payerType: "firm", firmId: firm.firmId } }, {
             onSuccess: (result) => void openBillingUrl(result.url),
             onError: () => notify.error("Firm Pro checkout could not be started."),
           })}
@@ -189,8 +189,8 @@ export function BillingStatusBanner({
   firm,
   company,
 }: {
-  firm?: FirmBillingState;
-  company?: CompanyBillingState;
+  firm?: FirmBilling;
+  company?: CompanyBilling;
 }) {
   const messages: string[] = [];
   const now = Date.now();

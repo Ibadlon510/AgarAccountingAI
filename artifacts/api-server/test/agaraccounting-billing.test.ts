@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
@@ -8,6 +8,7 @@ import {
   COMPANY_TRIAL_DAYS,
   ensureLocalCompanyTrial,
   resolveCompanyBilling,
+  upsertStripeSubscription,
 } from "../src/lib/billing";
 
 let server: Server | undefined;
@@ -20,6 +21,8 @@ const userIds = [
   `billing-transfer-firm-${randomUUID()}`,
   `billing-transfer-owner-${randomUUID()}`,
   `billing-white-label-${randomUUID()}`,
+  `billing-auth-owner-${randomUUID()}`,
+  `billing-auth-outsider-${randomUUID()}`,
 ];
 const clientIds: number[] = [];
 const firmIds: number[] = [];
@@ -415,5 +418,114 @@ test("publishes a white-label landing during the firm trial and hides it after l
     body: JSON.stringify({ landingHeadline: "Should not save" }),
   });
   assert.equal(blocked.response.status, 402);
+});
+
+test("rejects company checkout and portal for non-managers before contacting Stripe", async () => {
+  assert.ok(database);
+  const ownerUserId = userIds[6]!;
+  const outsiderUserId = userIds[7]!;
+  const onboarded = await onboard(ownerUserId, "company");
+  assert.equal(onboarded.response.status, 200);
+  const clientId = onboarded.body.companies[0]?.id;
+  assert.ok(clientId);
+  clientIds.push(clientId);
+  const checkout = await request<{ error: string }>("/billing/checkout", outsiderUserId, {
+    method: "POST",
+    body: JSON.stringify({ payerType: "company", clientId }),
+  });
+  assert.equal(checkout.response.status, 403);
+  assert.match(checkout.body.error, /owner|admin/i);
+
+  const portal = await request<{ error: string }>("/billing/portal", outsiderUserId, {
+    method: "POST",
+    body: JSON.stringify({ payerType: "company", clientId }),
+  });
+  assert.equal(portal.response.status, 403);
+  assert.match(portal.body.error, /owner|admin/i);
+  const [outsider] = await database.db.select({ starterClientId: database.usersTable.starterClientId })
+    .from(database.usersTable)
+    .where(eq(database.usersTable.id, outsiderUserId))
+    .limit(1);
+  if (outsider?.starterClientId) clientIds.push(outsider.starterClientId);
+
+  const stripeSubscriptionId = `sub_ordering_${randomUUID()}`;
+  const stripeCustomerId = `cus_${randomUUID()}`;
+  const newer = new Date("2026-06-02T00:00:00Z");
+  const older = new Date("2026-06-01T00:00:00Z");
+  await upsertStripeSubscription({
+    payerType: "company",
+    clientId,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    stripePriceId: "price_newer",
+    planKey: "company_pro",
+    status: "active",
+    sourceEventCreatedAt: newer,
+  });
+  const afterOlderEvent = await upsertStripeSubscription({
+    payerType: "company",
+    clientId,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    stripePriceId: "price_older",
+    planKey: "company_pro",
+    status: "canceled",
+    sourceEventCreatedAt: older,
+  });
+  assert.equal(afterOlderEvent.status, "active");
+  assert.equal(afterOlderEvent.stripePriceId, "price_newer");
+  assert.equal(afterOlderEvent.sourceEventCreatedAt?.toISOString(), newer.toISOString());
+
+  await assert.rejects(
+    () => database!.db.insert(database!.billingAccountsTable).values({
+      payerType: "company",
+    }),
+    (error: unknown) => {
+      const candidate = error as {
+        message?: string;
+        cause?: { constraint?: string; message?: string };
+      };
+      return candidate.cause?.constraint === "agaraccounting_billing_accounts_payer_target_check"
+        || /payer_target|check constraint/i.test(`${candidate.message ?? ""} ${candidate.cause?.message ?? ""}`);
+    },
+  );
+});
+
+test("atomically claims a valid Stripe event and acknowledges its replay", async () => {
+  assert.ok(database);
+  const eventId = `evt_${randomUUID()}`;
+  const secret = "whsec_billing_replay_test";
+  process.env.STRIPE_WEBHOOK_SECRET = secret;
+  const created = Math.floor(Date.now() / 1000);
+  const payload = JSON.stringify({
+    id: eventId,
+    created,
+    type: "product.updated",
+    data: { object: { id: "prod_test" } },
+  });
+  const digest = createHmac("sha256", secret).update(`${created}.${payload}`).digest("hex");
+  const send = () => fetch(`${baseUrl}/billing/webhooks/stripe`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "stripe-signature": `t=${created},v1=${digest}`,
+    },
+    body: payload,
+  });
+  try {
+    const first = await send();
+    assert.equal(first.status, 200);
+    assert.deepEqual(await first.json(), { received: true });
+    const replay = await send();
+    assert.equal(replay.status, 200);
+    assert.deepEqual(await replay.json(), { received: true, duplicate: true });
+    const rows = await database.db.select().from(database.billingWebhookEventsTable)
+      .where(eq(database.billingWebhookEventsTable.eventId, eventId));
+    assert.equal(rows.length, 1);
+    assert.ok(rows[0]?.processedAt);
+  } finally {
+    await database.db.delete(database.billingWebhookEventsTable)
+      .where(eq(database.billingWebhookEventsTable.eventId, eventId));
+  }
 });
 

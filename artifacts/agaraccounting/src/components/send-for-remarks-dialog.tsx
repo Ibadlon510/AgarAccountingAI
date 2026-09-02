@@ -3,13 +3,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
 import { LoaderCircle, Mail } from 'lucide-react';
 import {
-  getGetStatementLineDetailRequestsQueryKey,
   getGetStatementLinesQueryKey,
   useGetStatementLines,
   useGetWorkspaceMembers,
   useRequestStatementLineDetails,
   type StatementLine,
 } from '@workspace/api-client-react';
+import { getGetStatementLineDetailRequestsQueryKey } from '@workspace/api-client-react/statement-line-remarks';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { notify, readErrorMessage } from '@/lib/notify';
 

@@ -409,7 +409,7 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
       tokenHash: createHash("sha256").update(token).digest("hex"),
       expiresAt: new Date(Date.now() + WORKSPACE_INVITATION_TTL_MS),
     }).returning();
-    const [contract] = await tx.insert(engagementContractsTable).values({
+    const contractValues: typeof engagementContractsTable.$inferInsert = {
       engagementId: engagement.id,
       firmId: membership.firm.id,
       clientId: client.id,
@@ -419,15 +419,16 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
       agreedTransactionsPerMonth: body.data.agreedTransactionsPerMonth,
       agreedRevenuePerYear: String(body.data.agreedRevenuePerYear),
       agreedRevenueCurrency: client.functionalCurrency.toUpperCase(),
-      startDate: body.data.startDate,
-      endDate: body.data.endDate ?? null,
+      startDate: body.data.startDate.toISOString().slice(0, 10),
+      endDate: body.data.endDate?.toISOString().slice(0, 10) ?? null,
       feeNote: body.data.feeNote?.trim() || null,
       termsText: body.data.termsText.trim() || DEFAULT_ENGAGEMENT_TERMS,
       firmLegalName: membership.firm.legalName,
       clientLegalName: client.legalName,
       signerEmail,
       sentAt: new Date(),
-    }).returning();
+    };
+    const [contract] = await tx.insert(engagementContractsTable).values(contractValues).returning();
     return { client, contract, invitation };
   });
   await ensureClientChart(created.client.id);

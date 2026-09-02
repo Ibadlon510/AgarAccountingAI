@@ -1,5 +1,6 @@
 import { Clock, Download, MessageSquare } from 'lucide-react';
-import { useGetStatementLineNotes, type StatementLine } from '@workspace/api-client-react';
+import { type StatementLine } from '@workspace/api-client-react';
+import { useGetStatementLineNotes } from '@workspace/api-client-react/statement-line-remarks';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 

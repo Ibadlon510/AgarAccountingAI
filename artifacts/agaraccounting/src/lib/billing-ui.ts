@@ -1,4 +1,4 @@
-import type { BillingMe, CompanyBillingState, FirmBillingState } from "@workspace/api-client-react";
+import type { BillingMe, CompanyBilling, FirmBilling } from "@workspace/api-client-react";
 
 export function primaryFirmBilling(billing: BillingMe | undefined, firmId?: number) {
   if (!billing?.firms.length) return undefined;
@@ -10,7 +10,7 @@ export function companyBillingFor(billing: BillingMe | undefined, clientId?: num
   return billing.companies.find((company) => company.clientId === clientId);
 }
 
-export function firmHasFullAccess(firm: FirmBillingState | undefined) {
+export function firmHasFullAccess(firm: FirmBilling | undefined) {
   return Boolean(firm?.fullAccess);
 }
 
@@ -31,7 +31,7 @@ export function remainingIntro(introEndsAt: string, now = new Date()) {
   };
 }
 
-export function firmStatusLabel(status: FirmBillingState["status"]) {
+export function firmStatusLabel(status: FirmBilling["status"]) {
   if (status === "trialing") return "Firm trial";
   if (status === "active") return "Firm Pro";
   if (status === "past_due") return "Payment past due";
@@ -39,7 +39,7 @@ export function firmStatusLabel(status: FirmBillingState["status"]) {
   return "Locked";
 }
 
-export function companyStatusLabel(company: CompanyBillingState) {
+export function companyStatusLabel(company: CompanyBilling) {
   if (company.status === "trialing") return "Company trial";
   if (company.status === "pro") return company.isFirmMember ? "Company Pro · firm rate" : "Company Pro";
   if (company.status === "requires_pro") return "Upgrade required";

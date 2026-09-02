@@ -3,9 +3,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   getGetFirmBrandingQueryKey,
+  useCreateFirmBrandingLogo,
   useGetFirmBranding,
   useUpdateFirmBranding,
-  useUploadFirmBrandingLogo,
 } from "@workspace/api-client-react";
 import { notify } from "@/lib/notify";
 import { firmSlugError, publicFirmHost } from "@/lib/firm-landing";
@@ -35,7 +35,7 @@ function logoContentType(file: File) {
 export function FirmWhiteLabelCard() {
   const branding = useGetFirmBranding();
   const save = useUpdateFirmBranding();
-  const uploadLogo = useUploadFirmBrandingLogo();
+  const uploadLogo = useCreateFirmBrandingLogo();
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     slug: "",
@@ -64,11 +64,12 @@ export function FirmWhiteLabelCard() {
       notify.error(slugError, { title: "Choose a valid address" });
       return;
     }
-    save.mutate({
-      slug: form.slug.trim().toLowerCase(),
-      landingHeadline: form.landingHeadline || null,
-      landingTagline: form.landingTagline || null,
-      landingEnabled: form.landingEnabled,
+    save.mutate({ data: {
+        slug: form.slug.trim().toLowerCase(),
+        landingHeadline: form.landingHeadline || null,
+        landingTagline: form.landingTagline || null,
+        landingEnabled: form.landingEnabled,
+      },
     }, {
       onSuccess: () => {
         notify.success("White-label landing saved");
@@ -89,10 +90,11 @@ export function FirmWhiteLabelCard() {
       return;
     }
     try {
-      await uploadLogo.mutateAsync({
-        fileName: file.name,
-        contentType,
-        fileBase64: await fileAsBase64(file),
+      await uploadLogo.mutateAsync({ data: {
+          fileName: file.name,
+          contentType,
+          fileBase64: await fileAsBase64(file),
+        },
       });
       notify.success("Firm logo uploaded");
     } catch (error) {
@@ -100,7 +102,7 @@ export function FirmWhiteLabelCard() {
     }
   };
   const removeLogo = () => {
-    save.mutate({ logoObjectPath: null }, {
+    save.mutate({ data: { logoObjectPath: null } }, {
       onSuccess: () => notify.success("Firm logo removed"),
       onError: (error) => notify.error(error, { title: "Firm logo could not be removed" }),
     });

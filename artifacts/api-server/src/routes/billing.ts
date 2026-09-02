@@ -9,6 +9,7 @@ import {
 } from "@workspace/api-zod";
 import {
   billingAccountsTable,
+  clientWorkspacesTable,
   clientsTable,
   db,
   firmMembershipsTable,
@@ -42,6 +43,36 @@ async function requireFirmManager(req: Request, res: Response, firmId: number) {
     return null;
   }
   return row;
+}
+
+async function requireCompanyBillingManager(req: Request, res: Response, clientId: number) {
+  const userId = currentUserId(req);
+  const [client] = await db.select({
+    ownerUserId: clientsTable.ownerUserId,
+    subscriptionLiableParty: clientsTable.subscriptionLiableParty,
+  }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+  if (!client) {
+    res.status(404).json({ error: "Company workspace not found." });
+    return null;
+  }
+  if (client.ownerUserId !== userId) {
+    const [membership] = await db.select({ role: clientWorkspacesTable.role })
+      .from(clientWorkspacesTable)
+      .where(and(
+        eq(clientWorkspacesTable.clientId, clientId),
+        eq(clientWorkspacesTable.userId, userId),
+      ))
+      .limit(1);
+    if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
+      res.status(403).json({ error: "Only the company owner or a workspace admin can manage company billing." });
+      return null;
+    }
+  }
+  if (client.subscriptionLiableParty !== "company") {
+    res.status(400).json({ error: "This workspace is billed to a firm." });
+    return null;
+  }
+  return client;
 }
 
 router.get("/billing/me", async (req, res) => {
@@ -79,12 +110,12 @@ router.get("/billing/me", async (req, res) => {
 router.post("/billing/checkout", async (req, res) => {
   const parsed = CreateBillingCheckoutBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a firm or company workspace to upgrade." });
-  if (!stripeClient()) return res.status(501).json({ error: "Billing checkout is not configured yet." });
   const body = parsed.data;
-  const origin = publicAppUrl(req);
   if (body.payerType === "firm") {
     if (!body.firmId) return res.status(400).json({ error: "A firm is required." });
     if (!await requireFirmManager(req, res, body.firmId)) return;
+    if (!stripeClient()) return res.status(501).json({ error: "Billing checkout is not configured yet." });
+    const origin = publicAppUrl(req);
     const session = await createCheckoutSession({
       payerType: "firm",
       firmId: body.firmId,
@@ -96,10 +127,13 @@ router.post("/billing/checkout", async (req, res) => {
     return res.json(CreateBillingCheckoutResponse.parse({ url: session.url }));
   }
   if (!body.clientId) return res.status(400).json({ error: "A company workspace is required." });
+  if (!await requireCompanyBillingManager(req, res, body.clientId)) return;
   const billing = await resolveBilling(body.clientId);
   if (!billing || billing.payer !== "company") {
     return res.status(400).json({ error: "This workspace is billed to a firm." });
   }
+  if (!stripeClient()) return res.status(501).json({ error: "Billing checkout is not configured yet." });
+  const origin = publicAppUrl(req);
   const session = await createCheckoutSession({
     payerType: "company",
     clientId: body.clientId,
@@ -114,14 +148,20 @@ router.post("/billing/checkout", async (req, res) => {
 router.post("/billing/portal", async (req, res) => {
   const parsed = CreateBillingPortalBody.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Choose a firm or company workspace." });
-  if (!stripeClient()) return res.status(501).json({ error: "Billing portal is not configured yet." });
   const body = parsed.data;
+  if (body.payerType === "firm") {
+    if (!body.firmId) return res.status(400).json({ error: "A firm is required." });
+    if (!await requireFirmManager(req, res, body.firmId)) return;
+  } else {
+    if (!body.clientId) return res.status(400).json({ error: "A company workspace is required." });
+    if (!await requireCompanyBillingManager(req, res, body.clientId)) return;
+  }
+  if (!stripeClient()) return res.status(501).json({ error: "Billing portal is not configured yet." });
   const account = body.payerType === "firm" && body.firmId
     ? (await db.select().from(billingAccountsTable).where(and(eq(billingAccountsTable.payerType, "firm"), eq(billingAccountsTable.firmId, body.firmId))).limit(1))[0]
     : body.clientId
       ? (await db.select().from(billingAccountsTable).where(and(eq(billingAccountsTable.payerType, "company"), eq(billingAccountsTable.clientId, body.clientId))).limit(1))[0]
       : null;
-  if (body.payerType === "firm" && body.firmId && !await requireFirmManager(req, res, body.firmId)) return;
   if (!account?.stripeCustomerId) return res.status(404).json({ error: "No billing customer exists yet. Upgrade first." });
   const origin = publicAppUrl(req);
   const session = await createPortalSession(

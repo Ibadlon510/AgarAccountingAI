@@ -1,6 +1,6 @@
 import { Link, useRoute } from "wouter";
 import { useAuth } from "@clerk/react";
-import { useGetPublicFirmLanding } from "@workspace/api-client-react";
+import { getGetPublicFirmLandingQueryKey, useGetPublicFirmLanding } from "@workspace/api-client-react";
 import { ArrowRight } from "lucide-react";
 
 function initials(name: string) {
@@ -11,7 +11,9 @@ function initials(name: string) {
 export function FirmPublicLandingPage({ slug, params }: { slug?: string; params?: { slug?: string } }) {
   const [, routeParams] = useRoute("/f/:slug");
   const resolved = (slug ?? params?.slug ?? routeParams?.slug ?? "").trim().toLowerCase();
-  const landing = useGetPublicFirmLanding(resolved, { enabled: Boolean(resolved) });
+  const landing = useGetPublicFirmLanding(resolved, {
+    query: { queryKey: getGetPublicFirmLandingQueryKey(resolved), enabled: Boolean(resolved) },
+  });
   const { isSignedIn } = useAuth();
 
   if (!resolved) {

@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Copy, Link2, Plus } from 'lucide-react';
 import {
-  getGetStatementLineDetailRequestsQueryKey,
   getGetStatementLinesQueryKey,
-  useGetStatementLineDetailRequests,
   useRevokeStatementLineDetailRequest,
   type StatementLineDetailRequest,
 } from '@workspace/api-client-react';
+import {
+  getGetStatementLineDetailRequestsQueryKey,
+  useGetStatementLineDetailRequests,
+} from '@workspace/api-client-react/statement-line-remarks';
 import { SendForRemarksDialog } from '@/components/send-for-remarks-dialog';
 import { notify, readErrorMessage } from '@/lib/notify';
 import { useQueryClient } from '@tanstack/react-query';

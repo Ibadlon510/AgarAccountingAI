@@ -26,13 +26,14 @@ export default function FirmClientDashboardPage() {
   const clientId = Number(params?.id ?? 0);
   const orgContext = useOrgContext();
   const firm = orgContext?.firms[0];
+  const firmId = firm?.firmId ?? 0;
   const billingQuery = useGetBillingMe();
   const firmBilling = primaryFirmBilling(billingQuery.data, firm?.firmId);
   const { setActiveClientId } = useClientWorkspace();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const query = useGetFirmClientPracticeOverview(clientId, { firmId: firm?.firmId ?? 0 }, {
-    query: { queryKey: getGetFirmClientPracticeOverviewQueryKey(clientId, { firmId: firm?.firmId }), enabled: Boolean(firm?.firmId && clientId) },
+  const query = useGetFirmClientPracticeOverview(clientId, { firmId }, {
+    query: { queryKey: getGetFirmClientPracticeOverviewQueryKey(clientId, { firmId }), enabled: firmId > 0 && clientId > 0 },
   });
   const confirm = useConfirmEngagementOnboarding();
   const revoke = useRevokeEngagementOnboarding();
@@ -45,8 +46,8 @@ export default function FirmClientDashboardPage() {
     return <Redirect to="/user-portal" />;
   }
   const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: getGetFirmClientPracticeOverviewQueryKey(clientId, { firmId: firm?.firmId }) });
-    queryClient.invalidateQueries({ queryKey: getGetFirmOverviewQueryKey({ firmId: firm?.firmId }) });
+    queryClient.invalidateQueries({ queryKey: getGetFirmClientPracticeOverviewQueryKey(clientId, { firmId }) });
+    queryClient.invalidateQueries({ queryKey: getGetFirmOverviewQueryKey({ firmId }) });
   };
   const runPending = () => {
     if (!data?.onboardingId || !pending) return;
@@ -88,7 +89,7 @@ export default function FirmClientDashboardPage() {
             <div className="flex flex-wrap gap-2 text-[11px]">
               <span className="rounded-full bg-secondary px-2 py-1">{practiceStatusLabel(data.onboardingStatus, data.engagementStatus)}</span>
               <span className="rounded-full border border-border px-2 py-1">{ownershipLabel(data.ownershipStatus)}</span>
-              {data.services.map((service) => (
+              {(data.services ?? []).map((service) => (
                 <span key={service} className="rounded-full border border-border px-2 py-1">{ENGAGEMENT_SERVICE_OPTIONS.find((option) => option.id === service)?.label ?? service}</span>
               ))}
               {data.startDate && <span className="rounded-full border border-border px-2 py-1">{data.startDate}{data.endDate ? ` → ${data.endDate}` : " · ongoing"}</span>}
@@ -152,8 +153,10 @@ export default function FirmClientDashboardPage() {
                     {data.agreedRevenuePerYear != null ? money(data.agreedRevenuePerYear, data.agreedRevenueCurrency ?? data.closeSnapshot.functionalCurrency) : "—"} agreed
                     {data.agreedRevenuePerYear && data.actualRevenuePerYear != null ? ` · ${Math.round((data.actualRevenuePerYear / data.agreedRevenuePerYear) * 100)}%` : ""}
                   </p>
+                  {data.revenueSource === "report_pack" && <p className="mt-2 text-[11px] text-muted-foreground">Revenue source: latest report pack.</p>}
+                  {data.revenueSource === "live_statements" && <p className="mt-2 text-[11px] text-muted-foreground">Revenue source: live financial statements.</p>}
                   {data.revenueSource === "unavailable" && <p className="mt-2 text-[11px] text-muted-foreground">Statements are empty or not yet available.</p>}
-                  {data.missingRateCount > 0 && <p className="mt-2 text-[11px] text-accent-foreground">Missing FX rates may understate revenue.</p>}
+                  {(data.missingRateCount ?? 0) > 0 && <p className="mt-2 text-[11px] text-accent-foreground">Missing FX rates may understate revenue.</p>}
                   <div className="mt-4 h-56">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={[

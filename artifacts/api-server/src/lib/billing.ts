@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
   aiActivityTable,
   billingAccountsTable,
@@ -179,6 +179,12 @@ export async function ensureBillingAccount(input: {
   clientId?: number | null;
   email?: string | null;
 }) {
+  if (
+    (input.payerType === "firm" && (!input.firmId || input.clientId != null))
+    || (input.payerType === "company" && (!input.clientId || input.firmId != null))
+  ) {
+    throw new Error("A billing account must identify exactly one payer matching its payer type.");
+  }
   const existing = input.payerType === "firm" && input.firmId
     ? await accountForFirm(input.firmId)
     : input.clientId
@@ -525,7 +531,17 @@ export async function upsertStripeSubscription(input: {
   trialEndsAt?: Date | null;
   currentPeriodEnd?: Date | null;
   cancelAtPeriodEnd?: boolean;
+  sourceEventCreatedAt?: Date | null;
 }) {
+  const [existing] = await db.select().from(billingSubscriptionsTable)
+    .where(eq(billingSubscriptionsTable.stripeSubscriptionId, input.stripeSubscriptionId))
+    .limit(1);
+  if (
+    existing
+    && input.sourceEventCreatedAt
+    && existing.sourceEventCreatedAt
+    && input.sourceEventCreatedAt < existing.sourceEventCreatedAt
+  ) return existing;
   const account = await ensureBillingAccount({
     payerType: input.payerType,
     firmId: input.firmId,
@@ -537,9 +553,6 @@ export async function upsertStripeSubscription(input: {
       .set({ stripeCustomerId: input.stripeCustomerId, email: input.email ?? account.email })
       .where(eq(billingAccountsTable.id, account.id));
   }
-  const [existing] = await db.select().from(billingSubscriptionsTable)
-    .where(eq(billingSubscriptionsTable.stripeSubscriptionId, input.stripeSubscriptionId))
-    .limit(1);
   const values = {
     billingAccountId: account.id,
     stripeSubscriptionId: input.stripeSubscriptionId,
@@ -550,10 +563,19 @@ export async function upsertStripeSubscription(input: {
     trialEndsAt: input.trialEndsAt ?? existing?.trialEndsAt ?? null,
     currentPeriodEnd: input.currentPeriodEnd ?? null,
     cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
+    sourceEventCreatedAt: input.sourceEventCreatedAt ?? existing?.sourceEventCreatedAt ?? null,
   };
   if (existing) {
-    const [updated] = await db.update(billingSubscriptionsTable).set(values).where(eq(billingSubscriptionsTable.id, existing.id)).returning();
-    return updated;
+    const ordering = input.sourceEventCreatedAt
+      ? or(
+        isNull(billingSubscriptionsTable.sourceEventCreatedAt),
+        lte(billingSubscriptionsTable.sourceEventCreatedAt, input.sourceEventCreatedAt),
+      )
+      : undefined;
+    const [updated] = await db.update(billingSubscriptionsTable).set(values).where(
+      ordering ? and(eq(billingSubscriptionsTable.id, existing.id), ordering) : eq(billingSubscriptionsTable.id, existing.id),
+    ).returning();
+    return updated ?? existing;
   }
   const [created] = await db.insert(billingSubscriptionsTable).values(values).returning();
   return created;

@@ -8349,9 +8349,12 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
   if ((body.mode === "firm" || body.mode === "both") && (!body.firmName?.trim() || !body.firmLegalName?.trim())) {
     res.status(400).json({ error: "Enter the firm name and legal name." }); return;
   }
+  let firmTrialId: number | null = null;
+  let billingEmail: string | null = null;
   await db.transaction(async (tx) => {
     await tx.update(usersTable).set({ firstName: body.firstName.trim(), lastName: body.lastName.trim(), onboardingMode: body.mode }).where(eq(usersTable.id, userId));
     const [user] = await tx.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    billingEmail = user?.email ?? null;
     const starterId = user?.starterClientId;
     if (body.mode === "company" || body.mode === "both") {
       const [starter] = starterId ? await tx.select().from(clientsTable).where(eq(clientsTable.id, starterId)).limit(1) : [];
@@ -8369,7 +8372,7 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
         await tx.update(firmProfilesTable).set({ slug: await allocateUniqueSlug(firm.name, firm.id) }).where(eq(firmProfilesTable.id, firm.id));
       }
       await tx.insert(firmMembershipsTable).values({ firmId: firm.id, userId, role: "owner" }).onConflictDoUpdate({ target: [firmMembershipsTable.firmId, firmMembershipsTable.userId], set: { role: "owner", status: "active" } });
-      await ensureLocalFirmTrial(firm.id, user?.email);
+      firmTrialId = firm.id;
     }
     if (body.mode === "firm" && starterId) {
       const [starter] = await tx.select().from(clientsTable).where(eq(clientsTable.id, starterId)).limit(1);
@@ -8380,6 +8383,7 @@ router.post("/organizations/onboarding", async (req, res): Promise<void> => {
       }
     }
   });
+  if (firmTrialId !== null) await ensureLocalFirmTrial(firmTrialId, billingEmail);
   res.json(CompleteOrganizationOnboardingResponse.parse(await organizationContext(userId)));
 });
 

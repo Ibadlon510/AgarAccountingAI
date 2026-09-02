@@ -19,18 +19,19 @@ type PendingAction = { type: "confirm" | "discard" | "resend"; id: number; name?
 export default function FirmDashboardPage() {
   const orgContext = useOrgContext();
   const firm = orgContext?.firms[0];
+  const firmId = firm?.firmId ?? 0;
   const billingQuery = useGetBillingMe();
   const firmBilling = primaryFirmBilling(billingQuery.data, firm?.firmId);
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
-  const overviewQuery = useGetFirmOverview({ firmId: firm?.firmId ?? 0 }, {
-    query: { queryKey: getGetFirmOverviewQueryKey({ firmId: firm?.firmId }), enabled: Boolean(firm?.firmId) },
+  const overviewQuery = useGetFirmOverview({ firmId }, {
+    query: { queryKey: getGetFirmOverviewQueryKey({ firmId }), enabled: firmId > 0 },
   });
   const confirm = useConfirmEngagementOnboarding();
   const revoke = useRevokeEngagementOnboarding();
   const resend = useResendEngagementOnboarding();
   const [pending, setPending] = useState<PendingAction | null>(null);
-  const refresh = () => queryClient.invalidateQueries({ queryKey: getGetFirmOverviewQueryKey({ firmId: firm?.firmId }) });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: getGetFirmOverviewQueryKey({ firmId }) });
   const overview = overviewQuery.data;
 
   if (!showsFirmNavigation(orgContext?.mode, firmBilling?.fullAccess ?? true)) {

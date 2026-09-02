@@ -14,7 +14,7 @@ import {
   useArchiveLedgerflowAccount, useCreateClient, useCreateJournalEntry, useCreateLedgerflowAccount, useCreateReportPack, useCreateStatementLine, useDeleteJournalEntry, useGetClients, useGetJournalEntries, useGetLedgerOverview, useGetLedgerflowAccounts, useGetReportPack, useGetReportPacks, useGetUaeCorporateTaxSummary,
   useConfirmAICopilotAction, useCreateExchangeRate, useDeleteExchangeRate, useDeleteReportPack, useExportStatementLines, useGetBankAccounts, useGetExchangeRates, useGetAgarAccountingAISettings, useGetAgarAccountingUsage, useGetStatementLines, useGetStatementLinesSummary, useGetJournalEntriesSummary, useGetTrialBalance, useGetTrialBalanceAccountTransactions, useImportStatement, useParseExchangeRates,
   getGetWorkspaceMembersQueryKey, useAcceptWorkspaceInvitation, useCreateWorkspaceInvitation, useImportExchangeRates, usePostJournalEntry, useUnpostJournalEntry, useUpdateJournalEntry, useRemoveAgarAccountingAICredential, useRemoveWorkspaceMember, useResendWorkspaceInvitation, useRevokeWorkspaceInvitation, useTestAgarAccountingAISettings, useUpdateClient, useUpdateExchangeRate, useUpdateAgarAccountingAISettings, useUpdateAgarAccountingAccountProfile, useUpdateFirmProfile, useUpdateLedgerflowAccount, useUpdateReportPack, useUpdateWorkspaceMember, useGetWorkspaceMembers, useGetFirmProfile,
-  useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement, useGetEngagementContractInvitation,
+  useGetOrganizationContext, getGetOrganizationContextQueryKey, useCompleteOrganizationOnboarding, useInviteAccountingFirm, useInviteCompanyOwnerTransfer, useAcceptOrganizationInvitation, useApproveFirmEngagementMember, useRevokeFirmEngagementMember, useRevokeFirmEngagement, useGetEngagementContractInvitation, getGetEngagementContractInvitationQueryKey,
   useGetContacts, getGetContactsQueryKey, useCreateContact, useUpdateContact, useGetContactHistory, getGetContactHistoryQueryKey, usePreviewContactMerge, useMergeContacts,
   useGetBillingMe
 } from '@workspace/api-client-react';
@@ -4561,7 +4561,7 @@ function InviteAcceptanceGate({ children }: { children: React.ReactNode }) {
   const searchParams = useMemo(() => new URLSearchParams(window.location.search), [location]);
   const workspaceToken = searchParams.get("invite");
   const orgToken = searchParams.get("organizationInvite");
-  const contractPreview = useGetEngagementContractInvitation(orgToken ?? "", { query: { enabled: Boolean(orgToken), retry: false } });
+  const contractPreview = useGetEngagementContractInvitation(orgToken ?? "", { query: { queryKey: getGetEngagementContractInvitationQueryKey(orgToken ?? ""), enabled: Boolean(orgToken), retry: false } });
 
   const acceptWorkspace = useAcceptWorkspaceInvitation();
   const acceptOrg = useAcceptOrganizationInvitation();
