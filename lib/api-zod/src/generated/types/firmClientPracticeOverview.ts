@@ -37,6 +37,10 @@ export interface FirmClientPracticeOverview {
   /** @nullable */
   agreedRevenueCurrency?: string | null;
   /** @nullable */
+  revenueCoverageStartDate?: Date | null;
+  /** @nullable */
+  revenueCoverageEndDate?: Date | null;
+  /** @nullable */
   signedAt?: Date | null;
   canResend?: boolean;
   workspaceAccessible?: boolean;

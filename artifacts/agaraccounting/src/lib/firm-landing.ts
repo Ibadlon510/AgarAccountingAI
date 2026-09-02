@@ -119,9 +119,9 @@ export function readEngagementInviteLink(clientId: number) {
   return sessionStorage.getItem(`agaraccounting:engagement-invite:${clientId}`);
 }
 
-export const DEFAULT_ENGAGEMENT_TERMS = `This terms of engagement records that the accounting firm will provide the listed services for the named client on the agreed dates, transaction volume, and annual revenue.
+export const DEFAULT_ENGAGEMENT_TERMS = `This terms of engagement records that the accounting firm will provide the listed services for the named client on the agreed dates, transaction volume, and annual revenue for the specified revenue coverage period.
 
-The figures for transactions per month and revenue per year are the contracted scope. They are not a live measurement and do not automatically change billing or posting rights.
+The figures for transactions per month and revenue per year, together with the stated revenue coverage period, are the contracted scope. The revenue coverage period is independent of the service period and the client's financial year. These figures are not a live measurement and do not automatically change billing or posting rights.
 
 The client reviews these terms in AgarAccounting AI and acknowledges them by typing their name. That acknowledgement is stored on the engagement. It is not a qualified electronic signature, audit opinion, or statutory filing.
 

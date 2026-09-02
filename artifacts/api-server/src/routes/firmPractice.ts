@@ -107,6 +107,8 @@ function contractTerms(row: typeof engagementContractsTable.$inferSelect): Engag
     agreedTransactionsPerMonth: row.agreedTransactionsPerMonth,
     agreedRevenuePerYear: numberValue(row.agreedRevenuePerYear),
     agreedRevenueCurrency: row.agreedRevenueCurrency,
+    revenueCoverageStartDate: row.revenueCoverageStartDate,
+    revenueCoverageEndDate: row.revenueCoverageEndDate,
     startDate: row.startDate,
     endDate: row.endDate,
     feeNote: row.feeNote,
@@ -251,6 +253,8 @@ router.get("/agaraccounting/firm-overview", async (req, res) => {
       agreedTransactionsPerMonth: contract?.agreedTransactionsPerMonth ?? null,
       agreedRevenuePerYear: contract ? numberValue(contract.agreedRevenuePerYear) : null,
       agreedRevenueCurrency: contract?.agreedRevenueCurrency ?? null,
+      revenueCoverageStartDate: contract?.revenueCoverageStartDate ?? null,
+      revenueCoverageEndDate: contract?.revenueCoverageEndDate ?? null,
       onboardingId: contract?.id ?? null,
       confirmBy: contract?.confirmBy ?? null,
       canResend: contract ? canResendEngagementContract(contract.status, contract.signedAt) : false,
@@ -344,6 +348,8 @@ router.get("/agaraccounting/firm-clients/:clientId/practice-overview", async (re
     agreedTransactionsPerMonth: contract?.agreedTransactionsPerMonth ?? null,
     agreedRevenuePerYear: contract ? numberValue(contract.agreedRevenuePerYear) : null,
     agreedRevenueCurrency: contract?.agreedRevenueCurrency ?? null,
+    revenueCoverageStartDate: contract?.revenueCoverageStartDate ?? null,
+    revenueCoverageEndDate: contract?.revenueCoverageEndDate ?? null,
     ledgerActualsHidden: hidden,
     closeSnapshot,
     monthlyPostedJournals,
@@ -376,6 +382,9 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
   }
   if (!Number.isFinite(body.data.agreedRevenuePerYear) || body.data.agreedRevenuePerYear <= 0) {
     return res.status(400).json({ error: "Agreed revenue per year must be greater than zero." });
+  }
+  if (body.data.revenueCoverageEndDate < body.data.revenueCoverageStartDate) {
+    return res.status(400).json({ error: "Revenue coverage end date must be on or after its start date." });
   }
   let existingClient: typeof clientsTable.$inferSelect | null = null;
   let existingEngagement: typeof firmCompanyEngagementsTable.$inferSelect | null = null;
@@ -444,6 +453,8 @@ router.post("/firms/:firmId/engagement-onboardings", async (req, res) => {
       agreedTransactionsPerMonth: body.data.agreedTransactionsPerMonth,
       agreedRevenuePerYear: String(body.data.agreedRevenuePerYear),
       agreedRevenueCurrency: client.functionalCurrency.toUpperCase(),
+      revenueCoverageStartDate: body.data.revenueCoverageStartDate.toISOString().slice(0, 10),
+      revenueCoverageEndDate: body.data.revenueCoverageEndDate.toISOString().slice(0, 10),
       startDate: body.data.startDate.toISOString().slice(0, 10),
       endDate: body.data.endDate?.toISOString().slice(0, 10) ?? null,
       feeNote: body.data.feeNote?.trim() || null,

@@ -29,6 +29,10 @@ export interface FirmOverviewClient {
   /** @nullable */
   agreedRevenueCurrency?: string | null;
   /** @nullable */
+  revenueCoverageStartDate?: Date | null;
+  /** @nullable */
+  revenueCoverageEndDate?: Date | null;
+  /** @nullable */
   onboardingId?: number | null;
   /** @nullable */
   confirmBy?: Date | null;

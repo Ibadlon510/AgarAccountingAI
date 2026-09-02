@@ -460,6 +460,8 @@ test("binds invitations and firm-created clients to the explicitly selected firm
       services: ["bookkeeping"],
       agreedTransactionsPerMonth: 80,
       agreedRevenuePerYear: 450000,
+      revenueCoverageStartDate: "2026-01-01",
+      revenueCoverageEndDate: "2026-12-31",
       startDate: "2026-09-01",
       termsText: "The client invited the firm and both parties must complete onboarding.",
     }),
@@ -1005,6 +1007,7 @@ test("keeps firm overview and engagement contracts isolated and hides expired ac
     body: JSON.stringify({
       name: "Practice Client", legalName: "Practice Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
       services: ["bookkeeping", "journals"], agreedTransactionsPerMonth: 40, agreedRevenuePerYear: 250000,
+      revenueCoverageStartDate: "2026-01-01", revenueCoverageEndDate: "2026-12-31",
       startDate: "2026-01-01", termsText: "Agreed bookkeeping terms.", signerEmail,
     }),
   });
@@ -1079,6 +1082,7 @@ test("keeps firm overview and engagement contracts isolated and hides expired ac
     body: JSON.stringify({
       name: "Expiring Client", legalName: "Expiring Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
       services: ["bookkeeping"], agreedTransactionsPerMonth: 10, agreedRevenuePerYear: 10000,
+      revenueCoverageStartDate: "2026-01-01", revenueCoverageEndDate: "2026-12-31",
       startDate: "2026-01-01", termsText: "Expire me.", signerEmail,
     }),
   });
@@ -1101,6 +1105,7 @@ test("keeps firm overview and engagement contracts isolated and hides expired ac
     body: JSON.stringify({
       name: "Unsigned Draft Client", legalName: "Unsigned Draft Client LLC", functionalCurrency: "AED", basis: "IFRS", period: "August 2026",
       services: ["bookkeeping"], agreedTransactionsPerMonth: 8, agreedRevenuePerYear: 8000,
+      revenueCoverageStartDate: "2026-01-01", revenueCoverageEndDate: "2026-12-31",
       startDate: "2026-01-01", termsText: "Leave as a firm draft.", signerEmail,
     }),
   });

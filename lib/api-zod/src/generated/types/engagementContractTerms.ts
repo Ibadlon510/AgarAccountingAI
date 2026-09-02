@@ -12,6 +12,10 @@ export interface EngagementContractTerms {
   agreedTransactionsPerMonth: number;
   agreedRevenuePerYear: number;
   agreedRevenueCurrency: string;
+  /** @nullable */
+  revenueCoverageStartDate: Date | null;
+  /** @nullable */
+  revenueCoverageEndDate: Date | null;
   startDate: Date;
   /** @nullable */
   endDate?: Date | null;

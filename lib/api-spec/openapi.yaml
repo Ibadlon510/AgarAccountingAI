@@ -3703,7 +3703,7 @@ components:
       enum: [draft, sent, signed, confirmed, expired, revoked]
     EngagementOnboardingInput:
       type: object
-      required: [services, agreedTransactionsPerMonth, agreedRevenuePerYear, startDate, termsText]
+      required: [services, agreedTransactionsPerMonth, agreedRevenuePerYear, revenueCoverageStartDate, revenueCoverageEndDate, startDate, termsText]
       properties:
         clientId:
           type: number
@@ -3719,6 +3719,8 @@ components:
             $ref: "#/components/schemas/EngagementService"
         agreedTransactionsPerMonth: { type: number }
         agreedRevenuePerYear: { type: number }
+        revenueCoverageStartDate: { type: string, format: date }
+        revenueCoverageEndDate: { type: string, format: date }
         startDate: { type: string, format: date }
         endDate: { type: ["string", "null"], format: date }
         feeNote: { type: ["string", "null"] }
@@ -3732,7 +3734,7 @@ components:
         accepted: { type: boolean }
     EngagementContractTerms:
       type: object
-      required: [services, agreedTransactionsPerMonth, agreedRevenuePerYear, agreedRevenueCurrency, startDate, termsText, firmLegalName, clientLegalName]
+      required: [services, agreedTransactionsPerMonth, agreedRevenuePerYear, agreedRevenueCurrency, revenueCoverageStartDate, revenueCoverageEndDate, startDate, termsText, firmLegalName, clientLegalName]
       properties:
         services:
           type: array
@@ -3741,6 +3743,8 @@ components:
         agreedTransactionsPerMonth: { type: number }
         agreedRevenuePerYear: { type: number }
         agreedRevenueCurrency: { type: string }
+        revenueCoverageStartDate: { type: ["string", "null"], format: date }
+        revenueCoverageEndDate: { type: ["string", "null"], format: date }
         startDate: { type: string, format: date }
         endDate: { type: ["string", "null"], format: date }
         feeNote: { type: ["string", "null"] }
@@ -3818,6 +3822,8 @@ components:
         agreedTransactionsPerMonth: { type: ["number", "null"] }
         agreedRevenuePerYear: { type: ["number", "null"] }
         agreedRevenueCurrency: { type: ["string", "null"] }
+        revenueCoverageStartDate: { type: ["string", "null"], format: date }
+        revenueCoverageEndDate: { type: ["string", "null"], format: date }
         onboardingId: { type: ["number", "null"] }
         confirmBy: { type: ["string", "null"], format: date-time }
         canResend: { type: boolean }
@@ -3878,6 +3884,8 @@ components:
         agreedTransactionsPerMonth: { type: ["number", "null"] }
         agreedRevenuePerYear: { type: ["number", "null"] }
         agreedRevenueCurrency: { type: ["string", "null"] }
+        revenueCoverageStartDate: { type: ["string", "null"], format: date }
+        revenueCoverageEndDate: { type: ["string", "null"], format: date }
         signedAt: { type: ["string", "null"], format: date-time }
         canResend: { type: boolean }
         workspaceAccessible: { type: boolean }

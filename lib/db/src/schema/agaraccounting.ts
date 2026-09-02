@@ -281,6 +281,8 @@ export const engagementContractsTable = pgTable("agaraccounting_engagement_contr
   agreedTransactionsPerMonth: integer("agreed_transactions_per_month").notNull(),
   agreedRevenuePerYear: numeric("agreed_revenue_per_year", { precision: 14, scale: 2 }).notNull(),
   agreedRevenueCurrency: varchar("agreed_revenue_currency", { length: 3 }).notNull(),
+  revenueCoverageStartDate: date("revenue_coverage_start_date", { mode: "string" }),
+  revenueCoverageEndDate: date("revenue_coverage_end_date", { mode: "string" }),
   startDate: date("start_date", { mode: "string" }).notNull(),
   endDate: date("end_date", { mode: "string" }),
   feeNote: text("fee_note"),

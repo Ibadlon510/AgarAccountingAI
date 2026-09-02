@@ -8,6 +8,14 @@ import { currentClosePeriod, DEFAULT_ENGAGEMENT_TERMS, ENGAGEMENT_SERVICE_OPTION
 import { notify } from "@/lib/notify";
 import { useOrgContext } from "@/lib/workspace-context";
 
+function annualCoverageEnd(startDate: string) {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime())) return "";
+  start.setUTCFullYear(start.getUTCFullYear() + 1);
+  start.setUTCDate(start.getUTCDate() - 1);
+  return start.toISOString().slice(0, 10);
+}
+
 export default function FirmClientOnboardingPage() {
   const orgContext = useOrgContext();
   const firm = orgContext?.firms[0];
@@ -25,6 +33,7 @@ export default function FirmClientOnboardingPage() {
   const queryClient = useQueryClient();
   const create = useCreateEngagementOnboarding();
   const [step, setStep] = useState<"form" | "preview">("form");
+  const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     name: invitedEngagement?.companyName ?? "",
     legalName: "",
@@ -34,7 +43,9 @@ export default function FirmClientOnboardingPage() {
     services: ["bookkeeping"] as EngagementService[],
     agreedTransactionsPerMonth: "120",
     agreedRevenuePerYear: "",
-    startDate: new Date().toISOString().slice(0, 10),
+    revenueCoverageStartDate: today,
+    revenueCoverageEndDate: annualCoverageEnd(today),
+    startDate: today,
     endDate: "",
     feeNote: "",
     termsText: DEFAULT_ENGAGEMENT_TERMS,
@@ -124,6 +135,13 @@ export default function FirmClientOnboardingPage() {
               <h2 className="text-sm font-semibold sm:col-span-2">Agreed commercial terms</h2>
               <label className="text-xs font-medium">Transactions / month<input required data-testid="input-onboard-transactions" type="number" min={1} value={form.agreedTransactionsPerMonth} onChange={(event) => setForm({ ...form, agreedTransactionsPerMonth: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium">Revenue / year ({form.functionalCurrency})<input required data-testid="input-onboard-revenue" type="number" min={1} step="0.01" value={form.agreedRevenuePerYear} onChange={(event) => setForm({ ...form, agreedRevenuePerYear: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+              <div className="sm:col-span-2">
+                <div className="text-xs font-medium">Revenue coverage period</div>
+                <p className="mt-1 text-[11px] leading-5 text-muted-foreground">The period represented by the annual revenue amount. It can differ from both the service dates and the client’s financial year.</p>
+              </div>
+              <label className="text-xs font-medium">Coverage start<input required data-testid="input-onboard-revenue-coverage-start" type="date" value={form.revenueCoverageStartDate} onChange={(event) => setForm({ ...form, revenueCoverageStartDate: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+              <label className="text-xs font-medium">Coverage end<input required data-testid="input-onboard-revenue-coverage-end" type="date" min={form.revenueCoverageStartDate} value={form.revenueCoverageEndDate} onChange={(event) => setForm({ ...form, revenueCoverageEndDate: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
+              <div className="text-xs font-semibold sm:col-span-2">Service period</div>
               <label className="text-xs font-medium">Start date<input required type="date" value={form.startDate} onChange={(event) => setForm({ ...form, startDate: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium">End date<input type="date" value={form.endDate} onChange={(event) => setForm({ ...form, endDate: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
               <label className="text-xs font-medium sm:col-span-2">Fee note<input value={form.feeNote} onChange={(event) => setForm({ ...form, feeNote: event.target.value })} className="mt-1.5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" /></label>
@@ -143,7 +161,8 @@ export default function FirmClientOnboardingPage() {
               <div>Services: {form.services.map((id) => ENGAGEMENT_SERVICE_OPTIONS.find((option) => option.id === id)?.label ?? id).join(", ")}</div>
               <div>Transactions / month: {form.agreedTransactionsPerMonth}</div>
               <div>Revenue / year: {form.agreedRevenuePerYear} {form.functionalCurrency}</div>
-              <div>Dates: {form.startDate}{form.endDate ? ` → ${form.endDate}` : " · ongoing"}</div>
+               <div>Revenue coverage: {form.revenueCoverageStartDate} → {form.revenueCoverageEndDate}</div>
+               <div>Service dates: {form.startDate}{form.endDate ? ` → ${form.endDate}` : " · ongoing"}</div>
               <div className="sm:col-span-2">Fee: {form.feeNote || "As agreed separately"}</div>
               <div className="sm:col-span-2">Signer: {invitedEngagement ? "Client’s registered owner email" : form.signerEmail}</div>
             </dl>

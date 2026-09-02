@@ -122,7 +122,7 @@ export default function FirmDashboardPage() {
                         <td className="px-2 py-3">{client.missingRateCount}</td>
                         <td className="px-2 py-3">{money(client.postedAmountFunctional, client.functionalCurrency)}</td>
                         <td className="px-2 py-3">{client.agreedTransactionsPerMonth ?? "—"} / month</td>
-                        <td className="px-2 py-3">{client.agreedRevenuePerYear != null ? money(client.agreedRevenuePerYear, client.agreedRevenueCurrency ?? client.functionalCurrency) : "—"}</td>
+                        <td className="px-2 py-3">{client.agreedRevenuePerYear != null ? <>{money(client.agreedRevenuePerYear, client.agreedRevenueCurrency ?? client.functionalCurrency)}<div className="font-normal text-muted-foreground">{client.revenueCoverageStartDate && client.revenueCoverageEndDate ? `${client.revenueCoverageStartDate.slice(0, 10)} → ${client.revenueCoverageEndDate.slice(0, 10)}` : "Coverage not specified"}</div></> : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

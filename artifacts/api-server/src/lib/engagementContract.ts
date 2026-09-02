@@ -12,9 +12,9 @@ export type EngagementServiceId = (typeof ENGAGEMENT_SERVICES)[number]["id"];
 
 export const ENGAGEMENT_CONFIRM_TTL_MS = 5 * 24 * 60 * 60 * 1000;
 
-export const DEFAULT_ENGAGEMENT_TERMS = `This terms of engagement records that the accounting firm will provide the listed services for the named client on the agreed dates, transaction volume, and annual revenue.
+export const DEFAULT_ENGAGEMENT_TERMS = `This terms of engagement records that the accounting firm will provide the listed services for the named client on the agreed dates, transaction volume, and annual revenue for the specified revenue coverage period.
 
-The figures for transactions per month and revenue per year are the contracted scope. They are not a live measurement and do not automatically change billing or posting rights.
+The figures for transactions per month and revenue per year, together with the stated revenue coverage period, are the contracted scope. The revenue coverage period is independent of the service period and the client's financial year. These figures are not a live measurement and do not automatically change billing or posting rights.
 
 The client reviews these terms in AgarAccounting AI and acknowledges them by typing their name. That acknowledgement is stored on the engagement. It is not a qualified electronic signature, audit opinion, or statutory filing.
 
@@ -35,6 +35,8 @@ export type EngagementContractTermsInput = {
   agreedTransactionsPerMonth: number;
   agreedRevenuePerYear: number;
   agreedRevenueCurrency: string;
+  revenueCoverageStartDate: string | null;
+  revenueCoverageEndDate: string | null;
   startDate: string;
   endDate: string | null;
   feeNote: string | null;
@@ -117,6 +119,9 @@ export function buildEngagementContractPdf(input: EngagementContractTermsInput &
     ["Services", input.services.map(engagementServiceLabel).join(", ") || "None selected"],
     ["Transactions / month", String(input.agreedTransactionsPerMonth)],
     ["Revenue / year", money(input.agreedRevenuePerYear, input.agreedRevenueCurrency)],
+    ["Revenue coverage", input.revenueCoverageStartDate && input.revenueCoverageEndDate
+      ? `${input.revenueCoverageStartDate} to ${input.revenueCoverageEndDate}`
+      : "Not specified (legacy contract)"],
     ["Start date", input.startDate],
     ["End date", input.endDate || "Ongoing"],
     ["Fee", input.feeNote?.trim() || "As agreed separately"],
@@ -198,7 +203,7 @@ export function engagementContractEmail(input: {
       ``,
       `${input.firmName} prepared terms of engagement for ${input.clientName} in AgarAccounting AI.`,
       ``,
-      `Review the agreed services, transaction volume, and annual revenue, then sign in with this email address to acknowledge the terms.`,
+      `Review the agreed services, transaction volume, annual revenue, and its coverage period, then sign in with this email address to acknowledge the terms.`,
       `This is an in-app acknowledgement stored on the engagement. It is not a qualified electronic signature.`,
       ``,
       `This invitation expires on ${expires} UTC.`,

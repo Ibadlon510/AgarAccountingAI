@@ -1037,6 +1037,8 @@ export interface EngagementOnboardingInput {
   services: EngagementService[];
   agreedTransactionsPerMonth: number;
   agreedRevenuePerYear: number;
+  revenueCoverageStartDate: string;
+  revenueCoverageEndDate: string;
   startDate: string;
   /** @nullable */
   endDate?: string | null;
@@ -1056,6 +1058,10 @@ export interface EngagementContractTerms {
   agreedTransactionsPerMonth: number;
   agreedRevenuePerYear: number;
   agreedRevenueCurrency: string;
+  /** @nullable */
+  revenueCoverageStartDate: string | null;
+  /** @nullable */
+  revenueCoverageEndDate: string | null;
   startDate: string;
   /** @nullable */
   endDate?: string | null;
@@ -1142,6 +1148,10 @@ export interface FirmOverviewClient {
   agreedRevenuePerYear?: number | null;
   /** @nullable */
   agreedRevenueCurrency?: string | null;
+  /** @nullable */
+  revenueCoverageStartDate?: string | null;
+  /** @nullable */
+  revenueCoverageEndDate?: string | null;
   /** @nullable */
   onboardingId?: number | null;
   /** @nullable */
@@ -1231,6 +1241,10 @@ export interface FirmClientPracticeOverview {
   agreedRevenuePerYear?: number | null;
   /** @nullable */
   agreedRevenueCurrency?: string | null;
+  /** @nullable */
+  revenueCoverageStartDate?: string | null;
+  /** @nullable */
+  revenueCoverageEndDate?: string | null;
   /** @nullable */
   signedAt?: string | null;
   canResend?: boolean;

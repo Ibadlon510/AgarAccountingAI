@@ -158,6 +158,10 @@ export default function FirmClientDashboardPage() {
                     {data.agreedRevenuePerYear != null ? money(data.agreedRevenuePerYear, data.agreedRevenueCurrency ?? data.closeSnapshot.functionalCurrency) : "—"} agreed
                     {data.agreedRevenuePerYear && data.actualRevenuePerYear != null ? ` · ${Math.round((data.actualRevenuePerYear / data.agreedRevenuePerYear) * 100)}%` : ""}
                   </p>
+                   <p className="mt-2 text-[11px] text-muted-foreground">
+                     Agreed revenue coverage: {data.revenueCoverageStartDate && data.revenueCoverageEndDate ? `${data.revenueCoverageStartDate.slice(0, 10)} → ${data.revenueCoverageEndDate.slice(0, 10)}` : "Not specified (legacy contract)"}.
+                     {data.revenuePeriod ? ` Actual revenue period: ${data.revenuePeriod}.` : ""}
+                   </p>
                   {data.revenueSource === "report_pack" && <p className="mt-2 text-[11px] text-muted-foreground">Revenue source: latest report pack.</p>}
                   {data.revenueSource === "live_statements" && <p className="mt-2 text-[11px] text-muted-foreground">Revenue source: live financial statements.</p>}
                   {data.revenueSource === "unavailable" && <p className="mt-2 text-[11px] text-muted-foreground">Statements are empty or not yet available.</p>}

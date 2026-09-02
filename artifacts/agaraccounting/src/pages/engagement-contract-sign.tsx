@@ -29,7 +29,8 @@ export default function EngagementContractSignPage({ token, onSigned }: { token:
                 <div>Services: {contract.terms.services.map((service) => ENGAGEMENT_SERVICE_OPTIONS.find((option) => option.id === service)?.label ?? service).join(", ")}</div>
                 <div>Transactions / month: {contract.terms.agreedTransactionsPerMonth}</div>
                 <div>Revenue / year: {money(contract.terms.agreedRevenuePerYear, contract.terms.agreedRevenueCurrency)}</div>
-                <div>Dates: {contract.terms.startDate}{contract.terms.endDate ? ` → ${contract.terms.endDate}` : " · ongoing"}</div>
+                <div>Revenue coverage: {contract.terms.revenueCoverageStartDate && contract.terms.revenueCoverageEndDate ? `${contract.terms.revenueCoverageStartDate.slice(0, 10)} → ${contract.terms.revenueCoverageEndDate.slice(0, 10)}` : "Not specified (legacy contract)"}</div>
+                <div>Service dates: {contract.terms.startDate}{contract.terms.endDate ? ` → ${contract.terms.endDate}` : " · ongoing"}</div>
               </dl>
               <p className="mt-4 whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{contract.terms.termsText}</p>
             </section>

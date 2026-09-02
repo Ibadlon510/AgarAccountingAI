@@ -18,6 +18,8 @@ export interface EngagementOnboardingInput {
   services: EngagementService[];
   agreedTransactionsPerMonth: number;
   agreedRevenuePerYear: number;
+  revenueCoverageStartDate: Date;
+  revenueCoverageEndDate: Date;
   startDate: Date;
   /** @nullable */
   endDate?: Date | null;
